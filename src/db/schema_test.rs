@@ -266,3 +266,112 @@ fn cascade_delete_removes_record_tags() {
         "record_tags should be empty after cascade delete"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test 8: Cascade delete works (record -> password_history)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cascade_delete_removes_password_history() {
+    let db = fresh_db();
+
+    // Insert a minimal record.
+    db.execute(
+        "INSERT INTO records (id, credential_type, encrypted_data, nonce, created_at, updated_at, updated_by)
+         VALUES ('rec-2', 'login', X'DEAD', X'BEEF', 1000, 1000, 'test')",
+        [],
+    )
+    .unwrap();
+
+    // Insert password history entries.
+    db.execute(
+        "INSERT INTO password_history (record_id, encrypted_password, nonce, changed_at)
+         VALUES ('rec-2', X'CAFE', X'BEEF', 2000)",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO password_history (record_id, encrypted_password, nonce, changed_at)
+         VALUES ('rec-2', X'FACE', X'DEAD', 3000)",
+        [],
+    )
+    .unwrap();
+
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM password_history WHERE record_id = 'rec-2'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        count, 2,
+        "password_history should contain 2 rows before delete"
+    );
+
+    // Delete the record — should cascade to password_history.
+    db.execute("DELETE FROM records WHERE id = 'rec-2'", [])
+        .unwrap();
+
+    let count_after: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM password_history WHERE record_id = 'rec-2'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        count_after, 0,
+        "password_history should be empty after cascade delete"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: Cascade delete works (record -> sync_state)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cascade_delete_removes_sync_state() {
+    let db = fresh_db();
+
+    // Insert a minimal record.
+    db.execute(
+        "INSERT INTO records (id, credential_type, encrypted_data, nonce, created_at, updated_at, updated_by)
+         VALUES ('rec-3', 'login', X'DEAD', X'BEEF', 1000, 1000, 'test')",
+        [],
+    )
+    .unwrap();
+
+    // Insert sync state.
+    db.execute(
+        "INSERT INTO sync_state (record_id, local_updated_at, sync_status)
+         VALUES ('rec-3', 2000, 0)",
+        [],
+    )
+    .unwrap();
+
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM sync_state WHERE record_id = 'rec-3'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1, "sync_state should contain 1 row before delete");
+
+    // Delete the record — should cascade to sync_state.
+    db.execute("DELETE FROM records WHERE id = 'rec-3'", [])
+        .unwrap();
+
+    let count_after: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM sync_state WHERE record_id = 'rec-3'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        count_after, 0,
+        "sync_state should be empty after cascade delete"
+    );
+}

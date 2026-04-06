@@ -1,4 +1,5 @@
-// Models are consumed by queries.rs (Tasks 4-6); suppress dead_code until then.
+// TODO: Remove `#![allow(dead_code)]` once the services layer (Plan F/S1) is wired up,
+//       and all row models are used. For now, models are not yet consumed by any call site.
 #![allow(dead_code)]
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -212,12 +213,7 @@ impl SyncStateRow {
             0 => SyncStatus::Pending,
             1 => SyncStatus::Synced,
             2 => SyncStatus::Conflict,
-            _ => {
-                return Err(DataError::InvalidCredentialType(format!(
-                    "invalid sync_status: {}",
-                    self.sync_status
-                )))
-            }
+            _ => return Err(DataError::InvalidSyncStatus(self.sync_status)),
         };
 
         Ok(SyncState {
