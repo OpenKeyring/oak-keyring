@@ -1,0 +1,25 @@
+en:
+  app:
+    name: "OpenKeyring"
+  screens:
+    unlock:
+      title: "Unlock Vault"
+      password_placeholder: "Enter master password"
+      unlock_button: "Unlock"
+      recovery_button: "Recovery Key"
+      error: "Incorrect password"
+      lockout: "Locked. Please wait %{seconds}s"
+    onboarding:
+      welcome: "Welcome to OpenKeyring"
+      create_new: "Create New Vault"
+      restore: "Restore Existing Vault"
+      import: "Import from Another Manager"
+  common:
+    save: "Save"
+    cancel: "Cancel"
+    delete: "Delete"
+    edit: "Edit"
+    create: "Create"
+    search: "Search"
+    loading: "Loading..."
+    no_results: "No results found"

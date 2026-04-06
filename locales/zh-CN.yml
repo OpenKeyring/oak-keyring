@@ -1,0 +1,25 @@
+zh-CN:
+  app:
+    name: "OpenKeyring"
+  screens:
+    unlock:
+      title: "解锁保险库"
+      password_placeholder: "输入主密码"
+      unlock_button: "解锁"
+      recovery_button: "恢复密钥"
+      error: "密码错误"
+      lockout: "已锁定，请等待 %{seconds} 秒"
+    onboarding:
+      welcome: "欢迎使用 OpenKeyring"
+      create_new: "创建新保险库"
+      restore: "恢复已有保险库"
+      import: "从其他管理器导入"
+  common:
+    save: "保存"
+    cancel: "取消"
+    delete: "删除"
+    edit: "编辑"
+    create: "创建"
+    search: "搜索"
+    loading: "加载中..."
+    no_results: "未找到结果"
