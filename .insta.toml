@@ -1,0 +1,2 @@
+[defaults]
+glob = "tests/snapshots/**/*.snap"

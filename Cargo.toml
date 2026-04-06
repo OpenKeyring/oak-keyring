@@ -1,0 +1,76 @@
+[package]
+name = "oak-keyring"
+version = "0.1.0"
+edition = "2021"
+description = "A terminal TUI password manager with TEA architecture and end-to-end encryption"
+license = "MIT"
+
+[[bin]]
+name = "ok"
+path = "src/main.rs"
+
+[dependencies]
+# Database
+rusqlite = { version = "0.34", features = ["bundled"] }
+
+# Crypto
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+bip39 = { version = "2.0", features = ["rand", "chinese-simplified"] }
+rand = "0.9"
+zeroize = { version = "1.8", features = ["derive"] }
+subtle = "2.5"
+
+# Async
+tokio = { version = "1", features = ["full", "signal"] }
+
+# TUI
+ratatui = "0.30"
+crossterm = "0.29"
+tachyonfx = "0.20.1"
+
+# Serialization & Config
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+base64 = "0.22"
+
+# Error handling
+thiserror = "2"
+
+# Internationalization
+rust-i18n = "3"
+
+# Clipboard
+arboard = "3"
+
+# Directories
+dirs = "6"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Cancellation
+tokio-util = { version = "0.7", features = ["rt"] }
+
+[dev-dependencies]
+insta = "1"
+mockall = "0.13"
+tempfile = "3"
+anyhow = "1"
+
+[build-dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

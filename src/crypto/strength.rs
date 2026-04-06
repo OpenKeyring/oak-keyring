@@ -1,0 +1,69 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrengthLevel {
+    VeryWeak,
+    Weak,
+    Fair,
+    Strong,
+    VeryStrong,
+}
+
+impl StrengthLevel {
+    pub fn label_zh(self) -> &'static str {
+        match self {
+            StrengthLevel::VeryWeak => "极弱",
+            StrengthLevel::Weak => "弱",
+            StrengthLevel::Fair => "中等",
+            StrengthLevel::Strong => "强",
+            StrengthLevel::VeryStrong => "极强",
+        }
+    }
+
+    pub fn color_hex(self) -> &'static str {
+        match self {
+            StrengthLevel::VeryWeak => "#f7768e",
+            StrengthLevel::Weak => "#ff9e64",
+            StrengthLevel::Fair => "#e0af68",
+            StrengthLevel::Strong => "#9ece6a",
+            StrengthLevel::VeryStrong => "#73daca",
+        }
+    }
+}
+
+pub struct PasswordStrength {
+    pub level: StrengthLevel,
+    pub char_types: u8,
+    pub bar_fill: u8,
+}
+
+pub fn evaluate_strength(password: &str) -> PasswordStrength {
+    let len = password.len();
+    let has_lower = password.chars().any(|c| c.is_ascii_lowercase());
+    let has_upper = password.chars().any(|c| c.is_ascii_uppercase());
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
+    let has_special = password.chars().any(|c| "!#$*+-=?@^_~".contains(c));
+
+    let char_types = [has_lower, has_upper, has_digit, has_special]
+        .iter()
+        .filter(|&&b| b)
+        .count() as u8;
+
+    let (level, bar_fill) = if len < 8 || char_types <= 1 {
+        (StrengthLevel::VeryWeak, 3u8)
+    } else if len <= 11 && char_types <= 2 {
+        (StrengthLevel::Weak, 6)
+    } else if len <= 15 && char_types == 3 {
+        (StrengthLevel::Fair, 9)
+    } else if len <= 23 && char_types == 4 {
+        (StrengthLevel::Strong, 12)
+    } else if len >= 24 && char_types == 4 {
+        (StrengthLevel::VeryStrong, 16)
+    } else {
+        (StrengthLevel::Weak, 6)
+    };
+
+    PasswordStrength {
+        level,
+        char_types,
+        bar_fill,
+    }
+}
