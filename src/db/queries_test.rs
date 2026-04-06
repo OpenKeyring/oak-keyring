@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use super::queries::*;
 use super::schema::init_db_in_memory;
+use crate::types::audit::AuditOperation;
 use crate::types::credential::CredentialType;
 use crate::types::record::StoredRecord;
 
@@ -162,4 +163,128 @@ fn hard_delete_removes_record() {
 
     let result = get_record(&db, &id).unwrap();
     assert!(result.is_none(), "record should be gone after hard delete");
+}
+
+// ---------------------------------------------------------------------------
+// Test 6: Tag CRUD operations
+// ---------------------------------------------------------------------------
+
+#[test]
+fn tag_crud() {
+    let db = fresh_db();
+
+    // Insert a new tag
+    let tag = insert_tag(&db, "rust").unwrap();
+    assert_eq!(tag.name, "rust");
+    assert!(tag.id > 0);
+
+    // get_or_create with same name returns existing tag
+    let existing = get_or_create_tag(&db, "rust").unwrap();
+    assert_eq!(existing.id, tag.id, "should return same tag ID");
+    assert_eq!(existing.name, "rust");
+
+    // get_or_create with a new name creates it
+    let new_tag = get_or_create_tag(&db, "cli").unwrap();
+    assert_ne!(new_tag.id, tag.id);
+    assert_eq!(new_tag.name, "cli");
+
+    // list_tags returns both, ordered alphabetically
+    let tags = list_tags(&db).unwrap();
+    assert_eq!(tags.len(), 2);
+    assert_eq!(tags[0].name, "cli");
+    assert_eq!(tags[1].name, "rust");
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: Attach and detach tags on a record
+// ---------------------------------------------------------------------------
+
+#[test]
+fn attach_and_detach_tag() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+
+    let mut record = sample_record(id);
+    record.tags = vec![];
+    insert_record(&db, &record).unwrap();
+
+    // Create a tag and attach it
+    let tag = insert_tag(&db, "personal").unwrap();
+    attach_tag(&db, &id, tag.id).unwrap();
+
+    let tags = get_record_tags(&db, &id).unwrap();
+    assert_eq!(tags, vec!["personal".to_string()]);
+
+    // Detach the tag
+    detach_tag(&db, &id, tag.id).unwrap();
+    let tags = get_record_tags(&db, &id).unwrap();
+    assert!(tags.is_empty(), "tags should be empty after detach");
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: Audit log insert and list
+// ---------------------------------------------------------------------------
+
+#[test]
+fn audit_log_insert_and_list() {
+    let db = fresh_db();
+    let record_id = Uuid::new_v4();
+
+    insert_audit_entry(
+        &db,
+        AuditOperation::RecordCreate,
+        Some(&record_id),
+        Some("my-login"),
+        Some("created via TUI"),
+    )
+    .unwrap();
+
+    insert_audit_entry(&db, AuditOperation::VaultUnlock, None, None, None).unwrap();
+
+    let entries = list_audit_entries(&db, 10, 0).unwrap();
+    assert_eq!(entries.len(), 2);
+
+    // Both entries may share the same timestamp, so ordering among equal
+    // occurred_at values follows SQLite rowid (insertion order). Find each
+    // entry by its operation type rather than assuming index order.
+    let create_entry = entries
+        .iter()
+        .find(|e| e.operation == AuditOperation::RecordCreate)
+        .expect("RecordCreate entry should exist");
+    assert_eq!(create_entry.record_id, Some(record_id));
+    assert_eq!(create_entry.record_name.as_deref(), Some("my-login"));
+    assert_eq!(create_entry.detail.as_deref(), Some("created via TUI"));
+
+    let unlock_entry = entries
+        .iter()
+        .find(|e| e.operation == AuditOperation::VaultUnlock)
+        .expect("VaultUnlock entry should exist");
+    assert!(unlock_entry.record_id.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: Metadata get and set
+// ---------------------------------------------------------------------------
+
+#[test]
+fn metadata_get_set() {
+    let db = fresh_db();
+
+    // schema_version is seeded by initialize_metadata
+    let version = get_metadata(&db, "schema_version").unwrap();
+    assert_eq!(version.as_deref(), Some("2"));
+
+    // Set a new key
+    set_metadata(&db, "custom_key", "hello").unwrap();
+    let val = get_metadata(&db, "custom_key").unwrap();
+    assert_eq!(val.as_deref(), Some("hello"));
+
+    // Overwrite existing key
+    set_metadata(&db, "custom_key", "world").unwrap();
+    let val = get_metadata(&db, "custom_key").unwrap();
+    assert_eq!(val.as_deref(), Some("world"));
+
+    // Nonexistent key returns None
+    let missing = get_metadata(&db, "no_such_key").unwrap();
+    assert!(missing.is_none());
 }

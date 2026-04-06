@@ -5,8 +5,10 @@ use chrono::Utc;
 use rusqlite::Connection;
 use uuid::Uuid;
 
-use crate::db::models::{datetime_to_timestamp, RecordRow};
+use crate::db::models::{datetime_to_timestamp, AuditLogRow, RecordRow, TagRow};
+use crate::types::audit::{AuditEntry, AuditOperation};
 use crate::types::record::StoredRecord;
+use crate::types::tag::Tag;
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -171,4 +173,156 @@ fn get_record_tags_inner(conn: &Connection, record_id: &Uuid) -> Result<Vec<Stri
     }
 
     Ok(tags)
+}
+
+// ---------------------------------------------------------------------------
+// Tag queries
+// ---------------------------------------------------------------------------
+
+/// Insert a new tag and return it with the auto-generated ID.
+pub(crate) fn insert_tag(conn: &Connection, name: &str) -> Result<Tag> {
+    conn.execute(
+        "INSERT INTO tags (name) VALUES (?1)",
+        rusqlite::params![name],
+    )?;
+    let id = conn.last_insert_rowid();
+    Ok(Tag {
+        id,
+        name: name.to_string(),
+    })
+}
+
+/// Return an existing tag by name, or create it if missing.
+pub(crate) fn get_or_create_tag(conn: &Connection, name: &str) -> Result<Tag> {
+    let existing = conn.query_row(
+        "SELECT id, name FROM tags WHERE name = ?1",
+        rusqlite::params![name],
+        |row| {
+            Ok(Tag {
+                id: row.get(0)?,
+                name: row.get(1)?,
+            })
+        },
+    );
+
+    match existing {
+        Ok(tag) => Ok(tag),
+        Err(rusqlite::Error::QueryReturnedNoRows) => insert_tag(conn, name),
+        Err(e) => Err(DbError::from(e)),
+    }
+}
+
+/// List all tags ordered alphabetically by name.
+pub(crate) fn list_tags(conn: &Connection) -> Result<Vec<Tag>> {
+    let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY name")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(TagRow {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
+    })?;
+
+    let mut tags = Vec::new();
+    for row in rows {
+        tags.push(row?.to_tag());
+    }
+    Ok(tags)
+}
+
+/// Attach a tag to a record. Idempotent (INSERT OR IGNORE).
+pub(crate) fn attach_tag(conn: &Connection, record_id: &Uuid, tag_id: i64) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO record_tags (record_id, tag_id) VALUES (?1, ?2)",
+        rusqlite::params![record_id.to_string(), tag_id],
+    )?;
+    Ok(())
+}
+
+/// Detach a tag from a record.
+pub(crate) fn detach_tag(conn: &Connection, record_id: &Uuid, tag_id: i64) -> Result<()> {
+    conn.execute(
+        "DELETE FROM record_tags WHERE record_id = ?1 AND tag_id = ?2",
+        rusqlite::params![record_id.to_string(), tag_id],
+    )?;
+    Ok(())
+}
+
+/// Public wrapper: get tag names for a record.
+pub(crate) fn get_record_tags(conn: &Connection, record_id: &Uuid) -> Result<Vec<String>> {
+    get_record_tags_inner(conn, record_id)
+}
+
+// ---------------------------------------------------------------------------
+// Audit queries
+// ---------------------------------------------------------------------------
+
+/// Insert an audit log entry with the current timestamp.
+pub(crate) fn insert_audit_entry(
+    conn: &Connection,
+    operation: AuditOperation,
+    record_id: Option<&Uuid>,
+    record_name: Option<&str>,
+    detail: Option<&str>,
+) -> Result<()> {
+    let now = datetime_to_timestamp(&Utc::now());
+    conn.execute(
+        "INSERT INTO audit_log (operation, record_id, record_name, detail, occurred_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![
+            operation.to_db_str(),
+            record_id.map(|u| u.to_string()),
+            record_name,
+            detail,
+            now,
+        ],
+    )?;
+    Ok(())
+}
+
+/// List audit entries ordered by `occurred_at` descending, with pagination.
+pub(crate) fn list_audit_entries(
+    conn: &Connection,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<AuditEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, operation, record_id, record_name, detail, occurred_at
+         FROM audit_log ORDER BY occurred_at DESC LIMIT ?1 OFFSET ?2",
+    )?;
+
+    let rows = stmt.query_map(rusqlite::params![limit, offset], AuditLogRow::from_row)?;
+
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row?.to_audit_entry()?);
+    }
+    Ok(entries)
+}
+
+// ---------------------------------------------------------------------------
+// Metadata queries
+// ---------------------------------------------------------------------------
+
+/// Get a metadata value by key. Returns `None` if the key does not exist.
+pub(crate) fn get_metadata(conn: &Connection, key: &str) -> Result<Option<String>> {
+    let result = conn.query_row(
+        "SELECT value FROM metadata WHERE key = ?1",
+        rusqlite::params![key],
+        |row| row.get::<_, String>(0),
+    );
+
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DbError::from(e)),
+    }
+}
+
+/// Set (insert or replace) a metadata key-value pair.
+pub(crate) fn set_metadata(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)",
+        rusqlite::params![key, value],
+    )?;
+    Ok(())
 }
