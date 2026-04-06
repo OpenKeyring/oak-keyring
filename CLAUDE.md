@@ -266,5 +266,5 @@ tui/ → commands/ → executor/ → services/ → {db/, crypto/, types/, config
 
 ## WorkTree
 
-Git worktree directory: `.worktrees`
-NOT ALLOWED to create a work branch in any other directory. If the .worktrees directory does not exist, stop working and tell me to create it.
+Git worktree directory: `./.worktrees`
+REQUIRED: When using `subagent-driven-development` for development, it is MUST to follow the `using-git-worktree` skill to create a working directory (`./.worktrees`) for the work. Besides this, it is not allowed to create the working directory in any other location.
