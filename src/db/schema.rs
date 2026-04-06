@@ -39,7 +39,7 @@ pub fn initialize_schema(conn: &Connection) {
 
         CREATE TABLE IF NOT EXISTS tags (
             id   INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE
+            name TEXT NOT NULL UNIQUE CHECK(length(name) <= 50)
         );
         CREATE TABLE IF NOT EXISTS record_tags (
             record_id TEXT NOT NULL,

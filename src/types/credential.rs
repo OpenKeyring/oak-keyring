@@ -9,6 +9,8 @@ pub enum DataError {
     InvalidCredentialType(String),
     #[error("Invalid audit operation: {0}")]
     InvalidAuditOperation(String),
+    #[error("Invalid sync status value: {0}")]
+    InvalidSyncStatus(i64),
     #[error("Invalid UUID: {0}")]
     InvalidUuid(String),
     #[error("Missing field: {0}")]

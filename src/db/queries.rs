@@ -1,4 +1,9 @@
-// Queries are consumed by later tasks (services layer); suppress dead_code until then.
+// TODO: Remove `#![allow(dead_code)]` once the services layer (Plan F/S1) is wired up,
+//       and all query functions are used. For now, queries are not yet consumed by any call site.
+//
+// TODO(#S1): Revisit `pub` visibility on all query functions before v1.0 release.
+//       Currently `pub` to allow integration tests in `tests/integration/` to access them.
+//       Consider `pub(crate)` + test via a test module inside the crate, or `#[cfg(test)]` gates.
 #![allow(dead_code)]
 
 use chrono::Utc;
@@ -31,14 +36,19 @@ type Result<T> = std::result::Result<T, DbError>;
 // ---------------------------------------------------------------------------
 
 /// Insert a new record with all fields using a parameterized query.
+///
+/// Wrapped in a transaction so that record + tags are atomic — a partial
+/// failure rolls back the entire insert.
 pub fn insert_record(conn: &Connection, record: &StoredRecord) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+
     let aad_param: Option<&[u8]> = if record.aad.is_empty() {
         None
     } else {
         Some(&record.aad)
     };
 
-    conn.execute(
+    tx.execute(
         "INSERT INTO records
             (id, credential_type, encrypted_data, nonce, dek_version, aad,
              is_favorite, expires_at, created_at, updated_at, updated_by,
@@ -64,23 +74,24 @@ pub fn insert_record(conn: &Connection, record: &StoredRecord) -> Result<()> {
 
     // Insert tags: ensure each tag exists in `tags` table and link via `record_tags`.
     for tag_name in &record.tags {
-        conn.execute(
+        tx.execute(
             "INSERT OR IGNORE INTO tags (name) VALUES (?1)",
             rusqlite::params![tag_name],
         )?;
 
-        let tag_id: i64 = conn.query_row(
+        let tag_id: i64 = tx.query_row(
             "SELECT id FROM tags WHERE name = ?1",
             rusqlite::params![tag_name],
             |row| row.get(0),
         )?;
 
-        conn.execute(
+        tx.execute(
             "INSERT OR IGNORE INTO record_tags (record_id, tag_id) VALUES (?1, ?2)",
             rusqlite::params![record.id.to_string(), tag_id],
         )?;
     }
 
+    tx.commit()?;
     Ok(())
 }
 
