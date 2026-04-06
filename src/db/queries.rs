@@ -15,7 +15,7 @@ use crate::types::tag::Tag;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DbError {
+pub enum DbError {
     #[error("database error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("data conversion error: {0}")]
@@ -31,7 +31,7 @@ type Result<T> = std::result::Result<T, DbError>;
 // ---------------------------------------------------------------------------
 
 /// Insert a new record with all fields using a parameterized query.
-pub(crate) fn insert_record(conn: &Connection, record: &StoredRecord) -> Result<()> {
+pub fn insert_record(conn: &Connection, record: &StoredRecord) -> Result<()> {
     let aad_param: Option<&[u8]> = if record.aad.is_empty() {
         None
     } else {
@@ -85,7 +85,7 @@ pub(crate) fn insert_record(conn: &Connection, record: &StoredRecord) -> Result<
 }
 
 /// Fetch a single record by ID. Returns `None` if not found.
-pub(crate) fn get_record(conn: &Connection, id: &Uuid) -> Result<Option<StoredRecord>> {
+pub fn get_record(conn: &Connection, id: &Uuid) -> Result<Option<StoredRecord>> {
     let id_str = id.to_string();
     let result = conn.query_row(
         "SELECT * FROM records WHERE id = ?1",
@@ -105,7 +105,7 @@ pub(crate) fn get_record(conn: &Connection, id: &Uuid) -> Result<Option<StoredRe
 }
 
 /// List all active (non-deleted) records, ordered by `updated_at` descending.
-pub(crate) fn list_active_records(conn: &Connection) -> Result<Vec<StoredRecord>> {
+pub fn list_active_records(conn: &Connection) -> Result<Vec<StoredRecord>> {
     let mut stmt =
         conn.prepare("SELECT * FROM records WHERE deleted = 0 ORDER BY updated_at DESC")?;
 
@@ -124,7 +124,7 @@ pub(crate) fn list_active_records(conn: &Connection) -> Result<Vec<StoredRecord>
 }
 
 /// Soft-delete a record: set `deleted = 1` and `deleted_at` to now.
-pub(crate) fn soft_delete_record(conn: &Connection, id: &Uuid) -> Result<()> {
+pub fn soft_delete_record(conn: &Connection, id: &Uuid) -> Result<()> {
     let now = datetime_to_timestamp(&Utc::now());
     conn.execute(
         "UPDATE records SET deleted = 1, deleted_at = ?1 WHERE id = ?2",
@@ -134,7 +134,7 @@ pub(crate) fn soft_delete_record(conn: &Connection, id: &Uuid) -> Result<()> {
 }
 
 /// Restore a soft-deleted record: set `deleted = 0` and `deleted_at = NULL`.
-pub(crate) fn restore_record(conn: &Connection, id: &Uuid) -> Result<()> {
+pub fn restore_record(conn: &Connection, id: &Uuid) -> Result<()> {
     conn.execute(
         "UPDATE records SET deleted = 0, deleted_at = NULL WHERE id = ?1",
         rusqlite::params![id.to_string()],
@@ -143,7 +143,7 @@ pub(crate) fn restore_record(conn: &Connection, id: &Uuid) -> Result<()> {
 }
 
 /// Hard-delete a record (and cascading record_tags via FK).
-pub(crate) fn hard_delete_record(conn: &Connection, id: &Uuid) -> Result<()> {
+pub fn hard_delete_record(conn: &Connection, id: &Uuid) -> Result<()> {
     conn.execute(
         "DELETE FROM records WHERE id = ?1",
         rusqlite::params![id.to_string()],
@@ -180,7 +180,7 @@ fn get_record_tags_inner(conn: &Connection, record_id: &Uuid) -> Result<Vec<Stri
 // ---------------------------------------------------------------------------
 
 /// Insert a new tag and return it with the auto-generated ID.
-pub(crate) fn insert_tag(conn: &Connection, name: &str) -> Result<Tag> {
+pub fn insert_tag(conn: &Connection, name: &str) -> Result<Tag> {
     conn.execute(
         "INSERT INTO tags (name) VALUES (?1)",
         rusqlite::params![name],
@@ -193,7 +193,7 @@ pub(crate) fn insert_tag(conn: &Connection, name: &str) -> Result<Tag> {
 }
 
 /// Return an existing tag by name, or create it if missing.
-pub(crate) fn get_or_create_tag(conn: &Connection, name: &str) -> Result<Tag> {
+pub fn get_or_create_tag(conn: &Connection, name: &str) -> Result<Tag> {
     let existing = conn.query_row(
         "SELECT id, name FROM tags WHERE name = ?1",
         rusqlite::params![name],
@@ -213,7 +213,7 @@ pub(crate) fn get_or_create_tag(conn: &Connection, name: &str) -> Result<Tag> {
 }
 
 /// List all tags ordered alphabetically by name.
-pub(crate) fn list_tags(conn: &Connection) -> Result<Vec<Tag>> {
+pub fn list_tags(conn: &Connection) -> Result<Vec<Tag>> {
     let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY name")?;
     let rows = stmt.query_map([], |row| {
         Ok(TagRow {
@@ -230,7 +230,7 @@ pub(crate) fn list_tags(conn: &Connection) -> Result<Vec<Tag>> {
 }
 
 /// Attach a tag to a record. Idempotent (INSERT OR IGNORE).
-pub(crate) fn attach_tag(conn: &Connection, record_id: &Uuid, tag_id: i64) -> Result<()> {
+pub fn attach_tag(conn: &Connection, record_id: &Uuid, tag_id: i64) -> Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO record_tags (record_id, tag_id) VALUES (?1, ?2)",
         rusqlite::params![record_id.to_string(), tag_id],
@@ -239,7 +239,7 @@ pub(crate) fn attach_tag(conn: &Connection, record_id: &Uuid, tag_id: i64) -> Re
 }
 
 /// Detach a tag from a record.
-pub(crate) fn detach_tag(conn: &Connection, record_id: &Uuid, tag_id: i64) -> Result<()> {
+pub fn detach_tag(conn: &Connection, record_id: &Uuid, tag_id: i64) -> Result<()> {
     conn.execute(
         "DELETE FROM record_tags WHERE record_id = ?1 AND tag_id = ?2",
         rusqlite::params![record_id.to_string(), tag_id],
@@ -248,7 +248,7 @@ pub(crate) fn detach_tag(conn: &Connection, record_id: &Uuid, tag_id: i64) -> Re
 }
 
 /// Public wrapper: get tag names for a record.
-pub(crate) fn get_record_tags(conn: &Connection, record_id: &Uuid) -> Result<Vec<String>> {
+pub fn get_record_tags(conn: &Connection, record_id: &Uuid) -> Result<Vec<String>> {
     get_record_tags_inner(conn, record_id)
 }
 
@@ -257,7 +257,7 @@ pub(crate) fn get_record_tags(conn: &Connection, record_id: &Uuid) -> Result<Vec
 // ---------------------------------------------------------------------------
 
 /// Insert an audit log entry with the current timestamp.
-pub(crate) fn insert_audit_entry(
+pub fn insert_audit_entry(
     conn: &Connection,
     operation: AuditOperation,
     record_id: Option<&Uuid>,
@@ -280,11 +280,7 @@ pub(crate) fn insert_audit_entry(
 }
 
 /// List audit entries ordered by `occurred_at` descending, with pagination.
-pub(crate) fn list_audit_entries(
-    conn: &Connection,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<AuditEntry>> {
+pub fn list_audit_entries(conn: &Connection, limit: i64, offset: i64) -> Result<Vec<AuditEntry>> {
     let mut stmt = conn.prepare(
         "SELECT id, operation, record_id, record_name, detail, occurred_at
          FROM audit_log ORDER BY occurred_at DESC LIMIT ?1 OFFSET ?2",
@@ -304,7 +300,7 @@ pub(crate) fn list_audit_entries(
 // ---------------------------------------------------------------------------
 
 /// Get a metadata value by key. Returns `None` if the key does not exist.
-pub(crate) fn get_metadata(conn: &Connection, key: &str) -> Result<Option<String>> {
+pub fn get_metadata(conn: &Connection, key: &str) -> Result<Option<String>> {
     let result = conn.query_row(
         "SELECT value FROM metadata WHERE key = ?1",
         rusqlite::params![key],
@@ -319,7 +315,7 @@ pub(crate) fn get_metadata(conn: &Connection, key: &str) -> Result<Option<String
 }
 
 /// Set (insert or replace) a metadata key-value pair.
-pub(crate) fn set_metadata(conn: &Connection, key: &str, value: &str) -> Result<()> {
+pub fn set_metadata(conn: &Connection, key: &str, value: &str) -> Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)",
         rusqlite::params![key, value],
