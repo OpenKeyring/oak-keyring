@@ -91,7 +91,7 @@ pub struct KeyStore {
 impl KeyStore {
     pub fn initialize(path: &Path, sk_bytes: [u8; 32], cmk: &str) -> Result<Self, String> {
         let sk = SecretKey(sk_bytes);
-        let kek = KeyEncryptionKey(hkdf::derive_kek(sk.as_bytes())?);
+        let kek = KeyEncryptionKey(hkdf::derive_kek(sk.as_bytes()));
 
         let salt = argon2::generate_salt();
         let wk = WrappingKey(
@@ -164,7 +164,7 @@ impl KeyStore {
 
         let sk_bytes = unwrap_key(&wrapped, &nonce_arr, wk.as_bytes())?;
         let sk = SecretKey(sk_bytes);
-        let kek = KeyEncryptionKey(hkdf::derive_kek(sk.as_bytes())?);
+        let kek = KeyEncryptionKey(hkdf::derive_kek(sk.as_bytes()));
 
         Ok(Self {
             sk: Some(sk),
@@ -176,10 +176,7 @@ impl KeyStore {
 
     pub fn get_dek(&self, version: u32) -> Result<DataEncryptionKey, String> {
         let kek = self.kek.as_ref().ok_or("KeyStore not unlocked")?;
-        Ok(DataEncryptionKey(hkdf::derive_dek(
-            kek.as_bytes(),
-            version,
-        )?))
+        Ok(DataEncryptionKey(hkdf::derive_dek(kek.as_bytes(), version)))
     }
 
     pub fn current_dek_version(&self) -> u32 {

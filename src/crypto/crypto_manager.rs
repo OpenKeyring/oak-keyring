@@ -28,7 +28,7 @@ impl CryptoManager {
     pub fn unlock_with_mnemonic(&mut self, mnemonic: &Passkey) -> Result<(), String> {
         let seed = mnemonic.to_seed(None)?;
         let sk_bytes = seed.to_secret_key();
-        let kek_bytes = hkdf::derive_kek(&sk_bytes)?;
+        let kek_bytes = hkdf::derive_kek(&sk_bytes);
 
         let ks = KeyStore {
             sk: Some(SecretKey::new(sk_bytes)),
