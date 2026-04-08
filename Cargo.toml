@@ -42,6 +42,7 @@ thiserror = "2"
 
 # Internationalization
 rust-i18n = "3"
+sys-locale = "0.3"
 
 # Clipboard
 arboard = "3"
