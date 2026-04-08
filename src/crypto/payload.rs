@@ -68,7 +68,7 @@ pub fn decrypt_subtitle(
 /// This helper extracts the inner fields object.
 fn unwrap_enum_variant(value: &serde_json::Value) -> Result<&serde_json::Value, String> {
     if let Some(obj) = value.as_object() {
-        for (_, v) in obj {
+        if let Some((_, v)) = obj.iter().next() {
             return Ok(v);
         }
     }

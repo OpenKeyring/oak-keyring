@@ -13,4 +13,6 @@ pub use keystore::{
     unwrap_key, wrap_key, DataEncryptionKey, DeviceKey, KeyEncryptionKey, KeyStore, SecretKey,
     WrappingKey,
 };
-pub use xchacha20::{decrypt, decrypt_with_aad, encrypt, encrypt_with_aad, EncryptedData};
+pub use xchacha20::{
+    decrypt, decrypt_with_aad, encrypt, encrypt_with_aad, CryptoError, EncryptedData,
+};

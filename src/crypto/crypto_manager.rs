@@ -50,6 +50,7 @@ impl CryptoManager {
         let dek = self.get_current_dek()?;
         xchacha20::encrypt_with_aad(plaintext, aad, dek.as_bytes())
             .map(|data| (data.ciphertext, data.nonce))
+            .map_err(|e| e.to_string())
     }
 
     pub fn decrypt(
@@ -68,6 +69,7 @@ impl CryptoManager {
             aad,
             dek.as_bytes(),
         )
+        .map_err(|e| e.to_string())
     }
 
     pub fn is_unlocked(&self) -> bool {
