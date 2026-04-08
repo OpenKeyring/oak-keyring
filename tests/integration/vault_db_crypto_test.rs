@@ -133,7 +133,15 @@ fn test_encrypt_payload_roundtrip() {
 
     let (ciphertext, nonce) = encrypt_payload(&cm, &payload, aad).unwrap();
 
-    let decrypted = decrypt_payload(&cm, &ciphertext, &nonce, aad, CredentialType::Login).unwrap();
+    let decrypted = decrypt_payload(
+        &cm,
+        &ciphertext,
+        &nonce,
+        aad,
+        CredentialType::Login,
+        cm.current_dek_version(),
+    )
+    .unwrap();
 
     // Verify name matches (common field).
     assert_eq!(decrypted.name(), "GitHub");
@@ -150,8 +158,17 @@ fn test_decrypt_name_only_matches_full() {
 
     let (ciphertext, nonce) = encrypt_payload(&cm, &payload, aad).unwrap();
 
-    let name_only = decrypt_name_only(&cm, &ciphertext, &nonce, aad).unwrap();
-    let full = decrypt_payload(&cm, &ciphertext, &nonce, aad, CredentialType::Login).unwrap();
+    let name_only =
+        decrypt_name_only(&cm, &ciphertext, &nonce, aad, cm.current_dek_version()).unwrap();
+    let full = decrypt_payload(
+        &cm,
+        &ciphertext,
+        &nonce,
+        aad,
+        CredentialType::Login,
+        cm.current_dek_version(),
+    )
+    .unwrap();
 
     assert_eq!(
         name_only,
@@ -169,7 +186,15 @@ fn test_decrypt_subtitle_login() {
 
     let (ciphertext, nonce) = encrypt_payload(&cm, &payload, aad).unwrap();
 
-    let subtitle = decrypt_subtitle(&cm, &ciphertext, &nonce, aad, CredentialType::Login).unwrap();
+    let subtitle = decrypt_subtitle(
+        &cm,
+        &ciphertext,
+        &nonce,
+        aad,
+        CredentialType::Login,
+        cm.current_dek_version(),
+    )
+    .unwrap();
     assert_eq!(
         subtitle, "alice",
         "Login subtitle must return the username field"
@@ -184,7 +209,15 @@ fn test_decrypt_subtitle_api() {
 
     let (ciphertext, nonce) = encrypt_payload(&cm, &payload, aad).unwrap();
 
-    let subtitle = decrypt_subtitle(&cm, &ciphertext, &nonce, aad, CredentialType::Api).unwrap();
+    let subtitle = decrypt_subtitle(
+        &cm,
+        &ciphertext,
+        &nonce,
+        aad,
+        CredentialType::Api,
+        cm.current_dek_version(),
+    )
+    .unwrap();
     assert_eq!(
         subtitle, "pk_live_abc123",
         "Api subtitle must return the app_id field"

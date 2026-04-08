@@ -230,12 +230,12 @@ impl KeyStore {
         let mut nonce_arr = [0u8; 24];
         nonce_arr.copy_from_slice(&nonce_bytes);
 
-        let sk_bytes = unwrap_key(&wrapped, &nonce_arr, old_wk.as_bytes())?;
+        let mut sk_bytes = unwrap_key(&wrapped, &nonce_arr, old_wk.as_bytes())?;
 
         let new_salt = argon2::generate_salt();
-        let new_params = Argon2Params::medium();
+        // Preserve the existing vault's KDF params for the new wrapping (security not downgraded)
         let mut new_wk = WrappingKey(
-            argon2::derive_key_with_params(new_cmk, &new_salt, &new_params)?
+            argon2::derive_key_with_params(new_cmk, &new_salt, &kdf_params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -250,9 +250,9 @@ impl KeyStore {
             "kdf": {
                 "algorithm": "argon2id",
                 "salt": base64_encode(&new_salt),
-                "time_cost": new_params.t_cost,
-                "memory_cost": new_params.m_cost,
-                "parallelism": new_params.p_cost,
+                "time_cost": kdf_params.t_cost,
+                "memory_cost": kdf_params.m_cost,
+                "parallelism": kdf_params.p_cost,
                 "output_len": 32
             },
             "created_at": chrono::Utc::now().to_rfc3339(),
@@ -282,6 +282,7 @@ impl KeyStore {
         }
 
         new_wk.zeroize();
+        sk_bytes.zeroize();
 
         Ok(())
     }

@@ -16,8 +16,9 @@ pub fn decrypt_payload(
     nonce: &[u8; 24],
     aad: &[u8],
     _credential_type: CredentialType,
+    dek_version: u32,
 ) -> Result<EncryptedPayload, String> {
-    let plaintext = crypto.decrypt(ciphertext, nonce, aad, crypto.current_dek_version())?;
+    let plaintext = crypto.decrypt(ciphertext, nonce, aad, dek_version)?;
     let json = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
     serde_json::from_str(&json).map_err(|e| e.to_string())
 }
@@ -27,8 +28,9 @@ pub fn decrypt_name_only(
     ciphertext: &[u8],
     nonce: &[u8; 24],
     aad: &[u8],
+    dek_version: u32,
 ) -> Result<String, String> {
-    let plaintext = crypto.decrypt(ciphertext, nonce, aad, crypto.current_dek_version())?;
+    let plaintext = crypto.decrypt(ciphertext, nonce, aad, dek_version)?;
     let json = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
     let value: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     let inner = unwrap_enum_variant(&value)?;
@@ -44,8 +46,9 @@ pub fn decrypt_subtitle(
     nonce: &[u8; 24],
     aad: &[u8],
     credential_type: CredentialType,
+    dek_version: u32,
 ) -> Result<String, String> {
-    let plaintext = crypto.decrypt(ciphertext, nonce, aad, crypto.current_dek_version())?;
+    let plaintext = crypto.decrypt(ciphertext, nonce, aad, dek_version)?;
     let json = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
     let value: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     let inner = unwrap_enum_variant(&value)?;

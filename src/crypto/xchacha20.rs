@@ -1,31 +1,10 @@
 use chacha20poly1305::aead::{Aead, AeadCore, OsRng, Payload};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 
-/// Sanitized crypto error type — never leaks implementation details.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CryptoError {
-    DecryptionFailed,
-    EncryptionFailed,
-    InvalidKey,
-    InvalidNonce,
-}
-
-impl std::fmt::Display for CryptoError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CryptoError::DecryptionFailed => write!(f, "decryption failed"),
-            CryptoError::EncryptionFailed => write!(f, "encryption failed"),
-            CryptoError::InvalidKey => write!(f, "invalid key"),
-            CryptoError::InvalidNonce => write!(f, "invalid nonce"),
-        }
-    }
-}
-
-impl std::error::Error for CryptoError {}
+use crate::crypto::CryptoError;
 
 impl From<chacha20poly1305::Error> for CryptoError {
     fn from(_: chacha20poly1305::Error) -> Self {
-        // S5: never expose the underlying AEAD error message
         CryptoError::DecryptionFailed
     }
 }
