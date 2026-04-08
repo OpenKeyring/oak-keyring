@@ -104,3 +104,104 @@ pub fn generate_pin(length: usize) -> Result<SecureStr, String> {
     }
     Ok(SecureStr::new(pin))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAFE_CHARSET: &str =
+        "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!#$*+-=?@^_~";
+
+    #[test]
+    fn test_random_password_length() {
+        for len in [4, 8, 16, 64, 128] {
+            let pw = generate_random_password(len).unwrap();
+            assert_eq!(pw.get().len(), len);
+        }
+    }
+
+    #[test]
+    fn test_random_password_range_4_128() {
+        assert!(generate_random_password(4).is_ok());
+        assert!(generate_random_password(128).is_ok());
+        assert!(generate_random_password(3).is_err());
+        assert!(generate_random_password(129).is_err());
+    }
+
+    #[test]
+    fn test_random_password_chars_from_safe_charset() {
+        let pw = generate_random_password(128).unwrap();
+        for c in pw.get().chars() {
+            assert!(SAFE_CHARSET.contains(c), "char '{c}' not in safe charset");
+        }
+        let ambiguous = ['I', 'O', 'l', '0', '1'];
+        for c in pw.get().chars() {
+            assert!(!ambiguous.contains(&c), "ambiguous char '{c}' found");
+        }
+    }
+
+    #[test]
+    fn test_random_password_different_each_time() {
+        let a = generate_random_password(64).unwrap();
+        let b = generate_random_password(64).unwrap();
+        assert_ne!(a.get(), b.get(), "two random passwords should differ");
+    }
+
+    #[test]
+    fn test_policy_password_meets_requirements() {
+        let pw = generate_random_password_with_policy(20, 2, 2, 2, 2).unwrap();
+        let s = pw.get();
+        assert_eq!(s.len(), 20);
+
+        let digit_count = s.chars().filter(|c| c.is_ascii_digit()).count();
+        let special_count = s.chars().filter(|c| "!#$*+-=?@^_~".contains(*c)).count();
+        let lower_count = s.chars().filter(|c| c.is_ascii_lowercase()).count();
+        let upper_count = s.chars().filter(|c| c.is_ascii_uppercase()).count();
+
+        assert!(digit_count >= 2, "digits: {digit_count} < 2");
+        assert!(special_count >= 2, "specials: {special_count} < 2");
+        assert!(lower_count >= 2, "lowercase: {lower_count} < 2");
+        assert!(upper_count >= 2, "uppercase: {upper_count} < 2");
+    }
+
+    #[test]
+    fn test_policy_password_exceeds_length_fails() {
+        let result = generate_random_password_with_policy(8, 3, 3, 3, 3);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_memorable_password_word_count() {
+        let pw = generate_memorable_password(4).unwrap();
+        let words: Vec<&str> = pw.get().split('-').collect();
+        assert_eq!(words.len(), 4);
+    }
+
+    #[test]
+    fn test_memorable_password_range_3_12() {
+        assert!(generate_memorable_password(3).is_ok());
+        assert!(generate_memorable_password(12).is_ok());
+        assert!(generate_memorable_password(2).is_err());
+        assert!(generate_memorable_password(13).is_err());
+    }
+
+    #[test]
+    fn test_pin_digits_only() {
+        let pin = generate_pin(8).unwrap();
+        for c in pin.get().chars() {
+            assert!(c.is_ascii_digit(), "PIN char '{c}' is not a digit");
+        }
+        let valid_digits: Vec<char> = "23456789".chars().collect();
+        for c in pin.get().chars() {
+            assert!(valid_digits.contains(&c), "digit '{c}' not in 2-9 range");
+        }
+    }
+
+    #[test]
+    fn test_pin_range_4_16() {
+        assert!(generate_pin(4).is_ok());
+        assert!(generate_pin(16).is_ok());
+        assert!(generate_pin(3).is_err());
+        assert!(generate_pin(17).is_err());
+    }
+}
