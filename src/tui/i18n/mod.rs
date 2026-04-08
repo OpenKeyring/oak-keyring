@@ -1,4 +1,4 @@
-/// I18N initialization, language switching, and locale normalization.
+//! I18N initialization, language switching, and locale normalization.
 
 const SUPPORTED_LOCALES: &[&str] = &["en", "zh-CN"];
 
