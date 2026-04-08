@@ -151,8 +151,23 @@ impl KeyStore {
         let mut salt_arr = [0u8; 16];
         salt_arr.copy_from_slice(&salt);
 
+        let time_cost = data["kdf"]["time_cost"]
+            .as_u64()
+            .ok_or("missing time_cost")? as u32;
+        let memory_cost = data["kdf"]["memory_cost"]
+            .as_u64()
+            .ok_or("missing memory_cost")? as u32;
+        let parallelism = data["kdf"]["parallelism"]
+            .as_u64()
+            .ok_or("missing parallelism")? as u32;
+        let kdf_params = Argon2Params {
+            m_cost: memory_cost,
+            t_cost: time_cost,
+            p_cost: parallelism,
+        };
+
         let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk, &salt_arr, &Argon2Params::medium())?
+            argon2::derive_key_with_params(cmk, &salt_arr, &kdf_params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -201,4 +216,94 @@ fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
     base64::engine::general_purpose::STANDARD
         .decode(s)
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Helper: initialize a vault with custom KDF params written to the JSON.
+    /// This simulates a vault created with non-default (e.g. High) params.
+    fn init_with_params(path: &Path, sk_bytes: [u8; 32], cmk: &str, params: &Argon2Params) {
+        let salt = argon2::generate_salt();
+        let wk = WrappingKey(
+            argon2::derive_key_with_params(cmk, &salt, params)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        let (wrapped, nonce) = wrap_key(&sk_bytes, wk.as_bytes()).unwrap();
+
+        let json = serde_json::json!({
+            "version": 1,
+            "algorithm": "xchacha20-poly1305",
+            "wrapped_sk": base64_encode(&wrapped),
+            "nonce": base64_encode(&nonce),
+            "kdf": {
+                "algorithm": "argon2id",
+                "salt": base64_encode(&salt),
+                "time_cost": params.t_cost,
+                "memory_cost": params.m_cost,
+                "parallelism": params.p_cost,
+                "output_len": 32
+            },
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        });
+
+        std::fs::create_dir_all(path).unwrap();
+        std::fs::write(
+            path.join("wrapped_secret_key.json"),
+            serde_json::to_string_pretty(&json).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_unlock_reads_kdf_params() {
+        // B1 regression: vault created with High params must be unlockable.
+        // Before the fix, unlock() hardcoded Argon2Params::medium() and would
+        // derive a wrong WK, causing unwrap to fail.
+        let dir = TempDir::new().unwrap();
+        let sk_bytes = [0xABu8; 32];
+        let cmk = "correct-master-key";
+        let high_params = Argon2Params::high();
+
+        init_with_params(dir.path(), sk_bytes, cmk, &high_params);
+
+        let store = KeyStore::unlock(dir.path(), cmk).unwrap();
+        assert!(
+            store.sk.is_some(),
+            "unlock must succeed when reading KDF params from JSON"
+        );
+        assert_eq!(store.sk.as_ref().unwrap().as_bytes(), &sk_bytes);
+    }
+
+    #[test]
+    fn test_initialize_unlock_roundtrip() {
+        // initialize → unlock must recover the same SK.
+        let dir = TempDir::new().unwrap();
+        let sk_bytes = [0xCDu8; 32];
+        let cmk = "roundtrip-password";
+
+        let created = KeyStore::initialize(dir.path(), sk_bytes, cmk).unwrap();
+        let opened = KeyStore::unlock(dir.path(), cmk).unwrap();
+
+        assert_eq!(
+            created.sk.as_ref().unwrap().as_bytes(),
+            opened.sk.as_ref().unwrap().as_bytes(),
+            "SK after unlock must match original SK"
+        );
+    }
+
+    #[test]
+    fn test_unlock_wrong_cmk_fails() {
+        let dir = TempDir::new().unwrap();
+        let sk_bytes = [0xEFu8; 32];
+
+        KeyStore::initialize(dir.path(), sk_bytes, "right-password").unwrap();
+
+        let result = KeyStore::unlock(dir.path(), "wrong-password");
+        assert!(result.is_err(), "unlock with wrong CMK must fail");
+    }
 }
