@@ -189,6 +189,88 @@ impl KeyStore {
         })
     }
 
+    pub fn change_cmk(path: &Path, old_cmk: &str, new_cmk: &str) -> Result<(), String> {
+        let file_path = path.join("wrapped_secret_key.json");
+        let content = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
+        let data: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+        let salt_str = data["kdf"]["salt"].as_str().ok_or("missing salt")?;
+        let salt = base64_decode(salt_str)?;
+        let mut salt_arr = [0u8; 16];
+        salt_arr.copy_from_slice(&salt);
+
+        let time_cost = data["kdf"]["time_cost"]
+            .as_u64()
+            .ok_or("missing time_cost")? as u32;
+        let memory_cost = data["kdf"]["memory_cost"]
+            .as_u64()
+            .ok_or("missing memory_cost")? as u32;
+        let parallelism = data["kdf"]["parallelism"]
+            .as_u64()
+            .ok_or("missing parallelism")? as u32;
+        let kdf_params = Argon2Params {
+            m_cost: memory_cost,
+            t_cost: time_cost,
+            p_cost: parallelism,
+        };
+
+        let old_wk = WrappingKey(
+            argon2::derive_key_with_params(old_cmk, &salt_arr, &kdf_params)?
+                .try_into()
+                .map_err(|_| "WK derivation failed".to_string())?,
+        );
+
+        let wrapped = base64_decode(data["wrapped_sk"].as_str().ok_or("missing wrapped_sk")?)?;
+        let nonce_bytes = base64_decode(data["nonce"].as_str().ok_or("missing nonce")?)?;
+        let mut nonce_arr = [0u8; 24];
+        nonce_arr.copy_from_slice(&nonce_bytes);
+
+        let sk_bytes = unwrap_key(&wrapped, &nonce_arr, old_wk.as_bytes())?;
+
+        let new_salt = argon2::generate_salt();
+        let new_params = Argon2Params::medium();
+        let mut new_wk = WrappingKey(
+            argon2::derive_key_with_params(new_cmk, &new_salt, &new_params)?
+                .try_into()
+                .map_err(|_| "WK derivation failed".to_string())?,
+        );
+
+        let (new_wrapped, new_nonce) = wrap_key(&sk_bytes, new_wk.as_bytes())?;
+
+        let new_json = serde_json::json!({
+            "version": data["version"].as_u64().unwrap_or(1),
+            "algorithm": data["algorithm"].as_str().unwrap_or("xchacha20-poly1305"),
+            "wrapped_sk": base64_encode(&new_wrapped),
+            "nonce": base64_encode(&new_nonce),
+            "kdf": {
+                "algorithm": "argon2id",
+                "salt": base64_encode(&new_salt),
+                "time_cost": new_params.t_cost,
+                "memory_cost": new_params.m_cost,
+                "parallelism": new_params.p_cost,
+                "output_len": 32
+            },
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        });
+
+        let new_content = serde_json::to_string_pretty(&new_json).map_err(|e| e.to_string())?;
+
+        let temp_path = file_path.with_extension("json.tmp");
+        {
+            let mut f = std::fs::File::create(&temp_path).map_err(|e| e.to_string())?;
+            use std::io::Write;
+            f.write_all(new_content.as_bytes())
+                .map_err(|e| e.to_string())?;
+            f.sync_all().map_err(|e| e.to_string())?;
+        }
+
+        std::fs::rename(&temp_path, &file_path).map_err(|e| e.to_string())?;
+
+        new_wk.zeroize();
+
+        Ok(())
+    }
+
     pub fn get_dek(&self, version: u32) -> Result<DataEncryptionKey, String> {
         let kek = self.kek.as_ref().ok_or("KeyStore not unlocked")?;
         Ok(DataEncryptionKey(hkdf::derive_dek(
@@ -305,5 +387,51 @@ mod tests {
 
         let result = KeyStore::unlock(dir.path(), "wrong-password");
         assert!(result.is_err(), "unlock with wrong CMK must fail");
+    }
+
+    #[test]
+    fn test_change_cmk_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let sk_bytes = [0x11u8; 32];
+        let old_cmk = "old-master-password";
+        let new_cmk = "new-master-password";
+
+        KeyStore::initialize(dir.path(), sk_bytes, old_cmk).unwrap();
+
+        KeyStore::change_cmk(dir.path(), old_cmk, new_cmk).unwrap();
+
+        let result = KeyStore::unlock(dir.path(), new_cmk);
+        assert!(
+            result.is_ok(),
+            "unlock with new CMK must succeed after change_cmk"
+        );
+        assert_eq!(
+            result.unwrap().sk.as_ref().unwrap().as_bytes(),
+            &sk_bytes,
+            "SK must be preserved after CMK change"
+        );
+
+        let old_result = KeyStore::unlock(dir.path(), old_cmk);
+        assert!(
+            old_result.is_err(),
+            "unlock with old CMK must fail after change_cmk"
+        );
+    }
+
+    #[test]
+    fn test_change_cmk_wrong_old_fails() {
+        let dir = TempDir::new().unwrap();
+        let sk_bytes = [0x22u8; 32];
+
+        KeyStore::initialize(dir.path(), sk_bytes, "correct-old").unwrap();
+
+        let result = KeyStore::change_cmk(dir.path(), "wrong-old", "any-new");
+        assert!(result.is_err(), "change_cmk with wrong old CMK must fail");
+
+        let unlock = KeyStore::unlock(dir.path(), "correct-old");
+        assert!(
+            unlock.is_ok(),
+            "original CMK must still work after failed change_cmk"
+        );
     }
 }
