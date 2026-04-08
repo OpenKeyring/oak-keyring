@@ -89,13 +89,18 @@ pub struct KeyStore {
 }
 
 impl KeyStore {
-    pub fn initialize(path: &Path, sk_bytes: [u8; 32], cmk: &str) -> Result<Self, String> {
+    pub fn initialize(
+        path: &Path,
+        sk_bytes: [u8; 32],
+        cmk: &str,
+        params: &Argon2Params,
+    ) -> Result<Self, String> {
         let sk = SecretKey(sk_bytes);
         let kek = KeyEncryptionKey(hkdf::derive_kek(sk.as_bytes())?);
 
         let salt = argon2::generate_salt();
         let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk, &salt, &Argon2Params::medium())?
+            argon2::derive_key_with_params(cmk, &salt, params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -110,9 +115,9 @@ impl KeyStore {
             "kdf": {
                 "algorithm": "argon2id",
                 "salt": base64_encode(&salt),
-                "time_cost": 2,
-                "memory_cost": 49152,
-                "parallelism": 2,
+                "time_cost": params.t_cost,
+                "memory_cost": params.m_cost,
+                "parallelism": params.p_cost,
                 "output_len": 32
             },
             "created_at": chrono::Utc::now().to_rfc3339(),
@@ -266,6 +271,16 @@ impl KeyStore {
 
         std::fs::rename(&temp_path, &file_path).map_err(|e| e.to_string())?;
 
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&file_path)
+                .map_err(|e| e.to_string())?
+                .permissions();
+            perms.set_mode(0o600);
+            std::fs::set_permissions(&file_path, perms).map_err(|e| e.to_string())?;
+        }
+
         new_wk.zeroize();
 
         Ok(())
@@ -368,7 +383,8 @@ mod tests {
         let sk_bytes = [0xCDu8; 32];
         let cmk = "roundtrip-password";
 
-        let created = KeyStore::initialize(dir.path(), sk_bytes, cmk).unwrap();
+        let created =
+            KeyStore::initialize(dir.path(), sk_bytes, cmk, &Argon2Params::medium()).unwrap();
         let opened = KeyStore::unlock(dir.path(), cmk).unwrap();
 
         assert_eq!(
@@ -383,7 +399,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let sk_bytes = [0xEFu8; 32];
 
-        KeyStore::initialize(dir.path(), sk_bytes, "right-password").unwrap();
+        KeyStore::initialize(
+            dir.path(),
+            sk_bytes,
+            "right-password",
+            &Argon2Params::medium(),
+        )
+        .unwrap();
 
         let result = KeyStore::unlock(dir.path(), "wrong-password");
         assert!(result.is_err(), "unlock with wrong CMK must fail");
@@ -396,7 +418,7 @@ mod tests {
         let old_cmk = "old-master-password";
         let new_cmk = "new-master-password";
 
-        KeyStore::initialize(dir.path(), sk_bytes, old_cmk).unwrap();
+        KeyStore::initialize(dir.path(), sk_bytes, old_cmk, &Argon2Params::medium()).unwrap();
 
         KeyStore::change_cmk(dir.path(), old_cmk, new_cmk).unwrap();
 
@@ -423,7 +445,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let sk_bytes = [0x22u8; 32];
 
-        KeyStore::initialize(dir.path(), sk_bytes, "correct-old").unwrap();
+        KeyStore::initialize(dir.path(), sk_bytes, "correct-old", &Argon2Params::medium()).unwrap();
 
         let result = KeyStore::change_cmk(dir.path(), "wrong-old", "any-new");
         assert!(result.is_err(), "change_cmk with wrong old CMK must fail");
@@ -433,5 +455,116 @@ mod tests {
             unlock.is_ok(),
             "original CMK must still work after failed change_cmk"
         );
+    }
+
+    #[test]
+    fn test_wrap_unwrap_roundtrip() {
+        let key = [0x42u8; 32];
+        let wrapping = [0xABu8; 32];
+        let (wrapped, nonce) = wrap_key(&key, &wrapping).unwrap();
+        let recovered = unwrap_key(&wrapped, &nonce, &wrapping).unwrap();
+        assert_eq!(recovered, key, "unwrapped key must match original");
+    }
+
+    #[test]
+    fn test_unwrap_wrong_key_fails() {
+        let key = [0x42u8; 32];
+        let wrapping = [0xABu8; 32];
+        let (wrapped, nonce) = wrap_key(&key, &wrapping).unwrap();
+        let wrong_wrapping = [0xCDu8; 32];
+        let result = unwrap_key(&wrapped, &nonce, &wrong_wrapping);
+        assert!(result.is_err(), "unwrap with wrong wrapping key must fail");
+    }
+
+    #[test]
+    fn test_key_newtype_zeroize() {
+        let key = SecretKey::new([0xFFu8; 32]);
+        assert_eq!(key.as_bytes(), &[0xFFu8; 32]);
+        drop(key);
+    }
+
+    #[test]
+    fn test_initialize_creates_file() {
+        let dir = TempDir::new().unwrap();
+        let sk_bytes = [0x77u8; 32];
+        KeyStore::initialize(
+            dir.path(),
+            sk_bytes,
+            "file-test-cmk",
+            &Argon2Params::medium(),
+        )
+        .unwrap();
+        let file_path = dir.path().join("wrapped_secret_key.json");
+        assert!(
+            file_path.exists(),
+            "wrapped_secret_key.json must be created"
+        );
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert!(!content.is_empty(), "file must not be empty");
+    }
+
+    #[test]
+    fn test_json_format_matches_spec() {
+        let dir = TempDir::new().unwrap();
+        let sk_bytes = [0x88u8; 32];
+        KeyStore::initialize(
+            dir.path(),
+            sk_bytes,
+            "json-test-cmk",
+            &Argon2Params::medium(),
+        )
+        .unwrap();
+        let file_path = dir.path().join("wrapped_secret_key.json");
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        let data: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        assert!(data["version"].is_number(), "version must exist");
+        assert_eq!(data["version"].as_u64(), Some(1));
+        assert!(data["algorithm"].is_string(), "algorithm must exist");
+        assert_eq!(data["algorithm"].as_str(), Some("xchacha20-poly1305"));
+        assert!(data["wrapped_sk"].is_string(), "wrapped_sk must exist");
+        assert!(data["nonce"].is_string(), "nonce must exist");
+        assert!(data["created_at"].is_string(), "created_at must exist");
+
+        let kdf = &data["kdf"];
+        assert!(kdf["algorithm"].is_string(), "kdf.algorithm must exist");
+        assert_eq!(kdf["algorithm"].as_str(), Some("argon2id"));
+        assert!(kdf["salt"].is_string(), "kdf.salt must exist");
+        assert!(kdf["time_cost"].is_number(), "kdf.time_cost must exist");
+        assert!(kdf["memory_cost"].is_number(), "kdf.memory_cost must exist");
+        assert!(kdf["parallelism"].is_number(), "kdf.parallelism must exist");
+        assert!(kdf["output_len"].is_number(), "kdf.output_len must exist");
+        assert_eq!(kdf["output_len"].as_u64(), Some(32));
+    }
+
+    #[test]
+    fn test_file_permissions_600() {
+        let dir = TempDir::new().unwrap();
+        let sk_bytes = [0x99u8; 32];
+        KeyStore::initialize(
+            dir.path(),
+            sk_bytes,
+            "perm-test-cmk",
+            &Argon2Params::medium(),
+        )
+        .unwrap();
+        let file_path = dir.path().join("wrapped_secret_key.json");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&file_path).unwrap().permissions().mode();
+            assert_eq!(
+                mode & 0o777,
+                0o600,
+                "file permissions must be 0o600, got {:o}",
+                mode & 0o777
+            );
+        }
+
+        #[cfg(not(unix))]
+        {
+            assert!(file_path.exists());
+        }
     }
 }
