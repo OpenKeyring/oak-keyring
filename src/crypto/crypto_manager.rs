@@ -28,7 +28,7 @@ impl CryptoManager {
     pub fn unlock_with_mnemonic(&mut self, mnemonic: &Passkey) -> Result<(), String> {
         let seed = mnemonic.to_seed(None)?;
         let sk_bytes = seed.to_secret_key();
-        let kek_bytes = hkdf::derive_kek(&sk_bytes);
+        let kek_bytes = hkdf::derive_kek(&sk_bytes)?;
 
         let ks = KeyStore {
             sk: Some(SecretKey::new(sk_bytes)),
@@ -50,6 +50,7 @@ impl CryptoManager {
         let dek = self.get_current_dek()?;
         xchacha20::encrypt_with_aad(plaintext, aad, dek.as_bytes())
             .map(|data| (data.ciphertext, data.nonce))
+            .map_err(|e| e.to_string())
     }
 
     pub fn decrypt(
@@ -68,6 +69,7 @@ impl CryptoManager {
             aad,
             dek.as_bytes(),
         )
+        .map_err(|e| e.to_string())
     }
 
     pub fn is_unlocked(&self) -> bool {

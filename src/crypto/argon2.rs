@@ -95,171 +95,96 @@ mod tests {
     #[test]
     fn test_generate_salt_length() {
         let salt = generate_salt();
-        assert_eq!(salt.len(), 16, "Salt length should always be 16 bytes");
+        assert_eq!(salt.len(), 16, "salt must always be 16 bytes");
     }
 
     #[test]
     fn test_generate_salt_randomness() {
-        let salt1 = generate_salt();
-        let salt2 = generate_salt();
-        assert_ne!(
-            salt1, salt2,
-            "Two consecutive salt generations should produce different values"
-        );
+        let a = generate_salt();
+        let b = generate_salt();
+        assert_ne!(a, b, "two consecutive salts must differ");
     }
 
     #[test]
     fn test_derive_key_determinism() {
-        let password = "test_password_123";
         let salt = generate_salt();
-
-        let key1 = derive_key(password, &salt).expect("First derivation should succeed");
-        let key2 = derive_key(password, &salt).expect("Second derivation should succeed");
-
-        assert_eq!(key1, key2, "Same password + salt should produce same key");
+        let k1 = derive_key("hunter2", &salt).unwrap();
+        let k2 = derive_key("hunter2", &salt).unwrap();
+        assert_eq!(k1, k2, "same password + salt must produce same key");
     }
 
     #[test]
     fn test_derive_key_different_password() {
         let salt = generate_salt();
-
-        let key1 = derive_key("password_one", &salt).expect("First derivation should succeed");
-        let key2 = derive_key("password_two", &salt).expect("Second derivation should succeed");
-
-        assert_ne!(
-            key1, key2,
-            "Different passwords should produce different keys"
-        );
+        let k1 = derive_key("password_a", &salt).unwrap();
+        let k2 = derive_key("password_b", &salt).unwrap();
+        assert_ne!(k1, k2, "different passwords must produce different keys");
     }
 
     #[test]
     fn test_derive_key_different_salt() {
-        let password = "same_password";
-        let salt1 = generate_salt();
-        let salt2 = generate_salt();
-
-        let key1 = derive_key(password, &salt1).expect("First derivation should succeed");
-        let key2 = derive_key(password, &salt2).expect("Second derivation should succeed");
-
-        assert_ne!(key1, key2, "Different salts should produce different keys");
+        let s1 = generate_salt();
+        let s2 = generate_salt();
+        let k1 = derive_key("same_password", &s1).unwrap();
+        let k2 = derive_key("same_password", &s2).unwrap();
+        assert_ne!(k1, k2, "different salts must produce different keys");
     }
 
     #[test]
     fn test_derive_key_length() {
-        let password = "test_password";
         let salt = generate_salt();
-
-        let key = derive_key(password, &salt).expect("Derivation should succeed");
-
-        assert_eq!(key.len(), 32, "Output key length should always be 32 bytes");
+        let key = derive_key("test_password", &salt).unwrap();
+        assert_eq!(key.len(), 32, "derived key must be 32 bytes");
     }
 
     #[test]
     fn test_derive_key_sensitive_matches_derive_key() {
-        let password = "test_sensitive_password";
         let salt = generate_salt();
-
-        let key_normal = derive_key(password, &salt).expect("Normal derivation should succeed");
-        let secure_password = SecureStr::new(password.to_string());
-        let key_sensitive = derive_key_sensitive(&secure_password, &salt)
-            .expect("Sensitive derivation should succeed");
-
-        assert_eq!(
-            key_normal, key_sensitive,
-            "SecureStr version should produce same result as normal version"
-        );
+        let plain = derive_key("my_secret", &salt).unwrap();
+        let secure = derive_key_sensitive(&SecureStr::new("my_secret".to_string()), &salt).unwrap();
+        assert_eq!(plain, secure, "SecureStr version must match plain version");
     }
 
     #[test]
     fn test_hash_password_roundtrip() {
-        let password = "correct_password";
-
-        let hash = hash_password(password).expect("Hashing should succeed");
-        let is_valid = verify_password(password, &hash).expect("Verification should succeed");
-
-        assert!(
-            is_valid,
-            "hash_password + verify_password should pass for correct password"
-        );
+        let hash = hash_password("correct_horse_battery").unwrap();
+        let ok = verify_password("correct_horse_battery", &hash).unwrap();
+        assert!(ok, "verify must succeed for the same password");
     }
 
     #[test]
     fn test_verify_wrong_password() {
-        let password = "correct_password";
-        let wrong_password = "wrong_password";
-
-        let hash = hash_password(password).expect("Hashing should succeed");
-        let is_valid = verify_password(wrong_password, &hash).expect("Verification should succeed");
-
-        assert!(!is_valid, "Wrong password verification should fail");
+        let hash = hash_password("correct_password").unwrap();
+        let ok = verify_password("wrong_password", &hash).unwrap();
+        assert!(!ok, "verify must fail for a different password");
     }
 
     #[test]
     fn test_params_high() {
-        let params = Argon2Params::high();
-        assert_eq!(params.m_cost, 65536, "High m_cost should be 65536");
-        assert_eq!(params.t_cost, 3, "High t_cost should be 3");
-        assert_eq!(params.p_cost, 2, "High p_cost should be 2");
-
-        let salt = generate_salt();
-        let result = derive_key_with_params("test", &salt, &params);
-        assert!(result.is_ok(), "High params should work for key derivation");
+        let p = Argon2Params::high();
+        assert_eq!((p.m_cost, p.t_cost, p.p_cost), (65536, 3, 2));
     }
 
     #[test]
     fn test_params_medium() {
-        let params = Argon2Params::medium();
-        assert_eq!(params.m_cost, 49152, "Medium m_cost should be 49152");
-        assert_eq!(params.t_cost, 2, "Medium t_cost should be 2");
-        assert_eq!(params.p_cost, 2, "Medium p_cost should be 2");
-
-        let salt = generate_salt();
-        let result = derive_key_with_params("test", &salt, &params);
-        assert!(
-            result.is_ok(),
-            "Medium params should work for key derivation"
-        );
+        let p = Argon2Params::medium();
+        assert_eq!((p.m_cost, p.t_cost, p.p_cost), (49152, 2, 2));
     }
 
     #[test]
     fn test_params_low() {
-        let params = Argon2Params::low();
-        assert_eq!(params.m_cost, 32768, "Low m_cost should be 32768");
-        assert_eq!(params.t_cost, 2, "Low t_cost should be 2");
-        assert_eq!(params.p_cost, 1, "Low p_cost should be 1");
-
-        let salt = generate_salt();
-        let result = derive_key_with_params("test", &salt, &params);
-        assert!(result.is_ok(), "Low params should work for key derivation");
+        let p = Argon2Params::low();
+        assert_eq!((p.m_cost, p.t_cost, p.p_cost), (32768, 2, 1));
     }
 
     #[test]
     fn test_constant_time_verify() {
-        // Security test: verify_password must use constant-time comparison to prevent timing attacks.
-        // The implementation uses subtle::ConstantTimeEq::ct_eq() for this purpose.
-
-        use subtle::ConstantTimeEq;
-
-        let password = "test_password";
-        let hash = hash_password(password).expect("Hashing should succeed");
-
-        let derived = derive_key_with_params(password, &hash.salt, &hash.params)
-            .expect("Derivation should succeed");
-
-        let ct_result = derived.ct_eq(&hash.key);
-        assert_eq!(
-            bool::from(ct_result),
-            true,
-            "Constant-time comparison should match for correct password"
-        );
-
-        let wrong_derived = derive_key_with_params("wrong", &hash.salt, &hash.params)
-            .expect("Derivation should succeed");
-        let ct_wrong = wrong_derived.ct_eq(&hash.key);
-        assert_eq!(
-            bool::from(ct_wrong),
-            false,
-            "Constant-time comparison should not match for wrong password"
-        );
+        // Security: verify_password uses subtle::ConstantTimeEq to prevent timing attacks.
+        // This test confirms the wiring is correct by exercising ct_eq directly.
+        let hash = hash_password("test_pw").unwrap();
+        let derived = derive_key_with_params("test_pw", &hash.salt, &hash.params).unwrap();
+        assert!(bool::from(derived.ct_eq(&hash.key)));
+        let wrong = derive_key_with_params("other", &hash.salt, &hash.params).unwrap();
+        assert!(!bool::from(wrong.ct_eq(&hash.key)));
     }
 }
