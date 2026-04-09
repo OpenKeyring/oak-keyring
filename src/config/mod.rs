@@ -1,10 +1,13 @@
+pub mod error;
 pub mod general;
 pub mod password;
 pub mod security;
 pub mod sync;
+pub mod validation;
 
 use serde::{Deserialize, Serialize};
 
+pub use error::ConfigError;
 pub use general::{AnimationMode, GeneralConfig};
 pub use password::PasswordDefaultsConfig;
 pub use security::{HealthCheckFrequency, SecurityConfig};
@@ -34,19 +37,23 @@ impl AppConfig {
         Self::default()
     }
 
-    pub fn load(vault_dir: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(vault_dir: &std::path::Path) -> Result<Self, ConfigError> {
         let path = vault_dir.join("config.toml");
         if !path.exists() {
             return Ok(Self::default_config());
         }
         let content = std::fs::read_to_string(&path)?;
-        Self::from_toml(&content)
+        let config = Self::from_toml(&content)?;
+        validation::validate(&config)?;
+        Ok(config)
     }
 
-    pub fn save(&self, vault_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(&self, vault_dir: &std::path::Path) -> Result<(), ConfigError> {
+        validation::validate(self)?;
         let path = vault_dir.join("config.toml");
         std::fs::create_dir_all(vault_dir)?;
-        let toml_str = toml::to_string_pretty(self)?;
+        let toml_str =
+            toml::to_string_pretty(self).map_err(|e| ConfigError::Parse(e.to_string()))?;
         let tmp_path = path.with_extension("toml.tmp");
         std::fs::write(&tmp_path, &toml_str)?;
         #[cfg(unix)]
@@ -60,7 +67,7 @@ impl AppConfig {
         Ok(())
     }
 
-    pub fn from_toml(content: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_toml(content: &str) -> Result<Self, ConfigError> {
         Ok(toml::from_str(content)?)
     }
 }
