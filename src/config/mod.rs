@@ -13,8 +13,8 @@ pub use password::PasswordDefaultsConfig;
 pub use security::{HealthCheckFrequency, SecurityConfig};
 pub use sync::{
     AliyunDriveConfig, AliyunDriveType, AliyunOssConfig, DropboxConfig, GoogleDriveConfig,
-    HuaweiObsConfig, OneDriveConfig, S3Config, SftpConfig, SftpHostCheck, SyncConfig, SyncMode,
-    SyncProvider, TencentCosConfig, UpyunConfig, WebDavConfig,
+    HuaweiObsConfig, OneDriveConfig, ProviderConfig, S3Config, SftpConfig, SftpHostCheck,
+    SyncConfig, SyncMode, SyncProvider, TencentCosConfig, UpyunConfig, WebDavConfig,
 };
 
 #[cfg(test)]
