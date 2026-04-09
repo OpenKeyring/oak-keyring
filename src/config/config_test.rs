@@ -214,4 +214,59 @@ root_path = "/"
             other => panic!("expected S3, got {:?}", other),
         }
     }
+
+    #[test]
+    fn validation_rejects_provider_mismatch() {
+        let toml_str = r#"
+[sync]
+provider = "WebDav"
+
+[sync.provider_config.S3]
+bucket = "test"
+access_key_id = "key"
+secret_access_key = "secret"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        let result = crate::config::validation::validate(&config);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ConfigError::Validation(_)));
+    }
+
+    #[test]
+    fn validation_accepts_matching_provider() {
+        let toml_str = r#"
+[sync]
+provider = "WebDav"
+
+[sync.provider_config.WebDav]
+endpoint = "https://dav.example.com"
+root_path = "/"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        let result = crate::config::validation::validate(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validation_accepts_disabled_without_provider_config() {
+        let config = AppConfig::default_config();
+        let result = crate::config::validation::validate(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validation_accepts_disabled_with_stale_provider_config() {
+        let toml_str = r#"
+[sync]
+provider = "Disabled"
+
+[sync.provider_config.WebDav]
+endpoint = "https://dav.example.com"
+root_path = "/"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        let result = crate::config::validation::validate(&config);
+        assert!(result.is_ok());
+    }
 }
