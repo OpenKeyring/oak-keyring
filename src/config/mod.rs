@@ -1,5 +1,6 @@
 pub mod error;
 pub mod general;
+pub mod manager;
 pub mod password;
 pub mod security;
 pub mod sync;
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 pub use error::ConfigError;
 pub use general::{AnimationMode, GeneralConfig};
+pub use manager::ConfigManager;
 pub use password::PasswordDefaultsConfig;
 pub use security::{HealthCheckFrequency, SecurityConfig};
 pub use sync::{
