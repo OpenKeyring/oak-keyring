@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::config::{AnimationMode, AppConfig, HealthCheckFrequency, SyncMode, SyncProvider};
+    use crate::config::{
+        AnimationMode, AppConfig, ConfigError, HealthCheckFrequency, SyncMode, SyncProvider,
+    };
+    use crate::errors::service_error::ServiceError;
 
     #[test]
     fn default_values_match_spec() {
@@ -95,5 +98,61 @@ mod tests {
             SyncProvider::Upyun,
         ];
         assert_eq!(providers.len(), 13);
+    }
+
+    #[test]
+    fn config_error_implements_service_error() {
+        let err = ConfigError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        ));
+        assert!(matches!(
+            err.error_code(),
+            crate::errors::ErrorCode::Config(_)
+        ));
+
+        let err = ConfigError::Parse("bad toml".into());
+        assert!(matches!(
+            err.error_code(),
+            crate::errors::ErrorCode::Config(_)
+        ));
+
+        let err = ConfigError::Validation("invalid provider".into());
+        assert!(matches!(
+            err.error_code(),
+            crate::errors::ErrorCode::Config(_)
+        ));
+    }
+
+    #[test]
+    fn malformed_toml_returns_parse_error() {
+        let bad_toml = r#"
+            [sync
+            provider = "WebDav"
+        "#;
+        let result = AppConfig::from_toml(bad_toml);
+        assert!(result.is_err(), "malformed TOML should return Err");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Parse(_)),
+            "should be Parse error"
+        );
+    }
+
+    #[test]
+    fn default_config_values_match_spec() {
+        let config = AppConfig::default_config();
+        assert!(config
+            .general
+            .vault_path
+            .to_string_lossy()
+            .contains("open-keyring"));
+        assert!(matches!(config.sync.provider, SyncProvider::Disabled));
+        assert!(matches!(config.sync.sync_mode, SyncMode::Auto));
+        assert_eq!(config.sync.auto_interval_seconds, 600);
+        assert!(matches!(
+            config.security.health_check_frequency,
+            HealthCheckFrequency::OnStartup
+        ));
     }
 }
