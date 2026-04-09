@@ -269,4 +269,9 @@ root_path = "/"
         let result = crate::config::validation::validate(&config);
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn config_manager_trait_exists() {
+        fn _assert_trait<T: crate::config::ConfigManager>() {}
+    }
 }
