@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::config::{
-        AnimationMode, AppConfig, ConfigError, HealthCheckFrequency, SyncMode, SyncProvider,
+        AnimationMode, AppConfig, ConfigError, HealthCheckFrequency, ProviderConfig, SyncMode,
+        SyncProvider,
     };
     use crate::errors::service_error::ServiceError;
 
@@ -154,5 +155,63 @@ mod tests {
             config.security.health_check_frequency,
             HealthCheckFrequency::OnStartup
         ));
+    }
+
+    #[test]
+    fn provider_config_webdav_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "WebDav"
+sync_mode = "Auto"
+auto_interval_seconds = 600
+
+[sync.provider_config.WebDav]
+endpoint = "https://dav.example.com/dav/"
+root_path = "/"
+username = "user"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        assert!(matches!(config.sync.provider, SyncProvider::WebDav));
+        match &config.sync.provider_config {
+            Some(ProviderConfig::WebDav(c)) => {
+                assert_eq!(c.endpoint, "https://dav.example.com/dav/");
+                assert_eq!(c.username.as_deref(), Some("user"));
+            }
+            other => panic!("expected WebDav, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn provider_config_disabled_is_none() {
+        let toml_str = r#"
+[sync]
+provider = "Disabled"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        assert!(matches!(config.sync.provider, SyncProvider::Disabled));
+        assert!(config.sync.provider_config.is_none());
+    }
+
+    #[test]
+    fn provider_config_s3_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "S3"
+
+[sync.provider_config.S3]
+bucket = "my-bucket"
+access_key_id = "AKIA_EXAMPLE"
+secret_access_key = "secret123"
+root_path = "/"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        match &config.sync.provider_config {
+            Some(ProviderConfig::S3(c)) => {
+                assert_eq!(c.bucket, "my-bucket");
+                assert_eq!(c.access_key_id, "AKIA_EXAMPLE");
+                assert!(c.endpoint.is_none());
+            }
+            other => panic!("expected S3, got {:?}", other),
+        }
     }
 }

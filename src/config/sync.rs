@@ -149,6 +149,22 @@ pub struct UpyunConfig {
     pub root_path: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProviderConfig {
+    ICloud,
+    GoogleDrive(GoogleDriveConfig),
+    Dropbox(DropboxConfig),
+    OneDrive(OneDriveConfig),
+    WebDav(WebDavConfig),
+    Sftp(SftpConfig),
+    S3(S3Config),
+    AliyunDrive(AliyunDriveConfig),
+    AliyunOss(AliyunOssConfig),
+    TencentCos(TencentCosConfig),
+    HuaweiObs(HuaweiObsConfig),
+    Upyun(UpyunConfig),
+}
+
 fn default_root() -> String {
     "/".to_string()
 }
@@ -161,6 +177,8 @@ pub struct SyncConfig {
     pub sync_mode: SyncMode,
     #[serde(default = "default_interval")]
     pub auto_interval_seconds: u64,
+    #[serde(default)]
+    pub provider_config: Option<ProviderConfig>,
 }
 
 fn default_interval() -> u64 {
@@ -173,6 +191,7 @@ impl Default for SyncConfig {
             provider: SyncProvider::Disabled,
             sync_mode: SyncMode::Auto,
             auto_interval_seconds: 600,
+            provider_config: None,
         }
     }
 }
