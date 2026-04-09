@@ -279,4 +279,9 @@ root_path = "/"
     fn config_watcher_trait_exists() {
         fn _assert_trait<T: crate::config::ConfigWatcher>() {}
     }
+
+    #[test]
+    fn service_notification_trait_exists() {
+        fn _assert_trait<T: crate::config::ServiceNotification>() {}
+    }
 }
