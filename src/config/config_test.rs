@@ -284,4 +284,319 @@ root_path = "/"
     fn service_notification_trait_exists() {
         fn _assert_trait<T: crate::config::ServiceNotification>() {}
     }
+
+    #[test]
+    fn provider_config_icloud_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "ICloud"
+
+[sync.provider_config]
+ICloud = {}
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        assert!(matches!(config.sync.provider, SyncProvider::ICloud));
+        assert!(matches!(
+            config.sync.provider_config,
+            Some(ProviderConfig::ICloud)
+        ));
+    }
+
+    #[test]
+    fn provider_config_google_drive_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "GoogleDrive"
+
+[sync.provider_config.GoogleDrive]
+client_id = "id"
+client_secret = "secret"
+refresh_token = "token"
+root_path = "/keyring"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        match &config.sync.provider_config {
+            Some(ProviderConfig::GoogleDrive(c)) => {
+                assert_eq!(c.client_id, "id");
+                assert_eq!(c.root_path, "/keyring");
+            }
+            other => panic!("expected GoogleDrive, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn provider_config_dropbox_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "Dropbox"
+
+[sync.provider_config.Dropbox]
+client_id = "id"
+client_secret = "secret"
+refresh_token = "token"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        match &config.sync.provider_config {
+            Some(ProviderConfig::Dropbox(c)) => {
+                assert_eq!(c.client_id, "id");
+                assert_eq!(c.root_path, "/");
+            }
+            other => panic!("expected Dropbox, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn provider_config_onedrive_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "OneDrive"
+
+[sync.provider_config.OneDrive]
+client_id = "id"
+client_secret = "secret"
+refresh_token = "token"
+root_path = "/"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        assert!(matches!(
+            config.sync.provider_config,
+            Some(ProviderConfig::OneDrive(_))
+        ));
+    }
+
+    #[test]
+    fn provider_config_sftp_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "Sftp"
+
+[sync.provider_config.Sftp]
+server = "user@host.example.com"
+ssh_key_path = "/home/user/.ssh/id_ed25519"
+root_path = "/backup"
+host_check = "Accept"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        match &config.sync.provider_config {
+            Some(ProviderConfig::Sftp(c)) => {
+                assert_eq!(c.server, "user@host.example.com");
+                assert_eq!(c.ssh_key_path, "/home/user/.ssh/id_ed25519");
+                assert!(matches!(c.host_check, crate::config::SftpHostCheck::Accept));
+            }
+            other => panic!("expected Sftp, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn provider_config_aliyun_drive_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "AliyunDrive"
+
+[sync.provider_config.AliyunDrive]
+client_id = "id"
+client_secret = "secret"
+refresh_token = "token"
+drive_type = "Backup"
+root_path = "/"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        match &config.sync.provider_config {
+            Some(ProviderConfig::AliyunDrive(c)) => {
+                assert!(matches!(
+                    c.drive_type,
+                    crate::config::AliyunDriveType::Backup
+                ));
+            }
+            other => panic!("expected AliyunDrive, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn provider_config_aliyun_oss_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "AliyunOss"
+
+[sync.provider_config.AliyunOss]
+endpoint = "https://oss-cn-hangzhou.aliyuncs.com"
+bucket = "my-bucket"
+access_key_id = "key"
+access_key_secret = "secret"
+root_path = "/"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        assert!(matches!(
+            config.sync.provider_config,
+            Some(ProviderConfig::AliyunOss(_))
+        ));
+    }
+
+    #[test]
+    fn provider_config_tencent_cos_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "TencentCos"
+
+[sync.provider_config.TencentCos]
+endpoint = "https://cos.ap-guangzhou.myqcloud.com"
+bucket = "my-bucket-1250000000"
+secret_id = "id"
+secret_key = "key"
+root_path = "/"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        assert!(matches!(
+            config.sync.provider_config,
+            Some(ProviderConfig::TencentCos(_))
+        ));
+    }
+
+    #[test]
+    fn provider_config_huawei_obs_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "HuaweiObs"
+
+[sync.provider_config.HuaweiObs]
+endpoint = "https://obs.cn-north-4.myhuaweicloud.com"
+bucket = "my-bucket"
+access_key_id = "key"
+secret_access_key = "secret"
+root_path = "/"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        assert!(matches!(
+            config.sync.provider_config,
+            Some(ProviderConfig::HuaweiObs(_))
+        ));
+    }
+
+    #[test]
+    fn provider_config_upyun_roundtrip() {
+        let toml_str = r#"
+[sync]
+provider = "Upyun"
+
+[sync.provider_config.Upyun]
+bucket = "my-bucket"
+operator = "operator-name"
+operator_password = "password"
+root_path = "/"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        match &config.sync.provider_config {
+            Some(ProviderConfig::Upyun(c)) => {
+                assert_eq!(c.operator, "operator-name");
+            }
+            other => panic!("expected Upyun, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn full_config_save_load_roundtrip_with_provider() {
+        let tmp = std::env::temp_dir().join(format!("ok_config_test_{}", uuid::Uuid::new_v4()));
+        let mut config = AppConfig::default_config();
+        config.sync.provider = SyncProvider::WebDav;
+        config.sync.provider_config = Some(ProviderConfig::WebDav(crate::config::WebDavConfig {
+            endpoint: "https://dav.example.com".into(),
+            root_path: "/keyring".into(),
+            username: Some("user".into()),
+            password: Some("pass".into()),
+            bearer_token: None,
+        }));
+
+        config.save(&tmp).expect("save failed");
+        let loaded = AppConfig::load(&tmp).expect("load failed");
+
+        match &loaded.sync.provider_config {
+            Some(ProviderConfig::WebDav(c)) => {
+                assert_eq!(c.endpoint, "https://dav.example.com");
+                assert_eq!(c.username.as_deref(), Some("user"));
+            }
+            other => panic!("expected WebDav, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn full_config_save_load_roundtrip_icloud() {
+        let tmp = std::env::temp_dir().join(format!("ok_config_test_{}", uuid::Uuid::new_v4()));
+        let mut config = AppConfig::default_config();
+        config.sync.provider = SyncProvider::ICloud;
+        config.sync.provider_config = Some(ProviderConfig::ICloud);
+
+        config.save(&tmp).expect("save failed");
+        let loaded = AppConfig::load(&tmp).expect("load failed");
+
+        assert!(matches!(loaded.sync.provider, SyncProvider::ICloud));
+        assert!(matches!(
+            loaded.sync.provider_config,
+            Some(ProviderConfig::ICloud)
+        ));
+    }
+
+    #[test]
+    fn vault_path_uses_platform_default() {
+        let config = AppConfig::default_config();
+        let path_str = config.general.vault_path.to_string_lossy();
+        assert!(
+            path_str.contains("open-keyring"),
+            "default vault_path should contain 'open-keyring', got: {}",
+            path_str
+        );
+    }
+
+    #[test]
+    fn sftp_host_check_serialization_roundtrip() {
+        use crate::config::SftpHostCheck;
+        for variant in [
+            SftpHostCheck::Strict,
+            SftpHostCheck::Accept,
+            SftpHostCheck::Add,
+        ] {
+            let json = serde_json::to_string(&variant).unwrap();
+            let deserialized: SftpHostCheck = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, variant);
+        }
+    }
+
+    #[test]
+    fn aliyun_drive_type_serialization_roundtrip() {
+        use crate::config::AliyunDriveType;
+        for variant in [
+            AliyunDriveType::Default,
+            AliyunDriveType::Backup,
+            AliyunDriveType::Resource,
+        ] {
+            let json = serde_json::to_string(&variant).unwrap();
+            let deserialized: AliyunDriveType = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, variant);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saved_config_has_600_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!("ok_config_test_{}", uuid::Uuid::new_v4()));
+        let config = AppConfig::default_config();
+        config.save(&tmp).expect("save failed");
+        let meta = std::fs::metadata(tmp.join("config.toml")).unwrap();
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "expected 600 permissions, got {:o}", mode);
+    }
+
+    #[test]
+    fn unknown_fields_in_toml_are_tolerated() {
+        let toml_str = r#"
+[general]
+auto_lock_seconds = 300
+unknown_future_field = "should be ignored"
+
+[some_unknown_section]
+foo = "bar"
+"#;
+        let config = AppConfig::from_toml(toml_str).unwrap();
+        assert_eq!(config.general.auto_lock_seconds, 300);
+    }
 }
