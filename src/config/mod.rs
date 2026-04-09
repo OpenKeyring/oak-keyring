@@ -5,6 +5,7 @@ pub mod password;
 pub mod security;
 pub mod sync;
 pub mod validation;
+pub mod watcher;
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +19,7 @@ pub use sync::{
     HuaweiObsConfig, OneDriveConfig, ProviderConfig, S3Config, SftpConfig, SftpHostCheck,
     SyncConfig, SyncMode, SyncProvider, TencentCosConfig, UpyunConfig, WebDavConfig,
 };
+pub use watcher::ConfigWatcher;
 
 #[cfg(test)]
 mod config_test;

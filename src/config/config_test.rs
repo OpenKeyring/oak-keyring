@@ -274,4 +274,9 @@ root_path = "/"
     fn config_manager_trait_exists() {
         fn _assert_trait<T: crate::config::ConfigManager>() {}
     }
+
+    #[test]
+    fn config_watcher_trait_exists() {
+        fn _assert_trait<T: crate::config::ConfigWatcher>() {}
+    }
 }
