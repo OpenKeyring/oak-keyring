@@ -19,6 +19,10 @@ pub enum AuditOperation {
     VaultImport,
     MasterPasswordChange,
     TrashEmpty,
+    SyncConflictResolved,
+    SyncBatchConflictsResolved,
+    DekRotated,
+    DekRotationFailed,
 }
 
 impl AuditOperation {
@@ -38,6 +42,10 @@ impl AuditOperation {
             AuditOperation::VaultImport => "vault.import",
             AuditOperation::MasterPasswordChange => "master_password.change",
             AuditOperation::TrashEmpty => "trash.empty",
+            AuditOperation::SyncConflictResolved => "sync.conflict_resolved",
+            AuditOperation::SyncBatchConflictsResolved => "sync.batch_conflicts_resolved",
+            AuditOperation::DekRotated => "dek.rotated",
+            AuditOperation::DekRotationFailed => "dek.rotation_failed",
         }
     }
 
@@ -57,6 +65,10 @@ impl AuditOperation {
             "vault.import" => Ok(AuditOperation::VaultImport),
             "master_password.change" => Ok(AuditOperation::MasterPasswordChange),
             "trash.empty" => Ok(AuditOperation::TrashEmpty),
+            "sync.conflict_resolved" => Ok(AuditOperation::SyncConflictResolved),
+            "sync.batch_conflicts_resolved" => Ok(AuditOperation::SyncBatchConflictsResolved),
+            "dek.rotated" => Ok(AuditOperation::DekRotated),
+            "dek.rotation_failed" => Ok(AuditOperation::DekRotationFailed),
             _ => Err(DataError::InvalidAuditOperation(s.to_string())),
         }
     }
