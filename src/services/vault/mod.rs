@@ -54,36 +54,6 @@ impl VaultService {
         self.crypto.is_unlocked()
     }
 
-    pub fn create_record(
-        &mut self,
-        credential_type: CredentialType,
-        encrypted_data: Vec<u8>,
-        nonce: [u8; 24],
-        dek_version: u32,
-        aad: Option<Vec<u8>>,
-    ) -> Result<Uuid, VaultError> {
-        let now = Utc::now().timestamp();
-        let id = Uuid::new_v4();
-
-        self.conn.execute(
-            "INSERT INTO records (id, credential_type, encrypted_data, nonce, dek_version, aad, is_favorite, created_at, updated_at, updated_by, version, deleted)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, 1, 0)",
-            rusqlite::params![
-                id.to_string(),
-                credential_type.to_db_str(),
-                encrypted_data,
-                nonce.to_vec(),
-                dek_version,
-                aad,
-                now,
-                now,
-                self.device_id,
-            ],
-        )?;
-
-        Ok(id)
-    }
-
     pub fn list_records(
         &self,
         filter: &RecordFilter,
