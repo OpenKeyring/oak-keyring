@@ -3,6 +3,51 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MnemonicLanguage {
+    #[default]
+    English,
+    ChineseSimplified,
+}
+
+impl MnemonicLanguage {
+    pub fn from_keystore_value(s: &str) -> Result<Self, String> {
+        match s {
+            "en" => Ok(Self::English),
+            "zh-CN" => Ok(Self::ChineseSimplified),
+            other => Err(format!("unsupported mnemonic language: {other}")),
+        }
+    }
+
+    pub fn to_keystore_value(&self) -> &'static str {
+        match self {
+            Self::English => "en",
+            Self::ChineseSimplified => "zh-CN",
+        }
+    }
+
+    pub fn to_bip39_language(&self) -> bip39::Language {
+        match self {
+            Self::English => bip39::Language::English,
+            Self::ChineseSimplified => bip39::Language::SimplifiedChinese,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::English => "English",
+            Self::ChineseSimplified => "中文(简体)",
+        }
+    }
+
+    pub fn all() -> &'static [MnemonicLanguage] {
+        &[
+            MnemonicLanguage::English,
+            MnemonicLanguage::ChineseSimplified,
+        ]
+    }
+}
+
 pub struct Passkey {
     mnemonic: Mnemonic,
 }
@@ -63,6 +108,68 @@ impl Drop for PasskeySeed {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // MnemonicLanguage tests
+    #[test]
+    fn test_mnemonic_language_from_str_en() {
+        let lang = MnemonicLanguage::from_keystore_value("en").unwrap();
+        assert_eq!(lang, MnemonicLanguage::English);
+    }
+
+    #[test]
+    fn test_mnemonic_language_from_str_zh_cn() {
+        let lang = MnemonicLanguage::from_keystore_value("zh-CN").unwrap();
+        assert_eq!(lang, MnemonicLanguage::ChineseSimplified);
+    }
+
+    #[test]
+    fn test_mnemonic_language_from_str_invalid() {
+        assert!(MnemonicLanguage::from_keystore_value("fr").is_err());
+        assert!(MnemonicLanguage::from_keystore_value("").is_err());
+    }
+
+    #[test]
+    fn test_mnemonic_language_to_keystore_value() {
+        assert_eq!(MnemonicLanguage::English.to_keystore_value(), "en");
+        assert_eq!(
+            MnemonicLanguage::ChineseSimplified.to_keystore_value(),
+            "zh-CN"
+        );
+    }
+
+    #[test]
+    fn test_mnemonic_language_to_bip39_language() {
+        assert_eq!(
+            MnemonicLanguage::English.to_bip39_language(),
+            bip39::Language::English
+        );
+        assert_eq!(
+            MnemonicLanguage::ChineseSimplified.to_bip39_language(),
+            bip39::Language::SimplifiedChinese
+        );
+    }
+
+    #[test]
+    fn test_mnemonic_language_display_name() {
+        assert_eq!(MnemonicLanguage::English.display_name(), "English");
+        assert_eq!(
+            MnemonicLanguage::ChineseSimplified.display_name(),
+            "中文(简体)"
+        );
+    }
+
+    #[test]
+    fn test_mnemonic_language_default() {
+        assert_eq!(MnemonicLanguage::default(), MnemonicLanguage::English);
+    }
+
+    #[test]
+    fn test_mnemonic_language_all() {
+        let all = MnemonicLanguage::all();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0], MnemonicLanguage::English);
+        assert_eq!(all[1], MnemonicLanguage::ChineseSimplified);
+    }
 
     #[test]
     fn test_generate_24_words() {
