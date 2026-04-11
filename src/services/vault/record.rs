@@ -291,6 +291,146 @@ impl VaultService {
 
         Ok(())
     }
+
+    // =========================================================================
+    // Soft delete, restore, hard delete, toggle favorite
+    // =========================================================================
+
+    /// Soft-delete a record by ID.
+    ///
+    /// Sets `deleted = 1` and `deleted_at = now` so the record disappears from
+    /// normal listing but can be restored later. Writes an audit entry with
+    /// operation `RecordDelete`.
+    ///
+    /// # Errors
+    /// - `VaultError::NotUnlocked` if the vault is locked.
+    /// - `VaultError::RecordNotFound` if no record with the given UUID exists.
+    pub fn soft_delete_record(&mut self, id: Uuid) -> Result<(), VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        // Fetch record to verify existence and capture name for audit.
+        let stored = self.get_stored_record(id)?;
+        let record_name = decrypt_record_name(&self.crypto, &stored)?;
+
+        queries::soft_delete_record(&self.conn, &id).map_err(db_error_to_vault)?;
+
+        queries::insert_audit_entry(
+            &self.conn,
+            AuditOperation::RecordDelete,
+            Some(&id),
+            Some(&record_name),
+            None,
+        )
+        .map_err(db_error_to_vault)?;
+
+        Ok(())
+    }
+
+    /// Restore a previously soft-deleted record.
+    ///
+    /// Sets `deleted = 0` and `deleted_at = NULL`. Writes an audit entry with
+    /// operation `RecordRestore`.
+    ///
+    /// # Errors
+    /// - `VaultError::NotUnlocked` if the vault is locked.
+    /// - `VaultError::RecordNotFound` if no record with the given UUID exists.
+    pub fn restore_record(&mut self, id: Uuid) -> Result<(), VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        // Fetch record to verify existence and capture name for audit.
+        let stored = self.get_stored_record(id)?;
+        let record_name = decrypt_record_name(&self.crypto, &stored)?;
+
+        queries::restore_record(&self.conn, &id).map_err(db_error_to_vault)?;
+
+        queries::insert_audit_entry(
+            &self.conn,
+            AuditOperation::RecordRestore,
+            Some(&id),
+            Some(&record_name),
+            None,
+        )
+        .map_err(db_error_to_vault)?;
+
+        Ok(())
+    }
+
+    /// Permanently delete a record and all associated data.
+    ///
+    /// Cascade-deletes `record_tags` and `password_history` via FK constraints.
+    /// Writes an audit entry with operation `RecordDestroy`.
+    ///
+    /// # Errors
+    /// - `VaultError::NotUnlocked` if the vault is locked.
+    /// - `VaultError::RecordNotFound` if no record with the given UUID exists.
+    pub fn hard_delete_record(&mut self, id: Uuid) -> Result<(), VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        // Fetch record to verify existence and capture name for audit before deletion.
+        let stored = self.get_stored_record(id)?;
+        let record_name = decrypt_record_name(&self.crypto, &stored)?;
+
+        queries::hard_delete_record(&self.conn, &id).map_err(db_error_to_vault)?;
+
+        queries::insert_audit_entry(
+            &self.conn,
+            AuditOperation::RecordDestroy,
+            Some(&id),
+            Some(&record_name),
+            None,
+        )
+        .map_err(db_error_to_vault)?;
+
+        Ok(())
+    }
+
+    /// Toggle the favorite status of a record.
+    ///
+    /// Updates only the `is_favorite` field — no version increment, no audit entry.
+    ///
+    /// # Errors
+    /// - `VaultError::NotUnlocked` if the vault is locked.
+    /// - `VaultError::RecordNotFound` if no record with the given UUID exists.
+    pub fn toggle_favorite(&mut self, id: Uuid, is_favorite: bool) -> Result<(), VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        // Verify the record exists.
+        self.get_stored_record(id)?;
+
+        self.conn
+            .execute(
+                "UPDATE records SET is_favorite = ?1 WHERE id = ?2",
+                rusqlite::params![is_favorite as i64, id.to_string()],
+            )
+            .map_err(VaultError::DatabaseError)?;
+
+        Ok(())
+    }
+}
+
+/// Decrypt just the record name from a stored record for audit logging purposes.
+fn decrypt_record_name(
+    crypto: &crate::crypto::CryptoManager,
+    stored: &StoredRecord,
+) -> Result<String, VaultError> {
+    let payload = payload::decrypt_payload(
+        crypto,
+        &stored.encrypted_data,
+        &stored.nonce,
+        &stored.aad,
+        stored.credential_type,
+        stored.dek_version,
+    )
+    .map_err(VaultError::CryptoError)?;
+    Ok(payload.name().to_string())
 }
 
 /// Check whether the password field changed between two Login payloads.
@@ -1102,5 +1242,429 @@ mod tests {
         assert_eq!(stored.version, 3);
         assert!(stored.is_favorite);
         assert_eq!(stored.tags, vec!["final"]);
+    }
+
+    // =========================================================================
+    // soft_delete_record tests
+    // =========================================================================
+
+    // --- soft_delete_record: NotUnlocked guard ---
+
+    #[test]
+    fn soft_delete_record_returns_not_unlocked_when_locked() {
+        let mut svc = setup_service();
+        assert!(!svc.is_unlocked());
+
+        let result = svc.soft_delete_record(Uuid::new_v4());
+        assert!(result.is_err(), "soft_delete_record must fail when locked");
+        assert!(
+            matches!(result.unwrap_err(), VaultError::NotUnlocked),
+            "expected NotUnlocked error"
+        );
+    }
+
+    // --- soft_delete_record: record not in list_records(All) after soft delete ---
+
+    #[test]
+    fn soft_delete_record_removes_from_active_listing() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // Record is in active listing before soft delete
+        let active_before = queries::list_active_records(&svc.conn).unwrap();
+        assert_eq!(active_before.len(), 1);
+
+        svc.soft_delete_record(id)
+            .expect("soft_delete_record must succeed");
+
+        // Record is NOT in active listing after soft delete
+        let active_after = queries::list_active_records(&svc.conn).unwrap();
+        assert!(
+            active_after.is_empty(),
+            "soft-deleted record must not appear in active listing"
+        );
+
+        // Record still exists in DB with deleted = true
+        let stored = svc.get_stored_record(id).unwrap();
+        assert!(stored.deleted);
+        assert!(stored.deleted_at.is_some());
+    }
+
+    // --- soft_delete_record: writes audit RecordDelete ---
+
+    #[test]
+    fn soft_delete_record_writes_audit_record_delete() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // One audit entry from create
+        let before =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(before.len(), 1);
+
+        svc.soft_delete_record(id)
+            .expect("soft_delete_record must succeed");
+
+        let after =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(
+            after.len(),
+            2,
+            "expected two audit entries after soft delete"
+        );
+
+        let delete_entry = after
+            .iter()
+            .find(|e| e.operation == AuditOperation::RecordDelete)
+            .expect("expected a RecordDelete audit entry");
+        assert_eq!(delete_entry.record_id, Some(id));
+        assert_eq!(delete_entry.record_name.as_deref(), Some("TestLogin"));
+    }
+
+    // --- soft_delete_record: nonexistent record returns RecordNotFound ---
+
+    #[test]
+    fn soft_delete_record_returns_not_found_for_nonexistent() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let nonexistent = Uuid::new_v4();
+
+        let result = svc.soft_delete_record(nonexistent);
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), VaultError::RecordNotFound(id) if id == nonexistent),
+            "expected RecordNotFound"
+        );
+    }
+
+    // =========================================================================
+    // restore_record tests
+    // =========================================================================
+
+    // --- restore_record: NotUnlocked guard ---
+
+    #[test]
+    fn restore_record_returns_not_unlocked_when_locked() {
+        let mut svc = setup_service();
+        assert!(!svc.is_unlocked());
+
+        let result = svc.restore_record(Uuid::new_v4());
+        assert!(result.is_err(), "restore_record must fail when locked");
+        assert!(
+            matches!(result.unwrap_err(), VaultError::NotUnlocked),
+            "expected NotUnlocked error"
+        );
+    }
+
+    // --- restore_record: record back in list_records(All) after restore ---
+
+    #[test]
+    fn restore_record_returns_to_active_listing() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // Soft delete first
+        svc.soft_delete_record(id)
+            .expect("soft_delete_record must succeed");
+        let after_delete = queries::list_active_records(&svc.conn).unwrap();
+        assert!(after_delete.is_empty());
+
+        // Restore
+        svc.restore_record(id).expect("restore_record must succeed");
+
+        // Record is back in active listing
+        let after_restore = queries::list_active_records(&svc.conn).unwrap();
+        assert_eq!(
+            after_restore.len(),
+            1,
+            "restored record must appear in active listing"
+        );
+        assert_eq!(after_restore[0].id, id);
+
+        // Record fields reflect non-deleted state
+        let stored = svc.get_stored_record(id).unwrap();
+        assert!(!stored.deleted);
+        assert!(stored.deleted_at.is_none());
+    }
+
+    // --- restore_record: writes audit RecordRestore ---
+
+    #[test]
+    fn restore_record_writes_audit_record_restore() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        svc.soft_delete_record(id)
+            .expect("soft_delete_record must succeed");
+
+        // Two audit entries: create + soft_delete
+        let before_restore =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(before_restore.len(), 2);
+
+        svc.restore_record(id).expect("restore_record must succeed");
+
+        let after =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(after.len(), 3, "expected three audit entries after restore");
+
+        let restore_entry = after
+            .iter()
+            .find(|e| e.operation == AuditOperation::RecordRestore)
+            .expect("expected a RecordRestore audit entry");
+        assert_eq!(restore_entry.record_id, Some(id));
+        assert_eq!(restore_entry.record_name.as_deref(), Some("TestLogin"));
+    }
+
+    // --- restore_record: nonexistent record returns RecordNotFound ---
+
+    #[test]
+    fn restore_record_returns_not_found_for_nonexistent() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let nonexistent = Uuid::new_v4();
+
+        let result = svc.restore_record(nonexistent);
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), VaultError::RecordNotFound(id) if id == nonexistent),
+            "expected RecordNotFound"
+        );
+    }
+
+    // =========================================================================
+    // hard_delete_record tests
+    // =========================================================================
+
+    // --- hard_delete_record: NotUnlocked guard ---
+
+    #[test]
+    fn hard_delete_record_returns_not_unlocked_when_locked() {
+        let mut svc = setup_service();
+        assert!(!svc.is_unlocked());
+
+        let result = svc.hard_delete_record(Uuid::new_v4());
+        assert!(result.is_err(), "hard_delete_record must fail when locked");
+        assert!(
+            matches!(result.unwrap_err(), VaultError::NotUnlocked),
+            "expected NotUnlocked error"
+        );
+    }
+
+    // --- hard_delete_record: cascade deletes record_tags and password_history ---
+
+    #[test]
+    fn hard_delete_record_cascades_deletes_tags_and_password_history() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Create a record with tags
+        let id = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: sample_login_payload("CascadeTest"),
+                tags: vec!["tag1".to_string(), "tag2".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        // Create password history by updating with a new password
+        let new_payload = EncryptedPayload::Login {
+            name: "CascadeTest".to_string(),
+            username: "alice".to_string(),
+            password: SecureStr::new("newPassword123!".to_string()),
+            url: Some("https://github.com".to_string()),
+            notes: None,
+        };
+        svc.update_record(UpdateRecordParams {
+            id,
+            payload: new_payload,
+            tags: vec!["tag1".to_string()],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 1,
+        })
+        .expect("update_record must succeed");
+
+        // Verify password history exists
+        let history_count = queries::count_password_history(&svc.conn, &id).unwrap();
+        assert_eq!(history_count, 1, "one password history entry should exist");
+
+        // Verify tags exist
+        let tags = queries::get_record_tags(&svc.conn, &id).unwrap();
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0], "tag1");
+
+        // Hard delete
+        svc.hard_delete_record(id)
+            .expect("hard_delete_record must succeed");
+
+        // Record is gone
+        let record_result = queries::get_record(&svc.conn, &id).unwrap();
+        assert!(
+            record_result.is_none(),
+            "record must be gone after hard delete"
+        );
+
+        // Password history cascade deleted
+        let history_after = queries::count_password_history(&svc.conn, &id).unwrap();
+        assert_eq!(history_after, 0, "password history must be cascade deleted");
+
+        // Record tags cascade deleted
+        let tags_after = queries::get_record_tags(&svc.conn, &id).unwrap();
+        assert!(tags_after.is_empty(), "record_tags must be cascade deleted");
+    }
+
+    // --- hard_delete_record: writes audit RecordDestroy ---
+
+    #[test]
+    fn hard_delete_record_writes_audit_record_destroy() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // One audit entry from create
+        let before =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(before.len(), 1);
+
+        svc.hard_delete_record(id)
+            .expect("hard_delete_record must succeed");
+
+        let after =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(
+            after.len(),
+            2,
+            "expected two audit entries after hard delete"
+        );
+
+        let destroy_entry = after
+            .iter()
+            .find(|e| e.operation == AuditOperation::RecordDestroy)
+            .expect("expected a RecordDestroy audit entry");
+        assert_eq!(destroy_entry.record_id, Some(id));
+        assert_eq!(destroy_entry.record_name.as_deref(), Some("TestLogin"));
+    }
+
+    // --- hard_delete_record: nonexistent record returns RecordNotFound ---
+
+    #[test]
+    fn hard_delete_record_returns_not_found_for_nonexistent() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let nonexistent = Uuid::new_v4();
+
+        let result = svc.hard_delete_record(nonexistent);
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), VaultError::RecordNotFound(id) if id == nonexistent),
+            "expected RecordNotFound"
+        );
+    }
+
+    // =========================================================================
+    // toggle_favorite tests
+    // =========================================================================
+
+    // --- toggle_favorite: NotUnlocked guard ---
+
+    #[test]
+    fn toggle_favorite_returns_not_unlocked_when_locked() {
+        let mut svc = setup_service();
+        assert!(!svc.is_unlocked());
+
+        let result = svc.toggle_favorite(Uuid::new_v4(), true);
+        assert!(result.is_err(), "toggle_favorite must fail when locked");
+        assert!(
+            matches!(result.unwrap_err(), VaultError::NotUnlocked),
+            "expected NotUnlocked error"
+        );
+    }
+
+    // --- toggle_favorite: changes is_favorite but not version ---
+
+    #[test]
+    fn toggle_favorite_changes_favorite_without_version_increment() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // Initially not favorite, version 1
+        let before = svc.get_stored_record(id).unwrap();
+        assert!(!before.is_favorite);
+        assert_eq!(before.version, 1);
+
+        // Set to favorite
+        svc.toggle_favorite(id, true)
+            .expect("toggle_favorite must succeed");
+
+        let after = svc.get_stored_record(id).unwrap();
+        assert!(
+            after.is_favorite,
+            "is_favorite should be true after toggle_favorite(true)"
+        );
+        assert_eq!(
+            after.version, 1,
+            "version must NOT increment on toggle_favorite"
+        );
+
+        // Set back to not favorite
+        svc.toggle_favorite(id, false)
+            .expect("toggle_favorite must succeed");
+
+        let after_unset = svc.get_stored_record(id).unwrap();
+        assert!(
+            !after_unset.is_favorite,
+            "is_favorite should be false after toggle_favorite(false)"
+        );
+        assert_eq!(after_unset.version, 1, "version must still not increment");
+    }
+
+    // --- toggle_favorite: no audit entry written ---
+
+    #[test]
+    fn toggle_favorite_does_not_write_audit_entry() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // One audit entry from create
+        let before =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(before.len(), 1);
+
+        svc.toggle_favorite(id, true)
+            .expect("toggle_favorite must succeed");
+
+        // Still only one audit entry — no new audit for toggle_favorite
+        let after =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(
+            after.len(),
+            1,
+            "toggle_favorite must not write an audit entry"
+        );
+    }
+
+    // --- toggle_favorite: nonexistent record returns RecordNotFound ---
+
+    #[test]
+    fn toggle_favorite_returns_not_found_for_nonexistent() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let nonexistent = Uuid::new_v4();
+
+        let result = svc.toggle_favorite(nonexistent, true);
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), VaultError::RecordNotFound(id) if id == nonexistent),
+            "expected RecordNotFound"
+        );
     }
 }
