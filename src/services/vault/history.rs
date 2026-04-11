@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 use crate::services::vault::record::db_error_to_vault;
+use crate::types::credential::CredentialType;
 use crate::types::history::PasswordHistory;
 use crate::types::sensitive::SecureStr;
 
@@ -114,6 +115,46 @@ impl VaultService {
             now_ts,
         )
         .map_err(db_error_to_vault)?;
+
+        Ok(())
+    }
+
+    /// Save the current encrypted payload to password history during S2 sync conflict.
+    ///
+    /// This method is designed for the sync service (S2) to call when a conflict
+    /// is detected. It **never returns an error** to the caller — all errors are
+    /// logged/swallowed so that conflict history saving never blocks the sync.
+    ///
+    /// Behavior:
+    /// 1. If the vault is not unlocked, silently returns `Ok(())`.
+    /// 2. If the record does not exist, silently returns `Ok(())`.
+    /// 3. If the record's `credential_type` is not `Login`, silently returns `Ok(())`.
+    /// 4. Otherwise, saves the current encrypted blob to password history (pruning
+    ///    oldest entries when count exceeds 10).
+    pub fn save_conflict_history(&mut self, record_id: Uuid) -> Result<(), VaultError> {
+        // If not unlocked, silently return Ok
+        if !self.crypto.is_unlocked() {
+            return Ok(());
+        }
+
+        // Try to get the record — if not found, silently return Ok
+        let stored = match self.get_stored_record(record_id) {
+            Ok(r) => r,
+            Err(_) => return Ok(()),
+        };
+
+        // Only Login records get conflict history
+        if stored.credential_type != CredentialType::Login {
+            return Ok(());
+        }
+
+        // Try to save — wrap in catch-all to never block S2 callers
+        let _ = self._save_password_history(
+            record_id,
+            &stored.encrypted_data,
+            &stored.nonce,
+            stored.dek_version,
+        );
 
         Ok(())
     }
@@ -378,5 +419,155 @@ mod tests {
 
         let history = svc.get_password_history(id).unwrap();
         assert!(history.is_empty(), "no history for newly created record");
+    }
+
+    // =========================================================================
+    // save_conflict_history tests
+    // =========================================================================
+
+    // --- save_conflict_history for Login appends history entry ---
+
+    #[test]
+    fn save_conflict_history_for_login_appends_history_entry() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let id = create_login_with_password(&mut svc, "ConflictLogin", "oldP@ss!");
+
+        // No history before conflict save
+        let history_before = svc.get_password_history(id).unwrap();
+        assert!(
+            history_before.is_empty(),
+            "no history before save_conflict_history"
+        );
+
+        // Call save_conflict_history
+        svc.save_conflict_history(id)
+            .expect("save_conflict_history must return Ok");
+
+        // One history entry now
+        let history_after = svc.get_password_history(id).unwrap();
+        assert_eq!(
+            history_after.len(),
+            1,
+            "save_conflict_history must append one history entry for Login"
+        );
+    }
+
+    // --- save_conflict_history for Api silently skips ---
+
+    #[test]
+    fn save_conflict_history_for_api_silently_skips() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let id = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Api,
+                payload: EncryptedPayload::Api {
+                    name: "ConflictApi".to_string(),
+                    app_id: "app-123".to_string(),
+                    secret_key: SecureStr::new("sk-secret".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        svc.save_conflict_history(id)
+            .expect("save_conflict_history must return Ok for Api records");
+
+        // No history entries for Api records
+        let count = queries::count_password_history(&svc.conn, &id).unwrap();
+        assert_eq!(
+            count, 0,
+            "no history for Api record after save_conflict_history"
+        );
+    }
+
+    // --- save_conflict_history for nonexistent record returns Ok ---
+
+    #[test]
+    fn save_conflict_history_for_nonexistent_record_returns_ok() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let nonexistent = Uuid::new_v4();
+        svc.save_conflict_history(nonexistent)
+            .expect("save_conflict_history must return Ok for nonexistent record");
+    }
+
+    // --- save_conflict_history when DEK not unlocked returns Ok ---
+
+    #[test]
+    fn save_conflict_history_when_not_unlocked_returns_ok() {
+        let mut svc = setup_service();
+        assert!(!svc.is_unlocked());
+
+        svc.save_conflict_history(Uuid::new_v4())
+            .expect("save_conflict_history must return Ok when not unlocked");
+    }
+
+    // --- save_conflict_history for Ssh silently skips ---
+
+    #[test]
+    fn save_conflict_history_for_ssh_silently_skips() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let id = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Ssh,
+                payload: EncryptedPayload::Ssh {
+                    name: "ConflictSsh".to_string(),
+                    public_key: "ssh-rsa AAAA...".to_string(),
+                    private_key: Some(SecureStr::new("private-key-data".to_string())),
+                    passphrase: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        svc.save_conflict_history(id)
+            .expect("save_conflict_history must return Ok for Ssh records");
+
+        let count = queries::count_password_history(&svc.conn, &id).unwrap();
+        assert_eq!(
+            count, 0,
+            "no history for Ssh record after save_conflict_history"
+        );
+    }
+
+    // --- save_conflict_history decryptable to original password ---
+
+    #[test]
+    fn save_conflict_history_stores_decryptable_payload() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let original_password = "conflictP@ss!";
+        let id = create_login_with_password(&mut svc, "ConflictDecrypt", original_password);
+
+        svc.save_conflict_history(id)
+            .expect("save_conflict_history must succeed");
+
+        let history = svc.get_password_history(id).unwrap();
+        assert_eq!(history.len(), 1);
+
+        // The history entry should decrypt to the original password
+        let decrypted = svc
+            .decrypt_history_password(history[0].id)
+            .expect("decrypt_history_password must succeed");
+        assert_eq!(
+            decrypted.get(),
+            original_password,
+            "conflict history must decrypt to original password"
+        );
     }
 }

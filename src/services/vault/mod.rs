@@ -104,27 +104,6 @@ impl VaultService {
         )?;
         Ok(())
     }
-
-    pub fn get_metadata(&self, key: &str) -> Result<Option<String>, VaultError> {
-        let result = self.conn.query_row(
-            "SELECT value FROM metadata WHERE key = ?1",
-            rusqlite::params![key],
-            |r| r.get::<_, String>(0),
-        );
-        match result {
-            Ok(v) => Ok(Some(v)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(VaultError::DatabaseError(e)),
-        }
-    }
-
-    pub fn set_metadata(&mut self, key: &str, value: &str) -> Result<(), VaultError> {
-        self.conn.execute(
-            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)",
-            rusqlite::params![key, value],
-        )?;
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -187,29 +166,6 @@ mod tests {
         assert!(
             !svc.is_unlocked(),
             "is_unlocked must return false after lock()"
-        );
-    }
-
-    // -- Error Type Migration Tests ----------------------------------------
-
-    /// Methods returning errors must produce VaultError variants, not String.
-    #[test]
-    fn get_metadata_returns_vault_error_on_db_failure() {
-        // Use a connection without schema to trigger a database error.
-        let conn = Connection::open_in_memory().unwrap();
-        let svc = VaultService::new(conn);
-
-        let result = svc.get_metadata("no_schema_key");
-        // Without schema, the metadata table doesn't exist -> DatabaseError variant.
-        assert!(
-            result.is_err(),
-            "get_metadata on missing table must return error"
-        );
-        let err = result.unwrap_err();
-        assert!(
-            matches!(err, VaultError::DatabaseError(_)),
-            "expected DatabaseError variant, got: {:?}",
-            err
         );
     }
 }
