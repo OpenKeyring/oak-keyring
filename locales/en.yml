@@ -90,6 +90,11 @@ tui:
     new_password: "New Password"
     strength_label: "Strength:"
     confirm_button: "Confirm"
+    mnemonic_language_label: "Mnemonic Language"
+    mnemonic_language_option_en: "English"
+    mnemonic_language_option_zh_cn: "中文(简体)"
+    mnemonic_language_warning: "⚠ Cannot be changed after creation"
+    mnemonic_language_hint_restore: "Select the language used when creating the vault"
 
   # ---- U2: Main Layout ----
   main:
