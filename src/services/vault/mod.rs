@@ -42,6 +42,16 @@ impl VaultService {
             .map_err(VaultError::CryptoError)
     }
 
+    /// Unlock the vault using a BIP39 mnemonic (for testing and recovery flows).
+    pub fn unlock_with_mnemonic(
+        &mut self,
+        mnemonic: &crate::crypto::bip39::Passkey,
+    ) -> Result<(), VaultError> {
+        self.crypto
+            .unlock_with_mnemonic(mnemonic)
+            .map_err(VaultError::CryptoError)
+    }
+
     pub fn lock(&mut self) {
         self.crypto.lock();
     }
