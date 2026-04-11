@@ -261,6 +261,15 @@ pub fn detach_tag(conn: &Connection, record_id: &Uuid, tag_id: i64) -> Result<()
     Ok(())
 }
 
+/// Detach all tags from a record.
+pub fn detach_all_tags_for_record(conn: &Connection, record_id: &Uuid) -> Result<()> {
+    conn.execute(
+        "DELETE FROM record_tags WHERE record_id = ?1",
+        rusqlite::params![record_id.to_string()],
+    )?;
+    Ok(())
+}
+
 /// Public wrapper: get tag names for a record.
 pub fn get_record_tags(conn: &Connection, record_id: &Uuid) -> Result<Vec<String>> {
     get_record_tags_inner(conn, record_id)
