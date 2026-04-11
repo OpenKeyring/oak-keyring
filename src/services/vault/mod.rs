@@ -6,16 +6,21 @@ mod search;
 mod tag;
 mod trash;
 
+use std::path::Path;
+
 use chrono::Utc;
 use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
+use crate::crypto::CryptoManager;
+use crate::errors::mapping::vault::VaultError;
 use crate::types::credential::CredentialType;
 use crate::types::record::TuiRecord;
 
 pub struct VaultService {
     conn: Connection,
+    crypto: CryptoManager,
     device_id: String,
 }
 
@@ -28,7 +33,25 @@ impl VaultService {
                 |r| r.get::<_, String>(0),
             )
             .unwrap_or_else(|_| Uuid::new_v4().to_string());
-        Self { conn, device_id }
+        Self {
+            conn,
+            crypto: CryptoManager::new(),
+            device_id,
+        }
+    }
+
+    pub fn unlock(&mut self, path: &Path, cmk: &str) -> Result<(), VaultError> {
+        self.crypto
+            .unlock(path, cmk)
+            .map_err(VaultError::CryptoError)
+    }
+
+    pub fn lock(&mut self) {
+        self.crypto.lock();
+    }
+
+    pub fn is_unlocked(&self) -> bool {
+        self.crypto.is_unlocked()
     }
 
     pub fn create_record(
@@ -38,7 +61,7 @@ impl VaultService {
         nonce: [u8; 24],
         dek_version: u32,
         aad: Option<Vec<u8>>,
-    ) -> Result<Uuid, String> {
+    ) -> Result<Uuid, VaultError> {
         let now = Utc::now().timestamp();
         let id = Uuid::new_v4();
 
@@ -56,7 +79,7 @@ impl VaultService {
                 now,
                 self.device_id,
             ],
-        ).map_err(|e| e.to_string())?;
+        )?;
 
         Ok(id)
     }
@@ -65,7 +88,7 @@ impl VaultService {
         &self,
         filter: &RecordFilter,
         sort: &RecordSort,
-    ) -> Result<Vec<TuiRecord>, String> {
+    ) -> Result<Vec<TuiRecord>, VaultError> {
         let base_query = "SELECT r.id, r.credential_type, r.is_favorite, r.expires_at, r.created_at, r.updated_at, r.version, r.deleted FROM records r WHERE r.deleted = 0";
 
         let (mut query, _is_search, params): (String, bool, Vec<Box<dyn rusqlite::types::ToSql>>) =
@@ -105,70 +128,68 @@ impl VaultService {
         };
         query.push_str(order);
 
-        let mut stmt = self.conn.prepare(&query).map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map(rusqlite::params_from_iter(params), |row| {
-                let id: String = row.get(0)?;
-                let ct_str: String = row.get(1)?;
-                let ct = CredentialType::from_db_str(&ct_str).map_err(|_| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        1,
-                        rusqlite::types::Type::Text,
-                        Box::new(std::io::Error::other("invalid credential_type")),
-                    )
-                })?;
-                let is_favorite: bool = row.get::<_, i32>(2)? != 0;
-                let expires_at: Option<i64> = row.get(3)?;
-                let created_at: i64 = row.get(4)?;
-                let updated_at: i64 = row.get(5)?;
-                let _version: u64 = row.get(6)?;
-                let deleted: bool = row.get::<_, i32>(7)? != 0;
+        let mut stmt = self.conn.prepare(&query)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            let id: String = row.get(0)?;
+            let ct_str: String = row.get(1)?;
+            let ct = CredentialType::from_db_str(&ct_str).map_err(|_| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    1,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::io::Error::other("invalid credential_type")),
+                )
+            })?;
+            let is_favorite: bool = row.get::<_, i32>(2)? != 0;
+            let expires_at: Option<i64> = row.get(3)?;
+            let created_at: i64 = row.get(4)?;
+            let updated_at: i64 = row.get(5)?;
+            let _version: u64 = row.get(6)?;
+            let deleted: bool = row.get::<_, i32>(7)? != 0;
 
-                Ok(TuiRecord {
-                    id: id.parse().map_err(|_| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            0,
-                            rusqlite::types::Type::Text,
-                            Box::new(std::io::Error::other("invalid uuid")),
-                        )
-                    })?,
-                    credential_type: ct,
-                    name: String::new(),
-                    subtitle: String::new(),
-                    is_favorite,
-                    is_expired: expires_at.is_some_and(|t| t < Utc::now().timestamp()),
-                    expires_at: expires_at
-                        .map(|t| chrono::DateTime::from_timestamp(t, 0).unwrap_or_default()),
-                    has_weak_password: false,
-                    created_at: chrono::DateTime::from_timestamp(created_at, 0).unwrap_or_default(),
-                    updated_at: chrono::DateTime::from_timestamp(updated_at, 0).unwrap_or_default(),
-                    deleted,
-                    deleted_at: None,
-                    tags: vec![],
-                    sync_status: None,
-                })
+            Ok(TuiRecord {
+                id: id.parse().map_err(|_| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::other("invalid uuid")),
+                    )
+                })?,
+                credential_type: ct,
+                name: String::new(),
+                subtitle: String::new(),
+                is_favorite,
+                is_expired: expires_at.is_some_and(|t| t < Utc::now().timestamp()),
+                expires_at: expires_at
+                    .map(|t| chrono::DateTime::from_timestamp(t, 0).unwrap_or_default()),
+                has_weak_password: false,
+                created_at: chrono::DateTime::from_timestamp(created_at, 0).unwrap_or_default(),
+                updated_at: chrono::DateTime::from_timestamp(updated_at, 0).unwrap_or_default(),
+                deleted,
+                deleted_at: None,
+                tags: vec![],
+                sync_status: None,
             })
-            .map_err(|e| e.to_string())?;
+        })?;
 
         rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())
+            .map_err(VaultError::DatabaseError)
     }
 
-    pub fn soft_delete(&mut self, id: Uuid) -> Result<(), String> {
+    pub fn soft_delete(&mut self, id: Uuid) -> Result<(), VaultError> {
         let now = Utc::now().timestamp();
         self.conn.execute(
             "UPDATE records SET deleted = 1, deleted_at = ?1, updated_at = ?2, version = version + 1 WHERE id = ?3 AND deleted = 0",
             rusqlite::params![now, now, id.to_string()],
-        ).map_err(|e| e.to_string())?;
+        )?;
         Ok(())
     }
 
-    pub fn restore(&mut self, id: Uuid) -> Result<(), String> {
+    pub fn restore(&mut self, id: Uuid) -> Result<(), VaultError> {
         let now = Utc::now().timestamp();
         self.conn.execute(
             "UPDATE records SET deleted = 0, deleted_at = NULL, updated_at = ?1, version = version + 1 WHERE id = ?2 AND deleted = 1",
             rusqlite::params![now, id.to_string()],
-        ).map_err(|e| e.to_string())?;
+        )?;
         Ok(())
     }
 
@@ -178,7 +199,7 @@ impl VaultService {
         record_id: Option<Uuid>,
         record_name: Option<String>,
         detail: Option<String>,
-    ) -> Result<(), String> {
+    ) -> Result<(), VaultError> {
         let now = Utc::now().timestamp();
         self.conn.execute(
             "INSERT INTO audit_log (operation, record_id, record_name, detail, occurred_at) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -189,31 +210,27 @@ impl VaultService {
                 detail,
                 now,
             ],
-        ).map_err(|e| e.to_string())?;
+        )?;
         Ok(())
     }
 
-    pub fn create_tag(&mut self, name: &str) -> Result<i64, String> {
-        self.conn
-            .execute(
-                "INSERT INTO tags (name) VALUES (?1)",
-                rusqlite::params![name],
-            )
-            .map_err(|e| e.to_string())?;
+    pub fn create_tag(&mut self, name: &str) -> Result<i64, VaultError> {
+        self.conn.execute(
+            "INSERT INTO tags (name) VALUES (?1)",
+            rusqlite::params![name],
+        )?;
         Ok(self.conn.last_insert_rowid())
     }
 
-    pub fn add_tag_to_record(&mut self, record_id: Uuid, tag_id: i64) -> Result<(), String> {
-        self.conn
-            .execute(
-                "INSERT OR IGNORE INTO record_tags (record_id, tag_id) VALUES (?1, ?2)",
-                rusqlite::params![record_id.to_string(), tag_id],
-            )
-            .map_err(|e| e.to_string())?;
+    pub fn add_tag_to_record(&mut self, record_id: Uuid, tag_id: i64) -> Result<(), VaultError> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO record_tags (record_id, tag_id) VALUES (?1, ?2)",
+            rusqlite::params![record_id.to_string(), tag_id],
+        )?;
         Ok(())
     }
 
-    pub fn get_metadata(&self, key: &str) -> Result<Option<String>, String> {
+    pub fn get_metadata(&self, key: &str) -> Result<Option<String>, VaultError> {
         let result = self.conn.query_row(
             "SELECT value FROM metadata WHERE key = ?1",
             rusqlite::params![key],
@@ -222,17 +239,15 @@ impl VaultService {
         match result {
             Ok(v) => Ok(Some(v)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(VaultError::DatabaseError(e)),
         }
     }
 
-    pub fn set_metadata(&mut self, key: &str, value: &str) -> Result<(), String> {
-        self.conn
-            .execute(
-                "INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)",
-                rusqlite::params![key, value],
-            )
-            .map_err(|e| e.to_string())?;
+    pub fn set_metadata(&mut self, key: &str, value: &str) -> Result<(), VaultError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )?;
         Ok(())
     }
 }
@@ -241,6 +256,7 @@ impl VaultService {
 mod tests {
     use super::*;
     use crate::commands::types::{RecordSort, SortDirection, SortField};
+    use crate::crypto::bip39::{MnemonicLanguage, Passkey};
     use crate::db::schema::{initialize_metadata, initialize_schema};
 
     /// Helper: create an in-memory VaultService with schema ready.
@@ -274,6 +290,80 @@ mod tests {
             .unwrap();
         }
     }
+
+    // ─── Lock / Unlock Lifecycle Tests ──────────────────────────────────
+
+    /// VaultService starts locked, and lock()/is_unlocked() reflect state correctly.
+    #[test]
+    fn vault_service_starts_locked() {
+        let svc = setup_service();
+        assert!(
+            !svc.is_unlocked(),
+            "new VaultService must start in locked state"
+        );
+    }
+
+    /// lock() on a locked service is a no-op; is_unlocked() stays false.
+    #[test]
+    fn lock_when_already_locked_is_noop() {
+        let mut svc = setup_service();
+        assert!(!svc.is_unlocked());
+        svc.lock();
+        assert!(
+            !svc.is_unlocked(),
+            "locking an already-locked service must remain locked"
+        );
+    }
+
+    /// Full lifecycle: unlock with mnemonic → is_unlocked(true) → lock → is_unlocked(false).
+    /// This tests the delegation to CryptoManager without requiring a real keyfile on disk.
+    #[test]
+    fn unlock_with_mnemonic_then_lock_lifecycle() {
+        let mut svc = setup_service();
+        assert!(!svc.is_unlocked(), "must start locked");
+
+        // Unlock via mnemonic (no file I/O needed).
+        let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
+        svc.crypto
+            .unlock_with_mnemonic(&mnemonic)
+            .expect("unlock_with_mnemonic must succeed in test");
+        assert!(
+            svc.is_unlocked(),
+            "is_unlocked must return true after unlock_with_mnemonic"
+        );
+
+        // Lock and verify.
+        svc.lock();
+        assert!(
+            !svc.is_unlocked(),
+            "is_unlocked must return false after lock()"
+        );
+    }
+
+    // ─── Error Type Migration Tests ─────────────────────────────────────
+
+    /// Methods returning errors must produce VaultError variants, not String.
+    #[test]
+    fn get_metadata_returns_vault_error_on_db_failure() {
+        // Use a connection without schema to trigger a database error.
+        let conn = Connection::open_in_memory().unwrap();
+        let svc = VaultService::new(conn);
+
+        let result = svc.get_metadata("no_schema_key");
+        // Without schema, the metadata table doesn't exist → DatabaseError variant.
+        assert!(
+            result.is_err(),
+            "get_metadata on missing table must return error"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, VaultError::DatabaseError(_)),
+            "expected DatabaseError variant, got: {:?}",
+            err
+        );
+    }
+
+    // ─── SQL Injection Tests ────────────────────────────────────────────
 
     /// Tag filter with SQL special characters must not cause errors or data corruption.
     /// Before the fix, a tag like `test'; DROP TABLE records;--` would be injected
