@@ -31,6 +31,7 @@ impl StrengthLevel {
     }
 }
 
+#[derive(Debug)]
 pub struct PasswordStrength {
     pub level: StrengthLevel,
     pub char_types: u8,
