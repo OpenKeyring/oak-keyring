@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::crypto::bip39::Passkey;
+use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::crypto::hkdf;
 use crate::crypto::keystore::{DataEncryptionKey, KeyEncryptionKey, KeyStore, SecretKey};
 use crate::crypto::xchacha20;
@@ -35,6 +35,7 @@ impl CryptoManager {
             kek: Some(KeyEncryptionKey::new(kek_bytes)),
             current_dek_version: 1,
             device_id: uuid::Uuid::new_v4().to_string(),
+            mnemonic_language: MnemonicLanguage::English,
         };
 
         self.keystore = Some(ks);
