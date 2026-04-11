@@ -3,6 +3,7 @@
 use chrono::Utc;
 use uuid::Uuid;
 
+use super::search;
 use super::VaultService;
 use crate::commands::types::{FieldSelector, RecordFilter, RecordSort, SortDirection, SortField};
 use crate::crypto::payload;
@@ -456,9 +457,56 @@ impl VaultService {
             RecordFilter::Trash => {
                 queries::list_deleted_records(&self.conn).map_err(db_error_to_vault)?
             }
-            RecordFilter::Search(_query) => {
-                // Placeholder: Task 13 implements full search
-                return Ok(vec![]);
+            RecordFilter::Search(query) => {
+                // Fetch all active records, decrypt names/subtitles, then apply search filter
+                let stored_records =
+                    queries::list_active_records(&self.conn).map_err(db_error_to_vault)?;
+
+                let mut tui_records: Vec<TuiRecord> = Vec::with_capacity(stored_records.len());
+                for stored in &stored_records {
+                    let aad = format!("record:{}", stored.id);
+                    let name = payload::decrypt_name_only(
+                        &self.crypto,
+                        &stored.encrypted_data,
+                        &stored.nonce,
+                        aad.as_bytes(),
+                        stored.dek_version,
+                    )
+                    .map_err(VaultError::CryptoError)?;
+
+                    let subtitle = payload::decrypt_subtitle(
+                        &self.crypto,
+                        &stored.encrypted_data,
+                        &stored.nonce,
+                        aad.as_bytes(),
+                        stored.credential_type,
+                        stored.dek_version,
+                    )
+                    .map_err(VaultError::CryptoError)?;
+
+                    let is_expired = stored.expires_at.is_some_and(|t| t < Utc::now());
+
+                    tui_records.push(TuiRecord {
+                        id: stored.id,
+                        credential_type: stored.credential_type,
+                        name,
+                        subtitle,
+                        is_favorite: stored.is_favorite,
+                        is_expired,
+                        expires_at: stored.expires_at,
+                        has_weak_password: false,
+                        created_at: stored.created_at,
+                        updated_at: stored.updated_at,
+                        deleted: stored.deleted,
+                        deleted_at: stored.deleted_at,
+                        tags: stored.tags.clone(),
+                        sync_status: None,
+                    });
+                }
+
+                let mut filtered = search::search_records(&tui_records, query);
+                apply_sort(&mut filtered, sort);
+                return Ok(filtered);
             }
             RecordFilter::HealthIssues => {
                 // Placeholder: S3 implements health-based filtering
@@ -2392,14 +2440,15 @@ mod tests {
         assert_eq!(rec.tags, vec!["dev"]);
     }
 
-    // --- list_records: Search returns empty (placeholder) ---
+    // --- list_records: Search filter returns matching records ---
 
     #[test]
-    fn list_records_search_returns_empty_placeholder() {
+    fn list_records_search_returns_matching_records() {
         let mut svc = setup_service();
         unlock_service(&mut svc);
 
         create_named_record(&mut svc, "Alpha");
+        create_named_record(&mut svc, "Bravo");
 
         let result = svc.list_records(
             &RecordFilter::Search("Alpha".into()),
@@ -2410,10 +2459,54 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(
-            result.unwrap().is_empty(),
-            "Search placeholder returns empty"
+        let records = result.unwrap();
+        assert_eq!(records.len(), 1, "search should return 1 matching record");
+        assert_eq!(records[0].name, "Alpha");
+    }
+
+    // --- list_records: Search is case-insensitive ---
+
+    #[test]
+    fn list_records_search_is_case_insensitive() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        create_named_record(&mut svc, "TestRecord");
+
+        let result = svc.list_records(
+            &RecordFilter::Search("testrecord".into()),
+            &RecordSort {
+                field: SortField::UpdatedAt,
+                direction: SortDirection::Desc,
+            },
         );
+
+        assert!(result.is_ok());
+        let records = result.unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].name, "TestRecord");
+    }
+
+    // --- list_records: Search with empty query returns all active records ---
+
+    #[test]
+    fn list_records_search_empty_returns_all() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        create_named_record(&mut svc, "Alpha");
+        create_named_record(&mut svc, "Bravo");
+
+        let result = svc.list_records(
+            &RecordFilter::Search("".into()),
+            &RecordSort {
+                field: SortField::UpdatedAt,
+                direction: SortDirection::Desc,
+            },
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 2, "empty search returns all records");
     }
 
     // --- list_records: HealthIssues returns empty (placeholder) ---
