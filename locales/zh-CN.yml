@@ -89,6 +89,11 @@ tui:
     new_password: "新密码"
     strength_label: "强度:"
     confirm_button: "确认"
+    mnemonic_language_label: "助记词语言"
+    mnemonic_language_option_en: "English"
+    mnemonic_language_option_zh_cn: "中文(简体)"
+    mnemonic_language_warning: "⚠ 选择后不可更改，请确认你的选择"
+    mnemonic_language_hint_restore: "请选择创建 vault 时使用的助记词语言"
 
   # ---- U2: Main Layout ----
   main:
