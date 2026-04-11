@@ -4,7 +4,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::VaultService;
-use crate::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
+use crate::commands::types::{FieldSelector, RecordFilter, RecordSort, SortDirection, SortField};
 use crate::crypto::payload;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
@@ -13,6 +13,7 @@ use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::record::{
     CreateRecordParams, DecryptedRecord, StoredRecord, TuiRecord, UpdateRecordParams,
 };
+use crate::types::sensitive::SecureStr;
 
 impl VaultService {
     /// Create a new vault record with encryption, tags, and audit logging.
@@ -540,6 +541,147 @@ impl VaultService {
 
         Ok(tui_records)
     }
+
+    /// Decrypt and return a single field from a record.
+    ///
+    /// Unlike `get_decrypted_record`, this method provides fine-grained
+    /// audit control: only `FieldSelector::Password` triggers a
+    /// `RecordViewPassword` audit entry.
+    ///
+    /// Returns `VaultError::InvalidField` when the field does not exist
+    /// for the credential type (e.g. `Url` on an SSH record) or when the
+    /// optional field value is `None`.
+    pub fn decrypt_field(&self, id: Uuid, field: FieldSelector) -> Result<SecureStr, VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        let stored = self.get_stored_record(id)?;
+        let decrypted_payload = payload::decrypt_payload(
+            &self.crypto,
+            &stored.encrypted_data,
+            &stored.nonce,
+            &stored.aad,
+            stored.credential_type,
+            stored.dek_version,
+        )
+        .map_err(VaultError::CryptoError)?;
+
+        let record_name = decrypted_payload.name().to_string();
+        let value = extract_field(stored.credential_type, decrypted_payload, field)?;
+
+        if matches!(field, FieldSelector::Password) {
+            queries::insert_audit_entry(
+                &self.conn,
+                AuditOperation::RecordViewPassword,
+                Some(&id),
+                Some(&record_name),
+                None,
+            )
+            .map_err(db_error_to_vault)?;
+        }
+
+        Ok(value)
+    }
+}
+
+/// Extract a single field value from an `EncryptedPayload` based on credential
+/// type and field selector.
+///
+/// Takes ownership of `payload` so that `SecureStr` fields can be moved out
+/// without cloning (which would panic — see `SecureString::clone`).
+///
+/// Maps fields according to:
+///
+/// | FieldSelector | Login      | Api         | Ssh            |
+/// |---------------|------------|-------------|----------------|
+/// | Password      | password   | secret_key  | private_key    |
+/// | Username      | username   | app_id      | public_key     |
+/// | Url           | url        | url         | InvalidField   |
+/// | Notes         | notes      | notes       | notes          |
+fn extract_field(
+    ct: CredentialType,
+    payload: EncryptedPayload,
+    field: FieldSelector,
+) -> Result<SecureStr, VaultError> {
+    match (ct, payload, field) {
+        // ── Login ──────────────────────────────────────────────────────
+        (
+            CredentialType::Login,
+            EncryptedPayload::Login { password, .. },
+            FieldSelector::Password,
+        ) => Ok(password),
+        (
+            CredentialType::Login,
+            EncryptedPayload::Login { username, .. },
+            FieldSelector::Username,
+        ) => Ok(SecureStr::new(username)),
+        (
+            CredentialType::Login,
+            EncryptedPayload::Login { url: Some(url), .. },
+            FieldSelector::Url,
+        ) => Ok(SecureStr::new(url)),
+        (
+            CredentialType::Login,
+            EncryptedPayload::Login {
+                notes: Some(notes), ..
+            },
+            FieldSelector::Notes,
+        ) => Ok(SecureStr::new(notes)),
+
+        // ── Api ───────────────────────────────────────────────────────
+        (
+            CredentialType::Api,
+            EncryptedPayload::Api { secret_key, .. },
+            FieldSelector::Password,
+        ) => Ok(secret_key),
+        (CredentialType::Api, EncryptedPayload::Api { app_id, .. }, FieldSelector::Username) => {
+            Ok(SecureStr::new(app_id))
+        }
+        (CredentialType::Api, EncryptedPayload::Api { url: Some(url), .. }, FieldSelector::Url) => {
+            Ok(SecureStr::new(url))
+        }
+        (
+            CredentialType::Api,
+            EncryptedPayload::Api {
+                notes: Some(notes), ..
+            },
+            FieldSelector::Notes,
+        ) => Ok(SecureStr::new(notes)),
+
+        // ── Ssh ───────────────────────────────────────────────────────
+        (
+            CredentialType::Ssh,
+            EncryptedPayload::Ssh {
+                private_key: Some(pk),
+                ..
+            },
+            FieldSelector::Password,
+        ) => Ok(pk),
+        (
+            CredentialType::Ssh,
+            EncryptedPayload::Ssh { public_key, .. },
+            FieldSelector::Username,
+        ) => Ok(SecureStr::new(public_key)),
+        // Ssh + Url is always invalid regardless of payload content
+        (CredentialType::Ssh, _, FieldSelector::Url) => Err(VaultError::InvalidField {
+            record_type: CredentialType::Ssh,
+            field: FieldSelector::Url,
+        }),
+        (
+            CredentialType::Ssh,
+            EncryptedPayload::Ssh {
+                notes: Some(notes), ..
+            },
+            FieldSelector::Notes,
+        ) => Ok(SecureStr::new(notes)),
+
+        // ── Catch-all: field missing or credential-type/payload mismatch ──
+        _ => Err(VaultError::InvalidField {
+            record_type: ct,
+            field,
+        }),
+    }
 }
 
 /// Apply the requested sort order to a list of TuiRecords.
@@ -609,7 +751,9 @@ pub(crate) fn db_error_to_vault(e: queries::DbError) -> VaultError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
+    use crate::commands::types::{
+        FieldSelector, RecordFilter, RecordSort, SortDirection, SortField,
+    };
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
     use crate::db::schema::{initialize_metadata, initialize_schema};
     use crate::types::credential::{CredentialType, EncryptedPayload};
@@ -2293,6 +2437,354 @@ mod tests {
         assert!(
             result.unwrap().is_empty(),
             "HealthIssues placeholder returns empty"
+        );
+    }
+
+    // =========================================================================
+    // decrypt_field tests
+    // =========================================================================
+
+    /// Helper: create an Api record and return its ID.
+    fn create_test_api_record(svc: &mut VaultService) -> Uuid {
+        svc.create_record(CreateRecordParams {
+            credential_type: CredentialType::Api,
+            payload: EncryptedPayload::Api {
+                name: "TestApi".to_string(),
+                app_id: "app-12345".to_string(),
+                secret_key: SecureStr::new("sk-secret-abc".to_string()),
+                url: Some("https://api.example.com".to_string()),
+                notes: Some("API notes here".to_string()),
+            },
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("create_record must succeed")
+    }
+
+    /// Helper: create an Ssh record and return its ID.
+    fn create_test_ssh_record(svc: &mut VaultService) -> Uuid {
+        svc.create_record(CreateRecordParams {
+            credential_type: CredentialType::Ssh,
+            payload: EncryptedPayload::Ssh {
+                name: "TestSsh".to_string(),
+                public_key: "ssh-rsa AAAA...user@host".to_string(),
+                private_key: Some(SecureStr::new(
+                    "-----BEGIN OPENSSH PRIVATE KEY-----\nxyz\n-----END OPENSSH PRIVATE KEY-----"
+                        .to_string(),
+                )),
+                passphrase: None,
+                notes: Some("SSH key notes".to_string()),
+            },
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("create_record must succeed")
+    }
+
+    // --- decrypt_field: NotUnlocked guard ---
+
+    #[test]
+    fn decrypt_field_returns_not_unlocked_when_locked() {
+        let svc = setup_service();
+        assert!(!svc.is_unlocked());
+
+        let result = svc.decrypt_field(Uuid::new_v4(), FieldSelector::Password);
+        assert!(result.is_err(), "decrypt_field must fail when locked");
+        assert!(
+            matches!(result.unwrap_err(), VaultError::NotUnlocked),
+            "expected NotUnlocked error"
+        );
+    }
+
+    // --- decrypt_field: Login record Password returns correct value ---
+
+    #[test]
+    fn decrypt_field_login_password_returns_correct_value() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        let value = svc
+            .decrypt_field(id, FieldSelector::Password)
+            .expect("decrypt_field must succeed");
+
+        assert_eq!(value.get(), "s3cret!", "password value must match");
+    }
+
+    // --- decrypt_field: Login record Username returns correct value ---
+
+    #[test]
+    fn decrypt_field_login_username_returns_correct_value() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        let value = svc
+            .decrypt_field(id, FieldSelector::Username)
+            .expect("decrypt_field must succeed");
+
+        assert_eq!(value.get(), "alice", "username value must match");
+    }
+
+    // --- decrypt_field: Login record Url returns correct value ---
+
+    #[test]
+    fn decrypt_field_login_url_returns_correct_value() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        let value = svc
+            .decrypt_field(id, FieldSelector::Url)
+            .expect("decrypt_field must succeed");
+
+        assert_eq!(value.get(), "https://github.com", "url value must match");
+    }
+
+    // --- decrypt_field: Login record Url with None returns InvalidField ---
+
+    #[test]
+    fn decrypt_field_login_url_none_returns_invalid_field() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Create a Login record with url = None
+        let id = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "NoUrl".to_string(),
+                    username: "user".to_string(),
+                    password: SecureStr::new("pass".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let result = svc.decrypt_field(id, FieldSelector::Url);
+        assert!(
+            matches!(
+                result,
+                Err(VaultError::InvalidField {
+                    record_type: CredentialType::Login,
+                    field: FieldSelector::Url
+                })
+            ),
+            "url=None should return InvalidField, got: {:?}",
+            result
+        );
+    }
+
+    // --- decrypt_field: Api record Username returns app_id ---
+
+    #[test]
+    fn decrypt_field_api_username_returns_app_id() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_api_record(&mut svc);
+
+        let value = svc
+            .decrypt_field(id, FieldSelector::Username)
+            .expect("decrypt_field must succeed");
+
+        assert_eq!(value.get(), "app-12345", "Username should map to app_id");
+    }
+
+    // --- decrypt_field: Api record Password returns secret_key ---
+
+    #[test]
+    fn decrypt_field_api_password_returns_secret_key() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_api_record(&mut svc);
+
+        let value = svc
+            .decrypt_field(id, FieldSelector::Password)
+            .expect("decrypt_field must succeed");
+
+        assert_eq!(
+            value.get(),
+            "sk-secret-abc",
+            "Password should map to secret_key"
+        );
+    }
+
+    // --- decrypt_field: Api record Notes returns notes ---
+
+    #[test]
+    fn decrypt_field_api_notes_returns_notes() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_api_record(&mut svc);
+
+        let value = svc
+            .decrypt_field(id, FieldSelector::Notes)
+            .expect("decrypt_field must succeed");
+
+        assert_eq!(value.get(), "API notes here", "notes value must match");
+    }
+
+    // --- decrypt_field: Ssh record Url returns InvalidField ---
+
+    #[test]
+    fn decrypt_field_ssh_url_returns_invalid_field() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_ssh_record(&mut svc);
+
+        let result = svc.decrypt_field(id, FieldSelector::Url);
+        assert!(
+            matches!(
+                result,
+                Err(VaultError::InvalidField {
+                    record_type: CredentialType::Ssh,
+                    field: FieldSelector::Url
+                })
+            ),
+            "Ssh + Url should return InvalidField, got: {:?}",
+            result
+        );
+    }
+
+    // --- decrypt_field: Ssh record Password returns private_key ---
+
+    #[test]
+    fn decrypt_field_ssh_password_returns_private_key() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_ssh_record(&mut svc);
+
+        let value = svc
+            .decrypt_field(id, FieldSelector::Password)
+            .expect("decrypt_field must succeed");
+
+        assert!(
+            value.get().contains("BEGIN OPENSSH PRIVATE KEY"),
+            "Password should map to private_key"
+        );
+    }
+
+    // --- decrypt_field: Ssh record Username returns public_key ---
+
+    #[test]
+    fn decrypt_field_ssh_username_returns_public_key() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_ssh_record(&mut svc);
+
+        let value = svc
+            .decrypt_field(id, FieldSelector::Username)
+            .expect("decrypt_field must succeed");
+
+        assert!(
+            value.get().starts_with("ssh-rsa"),
+            "Username should map to public_key"
+        );
+    }
+
+    // --- decrypt_field: Ssh record Notes returns notes ---
+
+    #[test]
+    fn decrypt_field_ssh_notes_returns_notes() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_ssh_record(&mut svc);
+
+        let value = svc
+            .decrypt_field(id, FieldSelector::Notes)
+            .expect("decrypt_field must succeed");
+
+        assert_eq!(value.get(), "SSH key notes", "notes value must match");
+    }
+
+    // --- decrypt_field: Password field writes audit RecordViewPassword ---
+
+    #[test]
+    fn decrypt_field_password_writes_audit_record_view_password() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // One audit entry from create_record
+        let before =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(before.len(), 1, "one audit entry from create_record");
+
+        svc.decrypt_field(id, FieldSelector::Password)
+            .expect("decrypt_field must succeed");
+
+        let after =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(
+            after.len(),
+            2,
+            "two audit entries after decrypt_field(Password)"
+        );
+
+        let view_entry = after
+            .iter()
+            .find(|e| e.operation == AuditOperation::RecordViewPassword)
+            .expect("expected a RecordViewPassword audit entry");
+        assert_eq!(view_entry.record_id, Some(id));
+        assert_eq!(view_entry.record_name.as_deref(), Some("TestLogin"));
+    }
+
+    // --- decrypt_field: non-Password fields do NOT write audit ---
+
+    #[test]
+    fn decrypt_field_non_password_does_not_write_audit() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // One audit entry from create_record
+        let before =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(before.len(), 1);
+
+        svc.decrypt_field(id, FieldSelector::Username)
+            .expect("decrypt_field must succeed");
+
+        let after =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(
+            after.len(),
+            1,
+            "decrypt_field(Username) must not write an audit entry"
+        );
+    }
+
+    // --- decrypt_field: nonexistent record returns RecordNotFound ---
+
+    #[test]
+    fn decrypt_field_returns_not_found_for_nonexistent() {
+        let svc = setup_service();
+        let nonexistent = Uuid::new_v4();
+
+        let result = svc.decrypt_field(nonexistent, FieldSelector::Password);
+        // NotUnlocked since service is locked
+        assert!(result.is_err());
+    }
+
+    // --- decrypt_field: nonexistent record returns RecordNotFound when unlocked ---
+
+    #[test]
+    fn decrypt_field_returns_not_found_for_nonexistent_when_unlocked() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let nonexistent = Uuid::new_v4();
+
+        let result = svc.decrypt_field(nonexistent, FieldSelector::Password);
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), VaultError::RecordNotFound(id) if id == nonexistent),
+            "expected RecordNotFound"
         );
     }
 }
