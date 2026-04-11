@@ -1,5 +1,8 @@
 // Tag management (list_tags, rename_tag, delete_tag, batch_add, batch_remove)
 
+use rusqlite::Connection;
+use uuid::Uuid;
+
 use super::VaultService;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
@@ -75,6 +78,90 @@ impl VaultService {
 
         Ok(())
     }
+
+    /// Add a tag to multiple records in a single transaction.
+    ///
+    /// Creates the tag if it does not already exist. For each record, the tag is
+    /// attached with `INSERT OR IGNORE` so already-tagged records are skipped
+    /// without error.
+    ///
+    /// Returns the number of **new** associations actually created.
+    pub fn batch_add_tag(
+        &mut self,
+        record_ids: &[Uuid],
+        tag_name: &str,
+    ) -> Result<usize, VaultError> {
+        let tx = self.conn.unchecked_transaction()?;
+
+        let tag = queries::get_or_create_tag(&tx, tag_name).map_err(db_error_to_vault)?;
+
+        let mut added = 0usize;
+        for record_id in record_ids {
+            let rows_before = count_record_tags(&tx, record_id)?;
+            queries::attach_tag(&tx, record_id, tag.id).map_err(db_error_to_vault)?;
+            let rows_after = count_record_tags(&tx, record_id)?;
+            if rows_after > rows_before {
+                added += 1;
+            }
+        }
+
+        tx.commit()?;
+        Ok(added)
+    }
+
+    /// Remove a tag from multiple records in a single transaction.
+    ///
+    /// Returns the number of associations actually removed. After removal, if
+    /// the tag is no longer associated with **any** record, it is automatically
+    /// deleted from the `tags` table.
+    ///
+    /// Returns `VaultError::TagNotFound` if no tag with the given name exists.
+    pub fn batch_remove_tag(
+        &mut self,
+        record_ids: &[Uuid],
+        tag_name: &str,
+    ) -> Result<usize, VaultError> {
+        let tx = self.conn.unchecked_transaction()?;
+
+        let tag = queries::get_tag_by_name(&tx, tag_name)
+            .map_err(db_error_to_vault)?
+            .ok_or_else(|| VaultError::TagNotFound(tag_name.to_string()))?;
+
+        let mut removed = 0usize;
+        for record_id in record_ids {
+            let rows_before = count_record_tags(&tx, record_id)?;
+            queries::detach_tag(&tx, record_id, tag.id).map_err(db_error_to_vault)?;
+            let rows_after = count_record_tags(&tx, record_id)?;
+            if rows_before > rows_after {
+                removed += 1;
+            }
+        }
+
+        // Check if the tag still has any associations; delete if orphaned.
+        let remaining: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM record_tags WHERE tag_id = ?1",
+            rusqlite::params![tag.id],
+            |row| row.get(0),
+        )?;
+        if remaining == 0 {
+            tx.execute("DELETE FROM tags WHERE id = ?1", rusqlite::params![tag.id])?;
+        }
+
+        tx.commit()?;
+        Ok(removed)
+    }
+}
+
+/// Count the number of tag associations for a given record.
+fn count_record_tags(conn: &Connection, record_id: &Uuid) -> Result<usize, VaultError> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM record_tags WHERE record_id = ?1",
+            rusqlite::params![record_id.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(VaultError::DatabaseError)?;
+    Ok(count as usize)
 }
 
 #[cfg(test)]
@@ -371,5 +458,501 @@ mod tests {
             matches!(result.unwrap_err(), VaultError::TagNotFound(ref n) if n == "nonexistent"),
             "expected TagNotFound(\"nonexistent\")"
         );
+    }
+
+    // =========================================================================
+    // batch_add_tag tests
+    // =========================================================================
+
+    #[test]
+    fn batch_add_tag_adds_tag_to_3_records_returns_3() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Create 3 records without the "batch" tag
+        let id1 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec1".to_string(),
+                    username: "user1".to_string(),
+                    password: SecureStr::new("pass1".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let id2 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec2".to_string(),
+                    username: "user2".to_string(),
+                    password: SecureStr::new("pass2".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let id3 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec3".to_string(),
+                    username: "user3".to_string(),
+                    password: SecureStr::new("pass3".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let added = svc
+            .batch_add_tag(&[id1, id2, id3], "batch")
+            .expect("batch_add_tag must succeed");
+        assert_eq!(added, 3, "should add tag to all 3 records");
+
+        // Verify each record now has the tag
+        for id in &[id1, id2, id3] {
+            let stored = svc.get_stored_record(*id).expect("record must exist");
+            assert!(
+                stored.tags.contains(&"batch".to_string()),
+                "record should have 'batch' tag"
+            );
+        }
+    }
+
+    #[test]
+    fn batch_add_tag_skips_already_tagged_returns_0_for_existing() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Create 2 records, one already has the "work" tag
+        let id1 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Tagged".to_string(),
+                    username: "user1".to_string(),
+                    password: SecureStr::new("pass1".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["work".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let id2 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Untagged".to_string(),
+                    username: "user2".to_string(),
+                    password: SecureStr::new("pass2".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let added = svc
+            .batch_add_tag(&[id1, id2], "work")
+            .expect("batch_add_tag must succeed");
+        assert_eq!(added, 1, "only 1 new association (id2), id1 already tagged");
+
+        // Both should now have "work"
+        let stored1 = svc.get_stored_record(id1).expect("record must exist");
+        let stored2 = svc.get_stored_record(id2).expect("record must exist");
+        assert!(stored1.tags.contains(&"work".to_string()));
+        assert!(stored2.tags.contains(&"work".to_string()));
+    }
+
+    #[test]
+    fn batch_add_tag_creates_tag_if_missing() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let id = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec".to_string(),
+                    username: "user".to_string(),
+                    password: SecureStr::new("pass".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        // "new_tag" does not exist yet
+        let tags_before = svc.list_tags().expect("list_tags must succeed");
+        assert!(tags_before.is_empty(), "no tags should exist yet");
+
+        let added = svc
+            .batch_add_tag(&[id], "new_tag")
+            .expect("batch_add_tag must succeed");
+        assert_eq!(added, 1);
+
+        // Tag was created
+        let tags_after = svc.list_tags().expect("list_tags must succeed");
+        assert_eq!(tags_after.len(), 1);
+        assert_eq!(tags_after[0].0.name, "new_tag");
+    }
+
+    // =========================================================================
+    // batch_remove_tag tests
+    // =========================================================================
+
+    #[test]
+    fn batch_remove_tag_removes_tag_from_records() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Create 3 records with the "remove_me" tag
+        let id1 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec1".to_string(),
+                    username: "user1".to_string(),
+                    password: SecureStr::new("pass1".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["remove_me".to_string(), "keep".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let id2 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec2".to_string(),
+                    username: "user2".to_string(),
+                    password: SecureStr::new("pass2".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["remove_me".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let removed = svc
+            .batch_remove_tag(&[id1, id2], "remove_me")
+            .expect("batch_remove_tag must succeed");
+        assert_eq!(removed, 2, "should remove tag from 2 records");
+
+        // Verify tag is gone from records
+        let stored1 = svc.get_stored_record(id1).expect("record must exist");
+        assert!(
+            !stored1.tags.contains(&"remove_me".to_string()),
+            "remove_me should be gone from rec1"
+        );
+        assert!(
+            stored1.tags.contains(&"keep".to_string()),
+            "keep tag should still be present on rec1"
+        );
+
+        let stored2 = svc.get_stored_record(id2).expect("record must exist");
+        assert!(
+            !stored2.tags.contains(&"remove_me".to_string()),
+            "remove_me should be gone from rec2"
+        );
+    }
+
+    #[test]
+    fn batch_remove_tag_auto_deletes_orphan_tag() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Create a record with an "orphan" tag
+        let id = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec".to_string(),
+                    username: "user".to_string(),
+                    password: SecureStr::new("pass".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["orphan".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        // Verify tag exists
+        let tags_before = svc.list_tags().expect("list_tags must succeed");
+        assert_eq!(tags_before.len(), 1);
+        assert_eq!(tags_before[0].0.name, "orphan");
+
+        // Remove the only association
+        let removed = svc
+            .batch_remove_tag(&[id], "orphan")
+            .expect("batch_remove_tag must succeed");
+        assert_eq!(removed, 1);
+
+        // Tag should be auto-deleted since no records use it
+        let tags_after = svc.list_tags().expect("list_tags must succeed");
+        assert!(
+            tags_after.is_empty(),
+            "orphan tag should be auto-deleted when no records use it"
+        );
+    }
+
+    #[test]
+    fn batch_remove_tag_preserves_tag_if_still_used() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Create 3 records with "shared" tag
+        let id1 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec1".to_string(),
+                    username: "user1".to_string(),
+                    password: SecureStr::new("pass1".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["shared".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let _id2 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec2".to_string(),
+                    username: "user2".to_string(),
+                    password: SecureStr::new("pass2".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["shared".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        // Remove from only 1 record (id1); id2 still uses "shared"
+        let removed = svc
+            .batch_remove_tag(&[id1], "shared")
+            .expect("batch_remove_tag must succeed");
+        assert_eq!(removed, 1);
+
+        // Tag should still exist because id2 still uses it
+        let tags = svc.list_tags().expect("list_tags must succeed");
+        assert_eq!(tags.len(), 1, "shared tag should still exist");
+        assert_eq!(tags[0].0.name, "shared");
+        assert_eq!(tags[0].1, 1, "shared tag should have 1 remaining usage");
+    }
+
+    #[test]
+    fn batch_remove_tag_returns_tag_not_found_for_missing_tag() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Create a record (so record_ids are valid but the tag doesn't exist)
+        let id = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec".to_string(),
+                    username: "user".to_string(),
+                    password: SecureStr::new("pass".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let result = svc.batch_remove_tag(&[id], "nonexistent");
+        assert!(result.is_err(), "removing nonexistent tag should fail");
+        assert!(
+            matches!(result.unwrap_err(), VaultError::TagNotFound(ref n) if n == "nonexistent"),
+            "expected TagNotFound(\"nonexistent\")"
+        );
+    }
+
+    #[test]
+    fn batch_add_tag_executes_in_transaction() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let id1 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec1".to_string(),
+                    username: "user1".to_string(),
+                    password: SecureStr::new("pass1".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let id2 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec2".to_string(),
+                    username: "user2".to_string(),
+                    password: SecureStr::new("pass2".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        // Both records tagged atomically
+        let added = svc
+            .batch_add_tag(&[id1, id2], "tx_tag")
+            .expect("batch_add_tag must succeed");
+        assert_eq!(added, 2);
+
+        // Verify both have the tag
+        assert!(svc
+            .get_stored_record(id1)
+            .unwrap()
+            .tags
+            .contains(&"tx_tag".to_string()));
+        assert!(svc
+            .get_stored_record(id2)
+            .unwrap()
+            .tags
+            .contains(&"tx_tag".to_string()));
+    }
+
+    #[test]
+    fn batch_remove_tag_executes_in_transaction() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let id1 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec1".to_string(),
+                    username: "user1".to_string(),
+                    password: SecureStr::new("pass1".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["tx_remove".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let id2 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Rec2".to_string(),
+                    username: "user2".to_string(),
+                    password: SecureStr::new("pass2".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["tx_remove".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let removed = svc
+            .batch_remove_tag(&[id1, id2], "tx_remove")
+            .expect("batch_remove_tag must succeed");
+        assert_eq!(removed, 2);
+
+        // Tag should be auto-deleted (orphan)
+        let tags = svc.list_tags().expect("list_tags must succeed");
+        assert!(
+            tags.iter().all(|(t, _)| t.name != "tx_remove"),
+            "tx_remove tag should be deleted after full removal"
+        );
+    }
+
+    #[test]
+    fn batch_remove_tag_skips_records_without_tag() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Only id1 has the "selective" tag
+        let id1 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Tagged".to_string(),
+                    username: "user1".to_string(),
+                    password: SecureStr::new("pass1".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["selective".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let id2 = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Untagged".to_string(),
+                    username: "user2".to_string(),
+                    password: SecureStr::new("pass2".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let removed = svc
+            .batch_remove_tag(&[id1, id2], "selective")
+            .expect("batch_remove_tag must succeed");
+        assert_eq!(removed, 1, "only 1 record actually had the tag");
     }
 }
