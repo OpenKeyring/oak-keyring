@@ -8,6 +8,8 @@ pub mod payload;
 pub mod strength;
 pub mod xchacha20;
 
+pub use bip39::MnemonicLanguage;
+
 // =============================================================================
 // CryptoError — unified error type for the entire crypto layer
 // =============================================================================
