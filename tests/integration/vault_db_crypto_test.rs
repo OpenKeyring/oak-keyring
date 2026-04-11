@@ -3,12 +3,13 @@ use oak_keyring::crypto::payload::{
     decrypt_name_only, decrypt_payload, decrypt_subtitle, encrypt_payload,
 };
 use oak_keyring::crypto::CryptoManager;
+use oak_keyring::crypto::MnemonicLanguage;
 use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
 use oak_keyring::types::sensitive::SecureStr;
 
 /// Helper: create an unlocked CryptoManager from a fresh mnemonic.
 fn unlocked_crypto_manager() -> (Passkey, CryptoManager) {
-    let mnemonic = Passkey::generate(24).unwrap();
+    let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
     let mut cm = CryptoManager::new();
     cm.unlock_with_mnemonic(&mnemonic).unwrap();
     (mnemonic, cm)
@@ -34,7 +35,7 @@ fn test_crypto_manager_lock_clears_keystore() {
 #[test]
 fn test_unlock_with_mnemonic_flow() {
     // Verifies the full Passkey → SK → KEK → DEK derivation chain.
-    let mnemonic = Passkey::generate(24).unwrap();
+    let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
     let mut cm = CryptoManager::new();
     assert!(!cm.is_unlocked(), "new CryptoManager should start locked");
 
@@ -230,7 +231,7 @@ fn test_decrypt_subtitle_api() {
 fn test_cross_device_determinism() {
     // Same mnemonic → same SK → same KEK → same DEK.
     // Simulates two devices restoring from the same recovery phrase.
-    let mnemonic = Passkey::generate(24).unwrap();
+    let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
 
     let mut cm1 = CryptoManager::new();
     cm1.unlock_with_mnemonic(&mnemonic).unwrap();
