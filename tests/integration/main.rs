@@ -3,3 +3,4 @@ mod error_propagation_test;
 mod executor_command_test;
 mod i18n_test;
 mod vault_db_crypto_test;
+mod vault_service_test;
