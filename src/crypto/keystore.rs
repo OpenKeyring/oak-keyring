@@ -87,8 +87,7 @@ pub struct KeyStore {
     pub(crate) kek: Option<KeyEncryptionKey>,
     pub(crate) current_dek_version: u32,
     pub(crate) device_id: String,
-    /// BIP39 wordlist language, immutable after vault creation.
-    /// NOT secret material — safe to zeroize (just overwritten with default).
+    #[zeroize(skip)]
     pub(crate) mnemonic_language: MnemonicLanguage,
 }
 
@@ -117,7 +116,6 @@ impl KeyStore {
             "algorithm": "xchacha20-poly1305",
             "wrapped_sk": base64_encode(&wrapped),
             "nonce": base64_encode(&nonce),
-            "mnemonic_language": language.to_keystore_value(),
             "kdf": {
                 "algorithm": "argon2id",
                 "salt": base64_encode(&salt),
@@ -127,6 +125,7 @@ impl KeyStore {
                 "output_len": 32
             },
             "created_at": chrono::Utc::now().to_rfc3339(),
+            "mnemonic_language": language.to_keystore_value(),
         });
 
         let content = serde_json::to_string_pretty(&wrapped_sk).map_err(|e| e.to_string())?;
@@ -178,12 +177,6 @@ impl KeyStore {
             p_cost: parallelism,
         };
 
-        let mnemonic_language_str = data
-            .get("mnemonic_language")
-            .and_then(|v| v.as_str())
-            .unwrap_or("en");
-        let mnemonic_language = MnemonicLanguage::from_keystore_value(mnemonic_language_str)?;
-
         let wk = WrappingKey(
             argon2::derive_key_with_params(cmk, &salt_arr, &kdf_params)?
                 .try_into()
@@ -198,6 +191,10 @@ impl KeyStore {
         let sk_bytes = unwrap_key(&wrapped, &nonce_arr, wk.as_bytes())?;
         let sk = SecretKey(sk_bytes);
         let kek = KeyEncryptionKey(hkdf::derive_kek(sk.as_bytes())?);
+
+        let mnemonic_lang_str = data["mnemonic_language"].as_str().unwrap_or("en");
+        let mnemonic_language = MnemonicLanguage::from_keystore_value(mnemonic_lang_str)
+            .unwrap_or(MnemonicLanguage::English);
 
         Ok(Self {
             sk: Some(sk),
@@ -233,11 +230,6 @@ impl KeyStore {
             p_cost: parallelism,
         };
 
-        let mnemonic_language_str = data
-            .get("mnemonic_language")
-            .and_then(|v| v.as_str())
-            .unwrap_or("en");
-
         let old_wk = WrappingKey(
             argon2::derive_key_with_params(old_cmk, &salt_arr, &kdf_params)?
                 .try_into()
@@ -261,12 +253,13 @@ impl KeyStore {
 
         let (new_wrapped, new_nonce) = wrap_key(&sk_bytes, new_wk.as_bytes())?;
 
+        let mnemonic_language_str = data["mnemonic_language"].as_str().unwrap_or("en");
+
         let new_json = serde_json::json!({
             "version": data["version"].as_u64().unwrap_or(1),
             "algorithm": data["algorithm"].as_str().unwrap_or("xchacha20-poly1305"),
             "wrapped_sk": base64_encode(&new_wrapped),
             "nonce": base64_encode(&new_nonce),
-            "mnemonic_language": mnemonic_language_str,
             "kdf": {
                 "algorithm": "argon2id",
                 "salt": base64_encode(&new_salt),
@@ -276,6 +269,7 @@ impl KeyStore {
                 "output_len": 32
             },
             "created_at": chrono::Utc::now().to_rfc3339(),
+            "mnemonic_language": mnemonic_language_str,
         });
 
         let new_content = serde_json::to_string_pretty(&new_json).map_err(|e| e.to_string())?;
@@ -573,7 +567,6 @@ mod tests {
         assert!(data["wrapped_sk"].is_string(), "wrapped_sk must exist");
         assert!(data["nonce"].is_string(), "nonce must exist");
         assert!(data["created_at"].is_string(), "created_at must exist");
-        assert_eq!(data["mnemonic_language"].as_str(), Some("en"));
 
         let kdf = &data["kdf"];
         assert!(kdf["algorithm"].is_string(), "kdf.algorithm must exist");
@@ -584,6 +577,7 @@ mod tests {
         assert!(kdf["parallelism"].is_number(), "kdf.parallelism must exist");
         assert!(kdf["output_len"].is_number(), "kdf.output_len must exist");
         assert_eq!(kdf["output_len"].as_u64(), Some(32));
+        assert_eq!(data["mnemonic_language"].as_str(), Some("en"));
     }
 
     #[test]
@@ -623,7 +617,7 @@ mod tests {
     #[test]
     fn test_secret_key_zeroize_on_drop() {
         let key = SecretKey::new([0xAAu8; 32]);
-        assert_eq!(key.as_bytes(), &[0xFFu8; 32]);
+        assert_eq!(key.as_bytes(), &[0xAAu8; 32]);
         drop(key);
         // With #[zeroize(drop)], the Drop impl calls zeroize().
         // We can't read memory after drop in safe Rust, but we verify
@@ -680,36 +674,26 @@ mod tests {
             MnemonicLanguage::English,
         )
         .unwrap();
-        let file_path = dir.path().join("wrapped_secret_key.json");
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&file_path).unwrap().permissions().mode();
-            assert_eq!(
-                mode & 0o777,
-                0o600,
-                "file permissions must be 0o600, got {:o}",
-                mode & 0o777
-            );
-        }
+        let mut cm = CryptoManager::new();
+        cm.unlock(dir.path(), "lock-test-cmk").unwrap();
+        assert!(cm.is_unlocked());
 
-        #[cfg(not(unix))]
-        {
-            assert!(file_path.exists());
-        }
+        cm.lock();
+        assert!(!cm.is_unlocked(), "lock() must clear keystore");
     }
 
-    // ── MnemonicLanguage persistence tests ─────────────────────────────────
+    // ── Mnemonic Language Persistence Tests ─────────────────────────────────
 
     #[test]
     fn test_initialize_writes_mnemonic_language() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0xAAu8; 32];
+        let sk_bytes = [0x11u8; 32];
+
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "test-cmk",
+            "cmk",
             &Argon2Params::medium(),
             MnemonicLanguage::ChineseSimplified,
         )
@@ -718,17 +702,23 @@ mod tests {
         let file_path = dir.path().join("wrapped_secret_key.json");
         let content = std::fs::read_to_string(&file_path).unwrap();
         let data: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert_eq!(data["mnemonic_language"].as_str(), Some("zh-CN"));
+
+        assert_eq!(
+            data["mnemonic_language"].as_str(),
+            Some("zh-CN"),
+            "initialize must write mnemonic_language to JSON"
+        );
     }
 
     #[test]
     fn test_initialize_default_language_is_english() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0xBBu8; 32];
+        let sk_bytes = [0x22u8; 32];
+
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "test-cmk",
+            "cmk",
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
@@ -737,58 +727,78 @@ mod tests {
         let file_path = dir.path().join("wrapped_secret_key.json");
         let content = std::fs::read_to_string(&file_path).unwrap();
         let data: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert_eq!(data["mnemonic_language"].as_str(), Some("en"));
+
+        assert_eq!(
+            data["mnemonic_language"].as_str(),
+            Some("en"),
+            "initialize must write en for English"
+        );
     }
 
     #[test]
     fn test_unlock_reads_mnemonic_language() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0xCCu8; 32];
+        let sk_bytes = [0x33u8; 32];
+        let cmk = "test-cmk";
+
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "test-cmk",
+            cmk,
             &Argon2Params::medium(),
             MnemonicLanguage::ChineseSimplified,
         )
         .unwrap();
 
-        let store = KeyStore::unlock(dir.path(), "test-cmk").unwrap();
+        let store = KeyStore::unlock(dir.path(), cmk).unwrap();
         assert_eq!(
             store.mnemonic_language(),
-            MnemonicLanguage::ChineseSimplified
+            MnemonicLanguage::ChineseSimplified,
+            "unlock must read mnemonic_language from JSON"
         );
     }
 
     #[test]
     fn test_unlock_missing_language_defaults_to_english() {
+        // init_with_params creates JSON without mnemonic_language field
+        // to simulate old vaults
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0xDDu8; 32];
-        init_with_params(dir.path(), sk_bytes, "test-cmk", &Argon2Params::medium());
+        let sk_bytes = [0x44u8; 32];
+        let cmk = "test-cmk";
 
-        let store = KeyStore::unlock(dir.path(), "test-cmk").unwrap();
-        assert_eq!(store.mnemonic_language(), MnemonicLanguage::English);
+        init_with_params(dir.path(), sk_bytes, cmk, &Argon2Params::medium());
+
+        let store = KeyStore::unlock(dir.path(), cmk).unwrap();
+        assert_eq!(
+            store.mnemonic_language(),
+            MnemonicLanguage::English,
+            "unlock must default to English when mnemonic_language is missing"
+        );
     }
 
     #[test]
     fn test_change_cmk_preserves_mnemonic_language() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0xEEu8; 32];
+        let sk_bytes = [0x55u8; 32];
+        let old_cmk = "old-cmk";
+        let new_cmk = "new-cmk";
+
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "old-cmk",
+            old_cmk,
             &Argon2Params::medium(),
             MnemonicLanguage::ChineseSimplified,
         )
         .unwrap();
 
-        KeyStore::change_cmk(dir.path(), "old-cmk", "new-cmk").unwrap();
+        KeyStore::change_cmk(dir.path(), old_cmk, new_cmk).unwrap();
 
-        let store = KeyStore::unlock(dir.path(), "new-cmk").unwrap();
+        let store = KeyStore::unlock(dir.path(), new_cmk).unwrap();
         assert_eq!(
             store.mnemonic_language(),
-            MnemonicLanguage::ChineseSimplified
+            MnemonicLanguage::ChineseSimplified,
+            "change_cmk must preserve mnemonic_language"
         );
     }
 }

@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Zeroize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MnemonicLanguage {
     #[default]
     English,
@@ -53,17 +53,19 @@ pub struct Passkey {
 }
 
 impl Passkey {
-    pub fn generate(word_count: usize) -> Result<Self, String> {
+    pub fn generate(word_count: usize, language: MnemonicLanguage) -> Result<Self, String> {
         if word_count != 24 {
             return Err("Only 24-word mnemonics are supported".into());
         }
-        let mnemonic = Mnemonic::generate(word_count).map_err(|e| e.to_string())?;
+        let mnemonic = Mnemonic::generate_in(language.to_bip39_language(), word_count)
+            .map_err(|e| e.to_string())?;
         Ok(Self { mnemonic })
     }
 
-    pub fn from_words(words: &[String]) -> Result<Self, String> {
+    pub fn from_words(words: &[String], language: MnemonicLanguage) -> Result<Self, String> {
         let phrase = words.join(" ");
-        let mnemonic = Mnemonic::parse(&phrase).map_err(|e| e.to_string())?;
+        let mnemonic =
+            Mnemonic::parse_in(language.to_bip39_language(), &phrase).map_err(|e| e.to_string())?;
         Ok(Self { mnemonic })
     }
 
@@ -78,8 +80,8 @@ impl Passkey {
         Ok(PasskeySeed(seed_bytes))
     }
 
-    pub fn is_valid_word(word: &str) -> bool {
-        bip39::Language::English.find_word(word).is_some()
+    pub fn is_valid_word(word: &str, language: MnemonicLanguage) -> bool {
+        language.to_bip39_language().find_word(word).is_some()
     }
 
     pub fn verify_recovery_key(input: &str, expected: &str) -> bool {
@@ -173,30 +175,31 @@ mod tests {
 
     #[test]
     fn test_generate_24_words() {
-        let pk = Passkey::generate(24).expect("24-word generation should succeed");
+        let pk = Passkey::generate(24, MnemonicLanguage::English)
+            .expect("24-word generation should succeed");
         let words = pk.to_words();
         assert_eq!(words.len(), 24);
     }
 
     #[test]
     fn test_generate_word_count_rejection() {
-        assert!(Passkey::generate(12).is_err());
-        assert!(Passkey::generate(15).is_err());
-        assert!(Passkey::generate(0).is_err());
+        assert!(Passkey::generate(12, MnemonicLanguage::English).is_err());
+        assert!(Passkey::generate(15, MnemonicLanguage::English).is_err());
+        assert!(Passkey::generate(0, MnemonicLanguage::English).is_err());
     }
 
     #[test]
     fn test_roundtrip_generate_from_words() {
-        let pk = Passkey::generate(24).unwrap();
+        let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
         let words = pk.to_words();
-        let pk2 = Passkey::from_words(&words).unwrap();
+        let pk2 = Passkey::from_words(&words, MnemonicLanguage::English).unwrap();
         let words2 = pk2.to_words();
         assert_eq!(words, words2);
     }
 
     #[test]
     fn test_to_seed_determinism() {
-        let pk = Passkey::generate(24).unwrap();
+        let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
         let seed1 = pk.to_seed(None).unwrap();
         let seed2 = pk.to_seed(None).unwrap();
         assert_eq!(seed1.to_secret_key(), seed2.to_secret_key());
@@ -204,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_seed_to_secret_key_first_32_bytes() {
-        let pk = Passkey::generate(24).unwrap();
+        let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
         let seed = pk.to_seed(None).unwrap();
         let sk = seed.to_secret_key();
         assert_eq!(sk.len(), 32);
@@ -219,16 +222,19 @@ mod tests {
 
     #[test]
     fn test_is_valid_word_known_words() {
-        assert!(Passkey::is_valid_word("abandon"));
-        assert!(Passkey::is_valid_word("zoo"));
-        assert!(Passkey::is_valid_word("art"));
+        assert!(Passkey::is_valid_word("abandon", MnemonicLanguage::English));
+        assert!(Passkey::is_valid_word("zoo", MnemonicLanguage::English));
+        assert!(Passkey::is_valid_word("art", MnemonicLanguage::English));
     }
 
     #[test]
     fn test_is_valid_word_invalid_word() {
-        assert!(!Passkey::is_valid_word("xyz123"));
-        assert!(!Passkey::is_valid_word(""));
-        assert!(!Passkey::is_valid_word("notaword"));
+        assert!(!Passkey::is_valid_word("xyz123", MnemonicLanguage::English));
+        assert!(!Passkey::is_valid_word("", MnemonicLanguage::English));
+        assert!(!Passkey::is_valid_word(
+            "notaword",
+            MnemonicLanguage::English
+        ));
     }
 
     #[test]
@@ -238,11 +244,11 @@ mod tests {
         // for valid individual words like "abandon". Now it correctly checks
         // the wordlist.
         assert!(
-            Passkey::is_valid_word("abandon"),
+            Passkey::is_valid_word("abandon", MnemonicLanguage::English),
             "B3 regression: 'abandon' is a valid BIP39 word but was rejected"
         );
         assert!(
-            Passkey::is_valid_word("zoo"),
+            Passkey::is_valid_word("zoo", MnemonicLanguage::English),
             "B3 regression: 'zoo' is a valid BIP39 word but was rejected"
         );
     }
@@ -250,16 +256,16 @@ mod tests {
     #[test]
     fn test_from_words_invalid_mnemonic_fails() {
         let bad_words: Vec<String> = (0..24).map(|_| "foobar".to_string()).collect();
-        assert!(Passkey::from_words(&bad_words).is_err());
+        assert!(Passkey::from_words(&bad_words, MnemonicLanguage::English).is_err());
     }
 
     #[test]
     fn test_full_recovery_flow() {
         // generate → to_words → from_words → to_seed → to_secret_key
-        let pk = Passkey::generate(24).unwrap();
+        let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
         let words = pk.to_words();
 
-        let pk2 = Passkey::from_words(&words).unwrap();
+        let pk2 = Passkey::from_words(&words, MnemonicLanguage::English).unwrap();
         let seed = pk2.to_seed(None).unwrap();
         let sk = seed.to_secret_key();
         assert_eq!(sk.len(), 32);
@@ -268,5 +274,67 @@ mod tests {
         let seed2 = pk2.to_seed(None).unwrap();
         let sk2 = seed2.to_secret_key();
         assert_eq!(sk, sk2);
+    }
+
+    // ─── Multi-language Tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_generate_english_words() {
+        let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
+        let words = pk.to_words();
+        assert_eq!(words.len(), 24);
+        assert!(words.iter().all(|w| w.is_ascii()));
+    }
+
+    #[test]
+    fn test_generate_chinese_words() {
+        let pk = Passkey::generate(24, MnemonicLanguage::ChineseSimplified).unwrap();
+        let words = pk.to_words();
+        assert_eq!(words.len(), 24);
+        assert!(words.iter().all(|w| !w.is_ascii()));
+    }
+
+    #[test]
+    fn test_roundtrip_chinese_mnemonic() {
+        let pk = Passkey::generate(24, MnemonicLanguage::ChineseSimplified).unwrap();
+        let words = pk.to_words();
+        let pk2 = Passkey::from_words(&words, MnemonicLanguage::ChineseSimplified).unwrap();
+        let words2 = pk2.to_words();
+        assert_eq!(words, words2);
+    }
+
+    #[test]
+    fn test_cross_language_from_words_fails() {
+        let pk = Passkey::generate(24, MnemonicLanguage::ChineseSimplified).unwrap();
+        let words = pk.to_words();
+        let result = Passkey::from_words(&words, MnemonicLanguage::English);
+        assert!(result.is_err(), "cross-language parse must fail");
+    }
+
+    #[test]
+    fn test_is_valid_word_english() {
+        assert!(Passkey::is_valid_word("abandon", MnemonicLanguage::English));
+        assert!(!Passkey::is_valid_word("的", MnemonicLanguage::English));
+    }
+
+    #[test]
+    fn test_is_valid_word_chinese() {
+        assert!(Passkey::is_valid_word(
+            "的",
+            MnemonicLanguage::ChineseSimplified
+        ));
+        assert!(!Passkey::is_valid_word(
+            "abandon",
+            MnemonicLanguage::ChineseSimplified
+        ));
+    }
+
+    #[test]
+    fn test_to_seed_language_independence() {
+        let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
+        let seed1 = pk.to_seed(None).unwrap();
+        let pk2 = Passkey::from_words(&pk.to_words(), MnemonicLanguage::English).unwrap();
+        let seed2 = pk2.to_seed(None).unwrap();
+        assert_eq!(seed1.to_secret_key(), seed2.to_secret_key());
     }
 }
