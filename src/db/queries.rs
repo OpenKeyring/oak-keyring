@@ -505,6 +505,45 @@ pub fn delete_oldest_password_history(conn: &Connection, record_id: &Uuid) -> Re
     Ok(())
 }
 
+/// Get a single password history entry by its ID.
+///
+/// Returns `None` if no entry with the given ID exists.
+pub fn get_password_history_by_id(
+    conn: &Connection,
+    history_id: i64,
+) -> Result<Option<PasswordHistory>> {
+    let result = conn.query_row(
+        "SELECT id, record_id, encrypted_password, nonce, dek_version, changed_at
+         FROM password_history
+         WHERE id = ?1",
+        rusqlite::params![history_id],
+        |row| {
+            let nonce_vec: Vec<u8> = row.get("nonce")?;
+            let nonce: [u8; 24] = nonce_vec.try_into().map_err(|_| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    24,
+                    rusqlite::types::Type::Blob,
+                    Box::new(std::io::Error::other("nonce must be 24 bytes")),
+                )
+            })?;
+            Ok(PasswordHistory {
+                id: row.get("id")?,
+                record_id: Uuid::parse_str(&row.get::<_, String>("record_id")?).unwrap(),
+                encrypted_password: row.get("encrypted_password")?,
+                nonce,
+                dek_version: row.get::<_, i64>("dek_version")? as u32,
+                changed_at: timestamp_to_datetime(row.get("changed_at")?),
+            })
+        },
+    );
+
+    match result {
+        Ok(entry) => Ok(Some(entry)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DbError::from(e)),
+    }
+}
+
 /// Delete all password history entries for a record.
 pub fn delete_password_history_by_record(conn: &Connection, record_id: &Uuid) -> Result<()> {
     conn.execute(
