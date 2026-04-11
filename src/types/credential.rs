@@ -67,7 +67,7 @@ impl CredentialType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EncryptedPayload {
     Login {
         name: String,
