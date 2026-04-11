@@ -4,12 +4,15 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::VaultService;
+use crate::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
 use crate::crypto::payload;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
-use crate::types::record::{CreateRecordParams, DecryptedRecord, StoredRecord, UpdateRecordParams};
+use crate::types::record::{
+    CreateRecordParams, DecryptedRecord, StoredRecord, TuiRecord, UpdateRecordParams,
+};
 
 impl VaultService {
     /// Create a new vault record with encryption, tags, and audit logging.
@@ -414,6 +417,151 @@ impl VaultService {
 
         Ok(())
     }
+
+    /// List records matching a filter, with decryption and sorting.
+    ///
+    /// Queries encrypted records from the database, decrypts name and subtitle
+    /// for each record, and applies the requested sort order.
+    ///
+    /// # Filter behavior
+    /// - `All` — all active (non-deleted) records
+    /// - `Favorites` — active records where `is_favorite = true`
+    /// - `Expired` — active records where `expires_at < now`
+    /// - `Trash` — soft-deleted records
+    /// - `Tag(name)` — active records with the specified tag
+    /// - `Search(query)` — delegates to search module (placeholder: returns empty)
+    /// - `HealthIssues` — placeholder, returns empty (S3 implements)
+    ///
+    /// # Sort behavior
+    /// - `Name` — sorted at application layer after decryption
+    /// - `CreatedAt` / `UpdatedAt` — sorted at application layer on timestamps
+    /// - `UsageFrequency` — no-op (not yet implemented)
+    ///
+    /// # Errors
+    /// - `VaultError::NotUnlocked` if the vault is locked.
+    /// - `VaultError::DatabaseError` if a query fails.
+    /// - `VaultError::CryptoError` if decryption fails.
+    pub fn list_records(
+        &self,
+        filter: &RecordFilter,
+        sort: &RecordSort,
+    ) -> Result<Vec<TuiRecord>, VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        // Fetch raw records based on filter
+        let stored_records = match filter {
+            RecordFilter::Trash => {
+                queries::list_deleted_records(&self.conn).map_err(db_error_to_vault)?
+            }
+            RecordFilter::Search(_query) => {
+                // Placeholder: Task 13 implements full search
+                return Ok(vec![]);
+            }
+            RecordFilter::HealthIssues => {
+                // Placeholder: S3 implements health-based filtering
+                return Ok(vec![]);
+            }
+            _ => {
+                // All, Favorites, Expired, Tag — start from active records
+                queries::list_active_records(&self.conn).map_err(db_error_to_vault)?
+            }
+        };
+
+        let now = Utc::now();
+
+        // Decrypt and build TuiRecords, applying application-layer filters
+        let mut tui_records: Vec<TuiRecord> = Vec::with_capacity(stored_records.len());
+        for stored in &stored_records {
+            // Application-layer filter for Favorites
+            if matches!(filter, RecordFilter::Favorites) && !stored.is_favorite {
+                continue;
+            }
+
+            // Application-layer filter for Expired
+            if matches!(filter, RecordFilter::Expired) {
+                let is_expired = stored.expires_at.is_some_and(|t| t < now);
+                if !is_expired {
+                    continue;
+                }
+            }
+
+            // Application-layer filter for Tag
+            if let RecordFilter::Tag(tag_name) = filter {
+                if !stored.tags.contains(tag_name) {
+                    continue;
+                }
+            }
+
+            // Decrypt name and subtitle
+            let aad = format!("record:{}", stored.id);
+            let name = payload::decrypt_name_only(
+                &self.crypto,
+                &stored.encrypted_data,
+                &stored.nonce,
+                aad.as_bytes(),
+                stored.dek_version,
+            )
+            .map_err(VaultError::CryptoError)?;
+
+            let subtitle = payload::decrypt_subtitle(
+                &self.crypto,
+                &stored.encrypted_data,
+                &stored.nonce,
+                aad.as_bytes(),
+                stored.credential_type,
+                stored.dek_version,
+            )
+            .map_err(VaultError::CryptoError)?;
+
+            let is_expired = stored.expires_at.is_some_and(|t| t < now);
+
+            tui_records.push(TuiRecord {
+                id: stored.id,
+                credential_type: stored.credential_type,
+                name,
+                subtitle,
+                is_favorite: stored.is_favorite,
+                is_expired,
+                expires_at: stored.expires_at,
+                has_weak_password: false, // S3 implements
+                created_at: stored.created_at,
+                updated_at: stored.updated_at,
+                deleted: stored.deleted,
+                deleted_at: stored.deleted_at,
+                tags: stored.tags.clone(),
+                sync_status: None,
+            });
+        }
+
+        // Application-layer sort
+        apply_sort(&mut tui_records, sort);
+
+        Ok(tui_records)
+    }
+}
+
+/// Apply the requested sort order to a list of TuiRecords.
+fn apply_sort(records: &mut [TuiRecord], sort: &RecordSort) {
+    let direction_multiplier: i32 = match sort.direction {
+        SortDirection::Asc => 1,
+        SortDirection::Desc => -1,
+    };
+
+    records.sort_by(|a, b| {
+        let cmp = match sort.field {
+            SortField::Name => a.name.cmp(&b.name),
+            SortField::CreatedAt => a.created_at.cmp(&b.created_at),
+            SortField::UpdatedAt => a.updated_at.cmp(&b.updated_at),
+            SortField::UsageFrequency => std::cmp::Ordering::Equal, // No-op
+        };
+        if direction_multiplier == -1 {
+            cmp.reverse()
+        } else {
+            cmp
+        }
+    });
 }
 
 /// Decrypt just the record name from a stored record for audit logging purposes.
@@ -461,6 +609,7 @@ pub(crate) fn db_error_to_vault(e: queries::DbError) -> VaultError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
     use crate::db::schema::{initialize_metadata, initialize_schema};
     use crate::types::credential::{CredentialType, EncryptedPayload};
@@ -1665,6 +1814,485 @@ mod tests {
         assert!(
             matches!(result.unwrap_err(), VaultError::RecordNotFound(id) if id == nonexistent),
             "expected RecordNotFound"
+        );
+    }
+
+    // =========================================================================
+    // list_records tests
+    // =========================================================================
+
+    /// Helper: create a Login record with a specific name and return its ID.
+    fn create_named_record(svc: &mut VaultService, name: &str) -> Uuid {
+        svc.create_record(CreateRecordParams {
+            credential_type: CredentialType::Login,
+            payload: EncryptedPayload::Login {
+                name: name.to_string(),
+                username: format!("user_{}", name.to_lowercase()),
+                password: SecureStr::new("password123".to_string()),
+                url: None,
+                notes: None,
+            },
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("create_record must succeed")
+    }
+
+    // --- list_records: NotUnlocked guard ---
+
+    #[test]
+    fn list_records_returns_not_unlocked_when_locked() {
+        let svc = setup_service();
+        assert!(!svc.is_unlocked());
+
+        let result = svc.list_records(
+            &RecordFilter::All,
+            &RecordSort {
+                field: SortField::UpdatedAt,
+                direction: SortDirection::Desc,
+            },
+        );
+        assert!(result.is_err(), "list_records must fail when locked");
+        assert!(
+            matches!(result.unwrap_err(), VaultError::NotUnlocked),
+            "expected NotUnlocked error"
+        );
+    }
+
+    // --- list_records: All filter returns all active records ---
+
+    #[test]
+    fn list_records_all_returns_all_active_records() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let _id_a = create_named_record(&mut svc, "Alpha");
+        let _id_b = create_named_record(&mut svc, "Bravo");
+        let _id_c = create_named_record(&mut svc, "Charlie");
+
+        let sort = RecordSort {
+            field: SortField::UpdatedAt,
+            direction: SortDirection::Desc,
+        };
+
+        let records = svc
+            .list_records(&RecordFilter::All, &sort)
+            .expect("list_records must succeed");
+
+        assert_eq!(records.len(), 3, "should return 3 active records");
+    }
+
+    // --- list_records: sort by UpdatedAt Desc uses correct ordering ---
+
+    #[test]
+    fn list_records_sorts_by_updated_at_desc() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let id_first = create_named_record(&mut svc, "First");
+        let _id_second = create_named_record(&mut svc, "Second");
+        let _id_third = create_named_record(&mut svc, "Third");
+
+        // Update id_first to give it the most recent updated_at
+        svc.update_record(UpdateRecordParams {
+            id: id_first,
+            payload: EncryptedPayload::Login {
+                name: "FirstUpdated".to_string(),
+                username: "user_first".to_string(),
+                password: SecureStr::new("password123".to_string()),
+                url: None,
+                notes: None,
+            },
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 1,
+        })
+        .expect("update_record must succeed");
+
+        let sort_desc = RecordSort {
+            field: SortField::UpdatedAt,
+            direction: SortDirection::Desc,
+        };
+
+        let records = svc
+            .list_records(&RecordFilter::All, &sort_desc)
+            .expect("list_records must succeed");
+
+        assert_eq!(records.len(), 3);
+        // id_first was updated last, so it should come first in DESC order
+        assert_eq!(records[0].id, id_first);
+    }
+
+    // --- list_records: sort by UpdatedAt Asc ---
+
+    #[test]
+    fn list_records_sorts_by_updated_at_asc() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let _id_first = create_named_record(&mut svc, "First");
+        let _id_second = create_named_record(&mut svc, "Second");
+        let id_third = create_named_record(&mut svc, "Third");
+
+        // Update id_third to give it the most recent updated_at
+        svc.update_record(UpdateRecordParams {
+            id: id_third,
+            payload: EncryptedPayload::Login {
+                name: "ThirdUpdated".to_string(),
+                username: "user_third".to_string(),
+                password: SecureStr::new("password123".to_string()),
+                url: None,
+                notes: None,
+            },
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 1,
+        })
+        .expect("update_record must succeed");
+
+        let sort_asc = RecordSort {
+            field: SortField::UpdatedAt,
+            direction: SortDirection::Asc,
+        };
+
+        let records = svc
+            .list_records(&RecordFilter::All, &sort_asc)
+            .expect("list_records must succeed");
+
+        assert_eq!(records.len(), 3);
+        // id_third was updated last, so it should come last in ASC order
+        assert_eq!(records[2].id, id_third);
+    }
+
+    // --- list_records: Favorites filter returns only is_favorite records ---
+
+    #[test]
+    fn list_records_favorites_returns_only_favorites() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Create two non-favorite records
+        let _id_a = create_named_record(&mut svc, "Alpha");
+        let _id_b = create_named_record(&mut svc, "Bravo");
+
+        // Create a favorite record
+        let id_fav = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "FavoriteSite".to_string(),
+                    username: "fav_user".to_string(),
+                    password: SecureStr::new("fav_pass".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: true,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let sort = RecordSort {
+            field: SortField::UpdatedAt,
+            direction: SortDirection::Desc,
+        };
+
+        let favorites = svc
+            .list_records(&RecordFilter::Favorites, &sort)
+            .expect("list_records must succeed");
+
+        assert_eq!(favorites.len(), 1, "only favorite records returned");
+        assert_eq!(favorites[0].id, id_fav);
+        assert!(favorites[0].is_favorite);
+    }
+
+    // --- list_records: Tag filter returns only records with that tag ---
+
+    #[test]
+    fn list_records_tag_filter_returns_matching_records() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        // Create a record with "work" tag
+        let id_work = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "WorkSite".to_string(),
+                    username: "work_user".to_string(),
+                    password: SecureStr::new("work_pass".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["work".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        // Create a record with "personal" tag
+        let id_personal = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "PersonalSite".to_string(),
+                    username: "personal_user".to_string(),
+                    password: SecureStr::new("personal_pass".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["personal".to_string()],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        // Create an untagged record
+        let _id_untagged = create_named_record(&mut svc, "Untagged");
+
+        let sort = RecordSort {
+            field: SortField::UpdatedAt,
+            direction: SortDirection::Desc,
+        };
+
+        let work_records = svc
+            .list_records(&RecordFilter::Tag("work".into()), &sort)
+            .expect("list_records must succeed");
+        assert_eq!(work_records.len(), 1);
+        assert_eq!(work_records[0].id, id_work);
+
+        let personal_records = svc
+            .list_records(&RecordFilter::Tag("personal".into()), &sort)
+            .expect("list_records must succeed");
+        assert_eq!(personal_records.len(), 1);
+        assert_eq!(personal_records[0].id, id_personal);
+
+        // Non-existent tag returns empty
+        let none = svc
+            .list_records(&RecordFilter::Tag("nonexistent".into()), &sort)
+            .expect("list_records must succeed");
+        assert!(none.is_empty(), "non-existent tag should return empty");
+    }
+
+    // --- list_records: Expired filter returns only expired records ---
+
+    #[test]
+    fn list_records_expired_returns_only_expired() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let now = Utc::now();
+
+        // Create an expired record (expires_at in the past)
+        let id_expired = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "ExpiredSite".to_string(),
+                    username: "expired_user".to_string(),
+                    password: SecureStr::new("expired_pass".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: Some(now - chrono::Duration::seconds(1000)),
+            })
+            .expect("create_record must succeed");
+
+        // Create a valid record (expires_at in the future)
+        let _id_valid = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "ValidSite".to_string(),
+                    username: "valid_user".to_string(),
+                    password: SecureStr::new("valid_pass".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: Some(now + chrono::Duration::seconds(1000)),
+            })
+            .expect("create_record must succeed");
+
+        // Create a record with no expiration
+        let _id_no_exp = create_named_record(&mut svc, "NoExpiration");
+
+        let sort = RecordSort {
+            field: SortField::UpdatedAt,
+            direction: SortDirection::Desc,
+        };
+
+        let expired = svc
+            .list_records(&RecordFilter::Expired, &sort)
+            .expect("list_records must succeed");
+
+        assert_eq!(expired.len(), 1, "only expired record returned");
+        assert_eq!(expired[0].id, id_expired);
+        assert!(expired[0].is_expired);
+    }
+
+    // --- list_records: Trash filter returns soft-deleted records ---
+
+    #[test]
+    fn list_records_trash_returns_only_deleted() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let id_active = create_named_record(&mut svc, "Active");
+        let id_to_delete = create_named_record(&mut svc, "ToDelete");
+
+        svc.soft_delete_record(id_to_delete)
+            .expect("soft_delete must succeed");
+
+        let sort = RecordSort {
+            field: SortField::UpdatedAt,
+            direction: SortDirection::Desc,
+        };
+
+        let trash = svc
+            .list_records(&RecordFilter::Trash, &sort)
+            .expect("list_records must succeed");
+
+        assert_eq!(trash.len(), 1, "only soft-deleted record in trash");
+        assert_eq!(trash[0].id, id_to_delete);
+        assert!(trash[0].deleted);
+
+        // Active record should not appear in trash
+        assert!(trash.iter().all(|r| r.id != id_active));
+    }
+
+    // --- list_records: Name sort sorts by decrypted name alphabetically ---
+
+    #[test]
+    fn list_records_name_sort_sorts_by_decrypted_name() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        create_named_record(&mut svc, "Charlie");
+        create_named_record(&mut svc, "Alpha");
+        create_named_record(&mut svc, "Bravo");
+
+        let sort_asc = RecordSort {
+            field: SortField::Name,
+            direction: SortDirection::Asc,
+        };
+
+        let records = svc
+            .list_records(&RecordFilter::All, &sort_asc)
+            .expect("list_records must succeed");
+
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].name, "Alpha");
+        assert_eq!(records[1].name, "Bravo");
+        assert_eq!(records[2].name, "Charlie");
+
+        // Desc order
+        let sort_desc = RecordSort {
+            field: SortField::Name,
+            direction: SortDirection::Desc,
+        };
+
+        let records_desc = svc
+            .list_records(&RecordFilter::All, &sort_desc)
+            .expect("list_records must succeed");
+
+        assert_eq!(records_desc[0].name, "Charlie");
+        assert_eq!(records_desc[1].name, "Bravo");
+        assert_eq!(records_desc[2].name, "Alpha");
+    }
+
+    // --- list_records: decrypted name and subtitle are populated ---
+
+    #[test]
+    fn list_records_populates_decrypted_name_and_subtitle() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        let _id = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "GitHub".to_string(),
+                    username: "alice".to_string(),
+                    password: SecureStr::new("s3cret!".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec!["dev".to_string()],
+                is_favorite: true,
+                expires_at: None,
+            })
+            .expect("create_record must succeed");
+
+        let records = svc
+            .list_records(
+                &RecordFilter::All,
+                &RecordSort {
+                    field: SortField::UpdatedAt,
+                    direction: SortDirection::Desc,
+                },
+            )
+            .expect("list_records must succeed");
+
+        assert_eq!(records.len(), 1);
+        let rec = &records[0];
+        assert_eq!(rec.name, "GitHub", "name should be decrypted");
+        assert_eq!(rec.subtitle, "alice", "subtitle should be decrypted");
+        assert!(rec.is_favorite);
+        assert_eq!(rec.tags, vec!["dev"]);
+    }
+
+    // --- list_records: Search returns empty (placeholder) ---
+
+    #[test]
+    fn list_records_search_returns_empty_placeholder() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        create_named_record(&mut svc, "Alpha");
+
+        let result = svc.list_records(
+            &RecordFilter::Search("Alpha".into()),
+            &RecordSort {
+                field: SortField::UpdatedAt,
+                direction: SortDirection::Desc,
+            },
+        );
+
+        assert!(result.is_ok());
+        assert!(
+            result.unwrap().is_empty(),
+            "Search placeholder returns empty"
+        );
+    }
+
+    // --- list_records: HealthIssues returns empty (placeholder) ---
+
+    #[test]
+    fn list_records_health_issues_returns_empty_placeholder() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+
+        create_named_record(&mut svc, "Alpha");
+
+        let result = svc.list_records(
+            &RecordFilter::HealthIssues,
+            &RecordSort {
+                field: SortField::UpdatedAt,
+                direction: SortDirection::Desc,
+            },
+        );
+
+        assert!(result.is_ok());
+        assert!(
+            result.unwrap().is_empty(),
+            "HealthIssues placeholder returns empty"
         );
     }
 }
