@@ -9,7 +9,7 @@ use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
-use crate::types::record::{CreateRecordParams, DecryptedRecord, StoredRecord};
+use crate::types::record::{CreateRecordParams, DecryptedRecord, StoredRecord, UpdateRecordParams};
 
 impl VaultService {
     /// Create a new vault record with encryption, tags, and audit logging.
@@ -188,10 +188,130 @@ impl VaultService {
 
         Ok(decrypted)
     }
+
+    /// Update an existing vault record with optimistic locking.
+    ///
+    /// # Errors
+    /// - `VaultError::NotUnlocked` if the vault is locked.
+    /// - `VaultError::RecordNotFound` if no record with the given ID exists.
+    /// - `VaultError::VersionConflict` if `expected_version` does not match the stored version.
+    /// - `VaultError::CryptoError` if encryption or decryption fails.
+    pub fn update_record(&mut self, params: UpdateRecordParams) -> Result<(), VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        // 1. Read current record
+        let stored = self.get_stored_record(params.id)?;
+
+        // 2. Version check (optimistic locking)
+        if stored.version != params.expected_version {
+            return Err(VaultError::VersionConflict {
+                expected: params.expected_version,
+                actual: stored.version,
+            });
+        }
+
+        // 3. If Login and password changed, save old password to history
+        if stored.credential_type == CredentialType::Login {
+            let old_payload = payload::decrypt_payload(
+                &self.crypto,
+                &stored.encrypted_data,
+                &stored.nonce,
+                &stored.aad,
+                stored.credential_type,
+                stored.dek_version,
+            )
+            .map_err(VaultError::CryptoError)?;
+
+            if password_changed(&old_payload, &params.payload) {
+                self._save_password_history(
+                    params.id,
+                    &stored.encrypted_data,
+                    &stored.nonce,
+                    stored.dek_version,
+                )?;
+            }
+        }
+
+        // 4. Encrypt new payload
+        let aad = format!("record:{}", params.id);
+        let (encrypted_data, nonce) =
+            payload::encrypt_payload(&self.crypto, &params.payload, aad.as_bytes())
+                .map_err(VaultError::CryptoError)?;
+
+        let now = Utc::now();
+        let new_version = stored.version + 1;
+        let updated_record = StoredRecord {
+            id: params.id,
+            credential_type: stored.credential_type,
+            encrypted_data,
+            nonce,
+            dek_version: self.crypto.current_dek_version(),
+            aad: aad.into_bytes(),
+            is_favorite: params.is_favorite,
+            expires_at: params.expires_at,
+            created_at: stored.created_at,
+            updated_at: now,
+            updated_by: self.device_id.clone(),
+            version: new_version,
+            deleted: stored.deleted,
+            deleted_at: stored.deleted_at,
+            tags: params.tags.clone(),
+        };
+
+        // 5. Update record in DB (with optimistic locking via WHERE version = ?)
+        let updated = queries::update_record(&self.conn, &updated_record, params.expected_version)
+            .map_err(db_error_to_vault)?;
+        if !updated {
+            return Err(VaultError::VersionConflict {
+                expected: params.expected_version,
+                actual: stored.version, // Best guess; the actual version may have changed
+            });
+        }
+
+        // 6. Clear old tag associations and rebuild new ones
+        queries::detach_all_tags_for_record(&self.conn, &params.id).map_err(db_error_to_vault)?;
+        for tag_name in &params.tags {
+            let tag =
+                queries::get_or_create_tag(&self.conn, tag_name).map_err(db_error_to_vault)?;
+            queries::attach_tag(&self.conn, &params.id, tag.id).map_err(db_error_to_vault)?;
+        }
+
+        // 7. Write audit entry
+        let record_name = params.payload.name().to_string();
+        queries::insert_audit_entry(
+            &self.conn,
+            AuditOperation::RecordUpdate,
+            Some(&params.id),
+            Some(&record_name),
+            None,
+        )
+        .map_err(db_error_to_vault)?;
+
+        Ok(())
+    }
+}
+
+/// Check whether the password field changed between two Login payloads.
+///
+/// Returns `false` for non-Login payloads (they have no password field).
+fn password_changed(old: &EncryptedPayload, new: &EncryptedPayload) -> bool {
+    match (old, new) {
+        (
+            EncryptedPayload::Login {
+                password: old_pw, ..
+            },
+            EncryptedPayload::Login {
+                password: new_pw, ..
+            },
+        ) => old_pw.get() != new_pw.get(),
+        _ => false,
+    }
 }
 
 /// Map DbError to VaultError, preserving the rusqlite error when possible.
-fn db_error_to_vault(e: queries::DbError) -> VaultError {
+pub(crate) fn db_error_to_vault(e: queries::DbError) -> VaultError {
     match e {
         queries::DbError::Sqlite(se) => VaultError::DatabaseError(se),
         other => VaultError::CryptoError(other.to_string()),
@@ -629,5 +749,358 @@ mod tests {
             matches!(result.unwrap_err(), VaultError::RecordNotFound(id) if id == nonexistent),
             "expected RecordNotFound with the given UUID"
         );
+    }
+
+    // =========================================================================
+    // update_record tests
+    // =========================================================================
+
+    /// Helper: create a Login record and return its ID.
+    fn create_test_login_record(svc: &mut VaultService) -> Uuid {
+        svc.create_record(CreateRecordParams {
+            credential_type: CredentialType::Login,
+            payload: sample_login_payload("TestLogin"),
+            tags: vec!["work".to_string()],
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("create_record must succeed")
+    }
+
+    // --- update_record: NotUnlocked guard ---
+
+    #[test]
+    fn update_record_returns_not_unlocked_when_locked() {
+        let mut svc = setup_service();
+        assert!(!svc.is_unlocked());
+
+        let params = UpdateRecordParams {
+            id: Uuid::new_v4(),
+            payload: sample_login_payload("Test"),
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 1,
+        };
+
+        let result = svc.update_record(params);
+        assert!(result.is_err(), "update_record must fail when locked");
+        assert!(
+            matches!(result.unwrap_err(), VaultError::NotUnlocked),
+            "expected NotUnlocked error"
+        );
+    }
+
+    // --- update_record: version mismatch returns VersionConflict ---
+
+    #[test]
+    fn update_record_returns_version_conflict_on_mismatch() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        let params = UpdateRecordParams {
+            id,
+            payload: sample_login_payload("Updated"),
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 99, // Wrong version
+        };
+
+        let result = svc.update_record(params);
+        assert!(
+            result.is_err(),
+            "update_record must fail on version mismatch"
+        );
+        match result.unwrap_err() {
+            VaultError::VersionConflict { expected, actual } => {
+                assert_eq!(expected, 99);
+                assert_eq!(actual, 1);
+            }
+            other => panic!("expected VersionConflict, got {:?}", other),
+        }
+    }
+
+    // --- update_record: password change creates password history entry ---
+
+    #[test]
+    fn update_record_saves_password_history_when_password_changes() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // Verify no history before update
+        let count_before = queries::count_password_history(&svc.conn, &id).unwrap();
+        assert_eq!(count_before, 0, "no history before update");
+
+        // Update with a different password
+        let new_payload = EncryptedPayload::Login {
+            name: "TestLogin".to_string(),
+            username: "alice".to_string(),
+            password: SecureStr::new("newP@ssw0rd!".to_string()),
+            url: Some("https://github.com".to_string()),
+            notes: None,
+        };
+
+        let params = UpdateRecordParams {
+            id,
+            payload: new_payload,
+            tags: vec!["work".to_string()],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 1,
+        };
+
+        svc.update_record(params)
+            .expect("update_record must succeed");
+
+        // Verify password history has one entry
+        let count_after = queries::count_password_history(&svc.conn, &id).unwrap();
+        assert_eq!(count_after, 1, "one history entry after password change");
+    }
+
+    // --- update_record: no history when password unchanged ---
+
+    #[test]
+    fn update_record_skips_password_history_when_password_unchanged() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // Update with the same password (only name changes)
+        let new_payload = EncryptedPayload::Login {
+            name: "TestLoginRenamed".to_string(),
+            username: "alice".to_string(),
+            password: SecureStr::new("s3cret!".to_string()), // Same password
+            url: Some("https://github.com".to_string()),
+            notes: None,
+        };
+
+        let params = UpdateRecordParams {
+            id,
+            payload: new_payload,
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 1,
+        };
+
+        svc.update_record(params)
+            .expect("update_record must succeed");
+
+        let count = queries::count_password_history(&svc.conn, &id).unwrap();
+        assert_eq!(count, 0, "no history when password unchanged");
+    }
+
+    // --- update_record: tags are replaced ---
+
+    #[test]
+    fn update_record_replaces_tags() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // Verify initial tags
+        let stored_before = svc.get_stored_record(id).unwrap();
+        assert_eq!(stored_before.tags, vec!["work"]);
+
+        // Update with different tags
+        let params = UpdateRecordParams {
+            id,
+            payload: sample_login_payload("TestLogin"),
+            tags: vec!["personal".to_string(), "email".to_string()],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 1,
+        };
+
+        svc.update_record(params)
+            .expect("update_record must succeed");
+
+        let stored_after = svc.get_stored_record(id).unwrap();
+        let mut tags = stored_after.tags.clone();
+        tags.sort();
+        assert_eq!(tags, vec!["email", "personal"]);
+    }
+
+    // --- update_record: audit log contains RecordUpdate ---
+
+    #[test]
+    fn update_record_writes_audit_entry() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // One audit entry from create
+        let before =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(before.len(), 1);
+
+        let params = UpdateRecordParams {
+            id,
+            payload: sample_login_payload("TestLoginRenamed"),
+            tags: vec![],
+            is_favorite: true,
+            expires_at: None,
+            expected_version: 1,
+        };
+
+        svc.update_record(params)
+            .expect("update_record must succeed");
+
+        let after =
+            queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+        assert_eq!(after.len(), 2, "expected two audit entries after update");
+
+        let update_entry = after
+            .iter()
+            .find(|e| e.operation == AuditOperation::RecordUpdate)
+            .expect("expected a RecordUpdate audit entry");
+        assert_eq!(update_entry.record_id, Some(id));
+        assert_eq!(
+            update_entry.record_name.as_deref(),
+            Some("TestLoginRenamed")
+        );
+    }
+
+    // --- update_record: version is incremented ---
+
+    #[test]
+    fn update_record_increments_version() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        let stored_before = svc.get_stored_record(id).unwrap();
+        assert_eq!(stored_before.version, 1);
+
+        let params = UpdateRecordParams {
+            id,
+            payload: sample_login_payload("TestLoginV2"),
+            tags: vec![],
+            is_favorite: true,
+            expires_at: None,
+            expected_version: 1,
+        };
+
+        svc.update_record(params)
+            .expect("update_record must succeed");
+
+        let stored_after = svc.get_stored_record(id).unwrap();
+        assert_eq!(stored_after.version, 2);
+        assert!(stored_after.is_favorite);
+    }
+
+    // --- update_record: encrypted payload roundtrips ---
+
+    #[test]
+    fn update_record_payload_decrypts_correctly() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        let new_payload = EncryptedPayload::Login {
+            name: "UpdatedSite".to_string(),
+            username: "bob".to_string(),
+            password: SecureStr::new("n3wP@ss".to_string()),
+            url: None,
+            notes: Some("updated notes".to_string()),
+        };
+
+        let params = UpdateRecordParams {
+            id,
+            payload: new_payload,
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 1,
+        };
+
+        svc.update_record(params)
+            .expect("update_record must succeed");
+
+        // Decrypt and verify
+        let decrypted = svc.get_decrypted_record(id).expect("must decrypt");
+        match decrypted {
+            DecryptedRecord::Login {
+                name,
+                username,
+                password,
+                url,
+                notes,
+                ..
+            } => {
+                assert_eq!(name, "UpdatedSite");
+                assert_eq!(username, "bob");
+                assert_eq!(password.get(), "n3wP@ss");
+                assert!(url.is_none());
+                assert_eq!(notes.as_deref(), Some("updated notes"));
+            }
+            other => panic!("expected Login, got {:?}", other),
+        }
+    }
+
+    // --- update_record: nonexistent record returns RecordNotFound ---
+
+    #[test]
+    fn update_record_returns_not_found_for_nonexistent() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let nonexistent = Uuid::new_v4();
+
+        let params = UpdateRecordParams {
+            id: nonexistent,
+            payload: sample_login_payload("Ghost"),
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 1,
+        };
+
+        let result = svc.update_record(params);
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), VaultError::RecordNotFound(id) if id == nonexistent),
+            "expected RecordNotFound"
+        );
+    }
+
+    // --- update_record: double update (consecutive version bumps) ---
+
+    #[test]
+    fn update_record_supports_consecutive_updates() {
+        let mut svc = setup_service();
+        unlock_service(&mut svc);
+        let id = create_test_login_record(&mut svc);
+
+        // First update: v1 -> v2
+        let params_v2 = UpdateRecordParams {
+            id,
+            payload: sample_login_payload("V2"),
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+            expected_version: 1,
+        };
+        svc.update_record(params_v2)
+            .expect("first update must succeed");
+
+        // Second update: v2 -> v3
+        let params_v3 = UpdateRecordParams {
+            id,
+            payload: sample_login_payload("V3"),
+            tags: vec!["final".to_string()],
+            is_favorite: true,
+            expires_at: None,
+            expected_version: 2,
+        };
+        svc.update_record(params_v3)
+            .expect("second update must succeed");
+
+        let stored = svc.get_stored_record(id).unwrap();
+        assert_eq!(stored.version, 3);
+        assert!(stored.is_favorite);
+        assert_eq!(stored.tags, vec!["final"]);
     }
 }
