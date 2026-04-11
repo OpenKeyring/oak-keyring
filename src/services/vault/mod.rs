@@ -1,3 +1,11 @@
+mod audit;
+mod history;
+mod metadata;
+mod record;
+mod search;
+mod tag;
+mod trash;
+
 use chrono::Utc;
 use rusqlite::Connection;
 use uuid::Uuid;
