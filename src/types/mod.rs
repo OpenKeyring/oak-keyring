@@ -9,7 +9,9 @@ pub mod tag;
 pub use audit::{AuditEntry, AuditOperation};
 pub use credential::{CredentialType, DataError, EncryptedPayload};
 pub use history::{PasswordHistory, PasswordHistoryView};
-pub use record::{DecryptedRecord, StoredRecord, TuiRecord};
+pub use record::{
+    CreateRecordParams, DecryptedRecord, StoredRecord, TuiRecord, UpdateRecordParams,
+};
 pub use sensitive::{SecureBytes, SecureStr, SecureString};
 pub use sync::{SyncState, SyncStats, SyncStatus};
 pub use tag::Tag;

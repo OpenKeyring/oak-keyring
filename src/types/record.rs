@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::types::credential::CredentialType;
+use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::sensitive::SecureStr;
 use crate::types::sync::SyncStatus;
 
@@ -158,4 +158,25 @@ impl PartialEq for TuiRecord {
             && self.tags == other.tags
             && self.sync_status == other.sync_status
     }
+}
+
+/// Parameters for creating a new vault record.
+#[derive(Debug, Clone)]
+pub struct CreateRecordParams {
+    pub credential_type: CredentialType,
+    pub payload: EncryptedPayload,
+    pub tags: Vec<String>,
+    pub is_favorite: bool,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// Parameters for updating an existing vault record.
+#[derive(Debug, Clone)]
+pub struct UpdateRecordParams {
+    pub id: Uuid,
+    pub payload: EncryptedPayload,
+    pub tags: Vec<String>,
+    pub is_favorite: bool,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub expected_version: u64,
 }
