@@ -5,6 +5,10 @@
 
 use opendal::Operator;
 
+use crate::cloud::adapters::{
+    AliyunDriveAdapter, AliyunOssAdapter, DropboxAdapter, GoogleDriveAdapter, HuaweiObsAdapter,
+    ICloudAdapter, OneDriveAdapter, S3Adapter, SftpAdapter, TencentCosAdapter, UpyunAdapter,
+};
 use crate::config::sync::{ProviderConfig, SyncConfig, SyncProvider};
 use crate::errors::mapping::sync::SyncError;
 
@@ -165,7 +169,6 @@ pub fn create_cloud_storage(config: &SyncConfig) -> Result<crate::cloud::CloudSt
         }
 
         SyncProvider::WebDav => {
-            // WebDAV is implemented
             let provider_config = config.provider_config.as_ref().ok_or_else(|| {
                 SyncError::ConfigValidationFailed {
                     field: "provider_config".to_string(),
@@ -175,26 +178,162 @@ pub fn create_cloud_storage(config: &SyncConfig) -> Result<crate::cloud::CloudSt
 
             let adapter = WebDavAdapter::new();
             adapter.validate_config(provider_config)?;
-
             let operator = adapter.create_operator(provider_config)?;
             Ok(crate::cloud::CloudStorage::new(operator, provider_str))
         }
 
-        // All other providers are not yet implemented (J-06 through J-19)
-        SyncProvider::ICloud
-        | SyncProvider::GoogleDrive
-        | SyncProvider::Dropbox
-        | SyncProvider::OneDrive
-        | SyncProvider::Sftp
-        | SyncProvider::S3
-        | SyncProvider::AliyunDrive
-        | SyncProvider::AliyunOss
-        | SyncProvider::TencentCos
-        | SyncProvider::HuaweiObs
-        | SyncProvider::Upyun => {
-            return Err(SyncError::ProviderNotSupported {
-                provider: provider_str,
-            });
+        SyncProvider::ICloud => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "ICloud provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = ICloudAdapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
+        }
+
+        SyncProvider::S3 => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "S3 provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = S3Adapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
+        }
+
+        SyncProvider::AliyunOss => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "AliyunOss provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = AliyunOssAdapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
+        }
+
+        SyncProvider::TencentCos => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "TencentCos provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = TencentCosAdapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
+        }
+
+        SyncProvider::HuaweiObs => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "HuaweiObs provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = HuaweiObsAdapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
+        }
+
+        SyncProvider::Upyun => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "Upyun provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = UpyunAdapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
+        }
+
+        SyncProvider::Sftp => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "Sftp provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = SftpAdapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
+        }
+
+        SyncProvider::GoogleDrive => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "GoogleDrive provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = GoogleDriveAdapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
+        }
+
+        SyncProvider::Dropbox => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "Dropbox provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = DropboxAdapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
+        }
+
+        SyncProvider::OneDrive => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "OneDrive provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = OneDriveAdapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
+        }
+
+        SyncProvider::AliyunDrive => {
+            let provider_config = config.provider_config.as_ref().ok_or_else(|| {
+                SyncError::ConfigValidationFailed {
+                    field: "provider_config".to_string(),
+                    reason: "AliyunDrive provider requires provider_config".to_string(),
+                }
+            })?;
+
+            let adapter = AliyunDriveAdapter::new();
+            adapter.validate_config(provider_config)?;
+            let operator = adapter.create_operator(provider_config)?;
+            Ok(crate::cloud::CloudStorage::new(operator, provider_str))
         }
     }
 }
@@ -222,7 +361,12 @@ pub fn provider_name(provider: SyncProvider) -> String {
 mod tests {
     use super::*;
 
-    use crate::config::sync::{S3Config, SyncMode, WebDavConfig};
+    use crate::cloud::adapters::{
+        AliyunDriveAdapter, GoogleDriveAdapter, ICloudAdapter, S3Adapter, SftpAdapter,
+    };
+    use crate::config::sync::{
+        AliyunDriveConfig, GoogleDriveConfig, S3Config, SftpConfig, SyncMode, WebDavConfig,
+    };
 
     // ==================== Factory Tests ====================
 
@@ -247,18 +391,16 @@ mod tests {
     }
 
     #[test]
-    fn test_factory_unimplemented_provider_returns_error() {
-        // Test S3 (unimplemented)
+    fn test_factory_aliyun_drive_not_supported() {
         let config = SyncConfig {
-            provider: SyncProvider::S3,
+            provider: SyncProvider::AliyunDrive,
             sync_mode: SyncMode::Auto,
             auto_interval_seconds: 600,
-            provider_config: Some(ProviderConfig::S3(S3Config {
-                endpoint: Some("https://s3.amazonaws.com".to_string()),
-                bucket: "test-bucket".to_string(),
-                region: Some("us-east-1".to_string()),
-                access_key_id: "key".to_string(),
-                secret_access_key: "secret".to_string(),
+            provider_config: Some(ProviderConfig::AliyunDrive(AliyunDriveConfig {
+                client_id: "test".to_string(),
+                client_secret: "secret".to_string(),
+                refresh_token: "token".to_string(),
+                drive_type: crate::config::sync::AliyunDriveType::Default,
                 root_path: "/".to_string(),
             })),
         };
@@ -268,7 +410,7 @@ mod tests {
 
         match result.unwrap_err() {
             SyncError::ProviderNotSupported { provider } => {
-                assert_eq!(provider, "s3");
+                assert_eq!(provider, "aliyun_drive");
             }
             other => panic!("expected ProviderNotSupported, got {:?}", other),
         }
@@ -293,7 +435,6 @@ mod tests {
         assert!(result.is_ok());
 
         let storage = result.unwrap();
-        // CloudStorage doesn't expose provider_name publicly, but we can verify it was created
         drop(storage);
     }
 
@@ -316,6 +457,66 @@ mod tests {
             }
             other => panic!("expected ConfigValidationFailed, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn factory_icloud_returns_storage() {
+        let config = SyncConfig {
+            provider: SyncProvider::ICloud,
+            sync_mode: SyncMode::Auto,
+            auto_interval_seconds: 600,
+            provider_config: Some(ProviderConfig::ICloud),
+        };
+
+        let result = create_cloud_storage(&config);
+        assert!(result.is_ok());
+
+        let storage = result.unwrap();
+        drop(storage);
+    }
+
+    #[test]
+    fn factory_s3_returns_storage() {
+        let config = SyncConfig {
+            provider: SyncProvider::S3,
+            sync_mode: SyncMode::Auto,
+            auto_interval_seconds: 600,
+            provider_config: Some(ProviderConfig::S3(S3Config {
+                endpoint: Some("https://s3.amazonaws.com".to_string()),
+                bucket: "test-bucket".to_string(),
+                region: Some("us-east-1".to_string()),
+                access_key_id: "key".to_string(),
+                secret_access_key: "secret".to_string(),
+                root_path: "/".to_string(),
+            })),
+        };
+
+        let result = create_cloud_storage(&config);
+        assert!(result.is_ok());
+
+        let storage = result.unwrap();
+        drop(storage);
+    }
+
+    #[test]
+    fn factory_sftp_returns_storage() {
+        let config = SyncConfig {
+            provider: SyncProvider::Sftp,
+            sync_mode: SyncMode::Auto,
+            auto_interval_seconds: 600,
+            provider_config: Some(ProviderConfig::Sftp(SftpConfig {
+                server: "localhost:22".to_string(),
+                root_path: "/".to_string(),
+                ssh_key_path: "/dev/null".to_string(),
+                host_check: crate::config::sync::SftpHostCheck::Strict,
+            })),
+        };
+
+        let result = create_cloud_storage(&config);
+        assert!(result.is_ok());
+
+        let storage = result.unwrap();
+        drop(storage);
     }
 
     // ==================== Config Validation Tests ====================
@@ -394,6 +595,80 @@ mod tests {
 
         let result = adapter.validate_config(&config);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn s3_validate_missing_bucket() {
+        let adapter = S3Adapter::new();
+        let config = ProviderConfig::S3(S3Config {
+            endpoint: Some("https://s3.amazonaws.com".to_string()),
+            bucket: "".to_string(),
+            region: Some("us-east-1".to_string()),
+            access_key_id: "key".to_string(),
+            secret_access_key: "secret".to_string(),
+            root_path: "/".to_string(),
+        });
+
+        let result = adapter.validate_config(&config);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            SyncError::ConfigValidationFailed { field, reason } => {
+                assert_eq!(field, "bucket");
+                assert!(reason.contains("empty"));
+            }
+            other => panic!("expected ConfigValidationFailed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn sftp_validate_missing_host() {
+        let adapter = SftpAdapter::new();
+        let config = ProviderConfig::Sftp(SftpConfig {
+            server: "".to_string(),
+            root_path: "/".to_string(),
+            ssh_key_path: "/dev/null".to_string(),
+            host_check: crate::config::sync::SftpHostCheck::Strict,
+        });
+
+        let result = adapter.validate_config(&config);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            SyncError::ConfigValidationFailed { field, reason } => {
+                assert_eq!(field, "server");
+                assert!(reason.contains("empty"));
+            }
+            other => panic!("expected ConfigValidationFailed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn oauth2_validate_missing_client_id() {
+        let adapter = GoogleDriveAdapter::new();
+        let config = ProviderConfig::GoogleDrive(GoogleDriveConfig {
+            client_id: "".to_string(),
+            client_secret: "secret".to_string(),
+            refresh_token: "token".to_string(),
+            root_path: "/".to_string(),
+        });
+
+        let result = adapter.validate_config(&config);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            SyncError::ConfigValidationFailed { field, reason } => {
+                assert_eq!(field, "client_id");
+                assert!(reason.contains("empty"));
+            }
+            other => panic!("expected ConfigValidationFailed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn icloud_needs_watcher() {
+        let adapter = ICloudAdapter::new();
+        assert!(adapter.needs_watcher());
     }
 
     // ==================== Path Normalization Tests ====================
