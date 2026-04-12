@@ -1,11 +1,10 @@
 pub mod duplicate;
+pub mod export;
 pub mod mapping;
 pub mod parser;
 pub mod parsers;
 pub mod types;
 pub mod validation;
-// More modules will be added by later tasks:
-// pub mod export;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -13,13 +12,14 @@ use std::path::PathBuf;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::commands::types::{CsvColumnMapping, ImportPreview, ImportSource};
+use crate::commands::types::{CsvColumnMapping, ExportScope, ImportPreview, ImportSource};
 use crate::errors::mapping::import_export::ImportExportError;
 use crate::services::import_export::duplicate::{detect_duplicates, ExistingRecordKey};
 use crate::services::import_export::mapping::map_parsed_item;
 use crate::services::import_export::parser::FormatParserRegistry;
 use crate::services::import_export::types::{
-    ImportResult, ImportSession, ImportSessionStatus, MappedRecord, ValidationResult,
+    ExportSession, ExportSessionStatus, ImportResult, ImportSession, ImportSessionStatus,
+    MappedRecord, ValidationResult,
 };
 use crate::services::import_export::validation::{get_rules_for_format, validate_items};
 use crate::types::{CredentialType, SecureStr};
@@ -38,9 +38,7 @@ use crate::types::{CredentialType, SecureStr};
 /// Fatal errors during validation or import transition to `Failed`.
 pub struct ImportExportService {
     import_sessions: HashMap<Uuid, ImportSession>,
-    // Export sessions will be used by Task 16 (export flow).
-    #[allow(dead_code)]
-    export_sessions: HashMap<Uuid, types::ExportSession>,
+    export_sessions: HashMap<Uuid, ExportSession>,
     parser_registry: FormatParserRegistry,
 }
 
@@ -362,6 +360,149 @@ impl ImportExportService {
             .remove(&session_id)
             .ok_or(ImportExportError::SessionNotFound(session_id))?;
         Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Export lifecycle
+    // -----------------------------------------------------------------------
+
+    /// Create a new export session in `Created` status.
+    ///
+    /// Validates password length (>= 8) and output path extension (.okb).
+    /// Returns the session UUID for use in subsequent operations.
+    pub fn create_export_session(
+        &mut self,
+        scope: ExportScope,
+        export_password: SecureStr,
+        output_path: PathBuf,
+    ) -> Result<Uuid, ImportExportError> {
+        // Validate password.
+        self::export::validate_export_password(&export_password)?;
+
+        // Validate output path.
+        self::export::validate_export_path(&output_path)?;
+
+        let id = Uuid::new_v4();
+        let session = ExportSession {
+            id,
+            scope,
+            export_password,
+            output_path,
+            status: ExportSessionStatus::Created,
+            record_count: 0,
+            encrypted_size: None,
+            created_at: Utc::now(),
+            completed_at: None,
+        };
+        self.export_sessions.insert(id, session);
+        Ok(id)
+    }
+
+    /// Execute the export: collect records, serialize, encrypt, write.
+    ///
+    /// The `record_collector` closure fetches records from the vault, keeping
+    /// the service decoupled from `VaultService`.
+    pub fn execute_export<F>(
+        &mut self,
+        session_id: Uuid,
+        record_collector: F,
+        vault_id: &str,
+    ) -> Result<PathBuf, ImportExportError>
+    where
+        F: FnOnce() -> Result<Vec<self::export::ExportRecord>, String>,
+    {
+        // 1. Verify session exists and status is Created.
+        {
+            let session = self
+                .export_sessions
+                .get(&session_id)
+                .ok_or(ImportExportError::SessionNotFound(session_id))?;
+            if session.status != ExportSessionStatus::Created {
+                return Err(ImportExportError::InvalidSessionStatus {
+                    expected: "Created".to_string(),
+                    actual: format!("{:?}", session.status),
+                });
+            }
+        }
+
+        // 2. Transition to Exporting.
+        {
+            let session = self
+                .export_sessions
+                .get_mut(&session_id)
+                .ok_or(ImportExportError::SessionNotFound(session_id))?;
+            session.status = ExportSessionStatus::Exporting;
+        }
+
+        // 3. Collect records via closure.
+        let records = record_collector().map_err(ImportExportError::VaultError)?;
+
+        // 4. Check records is not empty.
+        if records.is_empty() {
+            // Transition to Failed.
+            if let Some(session) = self.export_sessions.get_mut(&session_id) {
+                session.status = ExportSessionStatus::Failed;
+            }
+            return Err(ImportExportError::VaultError(
+                "no records to export".to_string(),
+            ));
+        }
+
+        let record_count = records.len();
+
+        // 5. Build payload.
+        let payload = self::export::ExportPayload {
+            version: "1.0".to_string(),
+            vault_id: vault_id.to_string(),
+            exported_at: Utc::now().to_rfc3339(),
+            records,
+        };
+
+        // 6. Extract password and output_path from session.
+        let (output_path, password) = {
+            let session = self
+                .export_sessions
+                .get(&session_id)
+                .ok_or(ImportExportError::SessionNotFound(session_id))?;
+            (
+                session.output_path.clone(),
+                session.export_password.get().to_string(),
+            )
+        };
+
+        // Encrypt and write using a SecureStr constructed from the password.
+        let secure_password = SecureStr::new(password);
+        let encrypted_size =
+            self::export::encrypt_and_write_okb(&payload, &secure_password, &output_path)?;
+
+        // 7. Update session: Completed.
+        {
+            let session = self
+                .export_sessions
+                .get_mut(&session_id)
+                .ok_or(ImportExportError::SessionNotFound(session_id))?;
+            session.status = ExportSessionStatus::Completed;
+            session.record_count = record_count;
+            session.encrypted_size = Some(encrypted_size);
+            session.completed_at = Some(Utc::now());
+        }
+
+        Ok(output_path)
+    }
+
+    /// Cancel an export session.
+    pub fn cancel_export_session(&mut self, session_id: Uuid) -> Result<(), ImportExportError> {
+        let session = self
+            .export_sessions
+            .get_mut(&session_id)
+            .ok_or(ImportExportError::SessionNotFound(session_id))?;
+        session.status = ExportSessionStatus::Failed;
+        Ok(())
+    }
+
+    /// Get export session status.
+    pub fn export_session_status(&self, session_id: Uuid) -> Option<ExportSessionStatus> {
+        self.export_sessions.get(&session_id).map(|s| s.status)
     }
 
     // -----------------------------------------------------------------------
@@ -822,5 +963,213 @@ mod tests {
             Some(ImportSessionStatus::Created)
         );
         assert_eq!(service.session_status(Uuid::new_v4()), None);
+    }
+
+    // =========================================================================
+    // Export session tests
+    // =========================================================================
+
+    // -- Export helpers --
+
+    fn valid_export_password() -> SecureStr {
+        SecureStr::new("export_pass123".to_string())
+    }
+
+    fn valid_export_path(dir: &tempfile::TempDir) -> PathBuf {
+        dir.path().join("export.okb")
+    }
+
+    fn sample_export_records() -> Vec<super::export::ExportRecord> {
+        vec![super::export::ExportRecord {
+            id: Uuid::new_v4().to_string(),
+            credential_type: "login".to_string(),
+            name: "TestRecord".to_string(),
+            username: Some("user@example.com".to_string()),
+            password: Some("s3cret".to_string()),
+            url: Some("https://example.com".to_string()),
+            notes: None,
+            tags: Some(vec!["test".to_string()]),
+            is_favorite: Some(false),
+            expires_at: None,
+        }]
+    }
+
+    // -- Test 16: create_export_session returns id --
+
+    #[test]
+    fn create_export_session_returns_id() {
+        let mut service = ImportExportService::new();
+        let dir = tempfile::tempdir().expect("create temp dir");
+
+        let id = service
+            .create_export_session(
+                ExportScope::All,
+                valid_export_password(),
+                valid_export_path(&dir),
+            )
+            .expect("create export session");
+
+        assert_eq!(
+            service.export_session_status(id),
+            Some(ExportSessionStatus::Created)
+        );
+    }
+
+    // -- Test 17: create_export_session rejects short password --
+
+    #[test]
+    fn create_export_session_rejects_short_password() {
+        let mut service = ImportExportService::new();
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let short_pw = SecureStr::new("1234567".to_string());
+
+        let result =
+            service.create_export_session(ExportScope::All, short_pw, valid_export_path(&dir));
+
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), ImportExportError::InvalidPassword),
+            "expected InvalidPassword for short password"
+        );
+    }
+
+    // -- Test 18: create_export_session rejects non-.okb path --
+
+    #[test]
+    fn create_export_session_rejects_non_okb_path() {
+        let mut service = ImportExportService::new();
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let bad_path = dir.path().join("export.txt");
+
+        let result =
+            service.create_export_session(ExportScope::All, valid_export_password(), bad_path);
+
+        assert!(result.is_err());
+        assert!(
+            matches!(
+                result.unwrap_err(),
+                ImportExportError::InvalidFormat(msg) if msg.contains(".okb")
+            ),
+            "expected InvalidFormat for non-.okb extension"
+        );
+    }
+
+    // -- Test 19: execute_export writes file and completes --
+
+    #[test]
+    fn execute_export_writes_file_and_completes() {
+        let mut service = ImportExportService::new();
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let output_path = valid_export_path(&dir);
+
+        let id = service
+            .create_export_session(
+                ExportScope::All,
+                valid_export_password(),
+                output_path.clone(),
+            )
+            .expect("create session");
+
+        let records = sample_export_records();
+        let result_path = service
+            .execute_export(id, || Ok(records), "550e8400-e29b-41d4-a716-446655440000")
+            .expect("execute export");
+
+        assert_eq!(result_path, output_path);
+        assert!(output_path.exists(), "output file should exist");
+        assert_eq!(
+            service.export_session_status(id),
+            Some(ExportSessionStatus::Completed)
+        );
+    }
+
+    // -- Test 20: execute_export rejects empty records --
+
+    #[test]
+    fn execute_export_rejects_empty_records() {
+        let mut service = ImportExportService::new();
+        let dir = tempfile::tempdir().expect("create temp dir");
+
+        let id = service
+            .create_export_session(
+                ExportScope::All,
+                valid_export_password(),
+                valid_export_path(&dir),
+            )
+            .expect("create session");
+
+        let result =
+            service.execute_export(id, || Ok(vec![]), "550e8400-e29b-41d4-a716-446655440000");
+
+        assert!(result.is_err());
+        assert!(
+            matches!(
+                result.unwrap_err(),
+                ImportExportError::VaultError(ref msg) if msg.contains("no records to export")
+            ),
+            "expected VaultError for empty records"
+        );
+    }
+
+    // -- Test 21: execute_export rejects wrong status --
+
+    #[test]
+    fn execute_export_rejects_wrong_status() {
+        let mut service = ImportExportService::new();
+        let dir = tempfile::tempdir().expect("create temp dir");
+
+        let id = service
+            .create_export_session(
+                ExportScope::All,
+                valid_export_password(),
+                valid_export_path(&dir),
+            )
+            .expect("create session");
+
+        // Execute once to complete the session.
+        let records = sample_export_records();
+        service
+            .execute_export(id, || Ok(records), "550e8400-e29b-41d4-a716-446655440000")
+            .expect("first export");
+
+        // Try to execute again on completed session.
+        let result = service.execute_export(
+            id,
+            || Ok(sample_export_records()),
+            "550e8400-e29b-41d4-a716-446655440000",
+        );
+
+        assert!(result.is_err());
+        assert!(
+            matches!(
+                result.unwrap_err(),
+                ImportExportError::InvalidSessionStatus { ref expected, .. }
+                    if expected == "Created"
+            ),
+            "expected InvalidSessionStatus for non-Created session"
+        );
+    }
+
+    // -- Test 22: cancel_export_session changes status --
+
+    #[test]
+    fn cancel_export_session_changes_status() {
+        let mut service = ImportExportService::new();
+        let dir = tempfile::tempdir().expect("create temp dir");
+
+        let id = service
+            .create_export_session(
+                ExportScope::All,
+                valid_export_password(),
+                valid_export_path(&dir),
+            )
+            .expect("create session");
+
+        service.cancel_export_session(id).expect("cancel");
+
+        assert_eq!(
+            service.export_session_status(id),
+            Some(ExportSessionStatus::Failed)
+        );
     }
 }
