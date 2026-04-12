@@ -13,9 +13,7 @@ use crate::types::sync::SyncStatus;
 #[derive(Debug)]
 pub enum StageOutcome {
     Continue,
-    ConflictDetected {
-        conflict_ids: Vec<String>,
-    },
+    ConflictDetected { conflict_ids: Vec<String> },
     Error(Box<SyncError>),
     NoChanges,
 }
@@ -186,10 +184,11 @@ impl SyncStage for DetectStage {
             let remote_info = remote_records.get(&local.record_id);
 
             let action = match remote_info {
-                Some(remote) => {
-                    context.conflict_manager
-                        .detect_conflicts(local.sync_status, local.version, remote.version)
-                }
+                Some(remote) => context.conflict_manager.detect_conflicts(
+                    local.sync_status,
+                    local.version,
+                    remote.version,
+                ),
                 None => {
                     if local.sync_status == SyncStatus::Pending {
                         ConflictAction::UploadOnly
@@ -295,10 +294,9 @@ impl SyncStage for PushStage {
                             .store_conflict(&cloud_record, &remote_info.checksum)
                         {
                             Ok(conflict_data) => {
-                                context.conflict_data_map.insert(
-                                    conflict_id.clone(),
-                                    conflict_data,
-                                );
+                                context
+                                    .conflict_data_map
+                                    .insert(conflict_id.clone(), conflict_data);
                                 if let Ok(id) = Uuid::parse_str(conflict_id) {
                                     context.checkpoint.add_pending_conflict(PendingConflict {
                                         record_id: id,
@@ -369,9 +367,7 @@ impl SyncStage for ResolveStage {
 pub enum PipelineResult {
     Completed,
     NoChanges,
-    ConflictsDetected {
-        conflict_ids: Vec<String>,
-    },
+    ConflictsDetected { conflict_ids: Vec<String> },
     Error(Box<SyncError>),
 }
 
@@ -445,8 +441,7 @@ mod tests {
     fn create_test_storage() -> (CloudStorage, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let op = opendal::Operator::new(
-            opendal::services::Fs::default()
-                .root(temp_dir.path().to_str().unwrap()),
+            opendal::services::Fs::default().root(temp_dir.path().to_str().unwrap()),
         )
         .unwrap()
         .finish();
@@ -572,7 +567,9 @@ mod tests {
         let stage = PullMetadataStage::new();
         let outcome = stage.execute(&mut context).await;
 
-        assert!(matches!(outcome, StageOutcome::Error(e) if matches!(*e, SyncError::VaultIdentityMismatch { .. })));
+        assert!(
+            matches!(outcome, StageOutcome::Error(e) if matches!(*e, SyncError::VaultIdentityMismatch { .. }))
+        );
     }
 
     #[tokio::test]
@@ -597,7 +594,10 @@ mod tests {
 
         assert!(matches!(outcome, StageOutcome::Continue));
         assert!(context.remote_metadata.is_some());
-        assert_eq!(context.remote_metadata.as_ref().unwrap().metadata_version, 3);
+        assert_eq!(
+            context.remote_metadata.as_ref().unwrap().metadata_version,
+            3
+        );
     }
 
     // ===== DetectStage Tests =====
@@ -789,8 +789,7 @@ mod tests {
         storage.upload_record(record_id, &record).await.unwrap();
         let correct_checksum = record.compute_checksum().unwrap();
 
-        let mut metadata =
-            create_test_metadata_with_records("test_token", 1, vec![(record_id, 2)]);
+        let mut metadata = create_test_metadata_with_records("test_token", 1, vec![(record_id, 2)]);
         metadata.upsert_record(
             record_id.to_string(),
             RecordVersionInfo {

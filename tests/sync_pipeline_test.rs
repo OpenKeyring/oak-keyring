@@ -1,17 +1,17 @@
+use chrono::Utc;
 use oak_keyring::cloud::{CloudMetadata, CloudRecord, CloudStorage, DeviceInfo, RecordVersionInfo};
 use oak_keyring::sync::{
-    ConflictManager, DetectStage, LocalRecordInfo, PipelineContext, PipelineResult, PullMetadataStage,
-    PushStage, ResolveStage, StageOutcome, SyncCheckpoint, SyncPipeline, SyncStage,
+    ConflictManager, DetectStage, LocalRecordInfo, PipelineContext, PipelineResult,
+    PullMetadataStage, PushStage, ResolveStage, StageOutcome, SyncCheckpoint, SyncPipeline,
+    SyncStage,
 };
 use oak_keyring::types::SyncStatus;
-use chrono::Utc;
 use tempfile::TempDir;
 
 fn create_test_storage() -> (CloudStorage, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let op = opendal::Operator::new(
-        opendal::services::Fs::default()
-            .root(temp_dir.path().to_str().unwrap()),
+        opendal::services::Fs::default().root(temp_dir.path().to_str().unwrap()),
     )
     .unwrap()
     .finish();
@@ -160,7 +160,10 @@ async fn pull_metadata_new_metadata() {
 
     assert!(matches!(outcome, StageOutcome::Continue));
     assert!(context.remote_metadata.is_some());
-    assert_eq!(context.remote_metadata.as_ref().unwrap().metadata_version, 3);
+    assert_eq!(
+        context.remote_metadata.as_ref().unwrap().metadata_version,
+        3
+    );
 }
 
 #[tokio::test]
@@ -377,8 +380,12 @@ async fn push_partial_failure() {
         "test_token".to_string(),
     );
 
-    context.to_upload.push("550e8400-e29b-41d4-a716-446655440001".to_string());
-    context.to_upload.push("550e8400-e29b-41d4-a716-446655440002".to_string());
+    context
+        .to_upload
+        .push("550e8400-e29b-41d4-a716-446655440001".to_string());
+    context
+        .to_upload
+        .push("550e8400-e29b-41d4-a716-446655440002".to_string());
     let record1 = create_test_cloud_record("550e8400-e29b-41d4-a716-446655440001", 1);
     let record2 = create_test_cloud_record("550e8400-e29b-41d4-a716-446655440002", 1);
     context.set_uploads(vec![record1, record2]);
