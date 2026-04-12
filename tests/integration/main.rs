@@ -1,3 +1,4 @@
+mod clipboard_test;
 mod db_lifecycle_test;
 mod error_propagation_test;
 mod executor_command_test;
