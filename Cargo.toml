@@ -40,6 +40,15 @@ serde_json = "1"
 toml = "0.8"
 base64 = "0.22"
 
+# CSV parsing
+csv = "1"
+
+# KeePass .kdbx parsing
+keepass = "0.7"
+
+# 1Password .1pux (ZIP) parsing
+zip = "2"
+
 # Error handling
 thiserror = "2"
 
