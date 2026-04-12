@@ -4,15 +4,40 @@ use sha2::{Digest, Sha256};
 
 use crate::errors::mapping::clipboard::ClipboardError;
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/// Maximum content length for clipboard operations (S4 spec §Non-functional).
 #[allow(dead_code)]
 const MAX_CONTENT_BYTES: usize = 1024;
 
+// ---------------------------------------------------------------------------
+// ClipboardBackend Trait
+// ---------------------------------------------------------------------------
+
+/// Platform abstraction for clipboard operations.
+///
+/// Implementations: `ArboardBackend` (production), `MockBackend` (testing).
+/// Trait methods take `&self` — implementations use internal mutability.
+///
+/// # Memory Safety (S4 spec §Memory Safety)
+///
+/// `set_text()` receives `&str`. Implementations must NOT:
+/// - Clone, buffer, cache, or log the plaintext
+/// - Allocate heap memory to store a copy of the plaintext
+///   The caller (S5 Executor) handles zeroize via `SecureStr::drop`.
 pub trait ClipboardBackend: Send + Sync {
     fn set_text(&self, text: &str) -> Result<(), ClipboardError>;
     fn get_text(&self) -> Result<String, ClipboardError>;
     fn is_available(&self) -> bool;
 }
 
+// ---------------------------------------------------------------------------
+// ArboardBackend — production implementation
+// ---------------------------------------------------------------------------
+
+/// Production clipboard backend wrapping `arboard` crate.
 pub struct ArboardBackend {
     clipboard: Mutex<arboard::Clipboard>,
 }
@@ -24,6 +49,12 @@ impl ArboardBackend {
         Ok(Self {
             clipboard: Mutex::new(clipboard),
         })
+    }
+}
+
+impl Default for ArboardBackend {
+    fn default() -> Self {
+        Self::new().expect("ArboardBackend::default: clipboard available")
     }
 }
 
@@ -50,15 +81,14 @@ impl ClipboardBackend for ArboardBackend {
     }
 }
 
+// ---------------------------------------------------------------------------
+// MockBackend — test-only implementation
+// ---------------------------------------------------------------------------
+
+/// In-memory clipboard backend for unit testing.
 pub struct MockBackend {
     content: Mutex<String>,
     available: AtomicBool,
-}
-
-impl Default for MockBackend {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl MockBackend {
@@ -74,6 +104,12 @@ impl MockBackend {
             content: Mutex::new(String::new()),
             available: AtomicBool::new(false),
         }
+    }
+}
+
+impl Default for MockBackend {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -110,14 +146,28 @@ impl ClipboardBackend for MockBackend {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ClipboardService — placeholder, implemented in Task 3
+// ---------------------------------------------------------------------------
+
+/// Placeholder — will be replaced in Task 3.
 pub struct ClipboardService;
 
+// ---------------------------------------------------------------------------
+// Shared helper
+// ---------------------------------------------------------------------------
+
+/// SHA-256 hash for content comparison. Free function for use in spawned tasks.
 #[allow(dead_code)]
 fn hash_content(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     format!("{:x}", hasher.finalize())
 }
+
+// ---------------------------------------------------------------------------
+// Backend Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod backend_tests {
