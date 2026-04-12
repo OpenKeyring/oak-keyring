@@ -1,6 +1,6 @@
+pub mod mapping;
 pub mod types;
 // More modules will be added by later tasks:
-// pub mod mapping;
 // pub mod validation;
 // pub mod parser;
 // pub mod parsers;
