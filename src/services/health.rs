@@ -163,6 +163,12 @@ pub struct HealthService {
     http_agent: Option<ureq::Agent>,
 }
 
+impl Default for HealthService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HealthService {
     /// Create a new HealthService.
     /// Attempts to initialize an HTTP agent for HIBP checks.
