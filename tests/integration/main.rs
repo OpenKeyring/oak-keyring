@@ -2,6 +2,7 @@ mod clipboard_test;
 mod db_lifecycle_test;
 mod error_propagation_test;
 mod executor_command_test;
+mod health_test;
 mod i18n_test;
 mod vault_db_crypto_test;
 mod vault_service_test;
