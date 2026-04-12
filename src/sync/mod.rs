@@ -4,6 +4,7 @@ pub mod lock;
 pub mod pipeline;
 pub mod retry;
 pub mod state_machine;
+pub mod task;
 pub use checkpoint::{PendingConflict, SyncCheckpoint};
 pub use conflict::{
     ConflictAction, ConflictItem, ConflictManager, KeepRemoteData, ResolutionAction,
@@ -11,8 +12,9 @@ pub use conflict::{
 };
 pub use lock::{LockFileData, SyncLock};
 pub use pipeline::{
-    DetectStage, LocalRecordInfo, PipelineContext, PipelineResult, PullMetadataStage,
-    PushStage, ResolveStage, StageOutcome, SyncPipeline, SyncStage,
+    DetectStage, LocalRecordInfo, PipelineContext, PipelineResult, PullMetadataStage, PushStage,
+    ResolveStage, StageOutcome, SyncPipeline, SyncStage,
 };
 pub use retry::{BackoffTimer, RetryPolicy};
 pub use state_machine::{SyncState, SyncStateMachine, SyncTrigger};
+pub use task::{SyncCommand, SyncEvent, SyncReport, SyncTask};
