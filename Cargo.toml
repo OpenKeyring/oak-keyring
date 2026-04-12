@@ -43,6 +43,9 @@ csv = "1"
 # KeePass .kdbx parsing
 keepass = "0.7"
 
+# 1Password .1pux (ZIP) parsing
+zip = "2"
+
 # Error handling
 thiserror = "2"
 
