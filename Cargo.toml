@@ -75,6 +75,10 @@ chrono = { version = "0.4", features = ["serde"] }
 # Cancellation
 tokio-util = { version = "0.7", features = ["rt"] }
 
+# Sync
+opendal = { version = "0.55", features = ["services-memory", "services-fs", "services-webdav", "services-s3", "services-sftp", "services-gcs", "services-dropbox", "services-azblob", "services-oss"] }
+notify = "7"
+
 [dev-dependencies]
 insta = "1"
 mockall = "0.13"
