@@ -57,7 +57,7 @@ fn detect_duplicate_passwords(entries: &[PasswordEntry]) -> Vec<Vec<Uuid>> {
 /// Check a single password against HIBP k-Anonymity API.
 /// Returns Ok(true) if compromised, Ok(false) if safe.
 /// Returns Err on network failure (caller should handle gracefully).
-fn check_hibp_single_password(password: &str) -> Result<bool, HealthError> {
+fn check_hibp_single_password(password: &str, agent: &ureq::Agent) -> Result<bool, HealthError> {
     // 1. SHA-1 hash of password, uppercase hex
     let mut hasher = sha1::Sha1::new();
     hasher.update(password.as_bytes());
@@ -68,9 +68,9 @@ fn check_hibp_single_password(password: &str) -> Result<bool, HealthError> {
     let prefix = &hash_hex[..5];
     let suffix = &hash_hex[5..];
 
-    // 3. Query HIBP API
+    // 3. Query HIBP API using the shared agent (connection reuse)
     let url = format!("https://api.pwnedpasswords.com/range/{prefix}");
-    let response = ureq::Agent::new_with_defaults()
+    let response = agent
         .get(&url)
         .call()
         .map_err(|e| HealthError::HibpApiError(e.to_string()))?;
@@ -96,7 +96,11 @@ fn check_hibp_single_password(password: &str) -> Result<bool, HealthError> {
 /// Batch HIBP check with 100ms delay between requests.
 /// Returns UUIDs of records with compromised passwords.
 /// Network failures are silently skipped (degraded mode).
-fn check_hibp_batch(entries: &[PasswordEntry]) -> Vec<Uuid> {
+///
+/// **Note:** This function uses `thread::sleep` for rate limiting and blocks
+/// the calling thread for `n * 100ms`. Plan K (Executor) should offload
+/// `run_full_check` to a background thread to avoid freezing the TUI.
+fn check_hibp_batch(entries: &[PasswordEntry], agent: &ureq::Agent) -> Vec<Uuid> {
     let mut compromised = Vec::new();
 
     for (i, entry) in entries.iter().enumerate() {
@@ -105,7 +109,7 @@ fn check_hibp_batch(entries: &[PasswordEntry]) -> Vec<Uuid> {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        match check_hibp_single_password(entry.password.get()) {
+        match check_hibp_single_password(entry.password.get(), agent) {
             Ok(true) => compromised.push(entry.id),
             Ok(false) => {}
             Err(_) => {
@@ -228,11 +232,12 @@ impl HealthService {
         let duplicate_passwords = detect_duplicate_passwords(&entries);
 
         // 4. HIBP check (only if HTTP agent is available)
-        let compromised = if self.http_agent.is_some() {
-            check_hibp_batch(&entries)
-        } else {
-            tracing::debug!("HIBP check skipped: offline mode");
-            Vec::new()
+        let compromised = match self.http_agent.as_ref() {
+            Some(agent) => check_hibp_batch(&entries, agent),
+            None => {
+                tracing::debug!("HIBP check skipped: offline mode");
+                Vec::new()
+            }
         };
 
         // 5. Expiry detection (uses all non-deleted records, not just Login)
@@ -253,10 +258,11 @@ impl HealthService {
     /// Returns Ok(true) if the password has been compromised.
     /// Returns Err if HIBP API is unavailable (offline mode or network failure).
     pub fn check_hibp_single(&self, password: &SecureStr) -> Result<bool, HealthError> {
-        if self.http_agent.is_none() {
-            return Err(HealthError::HibpApiError("offline mode".into()));
-        }
-        check_hibp_single_password(password.get())
+        let agent = self
+            .http_agent
+            .as_ref()
+            .ok_or_else(|| HealthError::HibpApiError("offline mode".into()))?;
+        check_hibp_single_password(password.get(), agent)
     }
 }
 
