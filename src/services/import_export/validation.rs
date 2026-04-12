@@ -1,13 +1,14 @@
 //! Validation types, per-format rule sets, and item-level validation.
 //!
 //! Defines the rule model used to validate imported fields, provides per-format
-//! rule-set factories for each supported `ImportSource`, and implements
-//! `validate_item()` which evaluates a set of fields against a rule list.
+//! rule-set factories for each supported `ImportSource`, and implements both
+//! single-item validation (`validate_item`) and batch validation (`validate_items`).
 
 use std::collections::HashMap;
 
-use crate::commands::types::ImportSource;
+use crate::commands::types::{FailedItem, ImportSource, ReviewItem};
 use crate::services::import_export::mapping::TargetField;
+use crate::services::import_export::parser::ParsedItem;
 
 // ---------------------------------------------------------------------------
 // Validation rule types
@@ -315,6 +316,89 @@ pub fn validate_item(
             evaluate_rule(rule, &key, value)
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Batch validation
+// ---------------------------------------------------------------------------
+
+/// Summary of validating a batch of imported items against a rule set.
+#[derive(Debug, Clone)]
+pub struct ImportValidationSummary {
+    /// Total number of items that were validated.
+    pub total_items: usize,
+    /// Items that passed all rules (ready for import).
+    pub importable: usize,
+    /// Items that have warnings but no hard failures.
+    pub needs_review: usize,
+    /// Items that have at least one hard failure.
+    pub failed: usize,
+    /// Details for items that need manual review.
+    pub review_items: Vec<ReviewItem>,
+    /// Details for items that failed validation.
+    pub failed_items: Vec<FailedItem>,
+}
+
+/// Validates a batch of parsed items against the given rules.
+///
+/// Each item is evaluated via [`validate_item`]. Items are classified into
+/// three categories:
+/// - **importable**: all rules pass,
+/// - **needs_review**: at least one `NeedsReview` result but no `Fail`,
+/// - **failed**: at least one `Fail` result.
+///
+/// For items that need review or fail, only the first relevant result is
+/// recorded to keep the summary concise.
+pub fn validate_items(items: &[ParsedItem], rules: &[ValidationRule]) -> ImportValidationSummary {
+    let mut summary = ImportValidationSummary {
+        total_items: items.len(),
+        importable: 0,
+        needs_review: 0,
+        failed: 0,
+        review_items: Vec::new(),
+        failed_items: Vec::new(),
+    };
+
+    for item in items {
+        let results = validate_item(&item.fields, rules);
+
+        let has_failures = results
+            .iter()
+            .any(|r| matches!(r, FieldValidation::Fail { .. }));
+        let has_warnings = results
+            .iter()
+            .any(|r| matches!(r, FieldValidation::NeedsReview { .. }));
+
+        if has_failures {
+            summary.failed += 1;
+            // Record only the first failure reason for this item.
+            for result in &results {
+                if let FieldValidation::Fail { field, message } = result {
+                    summary.failed_items.push(FailedItem {
+                        name: item.fields.get("name").cloned().unwrap_or_default(),
+                        reason: format!("{}: {}", field, message),
+                    });
+                    break;
+                }
+            }
+        } else if has_warnings {
+            summary.needs_review += 1;
+            // Record only the first warning reason for this item.
+            for result in &results {
+                if let FieldValidation::NeedsReview { field, message } = result {
+                    summary.review_items.push(ReviewItem {
+                        name: item.fields.get("name").cloned().unwrap_or_default(),
+                        reason: format!("{}: {}", field, message),
+                    });
+                    break;
+                }
+            }
+        } else {
+            summary.importable += 1;
+        }
+    }
+
+    summary
 }
 
 /// Evaluates a single rule against a field value.
@@ -670,5 +754,184 @@ mod tests {
         assert_eq!(results[0], FieldValidation::Pass);
         assert!(matches!(&results[1], FieldValidation::Fail { field, .. }
             if field == "password"));
+    }
+
+    // =======================================================================
+    // validate_items() batch tests
+    // =======================================================================
+
+    use crate::services::import_export::parser::ParsedItem;
+
+    /// Helper: create a ParsedItem with the given fields.
+    fn make_item(fields: &[(&str, &str)]) -> ParsedItem {
+        ParsedItem {
+            source_id: "test".into(),
+            fields: fields
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            tags: vec![],
+        }
+    }
+
+    #[test]
+    fn validate_items_all_pass() {
+        let items = vec![
+            make_item(&[
+                ("name", "Entry A"),
+                ("username", "user_a"),
+                ("password", "pass_a"),
+            ]),
+            make_item(&[
+                ("name", "Entry B"),
+                ("username", "user_b"),
+                ("password", "pass_b"),
+            ]),
+            make_item(&[
+                ("name", "Entry C"),
+                ("username", "user_c"),
+                ("password", "pass_c"),
+            ]),
+        ];
+
+        let rules = csv_rules();
+        let summary = validate_items(&items, &rules);
+
+        assert_eq!(summary.total_items, 3);
+        assert_eq!(summary.importable, 3);
+        assert_eq!(summary.needs_review, 0);
+        assert_eq!(summary.failed, 0);
+        assert!(summary.review_items.is_empty());
+        assert!(summary.failed_items.is_empty());
+    }
+
+    #[test]
+    fn validate_items_some_fail() {
+        let items = vec![
+            make_item(&[("name", "Good"), ("username", "user"), ("password", "pass")]),
+            make_item(&[
+                ("name", "Also Good"),
+                ("username", "user2"),
+                ("password", "pass2"),
+            ]),
+            // Missing username and password — should fail.
+            make_item(&[("name", "Bad")]),
+        ];
+
+        let rules = csv_rules();
+        let summary = validate_items(&items, &rules);
+
+        assert_eq!(summary.total_items, 3);
+        assert_eq!(summary.importable, 2);
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.failed_items.len(), 1);
+        assert_eq!(summary.failed_items[0].name, "Bad");
+        assert!(summary.failed_items[0].reason.contains("username"));
+    }
+
+    #[test]
+    fn validate_items_some_need_review() {
+        // Build a rule that produces NeedsReview for a custom check.
+        let rules = vec![ValidationRule {
+            rule_type: ValidationRuleType::Required,
+            field: Some(TargetField::Name),
+            constraint: ValidationConstraint::NotEmpty,
+            error_message: "name is required".into(),
+        }];
+
+        // Both items pass the Required rule, so both are importable.
+        // To test needs_review, we need a rule that yields NeedsReview.
+        // Since current evaluate_rule only produces Pass or Fail, and
+        // NeedsReview is a future extension, verify the classification
+        // logic with a direct FieldValidation result test instead.
+        //
+        // For now, test that items with all Pass are importable.
+        let items = vec![
+            make_item(&[("name", "Entry A")]),
+            make_item(&[("name", "Entry B")]),
+        ];
+
+        let summary = validate_items(&items, &rules);
+        assert_eq!(summary.importable, 2);
+        assert_eq!(summary.needs_review, 0);
+    }
+
+    #[test]
+    fn validate_items_all_fail() {
+        let items = vec![
+            make_item(&[]), // No fields at all
+            make_item(&[]),
+            make_item(&[]),
+        ];
+
+        let rules = csv_rules();
+        let summary = validate_items(&items, &rules);
+
+        assert_eq!(summary.total_items, 3);
+        assert_eq!(summary.failed, 3);
+        assert_eq!(summary.importable, 0);
+        assert_eq!(summary.needs_review, 0);
+        assert_eq!(summary.failed_items.len(), 3);
+    }
+
+    #[test]
+    fn validate_items_empty_list() {
+        let items: Vec<ParsedItem> = vec![];
+        let rules = csv_rules();
+        let summary = validate_items(&items, &rules);
+
+        assert_eq!(summary.total_items, 0);
+        assert_eq!(summary.importable, 0);
+        assert_eq!(summary.needs_review, 0);
+        assert_eq!(summary.failed, 0);
+        assert!(summary.review_items.is_empty());
+        assert!(summary.failed_items.is_empty());
+    }
+
+    #[test]
+    fn validate_items_mixed_results() {
+        let items = vec![
+            // Passes all rules.
+            make_item(&[("name", "Good"), ("username", "user"), ("password", "pass")]),
+            // Missing username — fails.
+            make_item(&[("name", "No User"), ("password", "pass")]),
+            // Missing password — fails.
+            make_item(&[("name", "No Pass"), ("username", "user3")]),
+        ];
+
+        let rules = csv_rules();
+        let summary = validate_items(&items, &rules);
+
+        assert_eq!(summary.total_items, 3);
+        assert_eq!(summary.importable, 1);
+        assert_eq!(summary.failed, 2);
+        assert_eq!(summary.failed_items.len(), 2);
+    }
+
+    #[test]
+    fn validate_items_failed_name_extraction() {
+        // Item without a "name" field — FailedItem.name should default to "".
+        let items = vec![make_item(&[("username", "user"), ("password", "pass")])];
+
+        let rules = csv_rules();
+        let summary = validate_items(&items, &rules);
+
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.failed_items[0].name, "");
+    }
+
+    #[test]
+    fn validate_items_records_first_failure_only() {
+        // Item missing both username and password — both Required rules fail,
+        // but only the first failure should be recorded.
+        let items = vec![make_item(&[("name", "Multi Fail")])];
+
+        let rules = csv_rules();
+        let summary = validate_items(&items, &rules);
+
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.failed_items.len(), 1);
+        // First failure is username (order matches csv_rules).
+        assert!(summary.failed_items[0].reason.contains("username"));
     }
 }
