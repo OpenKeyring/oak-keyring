@@ -238,3 +238,153 @@ pub enum Overlay {
     BatchTagPanel(BatchTagPanelState),
     ErrorDialog(ErrorDialogState),
 }
+
+/// Health issue priority for a single record.
+/// Compromised > Weak > Duplicate > Expired (matches S3 spec priority ordering).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthIssue {
+    Compromised,
+    Weak,
+    Duplicate { group_size: usize },
+    Expired,
+}
+
+impl HealthReport {
+    /// Total number of distinct records with issues (de-duplicated across categories).
+    pub fn issue_count(&self) -> usize {
+        let mut ids = std::collections::HashSet::new();
+        for id in &self.weak_passwords {
+            ids.insert(*id);
+        }
+        for group in &self.duplicate_passwords {
+            for id in group {
+                ids.insert(*id);
+            }
+        }
+        for id in &self.compromised {
+            ids.insert(*id);
+        }
+        for id in &self.expired {
+            ids.insert(*id);
+        }
+        ids.len()
+    }
+
+    /// Whether any health issue exists.
+    pub fn has_issues(&self) -> bool {
+        self.issue_count() > 0
+    }
+
+    /// Get the highest-priority health issue for a specific record.
+    /// Priority: Compromised > Weak > Duplicate > Expired
+    /// Returns None if the record has no issues.
+    pub fn get_issue_for(&self, id: Uuid) -> Option<HealthIssue> {
+        if self.compromised.contains(&id) {
+            return Some(HealthIssue::Compromised);
+        }
+        if self.weak_passwords.contains(&id) {
+            return Some(HealthIssue::Weak);
+        }
+        for group in &self.duplicate_passwords {
+            if group.contains(&id) {
+                return Some(HealthIssue::Duplicate {
+                    group_size: group.len(),
+                });
+            }
+        }
+        if self.expired.contains(&id) {
+            return Some(HealthIssue::Expired);
+        }
+        None
+    }
+
+    /// Create an empty report.
+    pub fn empty() -> Self {
+        Self {
+            weak_passwords: Vec::new(),
+            duplicate_passwords: Vec::new(),
+            compromised: Vec::new(),
+            expired: Vec::new(),
+            total_checked: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod health_report_tests {
+    use super::*;
+
+    #[test]
+    fn empty_report_has_no_issues() {
+        let report = HealthReport::empty();
+        assert_eq!(report.issue_count(), 0);
+        assert!(!report.has_issues());
+        assert_eq!(report.total_checked, 0);
+    }
+
+    #[test]
+    fn issue_count_de_duplicates_across_categories() {
+        let id = Uuid::new_v4();
+        let report = HealthReport {
+            weak_passwords: vec![id],
+            duplicate_passwords: vec![vec![id, Uuid::new_v4()]],
+            compromised: vec![id],
+            expired: vec![id],
+            total_checked: 2,
+        };
+        // Same UUID in all 4 categories → counts as 1 distinct record
+        assert_eq!(report.issue_count(), 2); // id + the other UUID in duplicate group
+    }
+
+    #[test]
+    fn get_issue_for_compromised_has_highest_priority() {
+        let id = Uuid::new_v4();
+        let report = HealthReport {
+            weak_passwords: vec![id],
+            compromised: vec![id],
+            ..HealthReport::empty()
+        };
+        assert_eq!(report.get_issue_for(id), Some(HealthIssue::Compromised));
+    }
+
+    #[test]
+    fn get_issue_for_weak_beats_duplicate() {
+        let id = Uuid::new_v4();
+        let report = HealthReport {
+            weak_passwords: vec![id],
+            duplicate_passwords: vec![vec![id, Uuid::new_v4()]],
+            ..HealthReport::empty()
+        };
+        assert_eq!(report.get_issue_for(id), Some(HealthIssue::Weak));
+    }
+
+    #[test]
+    fn get_issue_for_duplicate_includes_group_size() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let report = HealthReport {
+            duplicate_passwords: vec![vec![id1, id2]],
+            ..HealthReport::empty()
+        };
+        assert_eq!(
+            report.get_issue_for(id1),
+            Some(HealthIssue::Duplicate { group_size: 2 })
+        );
+    }
+
+    #[test]
+    fn get_issue_for_expired_is_lowest_priority() {
+        let id = Uuid::new_v4();
+        let report = HealthReport {
+            expired: vec![id],
+            ..HealthReport::empty()
+        };
+        assert_eq!(report.get_issue_for(id), Some(HealthIssue::Expired));
+    }
+
+    #[test]
+    fn get_issue_for_returns_none_for_clean_record() {
+        let report = HealthReport::empty();
+        assert_eq!(report.get_issue_for(Uuid::new_v4()), None);
+    }
+}
