@@ -3,6 +3,6 @@
 
 pub mod bitwarden;
 pub mod csv;
-// pub mod keepass;
+pub mod keepass;
 // pub mod onepassword;
 pub mod okb;
