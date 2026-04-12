@@ -1,130 +1,18 @@
-# Rust
-target/
-Cargo.lock
-**/*.rs.bk
-*.pdb
+# Git worktrees (isolated development workspaces)
+.worktrees/
+
+# Build artifacts
+/target/
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
-*~
 
 # OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 
-# Config files with secrets
-.env
-.env.local
-.env.*.local
-config.yaml
-ok_config.yaml
-
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-
-# Backup files
-*.bak
-*.backup
-*.old
-
-# Log files
-*.log
-logs/
-*.log.*
-
-# Temporary files
-*.tmp
-*.temp
-
-# Build artifacts
-*.o
-*.a
-*.so
-*.dylib
-
-# Test coverage
-coverage/
-*.profraw
-*.profdata
-
-# Documentation
-site/
-docs/build/
-
-# Binary releases
-release/
-dist/
-
-# Dependency directories
-vendor/
-
-# Node.js (if any package.json)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.Python
-env/
-venv/
-.env/
-
-# Go
-*.out
-*.test
-*.prof
-
-# Java
-*.class
-*.jar
-*.war
-*.ear
-*.zip
-*.tar.gz
-*.rar
-
-# C/C++
-*.o
-*.a
-*.so
-*.dylib
-*.dll
-*.exe
-
-# Other
-*.orig
-*.rej
-*~
-
-# Test files
-tmp/
-temp/
-
-
-# OpenKeyring specific
-passwords.db
-passwords.db-wal
-passwords.db-shm
-keys/
-device.id
-sync-backups/
-cache/
-.serena/
-
-# Worktrees
-.worktrees/
-.worktrees/
+# Test artifacts
+*.snap.new
