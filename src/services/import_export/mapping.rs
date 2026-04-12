@@ -1,9 +1,17 @@
-//! Format mapping types and per-format default mapping configurations.
+//! Format mapping types, per-format default configurations, and the field-mapping engine.
 //!
 //! Defines how fields from external password-manager exports map to vault fields,
 //! including transform rules, required-field markers, and type-inference logic.
+//! The engine functions ([`infer_credential_type`], [`apply_field_mapping`],
+//! [`map_parsed_item`]) convert parsed source data into [`MappedRecord`] values.
+
+use std::collections::{HashMap, HashSet};
+
+use uuid::Uuid;
 
 use crate::commands::types::{CsvColumnMapping, ImportSource};
+use crate::services::import_export::parser::ParsedItem;
+use crate::services::import_export::types::MappedRecord;
 use crate::types::CredentialType;
 
 // ---------------------------------------------------------------------------
@@ -463,6 +471,126 @@ pub fn get_default_mapping(source: ImportSource) -> FormatMapping {
 }
 
 // ---------------------------------------------------------------------------
+// Mapping engine
+// ---------------------------------------------------------------------------
+
+/// Infer the vault [`CredentialType`] from the fields present in a parsed item.
+///
+/// Detection rules (checked in order, first match wins):
+/// - `username` **and** `password` present → [`CredentialType::Login`]
+/// - `app_id` **and** `secret_key` present → [`CredentialType::Api`]
+/// - `public_key` **and** `private_key` present → [`CredentialType::Ssh`]
+/// - Otherwise → [`CredentialType::Login`] (default)
+pub fn infer_credential_type(fields: &HashMap<String, String>) -> CredentialType {
+    let has = |key: &str| fields.contains_key(key);
+
+    if has("username") && has("password") {
+        CredentialType::Login
+    } else if has("app_id") && has("secret_key") {
+        CredentialType::Api
+    } else if has("public_key") && has("private_key") {
+        CredentialType::Ssh
+    } else {
+        CredentialType::Login
+    }
+}
+
+/// Apply a single [`FieldTransform`] to a value.
+fn apply_transform(value: &str, transform: &FieldTransform) -> String {
+    match transform {
+        FieldTransform::Trim => value.trim().to_string(),
+        FieldTransform::Lowercase => value.to_lowercase(),
+        FieldTransform::Uppercase => value.to_uppercase(),
+        FieldTransform::DateTimeFormat(_fmt) => {
+            // TODO: parse with chrono and reformat — pass through for now
+            value.to_string()
+        }
+        FieldTransform::Base64Decode => {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD
+                .decode(value)
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .unwrap_or_else(|| value.to_string())
+        }
+    }
+}
+
+/// Map source fields through a [`FormatMapping`], producing a `HashMap<TargetField, String>`.
+///
+/// For each [`FieldMapping`] in the format mapping:
+/// 1. Look up `source_field` in the input fields.
+/// 2. If found, apply the optional [`FieldTransform`].
+/// 3. If not found and not required, use `default_value` if provided.
+/// 4. If not found and required, skip (the caller validates required fields separately).
+pub fn apply_field_mapping(
+    fields: &HashMap<String, String>,
+    mapping: &FormatMapping,
+) -> HashMap<TargetField, String> {
+    let mut result = HashMap::new();
+
+    for fm in &mapping.field_mappings {
+        if let Some(value) = fields.get(&fm.source_field) {
+            let transformed = match &fm.transform {
+                Some(t) => apply_transform(value, t),
+                None => value.clone(),
+            };
+            result.insert(fm.target_field.clone(), transformed);
+        } else if let Some(default) = &fm.default_value {
+            result.insert(fm.target_field.clone(), default.clone());
+        }
+        // else: field not found and no default — skip (validation handles required)
+    }
+
+    result
+}
+
+/// Convert a [`ParsedItem`] into a [`MappedRecord`] using the default mapping
+/// for the given [`ImportSource`].
+///
+/// This is the main entry point that ties together type inference, field mapping,
+/// and unmapped-field collection.
+pub fn map_parsed_item(item: &ParsedItem, source: ImportSource) -> MappedRecord {
+    // 1. Get format mapping
+    let mapping = get_default_mapping(source);
+
+    // 2. Infer credential type
+    let credential_type = infer_credential_type(&item.fields);
+
+    // 3. Apply field mapping
+    let mapped = apply_field_mapping(&item.fields, &mapping);
+
+    // 4. Collect unsupported fields into notes
+    let mapped_source_fields: HashSet<String> = mapping
+        .field_mappings
+        .iter()
+        .map(|fm| fm.source_field.clone())
+        .collect();
+
+    let mut notes = mapped.get(&TargetField::Notes).cloned().unwrap_or_default();
+    for (key, value) in &item.fields {
+        if !mapped_source_fields.contains(key) && !value.is_empty() {
+            if !notes.is_empty() {
+                notes.push('\n');
+            }
+            notes.push_str(&format!("Field: {} = {}", key, value));
+        }
+    }
+
+    MappedRecord {
+        id: Uuid::new_v4(),
+        credential_type,
+        fields: item.fields.clone(),
+        tags: item.tags.clone(),
+        is_favorite: false,
+        expires_at: None,
+        source_item_id: item.source_id.clone(),
+        notes: if notes.is_empty() { None } else { Some(notes) },
+        is_duplicate: false,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 #[cfg(test)]
@@ -737,5 +865,312 @@ mod tests {
             &fm.field_mappings[0].transform,
             Some(FieldTransform::Base64Decode)
         ));
+    }
+
+    // =========================================================================
+    // Engine function tests
+    // =========================================================================
+
+    // -- infer_credential_type --
+
+    #[test]
+    fn infer_type_login_when_username_and_password_present() {
+        let mut fields = HashMap::new();
+        fields.insert("username".into(), "alice".into());
+        fields.insert("password".into(), "s3cret".into());
+        assert_eq!(infer_credential_type(&fields), CredentialType::Login);
+    }
+
+    #[test]
+    fn infer_type_api_when_app_id_and_secret_key_present() {
+        let mut fields = HashMap::new();
+        fields.insert("app_id".into(), "my-app".into());
+        fields.insert("secret_key".into(), "abc123".into());
+        assert_eq!(infer_credential_type(&fields), CredentialType::Api);
+    }
+
+    #[test]
+    fn infer_type_ssh_when_public_key_and_private_key_present() {
+        let mut fields = HashMap::new();
+        fields.insert("public_key".into(), "ssh-rsa AAA...".into());
+        fields.insert("private_key".into(), "-----BEGIN RSA...".into());
+        assert_eq!(infer_credential_type(&fields), CredentialType::Ssh);
+    }
+
+    #[test]
+    fn infer_type_defaults_to_login_when_no_matching_fields() {
+        let fields = HashMap::new();
+        assert_eq!(infer_credential_type(&fields), CredentialType::Login);
+    }
+
+    #[test]
+    fn infer_type_login_takes_priority_over_api() {
+        // Login is checked first, so username+password + app_id+secret_key → Login
+        let mut fields = HashMap::new();
+        fields.insert("username".into(), "alice".into());
+        fields.insert("password".into(), "s3cret".into());
+        fields.insert("app_id".into(), "my-app".into());
+        fields.insert("secret_key".into(), "abc123".into());
+        assert_eq!(infer_credential_type(&fields), CredentialType::Login);
+    }
+
+    // -- apply_field_mapping --
+
+    #[test]
+    fn apply_mapping_basic_source_fields_mapped_correctly() {
+        let mapping = bitwarden_mapping();
+        let mut fields = HashMap::new();
+        fields.insert("name".into(), "Gmail".into());
+        fields.insert("login.username".into(), "user@gmail.com".into());
+        fields.insert("login.password".into(), "hunter2".into());
+        fields.insert("login.uri".into(), "https://gmail.com".into());
+        fields.insert("notes".into(), "My email".into());
+
+        let result = apply_field_mapping(&fields, &mapping);
+
+        assert_eq!(result.get(&TargetField::Name).unwrap(), "Gmail");
+        assert_eq!(
+            result.get(&TargetField::Username).unwrap(),
+            "user@gmail.com"
+        );
+        assert_eq!(result.get(&TargetField::Password).unwrap(), "hunter2");
+        assert_eq!(result.get(&TargetField::Url).unwrap(), "https://gmail.com");
+        assert_eq!(result.get(&TargetField::Notes).unwrap(), "My email");
+    }
+
+    #[test]
+    fn apply_mapping_with_trim_transform() {
+        let mapping = FormatMapping {
+            source_type: ImportSource::Csv,
+            field_mappings: vec![FieldMapping {
+                source_field: "name".into(),
+                target_field: TargetField::Name,
+                required: true,
+                default_value: None,
+                transform: Some(FieldTransform::Trim),
+            }],
+            type_mappings: vec![],
+        };
+
+        let mut fields = HashMap::new();
+        fields.insert("name".into(), "  padded name  ".into());
+
+        let result = apply_field_mapping(&fields, &mapping);
+        assert_eq!(result.get(&TargetField::Name).unwrap(), "padded name");
+    }
+
+    #[test]
+    fn apply_mapping_uses_default_value_when_source_field_missing() {
+        let mapping = FormatMapping {
+            source_type: ImportSource::Csv,
+            field_mappings: vec![FieldMapping {
+                source_field: "url".into(),
+                target_field: TargetField::Url,
+                required: false,
+                default_value: Some("https://example.com".into()),
+                transform: None,
+            }],
+            type_mappings: vec![],
+        };
+
+        let fields = HashMap::new();
+        let result = apply_field_mapping(&fields, &mapping);
+        assert_eq!(
+            result.get(&TargetField::Url).unwrap(),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn apply_mapping_skips_missing_required_field_without_default() {
+        let mapping = FormatMapping {
+            source_type: ImportSource::Csv,
+            field_mappings: vec![FieldMapping {
+                source_field: "name".into(),
+                target_field: TargetField::Name,
+                required: true,
+                default_value: None,
+                transform: None,
+            }],
+            type_mappings: vec![],
+        };
+
+        let fields = HashMap::new();
+        let result = apply_field_mapping(&fields, &mapping);
+        assert!(
+            result.get(&TargetField::Name).is_none(),
+            "missing required field without default should be skipped"
+        );
+    }
+
+    #[test]
+    fn apply_mapping_with_base64_decode_transform() {
+        let mapping = FormatMapping {
+            source_type: ImportSource::Csv,
+            field_mappings: vec![FieldMapping {
+                source_field: "secret".into(),
+                target_field: TargetField::Password,
+                required: true,
+                default_value: None,
+                transform: Some(FieldTransform::Base64Decode),
+            }],
+            type_mappings: vec![],
+        };
+
+        let mut fields = HashMap::new();
+        fields.insert("secret".into(), "aGVsbG8=".into()); // "hello" in base64
+
+        let result = apply_field_mapping(&fields, &mapping);
+        assert_eq!(result.get(&TargetField::Password).unwrap(), "hello");
+    }
+
+    #[test]
+    fn apply_mapping_base64_decode_invalid_input_passes_through() {
+        let mapping = FormatMapping {
+            source_type: ImportSource::Csv,
+            field_mappings: vec![FieldMapping {
+                source_field: "secret".into(),
+                target_field: TargetField::Password,
+                required: true,
+                default_value: None,
+                transform: Some(FieldTransform::Base64Decode),
+            }],
+            type_mappings: vec![],
+        };
+
+        let mut fields = HashMap::new();
+        fields.insert("secret".into(), "not-valid-base64!!!".into());
+
+        let result = apply_field_mapping(&fields, &mapping);
+        assert_eq!(
+            result.get(&TargetField::Password).unwrap(),
+            "not-valid-base64!!!"
+        );
+    }
+
+    // -- map_parsed_item --
+
+    #[test]
+    fn map_parsed_item_csv_full_mapping_with_unsupported_fields_in_notes() {
+        let mut fields = HashMap::new();
+        fields.insert("name".into(), "MySite".into());
+        fields.insert("username".into(), "user@example.com".into());
+        fields.insert("password".into(), "pass123".into());
+        fields.insert("url".into(), "https://example.com".into());
+        fields.insert("notes".into(), "My notes".into());
+        fields.insert("custom_field".into(), "custom_value".into());
+
+        let item = ParsedItem {
+            source_id: "csv-row-5".into(),
+            fields,
+            tags: vec![],
+        };
+
+        let record = map_parsed_item(&item, ImportSource::Csv);
+
+        assert_eq!(record.credential_type, CredentialType::Login);
+        assert_eq!(record.source_item_id, "csv-row-5");
+        assert!(!record.is_favorite);
+        assert!(!record.is_duplicate);
+        assert!(record.expires_at.is_none());
+
+        // Unsupported field should appear in notes
+        let notes = record.notes.unwrap();
+        assert!(
+            notes.contains("Field: custom_field = custom_value"),
+            "unexpected notes: {notes}"
+        );
+        // Original notes should also be present
+        assert!(
+            notes.contains("My notes"),
+            "original notes should be preserved: {notes}"
+        );
+    }
+
+    #[test]
+    fn map_parsed_item_bitwarden_specific_mapping() {
+        let mut fields = HashMap::new();
+        fields.insert("name".into(), "GitHub".into());
+        fields.insert("login.username".into(), "dev".into());
+        fields.insert("login.password".into(), "ghp_secret".into());
+        fields.insert("login.uri".into(), "https://github.com".into());
+        fields.insert("notes".into(), "Work account".into());
+
+        let item = ParsedItem {
+            source_id: "bw-123".into(),
+            fields,
+            tags: vec!["dev".into(), "work".into()],
+        };
+
+        let record = map_parsed_item(&item, ImportSource::Bitwarden);
+
+        assert_eq!(record.credential_type, CredentialType::Login);
+        assert_eq!(record.source_item_id, "bw-123");
+        assert_eq!(record.tags, vec!["dev", "work"]);
+    }
+
+    #[test]
+    fn map_parsed_item_preserves_tags() {
+        let mut fields = HashMap::new();
+        fields.insert("username".into(), "bob".into());
+        fields.insert("password".into(), "secret".into());
+
+        let item = ParsedItem {
+            source_id: "tag-test".into(),
+            fields,
+            tags: vec!["personal".into(), "finance".into(), "bank".into()],
+        };
+
+        let record = map_parsed_item(&item, ImportSource::Csv);
+
+        assert_eq!(
+            record.tags,
+            vec!["personal", "finance", "bank"],
+            "tags should be preserved from ParsedItem"
+        );
+    }
+
+    #[test]
+    fn map_parsed_item_generates_unique_uuid_per_call() {
+        let mut fields = HashMap::new();
+        fields.insert("username".into(), "alice".into());
+        fields.insert("password".into(), "pw".into());
+
+        let item = ParsedItem {
+            source_id: "uuid-test".into(),
+            fields,
+            tags: vec![],
+        };
+
+        let record1 = map_parsed_item(&item, ImportSource::Csv);
+        let record2 = map_parsed_item(&item, ImportSource::Csv);
+
+        assert_ne!(
+            record1.id, record2.id,
+            "each call should produce a unique UUID"
+        );
+    }
+
+    #[test]
+    fn map_parsed_item_no_notes_when_all_fields_supported() {
+        let mut fields = HashMap::new();
+        fields.insert("name".into(), "Test".into());
+        fields.insert("username".into(), "user".into());
+        fields.insert("password".into(), "pw".into());
+        fields.insert("url".into(), "https://example.com".into());
+        fields.insert("notes".into(), "a note".into());
+
+        let item = ParsedItem {
+            source_id: "no-extra".into(),
+            fields,
+            tags: vec![],
+        };
+
+        let record = map_parsed_item(&item, ImportSource::Csv);
+
+        // All fields are mapped by CSV default, but notes has content so it
+        // should contain only the original notes text.
+        let notes = record.notes.unwrap();
+        assert_eq!(notes, "a note");
     }
 }
