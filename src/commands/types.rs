@@ -79,7 +79,7 @@ pub enum ConflictResolution {
 }
 
 /// Supported import file formats
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImportSource {
     KeePass,            // .kdbx
     OnePassword1pux,    // .1pux
