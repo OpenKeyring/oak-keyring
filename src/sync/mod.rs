@@ -5,6 +5,7 @@ pub mod pipeline;
 pub mod retry;
 pub mod state_machine;
 pub mod task;
+pub mod watcher;
 pub use checkpoint::{PendingConflict, SyncCheckpoint};
 pub use conflict::{
     ConflictAction, ConflictItem, ConflictManager, KeepRemoteData, ResolutionAction,
@@ -18,3 +19,4 @@ pub use pipeline::{
 pub use retry::{BackoffTimer, RetryPolicy};
 pub use state_machine::{SyncState, SyncStateMachine, SyncTrigger};
 pub use task::{SyncCommand, SyncEvent, SyncReport, SyncTask};
+pub use watcher::{SyncWatcher, WatchEventKind};
