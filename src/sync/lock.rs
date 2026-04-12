@@ -92,10 +92,7 @@ impl SyncLock {
             let elapsed = Utc::now().signed_duration_since(start);
             if elapsed.num_seconds() >= self.acquire_timeout.num_seconds() {
                 return Err(SyncError::LockAcquireFailed {
-                    reason: format!(
-                        "timeout after {:?} waiting for lock",
-                        self.acquire_timeout
-                    ),
+                    reason: format!("timeout after {:?} waiting for lock", self.acquire_timeout),
                 });
             }
 
@@ -259,9 +256,10 @@ impl SyncLock {
 
     /// Uploads lock data to cloud storage.
     async fn upload_lock(&self, lock_data: &LockFileData) -> Result<(), SyncError> {
-        let json = serde_json::to_string(lock_data).map_err(|e| SyncError::SerializationFailed {
-            message: e.to_string(),
-        })?;
+        let json =
+            serde_json::to_string(lock_data).map_err(|e| SyncError::SerializationFailed {
+                message: e.to_string(),
+            })?;
         let bytes: Vec<u8> = json.into_bytes();
         self.storage.upload_raw(LOCK_FILENAME, &bytes).await?;
         Ok(())
@@ -316,12 +314,11 @@ mod tests {
         assert!(lock1.is_locked_by_self().await.unwrap());
 
         // Device 2 tries to acquire with short timeout
-        let short_timeout_lock = lock2
-            .with_timeouts(
-                Duration::seconds(300),
-                Duration::milliseconds(500), // Very short timeout
-                Duration::milliseconds(100), // Short retry interval
-            );
+        let short_timeout_lock = lock2.with_timeouts(
+            Duration::seconds(300),
+            Duration::milliseconds(500), // Very short timeout
+            Duration::milliseconds(100), // Short retry interval
+        );
 
         let result = short_timeout_lock.acquire().await;
         assert!(result.is_err());
@@ -381,7 +378,7 @@ mod tests {
 
         // Device 1 acquires lock with very short TTL
         let short_ttl_lock1 = lock1.with_timeouts(
-            Duration::milliseconds(50),  // Very short TTL
+            Duration::milliseconds(50), // Very short TTL
             Duration::seconds(30),
             Duration::seconds(5),
         );
@@ -435,12 +432,11 @@ mod tests {
         let storage = test_storage();
 
         // Create a lock with 1ms TTL (will expire immediately)
-        let lock = SyncLock::new(storage, "device-1".to_string())
-            .with_timeouts(
-                Duration::milliseconds(1),
-                Duration::seconds(30),
-                Duration::seconds(5),
-            );
+        let lock = SyncLock::new(storage, "device-1".to_string()).with_timeouts(
+            Duration::milliseconds(1),
+            Duration::seconds(30),
+            Duration::seconds(5),
+        );
 
         lock.acquire().await.unwrap();
 
@@ -455,12 +451,11 @@ mod tests {
     #[tokio::test]
     async fn with_timeouts_customizes_values() {
         let storage = test_storage();
-        let lock = SyncLock::new(storage, "device-1".to_string())
-            .with_timeouts(
-                Duration::seconds(600),  // 10 minutes TTL
-                Duration::seconds(60),    // 1 minute timeout
-                Duration::seconds(10),    // 10 second retry
-            );
+        let lock = SyncLock::new(storage, "device-1".to_string()).with_timeouts(
+            Duration::seconds(600), // 10 minutes TTL
+            Duration::seconds(60),  // 1 minute timeout
+            Duration::seconds(10),  // 10 second retry
+        );
 
         lock.acquire().await.unwrap();
 
