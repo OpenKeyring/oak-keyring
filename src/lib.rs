@@ -4,6 +4,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 pub use rust_i18n::t;
 
 pub mod app;
+pub mod cloud;
 pub mod commands;
 pub mod config;
 pub mod crypto;
@@ -11,5 +12,6 @@ pub mod db;
 pub mod errors;
 pub mod executor;
 pub mod services;
+pub mod sync;
 pub mod tui;
 pub mod types;
