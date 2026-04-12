@@ -458,22 +458,22 @@ impl ImportExportService {
             records,
         };
 
-        // 6. Extract password and output_path from session.
-        let (output_path, password) = {
+        // 6. Encrypt and write. Borrow password directly from session to avoid
+        //    creating an unprotected intermediate String copy (C1 fix).
+        let (output_path, encrypted_size) = {
             let session = self
                 .export_sessions
                 .get(&session_id)
                 .ok_or(ImportExportError::SessionNotFound(session_id))?;
-            (
-                session.output_path.clone(),
-                session.export_password.get().to_string(),
-            )
-        };
 
-        // Encrypt and write using a SecureStr constructed from the password.
-        let secure_password = SecureStr::new(password);
-        let encrypted_size =
-            self::export::encrypt_and_write_okb(&payload, &secure_password, &output_path)?;
+            let path = session.output_path.clone();
+            let size = self::export::encrypt_and_write_okb(
+                &payload,
+                &session.export_password,
+                &path,
+            )?;
+            (path, size)
+        };
 
         // 7. Update session: Completed.
         {
