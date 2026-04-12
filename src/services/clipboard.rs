@@ -228,7 +228,10 @@ impl ClipboardService {
         }
 
         self.backend.set_text(text)?;
-        info!(timeout_secs = self.clear_timeout, "Copied to clipboard with tracking");
+        info!(
+            timeout_secs = self.clear_timeout,
+            "Copied to clipboard with tracking"
+        );
 
         if self.clear_timeout > 0 {
             self.start_clear_timer();
@@ -357,8 +360,7 @@ impl ClipboardService {
         }
         #[cfg(target_os = "macos")]
         {
-            std::env::var("SECURITYSESSIONID").is_err()
-                && std::env::var("TERM_PROGRAM").is_err()
+            std::env::var("SECURITYSESSIONID").is_err() && std::env::var("TERM_PROGRAM").is_err()
         }
         #[cfg(target_os = "linux")]
         {
