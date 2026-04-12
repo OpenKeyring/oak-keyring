@@ -19,7 +19,8 @@ const CHANNEL_CAPACITY: usize = 16;
 /// SyncService timeout durations.
 const SYNC_TIMEOUT: Duration = Duration::from_secs(60);
 const CONFLICT_TIMEOUT: Duration = Duration::from_secs(30);
-const PAUSE_RESUME_TIMEOUT: Duration = Duration::from_secs(10);
+const PAUSE_TIMEOUT: Duration = Duration::from_secs(30);
+const RESUME_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Public interface to the sync subsystem.
 ///
@@ -207,12 +208,14 @@ impl SyncService {
         }
     }
 
-    /// Pauses sync processing.
+    /// Pauses sync processing, waiting up to 30s for any in-progress Push to complete.
     ///
-    /// Sends `Pause` command and waits for `Paused` event.
+    /// Sends `Pause` command and waits for `Paused` event. If a sync cycle is
+    /// in progress (e.g., Push stage), waits for the cycle to finish or the
+    /// 30s timeout to expire.
     ///
     /// # Errors
-    /// Returns `SyncError` if timeout (10s) expires before `Paused` event.
+    /// Returns `SyncError` if timeout (30s) expires before `Paused` event.
     pub async fn pause(&mut self) -> Result<(), SyncError> {
         self.cmd_tx
             .send(SyncCommand::Pause)
@@ -223,7 +226,7 @@ impl SyncService {
             })?;
 
         let _event = self
-            .wait_for_event(PAUSE_RESUME_TIMEOUT, |event| {
+            .wait_for_event(PAUSE_TIMEOUT, |event| {
                 matches!(event, SyncEvent::Paused)
             })
             .await?;
@@ -247,7 +250,7 @@ impl SyncService {
             })?;
 
         let _event = self
-            .wait_for_event(PAUSE_RESUME_TIMEOUT, |event| {
+            .wait_for_event(RESUME_TIMEOUT, |event| {
                 matches!(event, SyncEvent::Resumed)
             })
             .await?;
@@ -272,7 +275,7 @@ impl SyncService {
             })?;
 
         let _event = self
-            .wait_for_event(PAUSE_RESUME_TIMEOUT, |event| {
+            .wait_for_event(RESUME_TIMEOUT, |event| {
                 matches!(event, SyncEvent::ShutdownComplete)
             })
             .await?;

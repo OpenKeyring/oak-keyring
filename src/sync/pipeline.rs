@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
+use crate::cloud::validation::compute_checksum;
 use crate::cloud::{CloudMetadata, CloudRecord, CloudStorage};
 use crate::errors::mapping::sync::SyncError;
 use crate::sync::checkpoint::{PendingConflict, SyncCheckpoint};
@@ -268,6 +269,45 @@ impl SyncStage for PushStage {
             for (record_id, result) in results {
                 match result {
                     Ok(Some(record)) => {
+                        // Validate AAD integrity (record_id + dek_version match)
+                        if let Err(e) = record.validate() {
+                            tracing::warn!(
+                                record_id = %record_id,
+                                error = %e,
+                                "Downloaded record failed validation, skipping"
+                            );
+                            context.failed_ids.push(record_id);
+                            continue;
+                        }
+
+                        // Validate checksum against remote metadata if available
+                        if let Some(ref meta) = context.remote_metadata {
+                            if let Some(remote_info) = meta.records.get(&record_id) {
+                                match compute_checksum(&record.encrypted_data) {
+                                    Ok(computed) if computed == remote_info.checksum => {}
+                                    Ok(computed) => {
+                                        tracing::warn!(
+                                            record_id = %record_id,
+                                            expected = %remote_info.checksum,
+                                            actual = %computed,
+                                            "Checksum mismatch on downloaded record, skipping"
+                                        );
+                                        context.failed_ids.push(record_id);
+                                        continue;
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            record_id = %record_id,
+                                            error = %e,
+                                            "Failed to compute checksum, skipping"
+                                        );
+                                        context.failed_ids.push(record_id);
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
                         if let Ok(id) = Uuid::parse_str(&record_id) {
                             context.checkpoint.record_pull_done(id);
                         }
@@ -757,9 +797,30 @@ mod tests {
         let (storage, _temp_dir) = create_test_storage();
         let checkpoint = create_test_checkpoint();
 
-        // Upload a record first
-        let record = create_test_cloud_record("record-1", 2);
-        storage.upload_record("record-1", &record).await.unwrap();
+        // Use a valid UUID so record.validate() passes
+        let record_id = "550e8400-e29b-41d4-a716-446655440000";
+        let record = create_test_cloud_record(record_id, 2);
+        storage.upload_record(record_id, &record).await.unwrap();
+
+        // Compute the correct checksum for the uploaded record
+        let correct_checksum = record.compute_checksum().unwrap();
+
+        // Set up remote metadata with the matching checksum
+        let mut metadata = create_test_metadata_with_records(
+            "test_token",
+            1,
+            vec![(record_id, 2)],
+        );
+        metadata.upsert_record(
+            record_id.to_string(),
+            RecordVersionInfo {
+                version: 2,
+                updated_at: Utc::now().to_rfc3339(),
+                updated_by: "device-1".to_string(),
+                checksum: correct_checksum,
+                deleted: false,
+            },
+        );
 
         let mut context = PipelineContext::new(
             storage,
@@ -769,14 +830,14 @@ mod tests {
             "test_token".to_string(),
         );
 
-        // Request download
-        context.to_download.push("record-1".to_string());
+        context.remote_metadata = Some(metadata);
+        context.to_download.push(record_id.to_string());
 
         let stage = PushStage::new();
         let outcome = stage.execute(&mut context).await;
 
         assert!(matches!(outcome, StageOutcome::Continue));
-        assert!(context.downloads.contains_key("record-1"));
+        assert!(context.downloads.contains_key(record_id));
     }
 
     #[tokio::test]

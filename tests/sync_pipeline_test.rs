@@ -311,8 +311,24 @@ async fn push_downloads_records() {
     let (storage, _temp_dir) = create_test_storage();
     let checkpoint = create_test_checkpoint();
 
-    let record = create_test_cloud_record("record-1", 2);
-    storage.upload_record("record-1", &record).await.unwrap();
+    let record_id = "550e8400-e29b-41d4-a716-446655440000";
+    let record = create_test_cloud_record(record_id, 2);
+    storage.upload_record(record_id, &record).await.unwrap();
+
+    let correct_checksum = record.compute_checksum().unwrap();
+
+    let mut metadata =
+        create_test_metadata_with_records("test_token", 1, vec![(record_id, 2)]);
+    metadata.upsert_record(
+        record_id.to_string(),
+        RecordVersionInfo {
+            version: 2,
+            updated_at: Utc::now().to_rfc3339(),
+            updated_by: "device-1".to_string(),
+            checksum: correct_checksum,
+            deleted: false,
+        },
+    );
 
     let mut context = PipelineContext::new(
         storage,
@@ -322,13 +338,14 @@ async fn push_downloads_records() {
         "test_token".to_string(),
     );
 
-    context.to_download.push("record-1".to_string());
+    context.remote_metadata = Some(metadata);
+    context.to_download.push(record_id.to_string());
 
     let stage = PushStage::new();
     let outcome = stage.execute(&mut context).await;
 
     assert!(matches!(outcome, StageOutcome::Continue));
-    assert!(context.downloads.contains_key("record-1"));
+    assert!(context.downloads.contains_key(record_id));
 }
 
 #[tokio::test]
