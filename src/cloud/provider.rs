@@ -162,11 +162,9 @@ pub fn create_cloud_storage(config: &SyncConfig) -> Result<crate::cloud::CloudSt
     let provider_str = provider_name(config.provider);
 
     match config.provider {
-        SyncProvider::Disabled => {
-            return Err(SyncError::ProviderNotSupported {
-                provider: provider_str,
-            });
-        }
+        SyncProvider::Disabled => Err(SyncError::ProviderNotSupported {
+            provider: provider_str,
+        }),
 
         SyncProvider::WebDav => {
             let provider_config = config.provider_config.as_ref().ok_or_else(|| {

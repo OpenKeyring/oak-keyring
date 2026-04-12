@@ -1,9 +1,7 @@
 use opendal::Operator;
 
 use crate::cloud::ProviderAdapter;
-use crate::config::sync::{
-    AliyunOssConfig, HuaweiObsConfig, ProviderConfig, S3Config, TencentCosConfig, UpyunConfig,
-};
+use crate::config::sync::ProviderConfig;
 use crate::errors::mapping::sync::SyncError;
 
 #[derive(Debug, Default)]

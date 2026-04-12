@@ -17,7 +17,8 @@ impl ProviderAdapter for SftpAdapter {
     fn create_operator(&self, config: &ProviderConfig) -> Result<Operator, SyncError> {
         match config {
             crate::config::sync::ProviderConfig::Sftp(sftp_config) => {
-                let endpoint = if let Some((host, port_str)) = sftp_config.server.rsplit_once(':') {
+                let endpoint = if let Some((_host, port_str)) = sftp_config.server.rsplit_once(':')
+                {
                     if port_str.parse::<u16>().is_ok() {
                         sftp_config.server.clone()
                     } else {

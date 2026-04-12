@@ -14,6 +14,7 @@ use crate::sync::task::SyncCommand;
 
 /// Internal watch event with path and kind information.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct WatchEvent {
     path: PathBuf,
     kind: WatchEventKind,
@@ -36,7 +37,9 @@ pub enum WatchEventKind {
 /// `SyncCommand::PullOnly` commands to trigger synchronization after a
 /// debounce period.
 pub struct SyncWatcher {
+    #[allow(dead_code)]
     watcher: RecommendedWatcher,
+    #[allow(dead_code)]
     debounce_tx: mpsc::Sender<WatchEvent>,
     #[allow(dead_code)]
     debounce_handle: JoinHandle<()>,
@@ -108,7 +111,7 @@ impl SyncWatcher {
         Ok(Self {
             watcher,
             debounce_tx: event_tx,
-            debounce_handle: debounce_handle,
+            debounce_handle,
         })
     }
 
@@ -178,7 +181,7 @@ fn process_notify_event(event: notify::Event) -> Option<WatchEvent> {
 /// Check if a path is a JSON file under a records directory.
 fn is_records_json_file(path: &Path) -> bool {
     // Must be a .json file
-    if !path.extension().map_or(false, |ext| ext == "json") {
+    if path.extension().is_none_or(|ext| ext != "json") {
         return false;
     }
 
