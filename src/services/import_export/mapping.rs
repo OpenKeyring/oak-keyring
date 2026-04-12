@@ -392,13 +392,6 @@ pub fn okb_mapping() -> FormatMapping {
                 transform: None,
             },
             FieldMapping {
-                source_field: "credential_type".into(),
-                target_field: TargetField::Name,
-                required: false,
-                default_value: None,
-                transform: None,
-            },
-            FieldMapping {
                 source_field: "url".into(),
                 target_field: TargetField::Url,
                 required: false,
@@ -628,9 +621,9 @@ mod tests {
     }
 
     #[test]
-    fn okb_mapping_has_7_field_mappings() {
+    fn okb_mapping_has_6_field_mappings() {
         let m = okb_mapping();
-        assert_eq!(m.field_mappings.len(), 7);
+        assert_eq!(m.field_mappings.len(), 6);
         assert_eq!(m.source_type, ImportSource::OpenKeyringBackup);
     }
 
