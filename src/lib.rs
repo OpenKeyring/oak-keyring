@@ -11,6 +11,5 @@ pub mod db;
 pub mod errors;
 pub mod executor;
 pub mod services;
-pub mod sync;
 pub mod tui;
 pub mod types;
