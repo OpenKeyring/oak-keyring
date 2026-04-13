@@ -60,6 +60,11 @@ impl VaultService {
         self.crypto.is_unlocked()
     }
 
+    /// Get current DEK version (delegates to CryptoManager).
+    pub(crate) fn current_dek_version(&self) -> u32 {
+        self.crypto.current_dek_version()
+    }
+
     pub fn soft_delete(&mut self, id: Uuid) -> Result<(), VaultError> {
         let now = chrono::Utc::now().timestamp();
         self.conn.execute(

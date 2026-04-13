@@ -18,6 +18,8 @@ pub struct SecurityConfig {
     pub audit_enabled: bool,
     #[serde(default = "default_audit_days")]
     pub audit_retention_days: u32,
+    #[serde(default)]
+    pub rotation: crate::types::rotation::RotationConfig,
 }
 
 impl Default for SecurityConfig {
@@ -27,6 +29,7 @@ impl Default for SecurityConfig {
             health_check_frequency: HealthCheckFrequency::OnStartup,
             audit_enabled: true,
             audit_retention_days: 365,
+            rotation: crate::types::rotation::RotationConfig::default(),
         }
     }
 }
@@ -36,4 +39,16 @@ fn default_true() -> bool {
 }
 fn default_audit_days() -> u32 {
     365
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn security_config_default_includes_rotation_config() {
+        let config = SecurityConfig::default();
+        assert!(config.rotation.auto_rotate);
+        assert_eq!(config.rotation.rotate_after_days, Some(90));
+    }
 }

@@ -150,6 +150,19 @@ pub enum CommandResult {
         total: usize,
     },
 
+    // ── DEK Rotation Results ─────────────────────
+    /// DEK rotation completed successfully
+    RotationCompleted {
+        old_version: u32,
+        new_version: u32,
+        records_migrated: u32,
+    },
+    /// Rotation trigger check result
+    RotationTriggerChecked {
+        should_rotate: bool,
+        reason: Option<String>,
+    },
+
     // ── Config Results ───────────────────────
     ConfigLoaded {
         config: AppConfig,
@@ -249,6 +262,9 @@ mod exhaustive_tests {
                 CommandResult::VaultInitialized { .. } => {}
                 // Audit Results
                 CommandResult::AuditLogLoaded { .. } => {}
+                // DEK Rotation Results
+                CommandResult::RotationCompleted { .. } => {}
+                CommandResult::RotationTriggerChecked { .. } => {}
                 // Config Results
                 CommandResult::ConfigLoaded { .. } => {}
                 CommandResult::ConfigSaved => {}

@@ -388,3 +388,6 @@ mod health_report_tests {
         assert_eq!(report.get_issue_for(Uuid::new_v4()), None);
     }
 }
+
+// Re-export rotation progress for TUI consumption
+pub use crate::types::rotation::RotationProgress;

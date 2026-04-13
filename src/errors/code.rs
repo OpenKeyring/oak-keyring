@@ -20,4 +20,6 @@ pub enum ErrorCode {
     ImportExport(String),
     #[error("EXECUTOR: {0}")]
     Executor(String),
+    #[error("ROTATION: {0}")]
+    Rotation(String),
 }
