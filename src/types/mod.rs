@@ -13,10 +13,10 @@ pub use history::{PasswordHistory, PasswordHistoryView};
 pub use record::{
     CreateRecordParams, DecryptedRecord, StoredRecord, TuiRecord, UpdateRecordParams,
 };
+pub use rotation::{RotationConfig, RotationConstants, RotationState, RotationTrigger};
 pub use sensitive::{SecureBytes, SecureStr, SecureString};
 pub use sync::{SyncState, SyncStats, SyncStatus};
 pub use tag::Tag;
-pub use rotation::{RotationConfig, RotationConstants, RotationState, RotationTrigger};
 
 #[cfg(test)]
 mod credential_test;

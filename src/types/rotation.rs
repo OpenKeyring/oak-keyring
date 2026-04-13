@@ -14,10 +14,21 @@ pub enum RotationTrigger {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RotationState {
     Idle,
-    Pending { triggered_at: DateTime<Utc>, trigger: RotationTrigger },
-    Rotating { checkpoint: RotationCheckpoint },
-    Completed { completed_at: DateTime<Utc>, records_migrated: u32 },
-    Failed { error: String, checkpoint: RotationCheckpoint },
+    Pending {
+        triggered_at: DateTime<Utc>,
+        trigger: RotationTrigger,
+    },
+    Rotating {
+        checkpoint: RotationCheckpoint,
+    },
+    Completed {
+        completed_at: DateTime<Utc>,
+        records_migrated: u32,
+    },
+    Failed {
+        error: String,
+        checkpoint: RotationCheckpoint,
+    },
 }
 
 /// DEK rotation checkpoint for crash recovery (spec §4.3).
@@ -76,11 +87,27 @@ pub struct RotationResult {
 /// DEK rotation progress events for TUI feedback (spec §6.5).
 #[derive(Debug, Clone)]
 pub enum RotationProgress {
-    Started { total_records: u32, trigger: RotationTrigger },
-    RecordMigrated { current: u32, total: u32, record_id: String },
-    PushingMetadata { new_dek_version: u32 },
-    Completed { result: RotationResult },
-    Failed { error: String, migrated: u32, total: u32, checkpoint_preserved: bool },
+    Started {
+        total_records: u32,
+        trigger: RotationTrigger,
+    },
+    RecordMigrated {
+        current: u32,
+        total: u32,
+        record_id: String,
+    },
+    PushingMetadata {
+        new_dek_version: u32,
+    },
+    Completed {
+        result: RotationResult,
+    },
+    Failed {
+        error: String,
+        migrated: u32,
+        total: u32,
+        checkpoint_preserved: bool,
+    },
 }
 
 /// DEK rotation constants (spec §4.5).
@@ -155,10 +182,17 @@ mod tests {
 
     #[test]
     fn rotation_trigger_auto_time_serialization() {
-        let trigger = RotationTrigger::AutoTime { days_since_last: 30 };
+        let trigger = RotationTrigger::AutoTime {
+            days_since_last: 30,
+        };
         let json = serde_json::to_string(&trigger).unwrap();
         let restored: RotationTrigger = serde_json::from_str(&json).unwrap();
-        assert!(matches!(restored, RotationTrigger::AutoTime { days_since_last: 30 }));
+        assert!(matches!(
+            restored,
+            RotationTrigger::AutoTime {
+                days_since_last: 30
+            }
+        ));
     }
 
     #[test]
@@ -172,6 +206,12 @@ mod tests {
             triggered_at: Utc::now(),
             trigger: RotationTrigger::Manual,
         };
-        assert!(matches!(state, RotationState::Pending { trigger: RotationTrigger::Manual, .. }));
+        assert!(matches!(
+            state,
+            RotationState::Pending {
+                trigger: RotationTrigger::Manual,
+                ..
+            }
+        ));
     }
 }

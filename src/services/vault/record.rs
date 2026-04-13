@@ -591,27 +591,39 @@ impl VaultService {
     }
 
     /// List all records that need DEK migration (dek_version < target).
-    pub fn list_records_for_migration(&self, target_dek_version: u32) -> Result<Vec<StoredRecord>, VaultError> {
+    pub fn list_records_for_migration(
+        &self,
+        target_dek_version: u32,
+    ) -> Result<Vec<StoredRecord>, VaultError> {
         queries::list_records_by_dek_version(&self.conn, target_dek_version)
             .map_err(db_error_to_vault)
     }
 
     /// Re-encrypt a single record from old DEK version to current DEK version.
     /// This performs: decrypt with old DEK -> re-encrypt with current DEK -> update DB.
-    pub fn re_encrypt_record(&mut self, record_id: Uuid, old_dek_version: u32) -> Result<(), VaultError> {
+    pub fn re_encrypt_record(
+        &mut self,
+        record_id: Uuid,
+        old_dek_version: u32,
+    ) -> Result<(), VaultError> {
         // 1. Get the stored record
         let record = self.get_stored_record(record_id)?;
 
         // 2. Decrypt with old DEK version
-        let plaintext = self.crypto.decrypt(
-            &record.encrypted_data,
-            &record.nonce,
-            &record.aad,
-            old_dek_version,
-        ).map_err(VaultError::CryptoError)?;
+        let plaintext = self
+            .crypto
+            .decrypt(
+                &record.encrypted_data,
+                &record.nonce,
+                &record.aad,
+                old_dek_version,
+            )
+            .map_err(VaultError::CryptoError)?;
 
         // 3. Re-encrypt with current DEK
-        let (new_encrypted_data, new_nonce) = self.crypto.encrypt(&plaintext, &record.aad)
+        let (new_encrypted_data, new_nonce) = self
+            .crypto
+            .encrypt(&plaintext, &record.aad)
             .map_err(VaultError::CryptoError)?;
 
         // 4. Update the record in DB with new ciphertext and dek_version

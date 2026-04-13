@@ -9,8 +9,13 @@ pub enum RotationError {
     #[error("sync busy: could not pause sync within 30s")]
     SyncBusy,
 
-    #[error("conflict detected: cloud version is {cloud_version}, local version is {local_version}")]
-    ConflictDetected { cloud_version: u32, local_version: u32 },
+    #[error(
+        "conflict detected: cloud version is {cloud_version}, local version is {local_version}"
+    )]
+    ConflictDetected {
+        cloud_version: u32,
+        local_version: u32,
+    },
 
     #[error("record migration failed for {record_id}: {reason}")]
     RecordMigrationFailed { record_id: String, reason: String },
@@ -85,7 +90,10 @@ mod tests {
 
     #[test]
     fn max_version_exceeded_error_level_is_fatal() {
-        let err = RotationError::MaxVersionExceeded { current: 9999, max: 10000 };
+        let err = RotationError::MaxVersionExceeded {
+            current: 9999,
+            max: 10000,
+        };
         assert_eq!(err.error_level(), ErrorLevel::Fatal);
     }
 

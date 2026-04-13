@@ -226,9 +226,7 @@ impl SyncService {
             })?;
 
         let _event = self
-            .wait_for_event(PAUSE_TIMEOUT, |event| {
-                matches!(event, SyncEvent::Paused)
-            })
+            .wait_for_event(PAUSE_TIMEOUT, |event| matches!(event, SyncEvent::Paused))
             .await?;
 
         Ok(())
@@ -250,9 +248,7 @@ impl SyncService {
             })?;
 
         let _event = self
-            .wait_for_event(RESUME_TIMEOUT, |event| {
-                matches!(event, SyncEvent::Resumed)
-            })
+            .wait_for_event(RESUME_TIMEOUT, |event| matches!(event, SyncEvent::Resumed))
             .await?;
 
         Ok(())

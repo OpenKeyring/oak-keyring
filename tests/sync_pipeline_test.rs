@@ -317,8 +317,7 @@ async fn push_downloads_records() {
 
     let correct_checksum = record.compute_checksum().unwrap();
 
-    let mut metadata =
-        create_test_metadata_with_records("test_token", 1, vec![(record_id, 2)]);
+    let mut metadata = create_test_metadata_with_records("test_token", 1, vec![(record_id, 2)]);
     metadata.upsert_record(
         record_id.to_string(),
         RecordVersionInfo {

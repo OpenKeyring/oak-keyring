@@ -3,8 +3,8 @@ use uuid::Uuid;
 
 use crate::errors::mapping::rotation::RotationError;
 use crate::types::rotation::{
-    RotationConfig, RotationConfigUpdate, RotationConstants, RotationCheckpoint,
-    RotationResult, RotationState, RotationTrigger,
+    RotationCheckpoint, RotationConfig, RotationConfigUpdate, RotationConstants, RotationResult,
+    RotationState, RotationTrigger,
 };
 
 const CHECKPOINT_KEY: &str = "rotation_checkpoint";
@@ -17,7 +17,8 @@ pub fn save_checkpoint(
 ) -> Result<(), RotationError> {
     let json = serde_json::to_string(checkpoint)
         .map_err(|e| RotationError::CheckpointCorrupted(e.to_string()))?;
-    vault.set_metadata(CHECKPOINT_KEY, &json)
+    vault
+        .set_metadata(CHECKPOINT_KEY, &json)
         .map_err(|e| RotationError::Internal(e.to_string()))?;
     Ok(())
 }
@@ -38,7 +39,8 @@ pub fn load_checkpoint(
 pub fn delete_checkpoint(
     vault: &mut crate::services::vault::VaultService,
 ) -> Result<(), RotationError> {
-    vault.delete_metadata(CHECKPOINT_KEY)
+    vault
+        .delete_metadata(CHECKPOINT_KEY)
         .map_err(|e| RotationError::Internal(e.to_string()))?;
     Ok(())
 }
@@ -48,11 +50,13 @@ pub fn save_pending_trigger(
     trigger: &RotationTrigger,
     triggered_at: DateTime<Utc>,
 ) -> Result<(), RotationError> {
-    let trigger_json = serde_json::to_string(trigger)
+    let trigger_json =
+        serde_json::to_string(trigger).map_err(|e| RotationError::Internal(e.to_string()))?;
+    vault
+        .set_metadata(PENDING_TRIGGER_KEY, &trigger_json)
         .map_err(|e| RotationError::Internal(e.to_string()))?;
-    vault.set_metadata(PENDING_TRIGGER_KEY, &trigger_json)
-        .map_err(|e| RotationError::Internal(e.to_string()))?;
-    vault.set_metadata(PENDING_SINCE_KEY, &triggered_at.to_rfc3339())
+    vault
+        .set_metadata(PENDING_SINCE_KEY, &triggered_at.to_rfc3339())
         .map_err(|e| RotationError::Internal(e.to_string()))?;
     Ok(())
 }
@@ -67,14 +71,17 @@ pub fn load_pending_trigger(
     };
     let since_str = match vault.get_metadata(PENDING_SINCE_KEY) {
         Ok(Some(s)) if !s.is_empty() => s,
-        Ok(_) => return Err(RotationError::CheckpointCorrupted(
-            "pending_trigger present but pending_since absent".into()
-        )),
+        Ok(_) => {
+            return Err(RotationError::CheckpointCorrupted(
+                "pending_trigger present but pending_since absent".into(),
+            ))
+        }
         Err(e) => return Err(RotationError::Internal(e.to_string())),
     };
     let trigger: RotationTrigger = serde_json::from_str(&trigger_json)
         .map_err(|e| RotationError::CheckpointCorrupted(e.to_string()))?;
-    let triggered_at: DateTime<Utc> = since_str.parse()
+    let triggered_at: DateTime<Utc> = since_str
+        .parse()
         .map_err(|e| RotationError::CheckpointCorrupted(format!("invalid datetime: {}", e)))?;
     Ok(Some((trigger, triggered_at)))
 }
@@ -82,9 +89,11 @@ pub fn load_pending_trigger(
 pub fn clear_pending_trigger(
     vault: &mut crate::services::vault::VaultService,
 ) -> Result<(), RotationError> {
-    vault.delete_metadata(PENDING_TRIGGER_KEY)
+    vault
+        .delete_metadata(PENDING_TRIGGER_KEY)
         .map_err(|e| RotationError::Internal(e.to_string()))?;
-    vault.delete_metadata(PENDING_SINCE_KEY)
+    vault
+        .delete_metadata(PENDING_SINCE_KEY)
         .map_err(|e| RotationError::Internal(e.to_string()))?;
     Ok(())
 }
@@ -107,14 +116,18 @@ pub fn check_trigger(
     if let Some(days) = config.rotate_after_days {
         if let Some(days_since) = days_since_last_rotation {
             if days_since >= days {
-                return Some(RotationTrigger::AutoTime { days_since_last: days_since });
+                return Some(RotationTrigger::AutoTime {
+                    days_since_last: days_since,
+                });
             }
         }
     }
 
     if let Some(threshold) = config.rotate_after_records {
         if current_dek_record_count >= threshold {
-            return Some(RotationTrigger::AutoCount { record_count: current_dek_record_count });
+            return Some(RotationTrigger::AutoCount {
+                record_count: current_dek_record_count,
+            });
         }
     }
 
@@ -134,7 +147,8 @@ pub fn migrate_record(
     record_id: Uuid,
     old_dek_version: u32,
 ) -> Result<(), RotationError> {
-    vault.re_encrypt_record(record_id, old_dek_version)
+    vault
+        .re_encrypt_record(record_id, old_dek_version)
         .map_err(|e| RotationError::RecordMigrationFailed {
             record_id: record_id.to_string(),
             reason: e.to_string(),
@@ -152,7 +166,8 @@ pub fn lazy_migrate_record(
     let current_version = vault.current_dek_version();
 
     if record_dek_version < current_version {
-        vault.re_encrypt_record(record_id, record_dek_version)
+        vault
+            .re_encrypt_record(record_id, record_dek_version)
             .map_err(|e| RotationError::RecordMigrationFailed {
                 record_id: record_id.to_string(),
                 reason: e.to_string(),
@@ -175,7 +190,8 @@ pub fn migrate_all_records(
     vault: &mut crate::services::vault::VaultService,
     checkpoint: &mut RotationCheckpoint,
 ) -> Result<u32, RotationError> {
-    let records = vault.list_records_for_migration(checkpoint.new_dek_version)
+    let records = vault
+        .list_records_for_migration(checkpoint.new_dek_version)
         .map_err(|e| RotationError::Internal(e.to_string()))?;
 
     let mut migrated = checkpoint.migrated_records;
@@ -211,7 +227,9 @@ mod tests {
     #[test]
     fn checkpoint_serialization_roundtrip() {
         let checkpoint = RotationCheckpoint {
-            trigger: RotationTrigger::AutoTime { days_since_last: 90 },
+            trigger: RotationTrigger::AutoTime {
+                days_since_last: 90,
+            },
             old_dek_version: 1,
             new_dek_version: 2,
             total_records: 42,
@@ -232,7 +250,10 @@ mod tests {
         let trigger = RotationTrigger::AutoCount { record_count: 500 };
         let json = serde_json::to_string(&trigger).unwrap();
         let restored: RotationTrigger = serde_json::from_str(&json).unwrap();
-        assert!(matches!(restored, RotationTrigger::AutoCount { record_count: 500 }));
+        assert!(matches!(
+            restored,
+            RotationTrigger::AutoCount { record_count: 500 }
+        ));
     }
 
     #[test]
@@ -285,7 +306,12 @@ mod trigger_tests {
     fn check_trigger_auto_time_trigger() {
         let config = make_config(true, Some(90), None);
         let result = check_trigger(&config, true, Some(90), 0);
-        assert!(matches!(result, Some(RotationTrigger::AutoTime { days_since_last: 90 })));
+        assert!(matches!(
+            result,
+            Some(RotationTrigger::AutoTime {
+                days_since_last: 90
+            })
+        ));
     }
 
     #[test]
@@ -299,7 +325,10 @@ mod trigger_tests {
     fn check_trigger_auto_count_trigger() {
         let config = make_config(true, None, Some(1000));
         let result = check_trigger(&config, true, None, 1000);
-        assert!(matches!(result, Some(RotationTrigger::AutoCount { record_count: 1000 })));
+        assert!(matches!(
+            result,
+            Some(RotationTrigger::AutoCount { record_count: 1000 })
+        ));
     }
 
     #[test]
@@ -361,12 +390,13 @@ impl RotationService {
 
     /// Get current rotation config from vault metadata.
     pub fn get_config(&self) -> Result<RotationConfig, RotationError> {
-        let json = self.vault.get_metadata("rotation_config")
+        let json = self
+            .vault
+            .get_metadata("rotation_config")
             .map_err(|e| RotationError::Internal(e.to_string()))?;
         match json {
             Some(json) if !json.is_empty() => {
-                serde_json::from_str(&json)
-                    .map_err(|e| RotationError::Internal(e.to_string()))
+                serde_json::from_str(&json).map_err(|e| RotationError::Internal(e.to_string()))
             }
             _ => Ok(RotationConfig::default()),
         }
@@ -384,9 +414,10 @@ impl RotationService {
         if let Some(records) = update.rotate_after_records {
             config.rotate_after_records = records;
         }
-        let json = serde_json::to_string(&config)
-            .map_err(|e| RotationError::Internal(e.to_string()))?;
-        self.vault.set_metadata("rotation_config", &json)
+        let json =
+            serde_json::to_string(&config).map_err(|e| RotationError::Internal(e.to_string()))?;
+        self.vault
+            .set_metadata("rotation_config", &json)
             .map_err(|e| RotationError::Internal(e.to_string()))?;
         Ok(())
     }
@@ -402,7 +433,9 @@ impl RotationService {
         let checkpoint = load_checkpoint(&self.vault)?
             .ok_or_else(|| RotationError::Internal("no checkpoint to resume".into()))?;
 
-        self.state = RotationState::Rotating { checkpoint: checkpoint.clone() };
+        self.state = RotationState::Rotating {
+            checkpoint: checkpoint.clone(),
+        };
 
         // TODO: Execute migration from checkpoint (Task Q-7)
 
@@ -460,7 +493,9 @@ impl RotationService {
         };
 
         // Enter Rotating state
-        self.state = RotationState::Rotating { checkpoint: checkpoint.clone() };
+        self.state = RotationState::Rotating {
+            checkpoint: checkpoint.clone(),
+        };
 
         // Save checkpoint for crash recovery
         save_checkpoint(&mut self.vault, &checkpoint)?;
@@ -489,16 +524,19 @@ impl RotationService {
         let mut config = self.get_config()?;
         config.last_rotation_at = Some(Utc::now());
         config.current_dek_record_count = 0;
-        let json = serde_json::to_string(&config)
-            .map_err(|e| RotationError::Internal(e.to_string()))?;
-        self.vault.set_metadata("rotation_config", &json)
+        let json =
+            serde_json::to_string(&config).map_err(|e| RotationError::Internal(e.to_string()))?;
+        self.vault
+            .set_metadata("rotation_config", &json)
             .map_err(|e| RotationError::Internal(e.to_string()))?;
 
         // Log audit
-        self.vault.log_dek_rotated(&format!(
-            "DEK v{} -> v{} ({:?})",
-            result.old_dek_version, result.new_dek_version, result.trigger
-        )).map_err(|e| RotationError::Internal(e.to_string()))?;
+        self.vault
+            .log_dek_rotated(&format!(
+                "DEK v{} -> v{} ({:?})",
+                result.old_dek_version, result.new_dek_version, result.trigger
+            ))
+            .map_err(|e| RotationError::Internal(e.to_string()))?;
 
         Ok(result)
     }
@@ -637,10 +675,7 @@ mod lazy_migration_tests {
 
 /// Check if rotation should proceed or be skipped (idempotent).
 /// Returns true if another device already rotated (cloud_version > local_version).
-pub fn should_skip_rotation_due_to_cloud_version(
-    local_version: u32,
-    cloud_version: u32,
-) -> bool {
+pub fn should_skip_rotation_due_to_cloud_version(local_version: u32, cloud_version: u32) -> bool {
     cloud_version > local_version
 }
 
@@ -671,9 +706,7 @@ mod coordinator_tests {
 /// 1. Call sync.pause(timeout) to pause sync
 /// 2. Execute the rotation (synchronous)
 /// 3. Call sync.resume() (always, even on error)
-pub fn rotate_with_sync_mutex<F, R>(
-    rotation_fn: F,
-) -> Result<R, RotationError>
+pub fn rotate_with_sync_mutex<F, R>(rotation_fn: F) -> Result<R, RotationError>
 where
     F: FnOnce() -> Result<R, RotationError>,
 {
@@ -694,9 +727,8 @@ mod sync_mutex_tests {
 
     #[test]
     fn rotate_with_sync_mutex_propagates_error() {
-        let result: Result<(), RotationError> = rotate_with_sync_mutex(|| {
-            Err(RotationError::SyncBusy)
-        });
+        let result: Result<(), RotationError> =
+            rotate_with_sync_mutex(|| Err(RotationError::SyncBusy));
         assert!(result.is_err());
     }
 }
