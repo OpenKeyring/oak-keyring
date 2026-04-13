@@ -395,6 +395,28 @@ pub fn update_record(
     Ok(affected > 0)
 }
 
+/// List all records (including soft-deleted) where `dek_version < target`.
+/// Used for DEK rotation migration.
+pub fn list_records_by_dek_version(
+    conn: &Connection,
+    target_version: u32,
+) -> Result<Vec<StoredRecord>> {
+    let mut stmt = conn.prepare("SELECT * FROM records WHERE dek_version < ?1")?;
+
+    let rows = stmt.query_map(rusqlite::params![target_version], RecordRow::from_row)?;
+
+    let mut records = Vec::new();
+    for row_result in rows {
+        let row = row_result?;
+        let id = Uuid::parse_str(&row.id).map_err(DbError::Uuid)?;
+        let tags = get_record_tags_inner(conn, &id)?;
+        let record = row.to_stored_record(tags)?;
+        records.push(record);
+    }
+
+    Ok(records)
+}
+
 /// List all soft-deleted records, ordered by `deleted_at` descending.
 pub fn list_deleted_records(conn: &Connection) -> Result<Vec<StoredRecord>> {
     let mut stmt =

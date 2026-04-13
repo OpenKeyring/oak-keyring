@@ -304,6 +304,7 @@ mod tests {
             health_check_frequency: frequency,
             audit_enabled: true,
             audit_retention_days: 365,
+            rotation: crate::types::rotation::RotationConfig::default(),
         }
     }
 
