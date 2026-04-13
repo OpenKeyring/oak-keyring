@@ -128,6 +128,54 @@ pub fn is_past_grace_period(triggered_at: DateTime<Utc>) -> bool {
     elapsed.num_hours() >= RotationConstants::GRACE_PERIOD_HOURS as i64
 }
 
+/// Migrate a single record from old DEK version to current DEK version.
+pub fn migrate_record(
+    vault: &mut crate::services::vault::VaultService,
+    record_id: Uuid,
+    old_dek_version: u32,
+) -> Result<(), RotationError> {
+    vault.re_encrypt_record(record_id, old_dek_version)
+        .map_err(|e| RotationError::RecordMigrationFailed {
+            record_id: record_id.to_string(),
+            reason: e.to_string(),
+        })
+}
+
+/// Migrate all records to a new DEK version.
+/// Updates checkpoint after each record is migrated for crash recovery.
+pub fn migrate_all_records(
+    vault: &mut crate::services::vault::VaultService,
+    checkpoint: &mut RotationCheckpoint,
+) -> Result<u32, RotationError> {
+    let records = vault.list_records_for_migration(checkpoint.new_dek_version)
+        .map_err(|e| RotationError::Internal(e.to_string()))?;
+
+    let mut migrated = checkpoint.migrated_records;
+
+    for record in &records {
+        // Skip already-migrated records (for resume after crash)
+        if migrated > 0 {
+            if let Some(last_id) = &checkpoint.last_migrated_record_id {
+                if record.id.to_string() == *last_id {
+                    // Found the last migrated record, continue from next
+                    continue;
+                }
+            }
+        }
+
+        migrate_record(vault, record.id, record.dek_version)?;
+
+        migrated += 1;
+        checkpoint.migrated_records = migrated;
+        checkpoint.last_migrated_record_id = Some(record.id.to_string());
+
+        // Save checkpoint after each record (crash recovery safety)
+        save_checkpoint(vault, checkpoint)?;
+    }
+
+    Ok(migrated)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -477,5 +525,45 @@ mod service_tests {
         let vault = setup_vault();
         let service = RotationService::new(vault);
         assert!(!service.has_pending_checkpoint().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+    use crate::db::schema::{initialize_metadata, initialize_schema};
+    use rusqlite::Connection;
+
+    fn setup_vault() -> crate::services::vault::VaultService {
+        let conn = Connection::open_in_memory().unwrap();
+        initialize_schema(&conn);
+        initialize_metadata(&conn);
+        crate::services::vault::VaultService::new(conn)
+    }
+
+    #[test]
+    fn list_records_for_migration_returns_empty_initially() {
+        let vault = setup_vault();
+        let records = vault.list_records_for_migration(2);
+        assert!(records.is_ok());
+        assert!(records.unwrap().is_empty());
+    }
+
+    #[test]
+    fn migrate_record_with_no_records_succeeds() {
+        let mut vault = setup_vault();
+        let mut checkpoint = RotationCheckpoint {
+            trigger: RotationTrigger::Manual,
+            old_dek_version: 1,
+            new_dek_version: 2,
+            total_records: 0,
+            migrated_records: 0,
+            last_migrated_record_id: None,
+            started_at: Utc::now(),
+            cloud_metadata_revision: "test".to_string(),
+        };
+        let result = migrate_all_records(&mut vault, &mut checkpoint);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
     }
 }
