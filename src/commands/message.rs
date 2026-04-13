@@ -9,6 +9,7 @@ use crate::commands::types::*;
 /// Four categories: CommandResult callback + Terminal events + Navigation + UI interaction.
 /// Variants carrying SecureStr (via CommandCompleted) do NOT impl Clone.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Message {
     // -- CommandResult Callback --------------------------
     /// Unified entry point for all Command execution results
