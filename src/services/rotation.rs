@@ -1,6 +1,11 @@
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
+
 use crate::errors::mapping::rotation::RotationError;
-use crate::types::rotation::{RotationConfig, RotationConstants, RotationCheckpoint, RotationTrigger};
+use crate::types::rotation::{
+    RotationConfig, RotationConfigUpdate, RotationConstants, RotationCheckpoint,
+    RotationResult, RotationState, RotationTrigger,
+};
 
 const CHECKPOINT_KEY: &str = "rotation_checkpoint";
 const PENDING_TRIGGER_KEY: &str = "pending_rotation_trigger";
@@ -252,5 +257,225 @@ mod trigger_tests {
     fn is_past_grace_period_false_within_24_hours() {
         let triggered = chrono::Utc::now() - chrono::Duration::hours(23);
         assert!(!is_past_grace_period(triggered));
+    }
+}
+
+/// Rotation service for DEK key rotation lifecycle management.
+///
+/// Holds a VaultService directly (takes ownership) since rotation
+/// operations require &mut VaultService for metadata writes.
+pub struct RotationService {
+    vault: crate::services::vault::VaultService,
+    state: RotationState,
+}
+
+impl RotationService {
+    /// Create a new RotationService with Idle state.
+    pub fn new(vault: crate::services::vault::VaultService) -> Self {
+        Self {
+            vault,
+            state: RotationState::Idle,
+        }
+    }
+
+    /// Get current rotation state (read-only).
+    pub fn state(&self) -> &RotationState {
+        &self.state
+    }
+
+    /// Get current rotation config from vault metadata.
+    pub fn get_config(&self) -> Result<RotationConfig, RotationError> {
+        let json = self.vault.get_metadata("rotation_config")
+            .map_err(|e| RotationError::Internal(e.to_string()))?;
+        match json {
+            Some(json) if !json.is_empty() => {
+                serde_json::from_str(&json)
+                    .map_err(|e| RotationError::Internal(e.to_string()))
+            }
+            _ => Ok(RotationConfig::default()),
+        }
+    }
+
+    /// Update rotation config (persists to vault metadata).
+    pub fn update_config(&mut self, update: RotationConfigUpdate) -> Result<(), RotationError> {
+        let mut config = self.get_config()?;
+        if let Some(auto_rotate) = update.auto_rotate {
+            config.auto_rotate = auto_rotate;
+        }
+        if let Some(days) = update.rotate_after_days {
+            config.rotate_after_days = days;
+        }
+        if let Some(records) = update.rotate_after_records {
+            config.rotate_after_records = records;
+        }
+        let json = serde_json::to_string(&config)
+            .map_err(|e| RotationError::Internal(e.to_string()))?;
+        self.vault.set_metadata("rotation_config", &json)
+            .map_err(|e| RotationError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Check if a pending rotation checkpoint exists (crash recovery).
+    pub fn has_pending_checkpoint(&self) -> Result<bool, RotationError> {
+        load_checkpoint(&self.vault).map(|cp| cp.is_some())
+    }
+
+    /// Resume rotation from an existing checkpoint.
+    /// Called automatically on vault unlock if checkpoint is detected.
+    pub fn resume_rotation(&mut self) -> Result<RotationResult, RotationError> {
+        let checkpoint = load_checkpoint(&self.vault)?
+            .ok_or_else(|| RotationError::Internal("no checkpoint to resume".into()))?;
+
+        self.state = RotationState::Rotating { checkpoint: checkpoint.clone() };
+
+        // TODO: Execute migration from checkpoint (Task Q-7)
+
+        let result = RotationResult {
+            old_dek_version: checkpoint.old_dek_version,
+            new_dek_version: checkpoint.new_dek_version,
+            records_migrated: checkpoint.migrated_records,
+            duration_secs: 0,
+            trigger: checkpoint.trigger,
+        };
+
+        self.state = RotationState::Completed {
+            completed_at: Utc::now(),
+            records_migrated: result.records_migrated,
+        };
+
+        delete_checkpoint(&mut self.vault)?;
+
+        Ok(result)
+    }
+
+    /// Manually trigger a rotation.
+    pub fn trigger_rotation(&mut self) -> Result<RotationResult, RotationError> {
+        self.rotate(RotationTrigger::Manual)
+    }
+
+    /// Execute the full rotation process.
+    fn rotate(&mut self, trigger: RotationTrigger) -> Result<RotationResult, RotationError> {
+        let current_version = self.vault.current_dek_version();
+
+        // Check MAX_DEK_VERSION
+        if current_version >= RotationConstants::MAX_DEK_VERSION {
+            return Err(RotationError::MaxVersionExceeded {
+                current: current_version,
+                max: RotationConstants::MAX_DEK_VERSION,
+            });
+        }
+
+        // Enter Pending state
+        self.state = RotationState::Pending {
+            triggered_at: Utc::now(),
+            trigger,
+        };
+
+        // Create checkpoint
+        let checkpoint = RotationCheckpoint {
+            trigger,
+            old_dek_version: current_version,
+            new_dek_version: current_version + 1,
+            total_records: 0,
+            migrated_records: 0,
+            last_migrated_record_id: None,
+            started_at: Utc::now(),
+            cloud_metadata_revision: format!("local-{}", Uuid::new_v4()),
+        };
+
+        // Enter Rotating state
+        self.state = RotationState::Rotating { checkpoint: checkpoint.clone() };
+
+        // Save checkpoint for crash recovery
+        save_checkpoint(&mut self.vault, &checkpoint)?;
+
+        // TODO: Execute record migration (Task Q-7)
+        // TODO: Push metadata update (Task Q-9/Q-10)
+
+        let result = RotationResult {
+            old_dek_version: checkpoint.old_dek_version,
+            new_dek_version: checkpoint.new_dek_version,
+            records_migrated: 0,
+            duration_secs: 0,
+            trigger,
+        };
+
+        // Enter Completed state
+        self.state = RotationState::Completed {
+            completed_at: Utc::now(),
+            records_migrated: result.records_migrated,
+        };
+
+        // Delete checkpoint
+        delete_checkpoint(&mut self.vault)?;
+
+        // Update rotation config
+        let mut config = self.get_config()?;
+        config.last_rotation_at = Some(Utc::now());
+        config.current_dek_record_count = 0;
+        let json = serde_json::to_string(&config)
+            .map_err(|e| RotationError::Internal(e.to_string()))?;
+        self.vault.set_metadata("rotation_config", &json)
+            .map_err(|e| RotationError::Internal(e.to_string()))?;
+
+        // Log audit
+        self.vault.log_dek_rotated(&format!(
+            "DEK v{} -> v{} ({:?})",
+            result.old_dek_version, result.new_dek_version, result.trigger
+        )).map_err(|e| RotationError::Internal(e.to_string()))?;
+
+        Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod service_tests {
+    use super::*;
+    use crate::db::schema::{initialize_metadata, initialize_schema};
+    use rusqlite::Connection;
+
+    fn setup_vault() -> crate::services::vault::VaultService {
+        let conn = Connection::open_in_memory().unwrap();
+        initialize_schema(&conn);
+        initialize_metadata(&conn);
+        crate::services::vault::VaultService::new(conn)
+    }
+
+    #[test]
+    fn rotation_service_starts_idle() {
+        let vault = setup_vault();
+        let service = RotationService::new(vault);
+        assert!(matches!(service.state(), RotationState::Idle));
+    }
+
+    #[test]
+    fn rotation_service_default_config() {
+        let vault = setup_vault();
+        let service = RotationService::new(vault);
+        let config = service.get_config().unwrap();
+        assert!(config.auto_rotate);
+        assert_eq!(config.rotate_after_days, Some(90));
+    }
+
+    #[test]
+    fn rotation_service_update_config() {
+        let vault = setup_vault();
+        let mut service = RotationService::new(vault);
+        let update = RotationConfigUpdate {
+            auto_rotate: Some(false),
+            rotate_after_days: Some(Some(30)),
+            rotate_after_records: None,
+        };
+        service.update_config(update).unwrap();
+        let config = service.get_config().unwrap();
+        assert!(!config.auto_rotate);
+        assert_eq!(config.rotate_after_days, Some(30));
+    }
+
+    #[test]
+    fn rotation_service_no_pending_checkpoint_initially() {
+        let vault = setup_vault();
+        let service = RotationService::new(vault);
+        assert!(!service.has_pending_checkpoint().unwrap());
     }
 }
