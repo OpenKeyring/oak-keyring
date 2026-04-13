@@ -2,6 +2,7 @@ mod clipboard_test;
 mod db_lifecycle_test;
 mod error_propagation_test;
 mod executor_command_test;
+mod executor_dispatch_test;
 mod health_test;
 mod i18n_test;
 mod rotation_test;

@@ -5,6 +5,7 @@ use crate::crypto::argon2::{self, Argon2Params};
 use crate::crypto::bip39::MnemonicLanguage;
 use crate::crypto::hkdf;
 use crate::crypto::xchacha20;
+use crate::types::SecureStr;
 
 #[derive(Zeroize)]
 #[zeroize(drop)]
@@ -95,7 +96,7 @@ impl KeyStore {
     pub fn initialize(
         path: &Path,
         sk_bytes: [u8; 32],
-        cmk: &str,
+        cmk: &SecureStr,
         params: &Argon2Params,
         language: MnemonicLanguage,
     ) -> Result<Self, String> {
@@ -104,7 +105,7 @@ impl KeyStore {
 
         let salt = argon2::generate_salt();
         let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk, &salt, params)?
+            argon2::derive_key_with_params(cmk.get(), &salt, params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -152,7 +153,7 @@ impl KeyStore {
         })
     }
 
-    pub fn unlock(path: &Path, cmk: &str) -> Result<Self, String> {
+    pub fn unlock(path: &Path, cmk: &SecureStr) -> Result<Self, String> {
         let file_path = path.join("wrapped_secret_key.json");
         let content = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
         let data: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
@@ -178,7 +179,7 @@ impl KeyStore {
         };
 
         let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk, &salt_arr, &kdf_params)?
+            argon2::derive_key_with_params(cmk.get(), &salt_arr, &kdf_params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -205,7 +206,7 @@ impl KeyStore {
         })
     }
 
-    pub fn change_cmk(path: &Path, old_cmk: &str, new_cmk: &str) -> Result<(), String> {
+    pub fn change_cmk(path: &Path, old_cmk: &SecureStr, new_cmk: &SecureStr) -> Result<(), String> {
         let file_path = path.join("wrapped_secret_key.json");
         let content = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
         let data: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
@@ -231,7 +232,7 @@ impl KeyStore {
         };
 
         let old_wk = WrappingKey(
-            argon2::derive_key_with_params(old_cmk, &salt_arr, &kdf_params)?
+            argon2::derive_key_with_params(old_cmk.get(), &salt_arr, &kdf_params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -246,7 +247,7 @@ impl KeyStore {
         let new_salt = argon2::generate_salt();
         // Preserve the existing vault's KDF params for the new wrapping (security not downgraded)
         let mut new_wk = WrappingKey(
-            argon2::derive_key_with_params(new_cmk, &new_salt, &kdf_params)?
+            argon2::derive_key_with_params(new_cmk.get(), &new_salt, &kdf_params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -339,12 +340,17 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    /// Helper: create a SecureStr from a string literal for test use.
+    fn sec(s: &str) -> SecureStr {
+        SecureStr::new(s.to_string())
+    }
+
     /// Helper: initialize a vault with custom KDF params written to the JSON.
     /// This simulates a vault created with non-default (e.g. High) params.
-    fn init_with_params(path: &Path, sk_bytes: [u8; 32], cmk: &str, params: &Argon2Params) {
+    fn init_with_params(path: &Path, sk_bytes: [u8; 32], cmk: &SecureStr, params: &Argon2Params) {
         let salt = argon2::generate_salt();
         let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk, &salt, params)
+            argon2::derive_key_with_params(cmk.get(), &salt, params)
                 .unwrap()
                 .try_into()
                 .unwrap(),
@@ -382,12 +388,12 @@ mod tests {
         // derive a wrong WK, causing unwrap to fail.
         let dir = TempDir::new().unwrap();
         let sk_bytes = [0xABu8; 32];
-        let cmk = "correct-master-key";
+        let cmk = sec("correct-master-key");
         let high_params = Argon2Params::high();
 
-        init_with_params(dir.path(), sk_bytes, cmk, &high_params);
+        init_with_params(dir.path(), sk_bytes, &cmk, &high_params);
 
-        let store = KeyStore::unlock(dir.path(), cmk).unwrap();
+        let store = KeyStore::unlock(dir.path(), &cmk).unwrap();
         assert!(
             store.sk.is_some(),
             "unlock must succeed when reading KDF params from JSON"
@@ -397,20 +403,20 @@ mod tests {
 
     #[test]
     fn test_initialize_unlock_roundtrip() {
-        // initialize → unlock must recover the same SK.
+        // initialize -> unlock must recover the same SK.
         let dir = TempDir::new().unwrap();
         let sk_bytes = [0xCDu8; 32];
-        let cmk = "roundtrip-password";
+        let cmk = sec("roundtrip-password");
 
         let created = KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            cmk,
+            &cmk,
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
         .unwrap();
-        let opened = KeyStore::unlock(dir.path(), cmk).unwrap();
+        let opened = KeyStore::unlock(dir.path(), &cmk).unwrap();
 
         assert_eq!(
             created.sk.as_ref().unwrap().as_bytes(),
@@ -427,13 +433,13 @@ mod tests {
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "right-password",
+            &sec("right-password"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
         .unwrap();
 
-        let result = KeyStore::unlock(dir.path(), "wrong-password");
+        let result = KeyStore::unlock(dir.path(), &sec("wrong-password"));
         assert!(result.is_err(), "unlock with wrong CMK must fail");
     }
 
@@ -441,21 +447,21 @@ mod tests {
     fn test_change_cmk_roundtrip() {
         let dir = TempDir::new().unwrap();
         let sk_bytes = [0x11u8; 32];
-        let old_cmk = "old-master-password";
-        let new_cmk = "new-master-password";
+        let old_cmk = sec("old-master-password");
+        let new_cmk = sec("new-master-password");
 
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            old_cmk,
+            &old_cmk,
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
         .unwrap();
 
-        KeyStore::change_cmk(dir.path(), old_cmk, new_cmk).unwrap();
+        KeyStore::change_cmk(dir.path(), &old_cmk, &new_cmk).unwrap();
 
-        let result = KeyStore::unlock(dir.path(), new_cmk);
+        let result = KeyStore::unlock(dir.path(), &new_cmk);
         assert!(
             result.is_ok(),
             "unlock with new CMK must succeed after change_cmk"
@@ -466,7 +472,10 @@ mod tests {
             "SK must be preserved after CMK change"
         );
 
-        let old_result = KeyStore::unlock(dir.path(), old_cmk);
+        // Verify old CMK no longer works - must create a new SecureStr since
+        // the previous one was consumed by the successful unlock above
+        let old_cmk2 = sec("old-master-password");
+        let old_result = KeyStore::unlock(dir.path(), &old_cmk2);
         assert!(
             old_result.is_err(),
             "unlock with old CMK must fail after change_cmk"
@@ -481,16 +490,16 @@ mod tests {
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "correct-old",
+            &sec("correct-old"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
         .unwrap();
 
-        let result = KeyStore::change_cmk(dir.path(), "wrong-old", "any-new");
+        let result = KeyStore::change_cmk(dir.path(), &sec("wrong-old"), &sec("any-new"));
         assert!(result.is_err(), "change_cmk with wrong old CMK must fail");
 
-        let unlock = KeyStore::unlock(dir.path(), "correct-old");
+        let unlock = KeyStore::unlock(dir.path(), &sec("correct-old"));
         assert!(
             unlock.is_ok(),
             "original CMK must still work after failed change_cmk"
@@ -530,7 +539,7 @@ mod tests {
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "file-test-cmk",
+            &sec("file-test-cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
@@ -551,7 +560,7 @@ mod tests {
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "json-test-cmk",
+            &sec("json-test-cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
@@ -587,7 +596,7 @@ mod tests {
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "perm-test-cmk",
+            &sec("perm-test-cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
@@ -612,7 +621,7 @@ mod tests {
         }
     }
 
-    // ── Zeroize verification tests ─────────────────────────────────────
+    // -- Zeroize verification tests ----------------------------------------
 
     #[test]
     fn test_secret_key_zeroize_on_drop() {
@@ -651,7 +660,7 @@ mod tests {
         let ks = KeyStore::initialize(
             dir.path(),
             [0xEEu8; 32],
-            "zeroize-test",
+            &sec("zeroize-test"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
@@ -659,7 +668,7 @@ mod tests {
         assert!(ks.sk.is_some());
         assert!(ks.kek.is_some());
         drop(ks);
-        // KeyStore has #[zeroize(drop)] — after drop the Option fields are zeroized
+        // KeyStore has #[zeroize(drop)] -- after drop the Option fields are zeroized
     }
 
     #[test]
@@ -669,21 +678,21 @@ mod tests {
         KeyStore::initialize(
             dir.path(),
             [0xFFu8; 32],
-            "lock-test-cmk",
+            &sec("lock-test-cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
         .unwrap();
 
         let mut cm = CryptoManager::new();
-        cm.unlock(dir.path(), "lock-test-cmk").unwrap();
+        cm.unlock(dir.path(), &sec("lock-test-cmk")).unwrap();
         assert!(cm.is_unlocked());
 
         cm.lock();
         assert!(!cm.is_unlocked(), "lock() must clear keystore");
     }
 
-    // ── Mnemonic Language Persistence Tests ─────────────────────────────────
+    // -- Mnemonic Language Persistence Tests --------------------------------
 
     #[test]
     fn test_initialize_writes_mnemonic_language() {
@@ -693,7 +702,7 @@ mod tests {
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "cmk",
+            &sec("cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::ChineseSimplified,
         )
@@ -718,7 +727,7 @@ mod tests {
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            "cmk",
+            &sec("cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
         )
@@ -739,18 +748,18 @@ mod tests {
     fn test_unlock_reads_mnemonic_language() {
         let dir = TempDir::new().unwrap();
         let sk_bytes = [0x33u8; 32];
-        let cmk = "test-cmk";
+        let cmk = sec("test-cmk");
 
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            cmk,
+            &cmk,
             &Argon2Params::medium(),
             MnemonicLanguage::ChineseSimplified,
         )
         .unwrap();
 
-        let store = KeyStore::unlock(dir.path(), cmk).unwrap();
+        let store = KeyStore::unlock(dir.path(), &cmk).unwrap();
         assert_eq!(
             store.mnemonic_language(),
             MnemonicLanguage::ChineseSimplified,
@@ -764,11 +773,11 @@ mod tests {
         // to simulate old vaults
         let dir = TempDir::new().unwrap();
         let sk_bytes = [0x44u8; 32];
-        let cmk = "test-cmk";
+        let cmk = sec("test-cmk");
 
-        init_with_params(dir.path(), sk_bytes, cmk, &Argon2Params::medium());
+        init_with_params(dir.path(), sk_bytes, &cmk, &Argon2Params::medium());
 
-        let store = KeyStore::unlock(dir.path(), cmk).unwrap();
+        let store = KeyStore::unlock(dir.path(), &cmk).unwrap();
         assert_eq!(
             store.mnemonic_language(),
             MnemonicLanguage::English,
@@ -780,21 +789,21 @@ mod tests {
     fn test_change_cmk_preserves_mnemonic_language() {
         let dir = TempDir::new().unwrap();
         let sk_bytes = [0x55u8; 32];
-        let old_cmk = "old-cmk";
-        let new_cmk = "new-cmk";
+        let old_cmk = sec("old-cmk");
+        let new_cmk = sec("new-cmk");
 
         KeyStore::initialize(
             dir.path(),
             sk_bytes,
-            old_cmk,
+            &old_cmk,
             &Argon2Params::medium(),
             MnemonicLanguage::ChineseSimplified,
         )
         .unwrap();
 
-        KeyStore::change_cmk(dir.path(), old_cmk, new_cmk).unwrap();
+        KeyStore::change_cmk(dir.path(), &old_cmk, &new_cmk).unwrap();
 
-        let store = KeyStore::unlock(dir.path(), new_cmk).unwrap();
+        let store = KeyStore::unlock(dir.path(), &new_cmk).unwrap();
         assert_eq!(
             store.mnemonic_language(),
             MnemonicLanguage::ChineseSimplified,
