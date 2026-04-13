@@ -1,69 +1,162 @@
 use std::path::PathBuf;
 
 use crate::commands::CommandResult;
+use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::SecureStr;
 
 use super::CommandExecutor;
 
-pub async fn handle_unlock(_executor: &mut CommandExecutor, _master_password: SecureStr) -> CommandResult {
-    CommandResult::Error {
-        code: ErrorCode::Executor(String::from("not_implemented")),
-        context: ErrorContext::default(),
-        message_key: "error.not_implemented",
-        fallback: String::from("Vault unlock not yet implemented."),
+pub async fn handle_unlock(executor: &mut CommandExecutor, master_password: SecureStr) -> CommandResult {
+    match executor.vault.unlock(&executor.vault_dir, &master_password) {
+        Ok(()) => CommandResult::VaultUnlocked,
+        Err(_) => CommandResult::VaultUnlockFailed {
+            attempts_remaining: None,
+        },
     }
 }
 
-pub async fn handle_unlock_with_recovery_key(_executor: &mut CommandExecutor, _words: Vec<String>) -> CommandResult {
-    CommandResult::Error {
-        code: ErrorCode::Executor(String::from("not_implemented")),
-        context: ErrorContext::default(),
-        message_key: "error.not_implemented",
-        fallback: String::from("Vault unlock with recovery key not yet implemented."),
+pub async fn handle_unlock_with_recovery_key(executor: &mut CommandExecutor, words: Vec<String>) -> CommandResult {
+    // Try English first (most common)
+    let passkey = match Passkey::from_words(&words, MnemonicLanguage::English) {
+        Ok(pk) => pk,
+        Err(_) => {
+            // Try Chinese
+            match Passkey::from_words(&words, MnemonicLanguage::ChineseSimplified) {
+                Ok(pk) => pk,
+                Err(e) => {
+                    return CommandResult::Error {
+                        code: ErrorCode::Vault(format!("invalid_recovery_key: {}", e)),
+                        context: ErrorContext::default(),
+                        message_key: "error.invalid_recovery_key",
+                        fallback: format!("Invalid recovery key: {}", e),
+                    };
+                }
+            }
+        }
+    };
+
+    match executor.vault.unlock_with_mnemonic(&passkey) {
+        Ok(()) => CommandResult::RecoveryKeyUnlocked,
+        Err(_) => CommandResult::VaultUnlockFailed {
+            attempts_remaining: None,
+        },
     }
 }
 
-pub fn handle_lock(_executor: &mut CommandExecutor) -> CommandResult {
-    CommandResult::Error {
-        code: ErrorCode::Executor(String::from("not_implemented")),
-        context: ErrorContext::default(),
-        message_key: "error.not_implemented",
-        fallback: String::from("Vault lock not yet implemented."),
-    }
+pub fn handle_lock(executor: &mut CommandExecutor) -> CommandResult {
+    executor.vault.lock();
+    CommandResult::VaultLocked
 }
 
-pub fn handle_verify_master_password(_executor: &mut CommandExecutor, _password: SecureStr) -> CommandResult {
-    CommandResult::Error {
-        code: ErrorCode::Executor(String::from("not_implemented")),
-        context: ErrorContext::default(),
-        message_key: "error.not_implemented",
-        fallback: String::from("Master password verification not yet implemented."),
+pub fn handle_verify_master_password(executor: &mut CommandExecutor, password: SecureStr) -> CommandResult {
+    // Verify by attempting to unlock the keystore file with the password
+    match crate::crypto::keystore::KeyStore::unlock(&executor.vault_dir, &password) {
+        Ok(_) => CommandResult::MasterPasswordVerified,
+        Err(_) => CommandResult::Error {
+            code: ErrorCode::Vault(String::from("password_verification_failed")),
+            context: ErrorContext::default(),
+            message_key: "error.password_verification_failed",
+            fallback: String::from("Master password verification failed."),
+        },
     }
 }
 
 pub fn handle_change_master_password(
-    _executor: &mut CommandExecutor,
-    _current_password: SecureStr,
-    _new_password: SecureStr,
+    executor: &mut CommandExecutor,
+    current_password: SecureStr,
+    new_password: SecureStr,
 ) -> CommandResult {
-    CommandResult::Error {
-        code: ErrorCode::Executor(String::from("not_implemented")),
-        context: ErrorContext::default(),
-        message_key: "error.not_implemented",
-        fallback: String::from("Master password change not yet implemented."),
+    match crate::crypto::keystore::KeyStore::change_cmk(
+        &executor.vault_dir,
+        &current_password,
+        &new_password,
+    ) {
+        Ok(()) => {
+            // Re-unlock with new password if currently unlocked
+            if executor.vault.is_unlocked() {
+                let _ = executor.vault.unlock(&executor.vault_dir, &new_password);
+            }
+            CommandResult::MasterPasswordChanged
+        }
+        Err(e) => CommandResult::Error {
+            code: ErrorCode::Crypto(format!("change_cmk_failed: {}", e)),
+            context: ErrorContext::default(),
+            message_key: "error.change_password_failed",
+            fallback: format!("Failed to change master password: {}", e),
+        },
     }
 }
 
 pub async fn handle_initialize_vault(
-    _executor: &mut CommandExecutor,
-    _vault_path: PathBuf,
-    _master_password: SecureStr,
+    executor: &mut CommandExecutor,
+    vault_path: PathBuf,
+    master_password: SecureStr,
 ) -> CommandResult {
-    CommandResult::Error {
-        code: ErrorCode::Executor(String::from("not_implemented")),
-        context: ErrorContext::default(),
-        message_key: "error.not_implemented",
-        fallback: String::from("Vault initialization not yet implemented."),
+    // Step 1: Generate recovery key (24-word BIP39 mnemonic)
+    let language = resolve_mnemonic_language(&executor.config.general.language);
+    let passkey = match Passkey::generate(24, language) {
+        Ok(pk) => pk,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::Crypto(format!("passkey_generation_failed: {}", e)),
+                context: ErrorContext::default(),
+                message_key: "error.passkey_generation_failed",
+                fallback: format!("Failed to generate recovery key: {}", e),
+            };
+        }
+    };
+
+    // Step 2: Derive secret key from mnemonic seed
+    let seed = match passkey.to_seed(None) {
+        Ok(s) => s,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::Crypto(format!("seed_derivation_failed: {}", e)),
+                context: ErrorContext::default(),
+                message_key: "error.seed_derivation_failed",
+                fallback: format!("Failed to derive seed: {}", e),
+            };
+        }
+    };
+    let sk_bytes = seed.to_secret_key();
+    let recovery_words = passkey.to_words();
+
+    // Step 3: Initialize keystore (creates wrapped_secret_key.json)
+    match crate::crypto::keystore::KeyStore::initialize(
+        &vault_path,
+        sk_bytes,
+        &master_password,
+        &crate::crypto::argon2::Argon2Params::medium(),
+        language,
+    ) {
+        Ok(_) => {}
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::Crypto(format!("keystore_init_failed: {}", e)),
+                context: ErrorContext::default(),
+                message_key: "error.keystore_init_failed",
+                fallback: format!("Failed to initialize keystore: {}", e),
+            };
+        }
+    }
+
+    // Step 4: Unlock the vault with the new password
+    match executor.vault.unlock(&vault_path, &master_password) {
+        Ok(()) => CommandResult::VaultInitialized { recovery_words },
+        Err(_) => {
+            // Keystore was created but vault unlock failed
+            // Still return initialized since keystore exists
+            tracing::warn!("Vault initialized but auto-unlock failed");
+            CommandResult::VaultInitialized { recovery_words }
+        }
+    }
+}
+
+/// Resolve the configured language string to a MnemonicLanguage enum.
+fn resolve_mnemonic_language(config_language: &str) -> MnemonicLanguage {
+    match config_language {
+        "zh-CN" | "zh-TW" | "zh" => MnemonicLanguage::ChineseSimplified,
+        _ => MnemonicLanguage::English,
     }
 }
