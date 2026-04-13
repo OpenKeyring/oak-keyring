@@ -2,6 +2,7 @@ pub mod audit;
 pub mod credential;
 pub mod history;
 pub mod record;
+pub mod rotation;
 pub mod sensitive;
 pub mod sync;
 pub mod tag;
@@ -15,6 +16,7 @@ pub use record::{
 pub use sensitive::{SecureBytes, SecureStr, SecureString};
 pub use sync::{SyncState, SyncStats, SyncStatus};
 pub use tag::Tag;
+pub use rotation::{RotationConfig, RotationConstants, RotationState, RotationTrigger};
 
 #[cfg(test)]
 mod credential_test;
