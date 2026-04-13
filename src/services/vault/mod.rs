@@ -36,7 +36,7 @@ impl VaultService {
         }
     }
 
-    pub fn unlock(&mut self, path: &Path, cmk: &str) -> Result<(), VaultError> {
+    pub fn unlock(&mut self, path: &Path, cmk: &crate::types::SecureStr) -> Result<(), VaultError> {
         self.crypto
             .unlock(path, cmk)
             .map_err(VaultError::CryptoError)

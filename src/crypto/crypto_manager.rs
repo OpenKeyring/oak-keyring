@@ -18,7 +18,7 @@ impl CryptoManager {
         }
     }
 
-    pub fn unlock(&mut self, path: &Path, cmk: &str) -> Result<(), String> {
+    pub fn unlock(&mut self, path: &Path, cmk: &crate::types::SecureStr) -> Result<(), String> {
         let ks = KeyStore::unlock(path, cmk)?;
         self.current_dek_version = ks.current_dek_version();
         self.keystore = Some(ks);
