@@ -388,6 +388,14 @@ impl RotationService {
         &self.state
     }
 
+    /// Consume the RotationService and return the underlying VaultService.
+    ///
+    /// Used by the executor layer to move the vault back after rotation
+    /// completes (successfully or with an error).
+    pub fn into_vault(self) -> crate::services::vault::VaultService {
+        self.vault
+    }
+
     /// Get current rotation config from vault metadata.
     pub fn get_config(&self) -> Result<RotationConfig, RotationError> {
         let json = self
