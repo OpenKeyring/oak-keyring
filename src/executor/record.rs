@@ -1,9 +1,11 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::commands::CommandResult;
 use crate::commands::types::{FieldSelector, RecordFilter, RecordSort};
-use crate::crypto::password::{generate_pin, generate_memorable_password, generate_random_password};
+use crate::commands::CommandResult;
+use crate::crypto::password::{
+    generate_memorable_password, generate_pin, generate_random_password,
+};
 use crate::crypto::strength::evaluate_strength;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::record::{CreateRecordParams, UpdateRecordParams};
@@ -176,7 +178,7 @@ pub fn handle_decrypt_field(
     id: Uuid,
     field: FieldSelector,
 ) -> CommandResult {
-    match executor.vault.decrypt_field(id, field.clone()) {
+    match executor.vault.decrypt_field(id, field) {
         Ok(value) => CommandResult::FieldDecrypted { id, field, value },
         Err(e) => vault_error(e, "Failed to decrypt field"),
     }

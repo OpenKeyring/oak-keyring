@@ -6,7 +6,9 @@ use std::path::Path;
 use std::sync::RwLock;
 use std::time::SystemTime;
 
-use crate::config::{AppConfig, ConfigError, ConfigManager, ConfigReloadable, ConfigWatcher, ServiceNotification};
+use crate::config::{
+    AppConfig, ConfigError, ConfigManager, ConfigReloadable, ConfigWatcher, ServiceNotification,
+};
 
 // ---------------------------------------------------------------------------
 // ConfigManagerImpl
@@ -153,12 +155,18 @@ impl ServiceNotification for ServiceNotificationImpl {
     }
 
     fn register_service(&mut self, service: Box<dyn ConfigReloadable>) {
-        tracing::info!(service_id = service.service_id(), "Registering service for config notifications");
+        tracing::info!(
+            service_id = service.service_id(),
+            "Registering service for config notifications"
+        );
         self.services.push(service);
     }
 
     fn unregister_service(&mut self, service_id: &str) {
-        tracing::info!(service_id = service_id, "Unregistering service from config notifications");
+        tracing::info!(
+            service_id = service_id,
+            "Unregistering service from config notifications"
+        );
         self.services.retain(|s| s.service_id() != service_id);
     }
 }

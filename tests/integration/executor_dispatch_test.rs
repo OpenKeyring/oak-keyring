@@ -1,6 +1,6 @@
-use oak_keyring::executor::CommandExecutor;
-use oak_keyring::config::AppConfig;
 use oak_keyring::commands::Command;
+use oak_keyring::config::AppConfig;
+use oak_keyring::executor::CommandExecutor;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -34,7 +34,8 @@ async fn executor_run_loop_processes_commands() {
         vault_dir.path().to_path_buf(),
         result_tx,
         cancel_token.clone(),
-    ).unwrap();
+    )
+    .unwrap();
 
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
 
@@ -45,9 +46,6 @@ async fn executor_run_loop_processes_commands() {
     // Drop sender to close channel -> executor should stop
     drop(command_tx);
 
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        handle,
-    ).await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
     assert!(result.is_ok(), "Executor should stop when channel closes");
 }

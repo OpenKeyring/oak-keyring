@@ -17,8 +17,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use crate::commands::{Command, Message};
 use crate::commands::types::HealthReport;
+use crate::commands::{Command, Message};
 use crate::config::AppConfig;
 use crate::db::schema::init_db;
 use crate::services::clipboard::ClipboardService;
