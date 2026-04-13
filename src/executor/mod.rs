@@ -190,13 +190,5 @@ impl CommandExecutor {
         info!("CommandExecutor stopped");
     }
 
-    /// Execute a single command.
-    ///
-    /// Dispatches the command to the appropriate handler module based
-    /// on the command variant.
-    pub async fn execute(&mut self, _command: Command) {
-        // TODO: Implement full dispatch in Task 3
-        // For now, just log that we received a command
-        info!("Received command (dispatch pending Task 3)");
-    }
+    // execute(), pre_check(), post_hook(), and dispatch() are defined in execute.rs
 }
