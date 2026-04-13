@@ -192,13 +192,13 @@ impl CommandExecutor {
             Command::CheckHibp { record_id } => health::handle_check_hibp(self, record_id),
 
             // ── Sync Operations ──────────────────────────
-            Command::TriggerSync => sync::handle_trigger_sync(self),
+            Command::TriggerSync => sync::handle_trigger_sync(self).await,
             Command::ResolveConflict {
                 record_id,
                 resolution,
-            } => sync::handle_resolve_conflict(self, record_id, resolution),
+            } => sync::handle_resolve_conflict(self, record_id, resolution).await,
             Command::ResolveAllConflicts { resolution } => {
-                sync::handle_resolve_all_conflicts(self, resolution)
+                sync::handle_resolve_all_conflicts(self, resolution).await
             }
 
             // ── Import/Export ─────────────────────────────
@@ -230,7 +230,7 @@ impl CommandExecutor {
             Command::LoadConfig => config::handle_load_config(self),
             Command::SaveConfig { config } => config::handle_save_config(self, config),
             Command::TestSyncConnection { provider_config } => {
-                config::handle_test_sync_connection(self, provider_config)
+                config::handle_test_sync_connection(self, provider_config).await
             }
 
             // ── Audit Log ─────────────────────────────────
