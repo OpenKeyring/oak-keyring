@@ -112,8 +112,20 @@ pub fn handle_execute_import(
         }
     };
 
+    let imported_count = result.imported;
+
+    // Audit log for successful import.
+    if let Err(e) = executor.vault.write_audit_entry(
+        crate::types::AuditOperation::VaultImport,
+        None,
+        None,
+        Some(format!("source={:?}, count={}", source, imported_count)),
+    ) {
+        tracing::warn!(error = %e, "Failed to write import audit log");
+    }
+
     CommandResult::ImportCompleted {
-        imported_count: result.imported,
+        imported_count,
         skipped_count: result.skipped,
     }
 }
@@ -141,6 +153,7 @@ pub fn handle_execute_export(
     }
 
     // Step 2: Create export session.
+    let scope_desc = format!("{:?}", scope);
     let session_id = match executor
         .import_export
         .create_export_session(scope, export_password, output_path)
@@ -208,6 +221,16 @@ pub fn handle_execute_export(
     // The ImportExportService updates the session internally.
     // For now, use 0 as placeholder — the session has the actual count but is not
     // directly accessible here. The UI can display the path.
+    // Audit log for successful export.
+    if let Err(e) = executor.vault.write_audit_entry(
+        crate::types::AuditOperation::VaultExport,
+        None,
+        None,
+        Some(format!("scope={}, path={}", scope_desc, result_path.display())),
+    ) {
+        tracing::warn!(error = %e, "Failed to write export audit log");
+    }
+
     CommandResult::ExportCompleted {
         path: result_path,
         record_count: 0,
