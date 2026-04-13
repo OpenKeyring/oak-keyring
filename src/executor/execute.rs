@@ -69,6 +69,7 @@ impl CommandExecutor {
     /// Routes each command to its handler module. The match is exhaustive
     /// so adding a new Command variant without a handler arm will cause
     /// a compile error.
+    #[tracing::instrument(skip_all)]
     async fn dispatch(&mut self, command: Command) -> CommandResult {
         match command {
             // ── Vault Operations ──────────────────────────

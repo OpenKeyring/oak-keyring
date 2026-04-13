@@ -7,6 +7,7 @@ use crate::types::SecureStr;
 
 use super::CommandExecutor;
 
+#[tracing::instrument(skip_all)]
 pub async fn handle_copy_to_clipboard(
     executor: &mut CommandExecutor,
     id: Uuid,
@@ -45,6 +46,7 @@ pub async fn handle_copy_to_clipboard(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub async fn handle_copy_raw_to_clipboard(
     executor: &mut CommandExecutor,
     value: SecureStr,
@@ -68,6 +70,7 @@ pub async fn handle_copy_raw_to_clipboard(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub async fn handle_copy_history_password(
     executor: &mut CommandExecutor,
     history_id: i64,

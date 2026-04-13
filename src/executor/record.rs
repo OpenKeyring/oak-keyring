@@ -21,6 +21,7 @@ fn vault_error(e: crate::errors::mapping::vault::VaultError, msg: &str) -> Comma
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_create_record(
     executor: &mut CommandExecutor,
     credential_type: CredentialType,
@@ -43,6 +44,7 @@ pub fn handle_create_record(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_update_record(
     executor: &mut CommandExecutor,
     id: Uuid,
@@ -67,6 +69,7 @@ pub fn handle_update_record(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_soft_delete_record(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
     match executor.vault.soft_delete_record(id) {
         Ok(()) => CommandResult::RecordDeleted { id },
@@ -74,6 +77,7 @@ pub fn handle_soft_delete_record(executor: &mut CommandExecutor, id: Uuid) -> Co
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_restore_record(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
     match executor.vault.restore_record(id) {
         Ok(()) => CommandResult::RecordRestored { id },
@@ -81,6 +85,7 @@ pub fn handle_restore_record(executor: &mut CommandExecutor, id: Uuid) -> Comman
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_hard_delete_record(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
     match executor.vault.hard_delete_record(id) {
         Ok(()) => CommandResult::RecordDestroyed { id },
@@ -88,6 +93,7 @@ pub fn handle_hard_delete_record(executor: &mut CommandExecutor, id: Uuid) -> Co
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_toggle_favorite(
     executor: &mut CommandExecutor,
     id: Uuid,
@@ -99,6 +105,7 @@ pub fn handle_toggle_favorite(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_load_record_list(
     executor: &mut CommandExecutor,
     filter: RecordFilter,
@@ -113,6 +120,7 @@ pub fn handle_load_record_list(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_load_record_detail(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
     match executor.vault.get_decrypted_record(id) {
         Ok(record) => CommandResult::RecordDetailLoaded { record },
@@ -120,6 +128,7 @@ pub fn handle_load_record_detail(executor: &mut CommandExecutor, id: Uuid) -> Co
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_load_record_for_edit(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
     match executor.vault.get_decrypted_record(id) {
         Ok(record) => CommandResult::RecordForEditLoaded { record },
@@ -127,6 +136,7 @@ pub fn handle_load_record_for_edit(executor: &mut CommandExecutor, id: Uuid) -> 
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_decrypt_field(
     executor: &mut CommandExecutor,
     id: Uuid,
@@ -138,6 +148,7 @@ pub fn handle_decrypt_field(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_load_password_history(
     executor: &mut CommandExecutor,
     record_id: Uuid,
@@ -164,6 +175,7 @@ pub fn handle_load_password_history(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_load_tags(executor: &mut CommandExecutor) -> CommandResult {
     match executor.vault.list_tags() {
         Ok(tags_with_counts) => {
@@ -174,6 +186,7 @@ pub fn handle_load_tags(executor: &mut CommandExecutor) -> CommandResult {
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_rename_tag(
     executor: &mut CommandExecutor,
     old_name: String,
@@ -185,6 +198,7 @@ pub fn handle_rename_tag(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_delete_tag(executor: &mut CommandExecutor, name: String) -> CommandResult {
     match executor.vault.delete_tag(&name) {
         Ok(()) => CommandResult::TagDeleted { name },
@@ -192,6 +206,7 @@ pub fn handle_delete_tag(executor: &mut CommandExecutor, name: String) -> Comman
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_batch_add_tag(
     executor: &mut CommandExecutor,
     record_ids: Vec<Uuid>,
@@ -203,6 +218,7 @@ pub fn handle_batch_add_tag(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_batch_remove_tag(
     executor: &mut CommandExecutor,
     record_ids: Vec<Uuid>,
@@ -214,6 +230,7 @@ pub fn handle_batch_remove_tag(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_batch_soft_delete(
     executor: &mut CommandExecutor,
     record_ids: Vec<Uuid>,
@@ -224,6 +241,7 @@ pub fn handle_batch_soft_delete(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_empty_trash(executor: &mut CommandExecutor) -> CommandResult {
     match executor.vault.empty_trash() {
         Ok(count) => CommandResult::TrashEmptied { count },
@@ -231,6 +249,7 @@ pub fn handle_empty_trash(executor: &mut CommandExecutor) -> CommandResult {
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_generate_password(
     _executor: &mut CommandExecutor,
     length: usize,
@@ -269,6 +288,7 @@ pub fn handle_generate_password(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_generate_memorable_password(
     _executor: &mut CommandExecutor,
     word_count: usize,
@@ -287,6 +307,7 @@ pub fn handle_generate_memorable_password(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_generate_pin(_executor: &mut CommandExecutor, length: usize) -> CommandResult {
     match generate_pin(length) {
         Ok(password) => {

@@ -7,6 +7,7 @@ use crate::types::SecureStr;
 
 use super::CommandExecutor;
 
+#[tracing::instrument(skip(executor, master_password))]
 pub async fn handle_unlock(executor: &mut CommandExecutor, master_password: SecureStr) -> CommandResult {
     match executor.vault.unlock(&executor.vault_dir, &master_password) {
         Ok(()) => CommandResult::VaultUnlocked,
@@ -16,6 +17,7 @@ pub async fn handle_unlock(executor: &mut CommandExecutor, master_password: Secu
     }
 }
 
+#[tracing::instrument(skip(executor, words))]
 pub async fn handle_unlock_with_recovery_key(executor: &mut CommandExecutor, words: Vec<String>) -> CommandResult {
     // Try English first (most common)
     let passkey = match Passkey::from_words(&words, MnemonicLanguage::English) {
@@ -44,11 +46,13 @@ pub async fn handle_unlock_with_recovery_key(executor: &mut CommandExecutor, wor
     }
 }
 
+#[tracing::instrument(skip(executor))]
 pub fn handle_lock(executor: &mut CommandExecutor) -> CommandResult {
     executor.vault.lock();
     CommandResult::VaultLocked
 }
 
+#[tracing::instrument(skip(executor, password))]
 pub fn handle_verify_master_password(executor: &mut CommandExecutor, password: SecureStr) -> CommandResult {
     // Verify by attempting to unlock the keystore file with the password
     match crate::crypto::keystore::KeyStore::unlock(&executor.vault_dir, &password) {
@@ -62,6 +66,7 @@ pub fn handle_verify_master_password(executor: &mut CommandExecutor, password: S
     }
 }
 
+#[tracing::instrument(skip(executor, current_password, new_password))]
 pub fn handle_change_master_password(
     executor: &mut CommandExecutor,
     current_password: SecureStr,
@@ -88,6 +93,7 @@ pub fn handle_change_master_password(
     }
 }
 
+#[tracing::instrument(skip(executor, master_password))]
 pub async fn handle_initialize_vault(
     executor: &mut CommandExecutor,
     vault_path: PathBuf,
