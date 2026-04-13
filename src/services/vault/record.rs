@@ -590,6 +590,14 @@ impl VaultService {
         Ok(tui_records)
     }
 
+    /// List all active (non-deleted) stored records.
+    ///
+    /// Returns raw `StoredRecord` without decryption. Used by health check
+    /// which needs the full encrypted record for batch analysis.
+    pub fn list_all_stored_records(&self) -> Result<Vec<StoredRecord>, VaultError> {
+        queries::list_active_records(&self.conn).map_err(db_error_to_vault)
+    }
+
     /// List all records that need DEK migration (dek_version < target).
     pub fn list_records_for_migration(
         &self,
