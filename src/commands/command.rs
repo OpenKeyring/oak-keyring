@@ -209,6 +209,12 @@ pub enum Command {
     LoadAuditLog {
         filter: AuditFilter,
     },
+
+    // ── DEK Rotation ─────────────────────────────
+    /// Trigger a manual DEK rotation
+    TriggerRotation,
+    /// Check if rotation should be triggered
+    CheckRotationTrigger,
 }
 
 #[cfg(test)]
@@ -276,6 +282,9 @@ mod exhaustive_tests {
                 Command::TestSyncConnection { .. } => {}
                 // Audit Log
                 Command::LoadAuditLog { .. } => {}
+                // DEK Rotation
+                Command::TriggerRotation => {}
+                Command::CheckRotationTrigger => {}
             }
         }
     }
