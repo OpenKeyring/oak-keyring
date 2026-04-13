@@ -467,11 +467,8 @@ impl ImportExportService {
                 .ok_or(ImportExportError::SessionNotFound(session_id))?;
 
             let path = session.output_path.clone();
-            let size = self::export::encrypt_and_write_okb(
-                &payload,
-                &session.export_password,
-                &path,
-            )?;
+            let size =
+                self::export::encrypt_and_write_okb(&payload, &session.export_password, &path)?;
             (path, size)
         };
 

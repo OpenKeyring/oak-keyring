@@ -22,7 +22,9 @@ use oak_keyring::services::rotation::{
     should_skip_rotation_due_to_cloud_version, RotationService,
 };
 use oak_keyring::services::vault::VaultService;
-use oak_keyring::types::rotation::{RotationConfig, RotationConstants, RotationState, RotationTrigger};
+use oak_keyring::types::rotation::{
+    RotationConfig, RotationConstants, RotationState, RotationTrigger,
+};
 
 use rusqlite::Connection;
 
@@ -53,7 +55,12 @@ fn acceptance_auto_time_trigger_after_90_days() {
     };
     let result = check_trigger(&config, true, Some(90), 0);
     assert!(
-        matches!(result, Some(RotationTrigger::AutoTime { days_since_last: 90 })),
+        matches!(
+            result,
+            Some(RotationTrigger::AutoTime {
+                days_since_last: 90
+            })
+        ),
         "expected AutoTime trigger at 90 days"
     );
 }
@@ -73,7 +80,10 @@ fn acceptance_auto_count_trigger_at_1000_records() {
     };
     let result = check_trigger(&config, true, None, 1000);
     assert!(
-        matches!(result, Some(RotationTrigger::AutoCount { record_count: 1000 })),
+        matches!(
+            result,
+            Some(RotationTrigger::AutoCount { record_count: 1000 })
+        ),
         "expected AutoCount trigger at 1000 records"
     );
 }
@@ -92,10 +102,7 @@ fn acceptance_offline_rotation_skipped() {
         current_dek_record_count: 0,
     };
     let result = check_trigger(&config, false, Some(90), 0);
-    assert!(
-        result.is_none(),
-        "offline rotation should be skipped"
-    );
+    assert!(result.is_none(), "offline rotation should be skipped");
 }
 
 // ---------------------------------------------------------------------------
@@ -220,9 +227,14 @@ fn acceptance_rotation_config_defaults() {
     let service = RotationService::new(vault);
     let config = service.get_config().unwrap();
     assert!(config.auto_rotate, "auto_rotate should default to true");
-    assert_eq!(config.rotate_after_days, Some(90), "rotate_after_days should default to 90");
     assert_eq!(
-        config.rotate_after_records, Some(1000),
+        config.rotate_after_days,
+        Some(90),
+        "rotate_after_days should default to 90"
+    );
+    assert_eq!(
+        config.rotate_after_records,
+        Some(1000),
         "rotate_after_records should default to 1000"
     );
 }
