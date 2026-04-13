@@ -663,3 +663,40 @@ mod coordinator_tests {
         assert!(!should_skip_rotation_due_to_cloud_version(1, 1));
     }
 }
+
+/// Execute rotation with sync mutex protection.
+/// Currently a stub - will be connected to SyncService.pause()/resume() when Plan H is ready.
+///
+/// The full implementation should:
+/// 1. Call sync.pause(timeout) to pause sync
+/// 2. Execute the rotation (synchronous)
+/// 3. Call sync.resume() (always, even on error)
+pub fn rotate_with_sync_mutex<F, R>(
+    rotation_fn: F,
+) -> Result<R, RotationError>
+where
+    F: FnOnce() -> Result<R, RotationError>,
+{
+    // Stub: just execute the rotation function without sync mutex
+    // TODO: Connect to SyncService.pause()/resume() when Plan H is ready
+    rotation_fn()
+}
+
+#[cfg(test)]
+mod sync_mutex_tests {
+    use super::*;
+
+    #[test]
+    fn rotate_with_sync_mutex_executes_fn() {
+        let result = rotate_with_sync_mutex(|| Ok(42u32));
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[test]
+    fn rotate_with_sync_mutex_propagates_error() {
+        let result: Result<(), RotationError> = rotate_with_sync_mutex(|| {
+            Err(RotationError::SyncBusy)
+        });
+        assert!(result.is_err());
+    }
+}
