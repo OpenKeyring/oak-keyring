@@ -128,8 +128,66 @@ impl CommandExecutor {
     /// Receives commands from the UI layer and dispatches them to the
     /// appropriate handler. The loop exits when the command channel is
     /// closed or the cancellation token is triggered.
-    pub async fn run(self, mut _command_rx: mpsc::Receiver<Command>) {
-        // TODO: Implement executor run loop (Task 2)
+    pub async fn run(mut self, mut command_rx: mpsc::Receiver<Command>) {
+        info!("CommandExecutor started");
+
+        let mut timers = timer::ExecutorTimers::new(&self.config);
+
+        loop {
+            // Destructure into individual fields so tokio::select! can take
+            // disjoint mutable borrows.
+            let timer::ExecutorTimers {
+                ref mut sync_interval,
+                ref mut auto_lock_interval,
+                ref mut clipboard_clear_interval,
+                sync_active,
+                auto_lock_active,
+            } = timers;
+
+            tokio::select! {
+                // Priority 1: Cancellation signal
+                biased;
+
+                _ = self.cancel_token.cancelled() => {
+                    info!("Executor received cancellation signal, shutting down");
+                    break;
+                }
+
+                // Priority 2: Command processing
+                cmd = command_rx.recv() => {
+                    match cmd {
+                        Some(command) => {
+                            self.execute(command).await;
+                            timers.reset_auto_lock();
+                        }
+                        None => {
+                            info!("Command channel closed, executor shutting down");
+                            break;
+                        }
+                    }
+                }
+
+                // Priority 3: Auto-sync timer
+                _ = timer::tick_opt(sync_interval), if sync_active => {
+                    info!("Auto-sync timer triggered");
+                    self.execute(Command::TriggerSync).await;
+                }
+
+                // Priority 4: Auto-lock timer
+                _ = timer::tick_opt(auto_lock_interval), if auto_lock_active => {
+                    info!("Auto-lock timer triggered");
+                    self.execute(Command::LockVault).await;
+                }
+
+                // Priority 5: Clipboard clear timer
+                _ = timer::tick_opt(clipboard_clear_interval) => {
+                    info!("Clipboard clear timer triggered");
+                    let _ = self.clipboard.clear();
+                }
+            }
+        }
+
+        info!("CommandExecutor stopped");
     }
 
     /// Execute a single command.
@@ -137,6 +195,8 @@ impl CommandExecutor {
     /// Dispatches the command to the appropriate handler module based
     /// on the command variant.
     pub async fn execute(&mut self, _command: Command) {
-        // TODO: Implement command dispatch (Task 3)
+        // TODO: Implement full dispatch in Task 3
+        // For now, just log that we received a command
+        info!("Received command (dispatch pending Task 3)");
     }
 }
