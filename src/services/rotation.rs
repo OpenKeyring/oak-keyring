@@ -634,3 +634,32 @@ mod lazy_migration_tests {
         assert!(result.is_err());
     }
 }
+
+/// Check if rotation should proceed or be skipped (idempotent).
+/// Returns true if another device already rotated (cloud_version > local_version).
+pub fn should_skip_rotation_due_to_cloud_version(
+    local_version: u32,
+    cloud_version: u32,
+) -> bool {
+    cloud_version > local_version
+}
+
+#[cfg(test)]
+mod coordinator_tests {
+    use super::*;
+
+    #[test]
+    fn should_skip_returns_true_when_cloud_is_newer() {
+        assert!(should_skip_rotation_due_to_cloud_version(1, 2));
+    }
+
+    #[test]
+    fn should_skip_returns_false_when_local_is_newest() {
+        assert!(!should_skip_rotation_due_to_cloud_version(2, 1));
+    }
+
+    #[test]
+    fn should_skip_returns_false_when_equal() {
+        assert!(!should_skip_rotation_due_to_cloud_version(1, 1));
+    }
+}
