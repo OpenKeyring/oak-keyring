@@ -17,6 +17,7 @@ use super::CommandExecutor;
 // Import handlers
 // ---------------------------------------------------------------------------
 
+#[tracing::instrument(skip_all)]
 pub fn handle_validate_import_file(
     executor: &mut CommandExecutor,
     source: ImportSource,
@@ -51,6 +52,7 @@ pub fn handle_validate_import_file(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_execute_import(
     executor: &mut CommandExecutor,
     source: ImportSource,
@@ -120,6 +122,7 @@ pub fn handle_execute_import(
 // Export handler
 // ---------------------------------------------------------------------------
 
+#[tracing::instrument(skip_all)]
 pub fn handle_execute_export(
     executor: &mut CommandExecutor,
     scope: ExportScope,

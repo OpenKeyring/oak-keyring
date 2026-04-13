@@ -6,6 +6,7 @@ use crate::errors::{ErrorCode, ErrorContext};
 
 use super::CommandExecutor;
 
+#[tracing::instrument(skip_all)]
 pub fn handle_trigger_sync(_executor: &mut CommandExecutor) -> CommandResult {
     CommandResult::Error {
         code: ErrorCode::Executor(String::from("not_implemented")),
@@ -15,6 +16,7 @@ pub fn handle_trigger_sync(_executor: &mut CommandExecutor) -> CommandResult {
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_resolve_conflict(
     _executor: &mut CommandExecutor,
     _record_id: Uuid,
@@ -28,6 +30,7 @@ pub fn handle_resolve_conflict(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_resolve_all_conflicts(
     _executor: &mut CommandExecutor,
     _resolution: ConflictResolution,

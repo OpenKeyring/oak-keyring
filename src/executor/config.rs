@@ -6,12 +6,14 @@ use crate::errors::{ErrorCode, ErrorContext};
 
 use super::CommandExecutor;
 
+#[tracing::instrument(skip_all)]
 pub fn handle_load_config(executor: &mut CommandExecutor) -> CommandResult {
     CommandResult::ConfigLoaded {
         config: executor.config.clone(),
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> CommandResult {
     match config.save(&executor.vault_dir) {
         Ok(()) => {
@@ -27,6 +29,7 @@ pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> 
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_test_sync_connection(
     _executor: &mut CommandExecutor,
     _provider_config: Option<ProviderConfig>,
@@ -40,6 +43,7 @@ pub fn handle_test_sync_connection(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_load_audit_log(executor: &mut CommandExecutor, filter: AuditFilter) -> CommandResult {
     match executor.vault.query_audit_log(&filter) {
         Ok((entries, total)) => CommandResult::AuditLogLoaded { entries, total },

@@ -6,6 +6,7 @@ use crate::errors::{ErrorCode, ErrorContext};
 
 use super::CommandExecutor;
 
+#[tracing::instrument(skip_all)]
 pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult {
     // Step 1: Fetch all active stored records
     let records = match executor.vault.list_all_stored_records() {
@@ -40,6 +41,7 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
     CommandResult::HealthCheckCompleted { report }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) -> CommandResult {
     // Step 1: Decrypt the record's password
     let password = match executor.vault.decrypt_field(record_id, FieldSelector::Password) {
