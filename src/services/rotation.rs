@@ -141,6 +141,34 @@ pub fn migrate_record(
         })
 }
 
+/// Check if a record's DEK version is current and lazily migrate if needed.
+/// Called after decrypting a record during normal read operations.
+/// Returns Ok(()) if no migration needed or migration succeeded.
+pub fn lazy_migrate_record(
+    vault: &mut crate::services::vault::VaultService,
+    record_id: Uuid,
+    record_dek_version: u32,
+) -> Result<(), RotationError> {
+    let current_version = vault.current_dek_version();
+
+    if record_dek_version < current_version {
+        vault.re_encrypt_record(record_id, record_dek_version)
+            .map_err(|e| RotationError::RecordMigrationFailed {
+                record_id: record_id.to_string(),
+                reason: e.to_string(),
+            })?;
+
+        // Log the lazy migration (re_encrypt_record's mutable borrow is released,
+        // and &mut subsumes & so calling &self method is fine)
+        let _ = vault.log_dek_rotated(&format!(
+            "lazy migration: record {} v{} -> v{}",
+            record_id, record_dek_version, current_version
+        ));
+    }
+
+    Ok(())
+}
+
 /// Migrate all records to a new DEK version.
 /// Updates checkpoint after each record is migrated for crash recovery.
 pub fn migrate_all_records(
@@ -565,5 +593,44 @@ mod migration_tests {
         let result = migrate_all_records(&mut vault, &mut checkpoint);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
+    }
+}
+
+#[cfg(test)]
+mod lazy_migration_tests {
+    use super::*;
+    use crate::db::schema::{initialize_metadata, initialize_schema};
+    use rusqlite::Connection;
+
+    fn setup_vault() -> crate::services::vault::VaultService {
+        let conn = Connection::open_in_memory().unwrap();
+        initialize_schema(&conn);
+        initialize_metadata(&conn);
+        crate::services::vault::VaultService::new(conn)
+    }
+
+    #[test]
+    fn lazy_migrate_noop_when_version_matches() {
+        let mut vault = setup_vault();
+        // current_dek_version is 1, record_dek_version is 1 -> no migration needed
+        let result = lazy_migrate_record(&mut vault, uuid::Uuid::new_v4(), 1);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn lazy_migrate_noop_when_version_is_newer() {
+        let mut vault = setup_vault();
+        // current_dek_version is 1, record_dek_version is 2 -> no migration needed
+        let result = lazy_migrate_record(&mut vault, uuid::Uuid::new_v4(), 2);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn lazy_migrate_records_not_found_error() {
+        let mut vault = setup_vault();
+        // Try to migrate a non-existent record with old version
+        let result = lazy_migrate_record(&mut vault, uuid::Uuid::new_v4(), 0);
+        // Should fail because the record doesn't exist
+        assert!(result.is_err());
     }
 }
