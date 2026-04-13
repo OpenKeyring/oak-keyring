@@ -21,6 +21,33 @@ fn vault_error(e: crate::errors::mapping::vault::VaultError, msg: &str) -> Comma
     }
 }
 
+/// Attempt lazy DEK migration for a record if it is on an older version.
+///
+/// This is a best-effort operation: if the stored record's DEK version is
+/// older than the current DEK version, we re-encrypt it with the current key.
+/// Failures are logged but do not block the read — the record is still
+/// readable with the old DEK version.
+fn attempt_lazy_migration(vault: &mut crate::services::vault::VaultService, id: Uuid) {
+    // Get the stored record to check its DEK version.
+    let dek_version = match vault.get_stored_record(id) {
+        Ok(stored) => stored.dek_version,
+        Err(_) => return, // Record not found or other error; let the main call handle it.
+    };
+
+    let current_version = vault.current_dek_version();
+    if dek_version < current_version {
+        if let Err(e) = crate::services::rotation::lazy_migrate_record(vault, id, dek_version) {
+            tracing::warn!(
+                record_id = %id,
+                dek_version = dek_version,
+                current_version = current_version,
+                error = %e,
+                "Lazy migration failed, record still readable with old DEK"
+            );
+        }
+    }
+}
+
 #[tracing::instrument(skip_all)]
 pub fn handle_create_record(
     executor: &mut CommandExecutor,
@@ -122,6 +149,10 @@ pub fn handle_load_record_list(
 
 #[tracing::instrument(skip_all)]
 pub fn handle_load_record_detail(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
+    // Lazy migration: check DEK version before decrypting.
+    // If the record is on an older DEK version, migrate it first.
+    attempt_lazy_migration(&mut executor.vault, id);
+
     match executor.vault.get_decrypted_record(id) {
         Ok(record) => CommandResult::RecordDetailLoaded { record },
         Err(e) => vault_error(e, "Failed to load record detail"),
@@ -130,6 +161,9 @@ pub fn handle_load_record_detail(executor: &mut CommandExecutor, id: Uuid) -> Co
 
 #[tracing::instrument(skip_all)]
 pub fn handle_load_record_for_edit(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
+    // Lazy migration: check DEK version before decrypting.
+    attempt_lazy_migration(&mut executor.vault, id);
+
     match executor.vault.get_decrypted_record(id) {
         Ok(record) => CommandResult::RecordForEditLoaded { record },
         Err(e) => vault_error(e, "Failed to load record for edit"),
