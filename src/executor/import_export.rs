@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use crate::commands::CommandResult;
 use crate::commands::types::{
     CsvColumnMapping, ExportScope, ImportSource, RecordFilter, RecordSort, SortDirection, SortField,
 };
+use crate::commands::CommandResult;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::services::import_export::duplicate::ExistingRecordKey;
 use crate::services::import_export::export::ExportRecord;
@@ -61,20 +61,21 @@ pub fn handle_execute_import(
     column_mapping: Option<CsvColumnMapping>,
 ) -> CommandResult {
     // Step 1: Create import session.
-    let session_id = match executor
-        .import_export
-        .create_import_session(source, path, password, column_mapping)
-    {
-        Ok(id) => id,
-        Err(e) => {
-            return CommandResult::Error {
-                code: ErrorCode::ImportExport(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.import_session_create_failed",
-                fallback: format!("Failed to create import session: {}", e),
-            };
-        }
-    };
+    let session_id =
+        match executor
+            .import_export
+            .create_import_session(source, path, password, column_mapping)
+        {
+            Ok(id) => id,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::ImportExport(e.to_string()),
+                    context: ErrorContext::default(),
+                    message_key: "error.import_session_create_failed",
+                    fallback: format!("Failed to create import session: {}", e),
+                };
+            }
+        };
 
     // Step 2: Validate the file first (session must be Validated before import).
     if let Err(e) = executor.import_export.validate_import_file(session_id) {
@@ -89,18 +90,25 @@ pub fn handle_execute_import(
     // Step 3: Execute import with a closure that creates vault records.
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
 
-    let result = match executor.import_export.execute_import(session_id, existing_keys, |cred_type, fields, tags| {
-        // Build an EncryptedPayload from the field map.
-        let payload = fields_to_payload(cred_type, &fields);
-        let params = CreateRecordParams {
-            credential_type: cred_type,
-            payload,
-            tags,
-            is_favorite: false,
-            expires_at: None,
-        };
-        executor.vault.create_record(params).map_err(|e| e.to_string())
-    }) {
+    let result = match executor.import_export.execute_import(
+        session_id,
+        existing_keys,
+        |cred_type, fields, tags| {
+            // Build an EncryptedPayload from the field map.
+            let payload = fields_to_payload(cred_type, &fields);
+            let params = CreateRecordParams {
+                credential_type: cred_type,
+                payload,
+                tags,
+                is_favorite: false,
+                expires_at: None,
+            };
+            executor
+                .vault
+                .create_record(params)
+                .map_err(|e| e.to_string())
+        },
+    ) {
         Ok(r) => r,
         Err(e) => {
             return CommandResult::Error {
@@ -154,20 +162,21 @@ pub fn handle_execute_export(
 
     // Step 2: Create export session.
     let scope_desc = format!("{:?}", scope);
-    let session_id = match executor
-        .import_export
-        .create_export_session(scope, export_password, output_path)
-    {
-        Ok(id) => id,
-        Err(e) => {
-            return CommandResult::Error {
-                code: ErrorCode::ImportExport(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.export_session_create_failed",
-                fallback: format!("Failed to create export session: {}", e),
-            };
-        }
-    };
+    let session_id =
+        match executor
+            .import_export
+            .create_export_session(scope, export_password, output_path)
+        {
+            Ok(id) => id,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::ImportExport(e.to_string()),
+                    context: ErrorContext::default(),
+                    message_key: "error.export_session_create_failed",
+                    fallback: format!("Failed to create export session: {}", e),
+                };
+            }
+        };
 
     // Step 3: Execute export with a closure that collects records from vault.
     let filter = RecordFilter::All;
@@ -191,8 +200,8 @@ pub fn handle_execute_export(
                     id: r.id.to_string(),
                     credential_type: r.credential_type.to_db_str().to_string(),
                     name: r.name.clone(),
-                    username: None,    // TuiRecord does not expose field-level data
-                    password: None,    // Requires decryption which is handled by VaultService
+                    username: None, // TuiRecord does not expose field-level data
+                    password: None, // Requires decryption which is handled by VaultService
                     url: None,
                     notes: None,
                     tags: Some(r.tags.clone()),
@@ -226,7 +235,11 @@ pub fn handle_execute_export(
         crate::types::AuditOperation::VaultExport,
         None,
         None,
-        Some(format!("scope={}, path={}", scope_desc, result_path.display())),
+        Some(format!(
+            "scope={}, path={}",
+            scope_desc,
+            result_path.display()
+        )),
     ) {
         tracing::warn!(error = %e, "Failed to write export audit log");
     }
@@ -245,7 +258,10 @@ pub fn handle_execute_export(
 ///
 /// This is a best-effort mapping that populates standard fields based on the
 /// credential type. Fields not recognized are ignored.
-fn fields_to_payload(cred_type: CredentialType, fields: &std::collections::HashMap<String, String>) -> EncryptedPayload {
+fn fields_to_payload(
+    cred_type: CredentialType,
+    fields: &std::collections::HashMap<String, String>,
+) -> EncryptedPayload {
     match cred_type {
         CredentialType::Login => EncryptedPayload::Login {
             name: fields.get("name").cloned().unwrap_or_default(),

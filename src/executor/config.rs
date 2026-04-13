@@ -1,7 +1,7 @@
-use crate::commands::CommandResult;
 use crate::commands::types::AuditFilter;
-use crate::config::AppConfig;
+use crate::commands::CommandResult;
 use crate::config::sync::ProviderConfig;
+use crate::config::AppConfig;
 use crate::errors::{ErrorCode, ErrorContext};
 
 use super::CommandExecutor;
@@ -90,13 +90,18 @@ fn apply_config_changes(executor: &mut CommandExecutor, changed: &[&str], _new_c
                 tracing::info!("Clipboard clear timeout updated");
             }
             "sync" => {
-                tracing::info!("Sync config changed — SyncService rebuild deferred to next startup");
+                tracing::info!(
+                    "Sync config changed — SyncService rebuild deferred to next startup"
+                );
             }
             "general.vault_path" => {
                 tracing::warn!("vault_path changed — requires application restart");
             }
             _ => {
-                tracing::info!(field = field, "Config field changed (no special runtime handling)");
+                tracing::info!(
+                    field = field,
+                    "Config field changed (no special runtime handling)"
+                );
             }
         }
     }

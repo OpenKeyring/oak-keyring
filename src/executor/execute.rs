@@ -1,7 +1,9 @@
 use crate::commands::{Command, CommandResult, Message};
 use crate::errors::ErrorCode;
 
-use super::{CommandExecutor, clipboard, config, health, import_export, record, rotation, sync, vault};
+use super::{
+    clipboard, config, health, import_export, record, rotation, sync, vault, CommandExecutor,
+};
 
 impl CommandExecutor {
     /// Execute a single command.
@@ -11,7 +13,10 @@ impl CommandExecutor {
     pub async fn execute(&mut self, command: Command) {
         // Step 1: Pre-check
         if let Some(error_result) = self.pre_check(&command) {
-            let _ = self.result_tx.send(Message::CommandCompleted(error_result)).await;
+            let _ = self
+                .result_tx
+                .send(Message::CommandCompleted(error_result))
+                .await;
             return;
         }
 
@@ -56,10 +61,7 @@ impl CommandExecutor {
     ///
     /// Records command execution failures as warnings in the structured log.
     fn post_hook(&self, result: &CommandResult) {
-        if let CommandResult::Error {
-            code, fallback, ..
-        } = result
-        {
+        if let CommandResult::Error { code, fallback, .. } = result {
             tracing::warn!(error_code = ?code, message = %fallback, "Command execution failed");
         }
     }
@@ -90,9 +92,7 @@ impl CommandExecutor {
             Command::InitializeVault {
                 vault_path,
                 master_password,
-            } => {
-                vault::handle_initialize_vault(self, vault_path, master_password).await
-            }
+            } => vault::handle_initialize_vault(self, vault_path, master_password).await,
 
             // ── Record CRUD ──────────────────────────────
             Command::CreateRecord {
@@ -116,7 +116,15 @@ impl CommandExecutor {
                 is_favorite,
                 expires_at,
                 expected_version,
-            } => record::handle_update_record(self, id, payload, tags, is_favorite, expires_at, expected_version),
+            } => record::handle_update_record(
+                self,
+                id,
+                payload,
+                tags,
+                is_favorite,
+                expires_at,
+                expected_version,
+            ),
             Command::SoftDeleteRecord { id } => record::handle_soft_delete_record(self, id),
             Command::RestoreRecord { id } => record::handle_restore_record(self, id),
             Command::HardDeleteRecord { id } => record::handle_hard_delete_record(self, id),

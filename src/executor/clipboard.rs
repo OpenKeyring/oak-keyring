@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
-use crate::commands::CommandResult;
 use crate::commands::types::FieldSelector;
+use crate::commands::CommandResult;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::SecureStr;
 

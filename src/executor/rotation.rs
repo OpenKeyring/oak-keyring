@@ -23,8 +23,8 @@ fn load_rotation_config(vault: &VaultService) -> Result<RotationConfig, String> 
 pub fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandResult {
     // Move VaultService out of executor using std::mem::replace with a placeholder.
     // This is required because RotationService takes ownership of VaultService.
-    let placeholder_conn = rusqlite::Connection::open_in_memory()
-        .expect("in-memory SQLite should never fail");
+    let placeholder_conn =
+        rusqlite::Connection::open_in_memory().expect("in-memory SQLite should never fail");
     let placeholder = VaultService::new(placeholder_conn);
     let vault = std::mem::replace(&mut executor.vault, placeholder);
 

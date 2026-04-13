@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
-use crate::commands::CommandResult;
 use crate::commands::types::FieldSelector;
+use crate::commands::CommandResult;
 use crate::errors::{ErrorCode, ErrorContext};
 
 use super::CommandExecutor;
@@ -44,7 +44,10 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
 #[tracing::instrument(skip_all)]
 pub fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) -> CommandResult {
     // Step 1: Decrypt the record's password
-    let password = match executor.vault.decrypt_field(record_id, FieldSelector::Password) {
+    let password = match executor
+        .vault
+        .decrypt_field(record_id, FieldSelector::Password)
+    {
         Ok(s) => s,
         Err(e) => {
             return CommandResult::Error {

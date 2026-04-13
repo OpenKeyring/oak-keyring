@@ -8,7 +8,10 @@ use crate::types::SecureStr;
 use super::CommandExecutor;
 
 #[tracing::instrument(skip(executor, master_password))]
-pub async fn handle_unlock(executor: &mut CommandExecutor, master_password: SecureStr) -> CommandResult {
+pub async fn handle_unlock(
+    executor: &mut CommandExecutor,
+    master_password: SecureStr,
+) -> CommandResult {
     match executor.vault.unlock(&executor.vault_dir, &master_password) {
         Ok(()) => CommandResult::VaultUnlocked,
         Err(_) => CommandResult::VaultUnlockFailed {
@@ -18,7 +21,10 @@ pub async fn handle_unlock(executor: &mut CommandExecutor, master_password: Secu
 }
 
 #[tracing::instrument(skip(executor, words))]
-pub async fn handle_unlock_with_recovery_key(executor: &mut CommandExecutor, words: Vec<String>) -> CommandResult {
+pub async fn handle_unlock_with_recovery_key(
+    executor: &mut CommandExecutor,
+    words: Vec<String>,
+) -> CommandResult {
     // Try English first (most common)
     let passkey = match Passkey::from_words(&words, MnemonicLanguage::English) {
         Ok(pk) => pk,
@@ -61,7 +67,10 @@ pub fn handle_lock(executor: &mut CommandExecutor) -> CommandResult {
 }
 
 #[tracing::instrument(skip(executor, password))]
-pub fn handle_verify_master_password(executor: &mut CommandExecutor, password: SecureStr) -> CommandResult {
+pub fn handle_verify_master_password(
+    executor: &mut CommandExecutor,
+    password: SecureStr,
+) -> CommandResult {
     // Verify by attempting to unlock the keystore file with the password
     match crate::crypto::keystore::KeyStore::unlock(&executor.vault_dir, &password) {
         Ok(_) => CommandResult::MasterPasswordVerified,

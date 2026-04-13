@@ -69,8 +69,6 @@ pub async fn tick_opt(opt: &mut Option<Interval>) {
         Some(ref mut iv) => {
             iv.tick().await;
         }
-        None => {
-            std::future::pending().await
-        }
+        None => std::future::pending().await,
     }
 }
