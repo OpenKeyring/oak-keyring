@@ -210,6 +210,31 @@ impl SidebarState {
         }
     }
 
+    /// Move selection down to next selectable item.
+    pub fn move_down(&mut self) {
+        self.next_selectable();
+    }
+
+    /// Move selection up to previous selectable item.
+    pub fn move_up(&mut self) {
+        self.prev_selectable();
+    }
+
+    /// Toggle tag section expand/collapse.
+    pub fn toggle_tags(&mut self) {
+        self.tags_expanded = !self.tags_expanded;
+        self.rebuild();
+        // If currently selected was a tag and we collapsed, select TagHeader
+        if !self.tags_expanded {
+            for (i, item) in self.items.iter().enumerate() {
+                if matches!(item, SidebarItem::TagHeader) {
+                    self.selected_index = i;
+                    break;
+                }
+            }
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     /// Find the next selectable index starting from `start` (inclusive, wraps).
@@ -294,6 +319,43 @@ pub struct TerminalTitleState {
     pub current_title: String,
     /// Title to restore after a fullscreen page closes.
     pub pending_restore: Option<String>,
+}
+
+impl TerminalTitleState {
+    /// Set terminal title for main screen with an optional record name.
+    pub fn set_for_main(&mut self, record_name: Option<&str>) {
+        match record_name {
+            None => {
+                self.current_title = "OK".to_string();
+            }
+            Some(name) => {
+                let max_name_len = 35; // 40 total - "OK | " (5 chars)
+                if name.chars().count() > max_name_len {
+                    let truncated: String = name.chars().take(max_name_len).collect();
+                    self.current_title = format!("OK | {}...", truncated);
+                } else {
+                    self.current_title = format!("OK | {}", name);
+                }
+            }
+        }
+    }
+
+    /// Clear terminal title (for exit/lock).
+    pub fn clear(&mut self) {
+        self.current_title.clear();
+    }
+
+    /// Save current title before navigating to a fullscreen page.
+    pub fn save_for_restore(&mut self) {
+        self.pending_restore = Some(self.current_title.clone());
+    }
+
+    /// Restore title after returning from fullscreen page.
+    pub fn restore(&mut self) {
+        if let Some(title) = self.pending_restore.take() {
+            self.current_title = title;
+        }
+    }
 }
 
 // ── Focus Snapshot Placeholder ───────────────────────────────────────────────
@@ -491,5 +553,89 @@ mod tests {
         assert!(state.pre_lock_snapshot.is_none());
         assert_eq!(state.sidebar.selected_index, 0);
         assert_eq!(state.status_bar.record_count, 0);
+    }
+
+    // ── Terminal title tests ──────────────────────────────────────────────
+
+    #[test]
+    fn terminal_title_default_is_empty() {
+        let state = TerminalTitleState::default();
+        assert!(state.current_title.is_empty());
+    }
+
+    #[test]
+    fn terminal_title_main_screen() {
+        let mut state = TerminalTitleState::default();
+        state.set_for_main(None);
+        assert_eq!(state.current_title, "OK");
+    }
+
+    #[test]
+    fn terminal_title_with_record_selected() {
+        let mut state = TerminalTitleState::default();
+        state.set_for_main(Some("GitHub Account Credentials"));
+        assert_eq!(state.current_title, "OK | GitHub Account Credentials");
+    }
+
+    #[test]
+    fn terminal_title_truncates_long_name() {
+        let mut state = TerminalTitleState::default();
+        let long_name = "A".repeat(50);
+        state.set_for_main(Some(&long_name));
+        assert!(state.current_title.len() <= 43);
+        assert!(state.current_title.ends_with("..."));
+    }
+
+    #[test]
+    fn terminal_title_save_and_restore() {
+        let mut state = TerminalTitleState::default();
+        state.set_for_main(Some("Test"));
+        state.save_for_restore();
+        assert_eq!(state.pending_restore, Some("OK | Test".to_string()));
+        state.set_for_main(None);
+        state.restore();
+        assert_eq!(state.current_title, "OK | Test");
+        assert!(state.pending_restore.is_none());
+    }
+
+    // ── Sidebar navigation tests ──────────────────────────────────────────
+
+    #[test]
+    fn sidebar_move_down() {
+        let mut state = SidebarState::default();
+        let prev = state.selected_index;
+        state.move_down();
+        assert_ne!(state.selected_index, prev);
+        assert!(state.items[state.selected_index].is_selectable());
+    }
+
+    #[test]
+    fn sidebar_move_up() {
+        let mut state = SidebarState::default();
+        state.selected_index = 1;
+        state.move_up();
+        assert_eq!(state.selected_index, 0);
+    }
+
+    #[test]
+    fn sidebar_toggle_tags() {
+        let mut state = SidebarState {
+            tags_expanded: true,
+            tags: vec![Tag {
+                id: 1,
+                name: "work".into(),
+            }],
+            ..Default::default()
+        };
+        state.rebuild();
+        assert!(state.items.iter().any(|i| matches!(i, SidebarItem::Tag(_))));
+        state.toggle_tags();
+        assert!(!state.tags_expanded);
+        assert!(state
+            .items
+            .iter()
+            .all(|i| !matches!(i, SidebarItem::Tag(_))));
+        state.toggle_tags();
+        assert!(state.tags_expanded);
     }
 }
