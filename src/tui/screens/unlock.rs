@@ -1,5 +1,7 @@
 //! Unlock screen — master password / recovery key input with lockout escalation.
 
+use std::time::Instant;
+
 use crossterm::event::{KeyCode, KeyEvent};
 use zeroize::Zeroize;
 
@@ -19,7 +21,7 @@ pub enum UnlockPhase {
     Idle,
     Verifying,
     Failed,
-    LockedOut { remaining_seconds: u64 },
+    LockedOut { locked_until: Instant },
     Success,
 }
 
@@ -163,15 +165,18 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
 
         // Lockout countdown
         let lockout_text = match &self.state {
-            UnlockPhase::LockedOut { remaining_seconds } => Some(
-                Paragraph::new(format!(
-                    "{} Too many attempts. Retry in {}s",
-                    theme::ICON_WARNING,
-                    remaining_seconds
-                ))
-                .style(Styles::warning_text())
-                .alignment(Alignment::Center),
-            ),
+            UnlockPhase::LockedOut { locked_until } => {
+                let remaining = locked_until.saturating_duration_since(Instant::now()).as_secs();
+                Some(
+                    Paragraph::new(format!(
+                        "{} Too many attempts. Retry in {}s",
+                        theme::ICON_WARNING,
+                        remaining
+                    ))
+                    .style(Styles::warning_text())
+                    .alignment(Alignment::Center),
+                )
+            }
             _ => None,
         };
 
@@ -321,11 +326,8 @@ impl UnlockScreen {
     }
 
     fn handle_tick(&mut self) -> ScreenResult {
-        if let UnlockPhase::LockedOut { remaining_seconds } = &mut self.state {
-            if *remaining_seconds > 0 {
-                *remaining_seconds -= 1;
-            }
-            if *remaining_seconds == 0 {
+        if let UnlockPhase::LockedOut { locked_until } = &self.state {
+            if Instant::now() >= *locked_until {
                 self.state = UnlockPhase::Idle;
                 self.error_message = None;
             }
@@ -344,7 +346,7 @@ impl UnlockScreen {
                 let duration = lockout_duration(self.failed_attempts);
                 if duration > 0 {
                     self.state = UnlockPhase::LockedOut {
-                        remaining_seconds: duration,
+                        locked_until: Instant::now() + std::time::Duration::from_secs(duration),
                     };
                     self.error_message = None;
                 } else {
@@ -414,28 +416,24 @@ mod tests {
     }
 
     #[test]
-    fn tick_decrements_lockout() {
+    fn tick_does_not_transition_active_lockout() {
         let mut screen = UnlockScreen {
             state: UnlockPhase::LockedOut {
-                remaining_seconds: 5,
+                locked_until: Instant::now() + std::time::Duration::from_secs(30),
             },
             ..Default::default()
         };
         let result = screen.handle_tick();
         assert_eq!(result, ScreenResult::Continue);
-        assert_eq!(
-            screen.state,
-            UnlockPhase::LockedOut {
-                remaining_seconds: 4
-            }
-        );
+        // Still locked out — not expired yet
+        assert!(matches!(screen.state, UnlockPhase::LockedOut { .. }));
     }
 
     #[test]
     fn tick_transitions_lockout_to_idle() {
         let mut screen = UnlockScreen {
             state: UnlockPhase::LockedOut {
-                remaining_seconds: 1,
+                locked_until: Instant::now() - std::time::Duration::from_secs(1),
             },
             ..Default::default()
         };
@@ -485,12 +483,7 @@ mod tests {
         });
         assert_eq!(result, ScreenResult::Continue);
         assert_eq!(screen.failed_attempts, 5);
-        assert_eq!(
-            screen.state,
-            UnlockPhase::LockedOut {
-                remaining_seconds: 30
-            }
-        );
+        assert!(matches!(screen.state, UnlockPhase::LockedOut { .. }));
     }
 
     #[test]
