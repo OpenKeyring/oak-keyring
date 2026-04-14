@@ -1,11 +1,13 @@
 pub mod animation;
 pub mod focus;
 pub mod loading;
+pub mod main_state;
 pub mod notification;
 
 use crate::commands::types::{AppPhase, Screen};
 use crate::tui::screens::onboarding::OnboardingScreen;
 use crate::tui::screens::unlock::UnlockScreen;
+use main_state::MainScreenState;
 
 /// Central application state. Owned by `App`, passed by `&mut` to update() and `&` to view().
 pub struct AppState {
@@ -41,7 +43,7 @@ pub struct SharedState {
 pub struct ScreenStates {
     pub unlock: UnlockScreen,
     pub onboarding: OnboardingScreen,
-    // Main screen state will be added in Plan M
+    pub main: MainScreenState,
 }
 
 impl Default for AppState {
@@ -60,8 +62,6 @@ impl Default for AppState {
         }
     }
 }
-
-
 
 impl AppState {
     /// Navigate to a new screen, pushing current onto the stack.
