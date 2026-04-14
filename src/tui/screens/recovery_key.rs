@@ -13,19 +13,13 @@ use crate::tui::theme::{BORDER, ERROR, PRIMARY, TEXT, TEXT_MUTED, TEXT_SECONDARY
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-/// Determines which word slots are editable in the grid.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum WordGridMode {
     /// All 24 words editable (for restore).
+    #[default]
     FullInput,
     /// Only 4 random positions editable (for verification).
     PartialVerify { positions: [usize; 4] },
-}
-
-impl Default for WordGridMode {
-    fn default() -> Self {
-        Self::FullInput
-    }
 }
 
 /// State for the 24-word BIP39 recovery key grid.
@@ -100,7 +94,7 @@ impl WordGridState {
 
     /// Returns all 24 words as a `Vec<String>`.
     pub fn collect_words(&self) -> Vec<String> {
-        self.words.iter().cloned().collect()
+        self.words.to_vec()
     }
 
     /// Handle a key event. Returns `Some(words)` when Enter is pressed and all
@@ -227,12 +221,7 @@ impl WordGridState {
             base_style
         };
 
-        // Focused cell gets a primary-colored border indicator via a dot
-        let separator = if is_focused {
-            Span::styled(" ", Style::default())
-        } else {
-            Span::styled(" ", Style::default())
-        };
+        let separator = Span::styled(" ", Style::default());
 
         Line::from(vec![
             Span::styled(num_str, num_style),
