@@ -109,6 +109,48 @@ impl MainScreen {
             unicode,
         );
     }
+
+    /// Advance focus to next panel: Sidebar -> List -> Detail -> Sidebar.
+    pub fn cycle_focus(&self, current: PanelId) -> PanelId {
+        match current {
+            PanelId::Sidebar => PanelId::List,
+            PanelId::List => PanelId::Detail,
+            PanelId::Detail => PanelId::Sidebar,
+        }
+    }
+
+    /// Move focus to previous panel: Sidebar -> Detail -> List -> Sidebar.
+    pub fn cycle_focus_reverse(&self, current: PanelId) -> PanelId {
+        match current {
+            PanelId::Sidebar => PanelId::Detail,
+            PanelId::List => PanelId::Sidebar,
+            PanelId::Detail => PanelId::List,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn focus_cycle_forward() {
+        let screen = MainScreen::new();
+        assert_eq!(screen.cycle_focus(PanelId::Sidebar), PanelId::List);
+        assert_eq!(screen.cycle_focus(PanelId::List), PanelId::Detail);
+        assert_eq!(screen.cycle_focus(PanelId::Detail), PanelId::Sidebar);
+    }
+
+    #[test]
+    fn focus_cycle_reverse() {
+        let screen = MainScreen::new();
+        assert_eq!(
+            screen.cycle_focus_reverse(PanelId::Sidebar),
+            PanelId::Detail
+        );
+        assert_eq!(screen.cycle_focus_reverse(PanelId::Detail), PanelId::List);
+        assert_eq!(screen.cycle_focus_reverse(PanelId::List), PanelId::Sidebar);
+    }
 }
 
 /// Render the horizontal separator line between content panels and the status bar.
