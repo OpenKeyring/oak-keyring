@@ -6,7 +6,7 @@
 //! - [`TerminalTitleState`] — dynamic terminal window title
 //! - [`MainScreenState`] — root aggregate of all main-screen sub-states
 
-use crate::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
+use crate::commands::types::{RecordFilter, RecordSort};
 use crate::types::Tag;
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
@@ -262,8 +262,8 @@ pub enum SyncIndicator {
 pub enum StatusMessage {
     /// "N records" label.
     RecordCount(usize),
-    /// Clipboard auto-clear countdown (seconds remaining).
-    ClipboardCountdown(u32),
+    /// Clipboard auto-clear countdown for a specific field.
+    ClipboardCountdown { field: String, seconds: u32 },
     /// Temporary message with a TTL in ticks.
     Temporary { text: String, ttl: u32 },
     /// Active search query.
@@ -292,8 +292,8 @@ pub struct StatusBarState {
 pub struct TerminalTitleState {
     /// Currently displayed terminal title.
     pub current_title: String,
-    /// Whether a title restore is pending (e.g., on app exit).
-    pub pending_restore: bool,
+    /// Title to restore after a fullscreen page closes.
+    pub pending_restore: Option<String>,
 }
 
 // ── Focus Snapshot Placeholder ───────────────────────────────────────────────
@@ -339,15 +339,6 @@ impl MainScreenState {
     /// Create a new MainScreenState with default values.
     pub fn new() -> Self {
         Self::default()
-    }
-}
-
-impl Default for RecordSort {
-    fn default() -> Self {
-        Self {
-            field: SortField::Name,
-            direction: SortDirection::Asc,
-        }
     }
 }
 

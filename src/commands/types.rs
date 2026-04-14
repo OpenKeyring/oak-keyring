@@ -32,6 +32,15 @@ pub struct RecordSort {
     pub direction: SortDirection,
 }
 
+impl Default for RecordSort {
+    fn default() -> Self {
+        Self {
+            field: SortField::Name,
+            direction: SortDirection::Asc,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldSelector {
     Password,
