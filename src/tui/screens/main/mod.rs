@@ -1,4 +1,5 @@
 pub mod detail;
+pub mod layout;
 pub mod list;
 pub mod overlay;
 pub mod sidebar;
