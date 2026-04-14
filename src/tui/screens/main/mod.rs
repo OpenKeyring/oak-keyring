@@ -6,20 +6,165 @@ pub mod sidebar;
 pub mod status_bar;
 
 use ratatui::layout::Rect;
+use ratatui::style::Style;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::Frame;
 
-pub struct MainScreen;
+use crate::commands::types::PanelId;
+use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, PANEL_SEPARATOR};
+use crate::tui::screens::main::sidebar::SidebarPanel;
+use crate::tui::screens::main::status_bar::StatusBarPanel;
+use crate::tui::state::main_state::MainScreenState;
+use crate::tui::theme;
+
+/// Main three-panel screen: sidebar | list | detail, with a status bar.
+pub struct MainScreen {
+    #[allow(dead_code)]
+    sidebar: SidebarPanel,
+    #[allow(dead_code)]
+    status_bar: StatusBarPanel,
+}
 
 impl Default for MainScreen {
     fn default() -> Self {
-        Self
+        Self::new()
     }
 }
 
 impl MainScreen {
+    /// Create a new MainScreen with default sub-panels.
     pub fn new() -> Self {
-        Self
+        Self {
+            sidebar: SidebarPanel,
+            status_bar: StatusBarPanel,
+        }
     }
-    pub fn view(&self, _frame: &mut ratatui::Frame, _area: Rect) {
-        // TODO: Render three-panel layout
+
+    /// Render the full main screen layout.
+    ///
+    /// # Arguments
+    /// * `frame` - The ratatui frame to render into.
+    /// * `area` - The total area available for the main screen.
+    /// * `state` - The current main screen state (sidebar, status bar, etc.).
+    /// * `focused_panel` - Which panel currently has keyboard focus.
+    /// * `unicode` - Whether to use unicode characters (vs ASCII fallbacks).
+    pub fn view(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        state: &MainScreenState,
+        focused_panel: PanelId,
+        unicode: bool,
+    ) {
+        let terminal_width = frame.area().width;
+        let areas = calculate_layout(area, terminal_width);
+
+        // 1. Sidebar
+        let sidebar_focused = focused_panel == PanelId::Sidebar;
+        SidebarPanel::view(
+            frame,
+            areas.sidebar,
+            &state.sidebar,
+            sidebar_focused,
+            unicode,
+        );
+
+        // 2. List panel placeholder
+        let list_focused = focused_panel == PanelId::List;
+        let list_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(if list_focused {
+                theme::Styles::focused_border()
+            } else {
+                theme::Styles::unfocused_border()
+            });
+        frame.render_widget(list_block, areas.list);
+
+        // 3. Detail panel placeholder
+        let detail_focused = focused_panel == PanelId::Detail;
+        let detail_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(if detail_focused {
+                theme::Styles::focused_border()
+            } else {
+                theme::Styles::unfocused_border()
+            });
+        frame.render_widget(detail_block, areas.detail);
+
+        // 4. Horizontal separator between content and status bar
+        render_horizontal_separator(frame, areas.status_separator, unicode);
+
+        // 5. Vertical separators between panels (only in unicode mode)
+        if unicode {
+            render_vertical_separators(frame, &areas);
+        }
+
+        // 6. Status bar
+        StatusBarPanel::view(
+            frame,
+            areas.status_bar,
+            &state.status_bar,
+            focused_panel,
+            unicode,
+        );
+    }
+}
+
+/// Render the horizontal separator line between content panels and the status bar.
+fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let sep_char = if unicode { HORIZONTAL_SEPARATOR } else { "-" };
+    let line: String =
+        std::iter::repeat_n(sep_char.chars().next().unwrap_or('-'), area.width as usize).collect();
+
+    let paragraph = Paragraph::new(Line::from(Span::styled(
+        line,
+        Style::default().fg(theme::BORDER),
+    )));
+    frame.render_widget(paragraph, area);
+}
+
+/// Render vertical separator characters ("│") between the three panels.
+///
+/// Draws separator lines at the boundaries between sidebar|list and list|detail.
+fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas) {
+    let sep_style = Style::default().fg(theme::BORDER);
+
+    // Separator between sidebar and list
+    if areas.sidebar.width > 0 && areas.list.width > 0 {
+        let x = areas.sidebar.x + areas.sidebar.width;
+        // Only render if there is no overlap (the separator column was not
+        // allocated to any panel — it visually sits on the border).
+        // We render into a 1-column-wide strip at the panel boundary.
+        let sep_rect = Rect::new(
+            x.saturating_sub(1),
+            areas.sidebar.y,
+            1,
+            areas.sidebar.height,
+        );
+        let line: String = std::iter::repeat_n(
+            PANEL_SEPARATOR.chars().next().unwrap(),
+            sep_rect.height as usize,
+        )
+        .collect();
+        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
+        frame.render_widget(paragraph, sep_rect);
+    }
+
+    // Separator between list and detail
+    if areas.list.width > 0 && areas.detail.width > 0 {
+        let x = areas.list.x + areas.list.width;
+        let sep_rect = Rect::new(x.saturating_sub(1), areas.list.y, 1, areas.list.height);
+        let line: String = std::iter::repeat_n(
+            PANEL_SEPARATOR.chars().next().unwrap(),
+            sep_rect.height as usize,
+        )
+        .collect();
+        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
+        frame.render_widget(paragraph, sep_rect);
     }
 }
