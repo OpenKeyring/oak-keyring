@@ -11,3 +11,6 @@ pub mod import_export;
 pub mod password_generator;
 pub mod set_password;
 pub mod sync_conflict;
+
+// Re-export Screen trait for convenience.
+pub use crate::tui::traits::screen::Screen;

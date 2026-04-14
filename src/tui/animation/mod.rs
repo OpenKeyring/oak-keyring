@@ -12,13 +12,18 @@ pub enum AnimationLevel {
 /// Detect animation capability from terminal environment.
 pub fn detect_animation_level() -> AnimationLevel {
     let colorterm = std::env::var("COLORTERM").unwrap_or_default();
-    let term = std::env::var("TERM").unwrap_or_default();
+    let term_program = std::env::var("TERM_PROGRAM").unwrap_or_default();
 
-    if colorterm == "truecolor" || colorterm == "24bit" {
+    // Terminals known to support true color.
+    let true_color_terminals = ["iTerm.app", "ghostty", "Hyper", "WezTerm", "vscode"];
+
+    if colorterm == "truecolor"
+        || colorterm == "24bit"
+        || true_color_terminals.iter().any(|&t| term_program == t)
+    {
         AnimationLevel::Full
-    } else if term.contains("256color") || term.contains("xterm") {
-        AnimationLevel::Reduced
     } else {
-        AnimationLevel::None
+        // Assume at least reduced for any 256-color terminal.
+        AnimationLevel::Reduced
     }
 }

@@ -133,9 +133,83 @@ fn handle_message(
             app.state.update_size(w, h);
         }
 
+        // -- Command results: global handling + screen routing ----
+        Message::CommandCompleted(ref result) => {
+            use crate::commands::result::CommandResult;
+            use crate::tui::state::notification::StatusMessage;
+
+            match result {
+                CommandResult::ConfigSaved => {
+                    app.state.shared.notification.enqueue(
+                        StatusMessage::success("Configuration saved".into()),
+                    );
+                }
+                CommandResult::ConfigLoaded { config } => {
+                    // Language change
+                    if config.general.language != app.config.general.language {
+                        crate::tui::i18n::switch_locale(&config.general.language);
+                    }
+                    // Animation mode change
+                    app.state.shared.animation.level = match config.general.animation {
+                        crate::config::general::AnimationMode::On => {
+                            crate::tui::animation::AnimationLevel::Full
+                        }
+                        crate::config::general::AnimationMode::Off => {
+                            crate::tui::animation::AnimationLevel::None
+                        }
+                        crate::config::general::AnimationMode::Auto => {
+                            crate::tui::animation::detect_animation_level()
+                        }
+                    };
+                    app.config = config.clone();
+                }
+                CommandResult::SyncConnectionTested { success, message } => {
+                    let msg = if *success {
+                        StatusMessage::success(message.clone())
+                    } else {
+                        StatusMessage::error(message.clone())
+                    };
+                    app.state.shared.notification.enqueue(msg);
+                }
+                CommandResult::Error { fallback, .. } => {
+                    app.state.shared.notification.enqueue(
+                        StatusMessage::error(fallback.clone()),
+                    );
+                }
+                CommandResult::FatalError { fallback, .. } => {
+                    app.state.shared.notification.enqueue(
+                        StatusMessage::error(fallback.clone()),
+                    );
+                }
+                _ => {} // Screen-specific results handled below
+            }
+            // Also route to current screen for screen-specific result handling.
+            let command_tx = app.command_tx.clone();
+            let mut ctx = ScreenContext {
+                command_tx: &command_tx,
+                config: &app.config,
+            };
+            let result = route_to_screen(&mut app.state, msg, &mut ctx);
+            match result {
+                ScreenResult::Continue => {}
+                ScreenResult::NavigateTo(screen) => {
+                    app.state.navigate_to(screen);
+                    let ctx = ScreenContext {
+                        command_tx: &app.command_tx,
+                        config: &app.config,
+                    };
+                    route_on_mount_from_state(&mut app.state, &ctx);
+                }
+                ScreenResult::ExitApp => {
+                    app.phase = AppPhase::ShuttingDown;
+                    app.cancel_token.cancel();
+                    return Ok(LoopControl::Exit);
+                }
+            }
+        }
+
         // -- All other messages: route to current screen.
         _ => {
-            // Clone command_tx to avoid borrowing app while routing.
             let command_tx = app.command_tx.clone();
             let mut ctx = ScreenContext {
                 command_tx: &command_tx,
