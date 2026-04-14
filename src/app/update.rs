@@ -1,6 +1,194 @@
-use crate::app::App;
+//! TEA (The Elm Architecture) event loop — the heart of the application.
+//!
+//! Core 4-step loop:
+//! 1. Drain executor result channel (non-blocking)
+//! 2. Poll terminal event with ~50ms timeout
+//! 3. Process timers (Tick when no terminal event)
+//! 4. Render current frame
 
-pub fn run(_app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: Implement TEA event loop
-    Ok(())
+use std::time::Duration;
+
+use crossterm::event::{self, Event as CrosstermEvent};
+use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
+
+use crate::app::signal::SignalHandler;
+use crate::app::view;
+use crate::app::App;
+use crate::commands::types::{AppPhase, Screen};
+use crate::commands::Message;
+use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
+
+/// Tick rate: how often we check for terminal events. Also drives timers/animations.
+const TICK_RATE: Duration = Duration::from_millis(50);
+
+pub fn run(
+    app: &mut App,
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Spawn signal handler.
+    let _signal_handler = SignalHandler::spawn(app.result_tx.clone());
+
+    // Initial render.
+    terminal.draw(|f| view::render(f, app))?;
+
+    // Main TEA loop.
+    loop {
+        // Step 1: Drain all pending results from the executor (non-blocking).
+        while let Ok(msg) = app.result_rx.try_recv() {
+            if handle_message(app, msg)? == LoopControl::Exit {
+                return Ok(());
+            }
+        }
+
+        // Step 2: Poll for terminal events with timeout.
+        let has_event = event::poll(TICK_RATE)?;
+
+        if has_event {
+            match event::read()? {
+                CrosstermEvent::Key(key_event) => {
+                    if handle_message(app, Message::KeyEvent(key_event))? == LoopControl::Exit {
+                        return Ok(());
+                    }
+                }
+                CrosstermEvent::Resize(width, height) => {
+                    if handle_message(app, Message::Resize { width, height })? == LoopControl::Exit {
+                        return Ok(());
+                    }
+                }
+                // Ignore mouse events and other crossterm events for now.
+                _ => {}
+            }
+        } else {
+            // Step 3: No terminal event — send Tick for animations/timers.
+            if handle_message(app, Message::Tick)? == LoopControl::Exit {
+                return Ok(());
+            }
+        }
+
+        // Step 4: Render.
+        terminal.draw(|f| view::render(f, app))?;
+    }
+}
+
+/// Loop control flow returned by message handlers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoopControl {
+    Continue,
+    Exit,
+}
+
+/// Dispatch a single Message. Returns Exit if the app should shut down.
+fn handle_message(
+    app: &mut App,
+    msg: Message,
+) -> Result<LoopControl, Box<dyn std::error::Error>> {
+    match &msg {
+        // -- Shutdown handling (direct) ----
+        Message::ShutdownRequested { force } => {
+            app.phase = AppPhase::ShuttingDown;
+            app.cancel_token.cancel();
+            if *force {
+                tracing::warn!("forced shutdown requested");
+            } else {
+                tracing::info!("graceful shutdown initiated");
+            }
+            return Ok(LoopControl::Exit);
+        }
+
+        // -- Navigation (direct) -----------
+        Message::NavigateTo(screen) => {
+            let screen = *screen;
+            app.state.navigate_to(screen);
+            // Call on_mount for the new screen.
+            // Clone command_tx to avoid borrowing conflict with &mut app.state.
+            let command_tx = app.command_tx.clone();
+            let ctx = ScreenContext {
+                command_tx: &command_tx,
+                config: &app.config,
+            };
+            route_on_mount_from_state(&mut app.state, &ctx);
+        }
+
+        Message::GoBack => {
+            if !app.state.go_back() {
+                // Stack is empty — exit the app.
+                app.phase = AppPhase::ShuttingDown;
+                app.cancel_token.cancel();
+                return Ok(LoopControl::Exit);
+            }
+        }
+
+        // -- Tick (direct) ------------------
+        Message::Tick => {
+            // Tick notification state for auto-dismiss.
+            app.state.shared.notification.tick();
+            // AnimationState clears itself when expired via is_active().
+        }
+
+        // -- Resize (direct) ----------------
+        Message::Resize { width, height } => {
+            let w = *width;
+            let h = *height;
+            app.state.update_size(w, h);
+        }
+
+        // -- All other messages: route to current screen.
+        _ => {
+            // Clone command_tx to avoid borrowing app while routing.
+            let command_tx = app.command_tx.clone();
+            let mut ctx = ScreenContext {
+                command_tx: &command_tx,
+                config: &app.config,
+            };
+            let result = route_to_screen(&mut app.state, msg, &mut ctx);
+            match result {
+                ScreenResult::Continue => {}
+                ScreenResult::NavigateTo(screen) => {
+                    app.state.navigate_to(screen);
+                    let ctx = ScreenContext {
+                        command_tx: &app.command_tx,
+                        config: &app.config,
+                    };
+                    route_on_mount_from_state(&mut app.state, &ctx);
+                }
+                ScreenResult::ExitApp => {
+                    app.phase = AppPhase::ShuttingDown;
+                    app.cancel_token.cancel();
+                    return Ok(LoopControl::Exit);
+                }
+            }
+        }
+    }
+
+    // If phase was externally set to ShuttingDown, exit.
+    if app.phase == AppPhase::ShuttingDown {
+        return Ok(LoopControl::Exit);
+    }
+
+    Ok(LoopControl::Continue)
+}
+
+/// Route a message to the current screen's `update()` method.
+fn route_to_screen(
+    state: &mut crate::tui::state::AppState,
+    msg: Message,
+    ctx: &mut ScreenContext<'_>,
+) -> ScreenResult {
+    match state.current_screen {
+        Screen::Unlock => state.screens.unlock.update(msg, ctx),
+        Screen::Onboarding => state.screens.onboarding.update(msg, ctx),
+        // Placeholder screens — ignore messages.
+        _ => ScreenResult::Continue,
+    }
+}
+
+/// Call `on_mount()` on the current screen after navigation.
+/// Takes `&mut AppState` directly to avoid borrow conflicts with App fields.
+fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &ScreenContext<'_>) {
+    match state.current_screen {
+        Screen::Unlock => state.screens.unlock.on_mount(ctx),
+        Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
+        _ => {}
+    }
 }
