@@ -6,5 +6,6 @@ mod executor_dispatch_test;
 mod health_test;
 mod i18n_test;
 mod rotation_test;
+mod ui_entry_test;
 mod vault_db_crypto_test;
 mod vault_service_test;
