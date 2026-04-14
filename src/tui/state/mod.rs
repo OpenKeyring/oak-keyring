@@ -28,6 +28,7 @@ pub struct AppState {
 }
 
 /// Cross-cutting state shared across all screens.
+#[derive(Default)]
 pub struct SharedState {
     pub notification: notification::NotificationState,
     pub loading: loading::LoadingState,
@@ -36,6 +37,7 @@ pub struct SharedState {
 }
 
 /// Per-screen state containers. Only one is active at a time (determined by current_screen).
+#[derive(Default)]
 pub struct ScreenStates {
     pub unlock: UnlockScreen,
     pub onboarding: OnboardingScreen,
@@ -59,25 +61,7 @@ impl Default for AppState {
     }
 }
 
-impl Default for SharedState {
-    fn default() -> Self {
-        Self {
-            notification: notification::NotificationState::default(),
-            loading: loading::LoadingState::default(),
-            focus: focus::FocusState::default(),
-            animation: animation::AnimationState::default(),
-        }
-    }
-}
 
-impl Default for ScreenStates {
-    fn default() -> Self {
-        Self {
-            unlock: UnlockScreen::default(),
-            onboarding: OnboardingScreen::default(),
-        }
-    }
-}
 
 impl AppState {
     /// Navigate to a new screen, pushing current onto the stack.

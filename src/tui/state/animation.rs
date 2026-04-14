@@ -50,7 +50,7 @@ impl AnimationState {
     pub fn is_active(&self) -> bool {
         self.active_effect
             .as_ref()
-            .map_or(false, |e| e.started_at.elapsed().as_millis() < e.duration_ms as u128)
+            .is_some_and(|e| e.started_at.elapsed().as_millis() < e.duration_ms as u128)
     }
 
     pub fn clear(&mut self) {
