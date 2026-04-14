@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use crossterm::event::{self, Event as CrosstermEvent};
+use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
@@ -46,7 +46,7 @@ pub fn run(
 
         if has_event {
             match event::read()? {
-                CrosstermEvent::Key(key_event) => {
+                CrosstermEvent::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                     if handle_message(app, Message::KeyEvent(key_event))? == LoopControl::Exit {
                         return Ok(());
                     }
@@ -99,18 +99,21 @@ fn handle_message(
         // -- Navigation (direct) -----------
         Message::NavigateTo(screen) => {
             let screen = *screen;
-            app.state.navigate_to(screen);
-            // Call on_mount for the new screen.
-            // Clone command_tx to avoid borrowing conflict with &mut app.state.
             let command_tx = app.command_tx.clone();
             let ctx = ScreenContext {
                 command_tx: &command_tx,
                 config: &app.config,
             };
+            // Call on_unmount on the old screen before navigating.
+            route_on_unmount_from_state(&mut app.state);
+            app.state.navigate_to(screen);
+            // Call on_mount for the new screen.
             route_on_mount_from_state(&mut app.state, &ctx);
         }
 
         Message::GoBack => {
+            // Call on_unmount on the current screen.
+            route_on_unmount_from_state(&mut app.state);
             if !app.state.go_back() {
                 // Stack is empty — exit the app.
                 app.phase = AppPhase::ShuttingDown;
@@ -193,6 +196,7 @@ fn handle_message(
             match result {
                 ScreenResult::Continue => {}
                 ScreenResult::NavigateTo(screen) => {
+                    route_on_unmount_from_state(&mut app.state);
                     app.state.navigate_to(screen);
                     let ctx = ScreenContext {
                         command_tx: &app.command_tx,
@@ -219,6 +223,7 @@ fn handle_message(
             match result {
                 ScreenResult::Continue => {}
                 ScreenResult::NavigateTo(screen) => {
+                    route_on_unmount_from_state(&mut app.state);
                     app.state.navigate_to(screen);
                     let ctx = ScreenContext {
                         command_tx: &app.command_tx,
@@ -258,11 +263,19 @@ fn route_to_screen(
 }
 
 /// Call `on_mount()` on the current screen after navigation.
-/// Takes `&mut AppState` directly to avoid borrow conflicts with App fields.
 fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &ScreenContext<'_>) {
     match state.current_screen {
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
         Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
+        _ => {}
+    }
+}
+
+/// Call `on_unmount()` on the current screen before navigation.
+fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
+    match state.current_screen {
+        Screen::Unlock => state.screens.unlock.on_unmount(),
+        Screen::Onboarding => state.screens.onboarding.on_unmount(),
         _ => {}
     }
 }
