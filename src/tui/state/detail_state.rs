@@ -60,7 +60,9 @@ impl DetailField {
     pub fn display_value(&self) -> String {
         match &self.value {
             FieldValue::Plain(s) => s.clone(),
-            FieldValue::Masked => "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string(),
+            FieldValue::Masked => {
+                "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string()
+            }
             FieldValue::Revealed(s) => s.clone(),
         }
     }
@@ -210,8 +212,8 @@ impl DetailPanelState {
         };
         let fields = &record.fields;
         let start = self.focused_field + 1;
-        for i in start..fields.len() {
-            if fields[i].is_interactive() {
+        for (i, field) in fields.iter().enumerate().skip(start) {
+            if field.is_interactive() {
                 self.focused_field = i;
                 return true;
             }
@@ -258,18 +260,21 @@ impl DetailPanelState {
 
     pub fn password_field(&self) -> Option<&DetailField> {
         self.record.as_ref().and_then(|r| {
-            r.fields.iter().find(|f| f.kind == DetailFieldKind::Password
-                || f.kind == DetailFieldKind::SecretKey
-                || f.kind == DetailFieldKind::PrivateKey)
+            r.fields.iter().find(|f| {
+                f.kind == DetailFieldKind::Password
+                    || f.kind == DetailFieldKind::SecretKey
+                    || f.kind == DetailFieldKind::PrivateKey
+            })
         })
     }
 
     pub fn username_field(&self) -> Option<&DetailField> {
         self.record.as_ref().and_then(|r| {
             r.fields.iter().find(|f| {
-                matches!(f.kind, DetailFieldKind::Username
-                    | DetailFieldKind::AppId
-                    | DetailFieldKind::PublicKey)
+                matches!(
+                    f.kind,
+                    DetailFieldKind::Username | DetailFieldKind::AppId | DetailFieldKind::PublicKey
+                )
             })
         })
     }
@@ -665,7 +670,10 @@ mod tests {
             toggleable: false,
             kind: DetailFieldKind::Password,
         };
-        assert_eq!(masked.display_value(), "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}");
+        assert_eq!(
+            masked.display_value(),
+            "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"
+        );
 
         let revealed = DetailField {
             label: "密码".into(),

@@ -7,6 +7,7 @@ pub mod audit_log;
 pub mod config_screen;
 pub mod create_record;
 pub mod edit_record;
+pub mod form;
 pub mod import_export;
 pub mod password_generator;
 pub mod set_password;
