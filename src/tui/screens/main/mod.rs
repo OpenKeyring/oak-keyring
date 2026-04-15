@@ -8,7 +8,7 @@ pub mod status_bar;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::commands::types::PanelId;
@@ -25,6 +25,8 @@ pub struct MainScreen {
     #[allow(dead_code)]
     list: list::ListPanel,
     #[allow(dead_code)]
+    detail: detail::DetailPanel,
+    #[allow(dead_code)]
     status_bar: StatusBarPanel,
 }
 
@@ -40,6 +42,7 @@ impl MainScreen {
         Self {
             sidebar: SidebarPanel,
             list: list::ListPanel,
+            detail: detail::DetailPanel,
             status_bar: StatusBarPanel,
         }
     }
@@ -84,16 +87,15 @@ impl MainScreen {
             state.current_filter.clone(),
         );
 
-        // 3. Detail panel placeholder
+        // 3. Detail panel
         let detail_focused = focused_panel == PanelId::Detail;
-        let detail_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(if detail_focused {
-                theme::Styles::focused_border()
-            } else {
-                theme::Styles::unfocused_border()
-            });
-        frame.render_widget(detail_block, areas.detail);
+        self.detail.view(
+            frame,
+            areas.detail,
+            &state.detail,
+            detail_focused,
+            unicode,
+        );
 
         // 4. Horizontal separator between content and status bar
         render_horizontal_separator(frame, areas.status_separator, unicode);

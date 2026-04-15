@@ -1,0 +1,24 @@
+---
+source: tests/snapshot_tests/screens/detail_test.rs
+expression: terminal.backend()
+---
+"  腾讯云 API                                                " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+"  cloud.tencent.com                                         "
+"                                                            "
+"  ──────────────────────────────                            "
+"                                                            "
+"  API 凭证                                                  " Hidden by multi-width symbols: [(7, " "), (9, " ")]
+"                                                            "
+"  AppID:                                                    "
+"    app_1234567890                                          "
+"                                                            "
+"  SecretKey:                                                "
+"    ••••••••                                                "
+"                                                            "
+"[cloud]                                                     "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
