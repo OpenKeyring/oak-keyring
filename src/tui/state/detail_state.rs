@@ -688,4 +688,96 @@ mod tests {
         let empty_state = DetailPanelState::default();
         assert!(empty_state.username_field().is_none());
     }
+
+    #[test]
+    fn build_from_login_record() {
+        use crate::types::record::DecryptedRecord;
+        use crate::types::sensitive::SecureStr;
+
+        let record = DecryptedRecord::Login {
+            id: Uuid::new_v4(),
+            name: "GitHub".into(),
+            username: "octocat".into(),
+            password: SecureStr::new("secret123".into()),
+            url: Some("https://github.com".into()),
+            notes: Some("My account".into()),
+            is_favorite: true,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec!["dev".into()],
+        };
+
+        let data = DetailPanelState::build_from_record(&record);
+        assert_eq!(data.name, "GitHub");
+        assert!(data.is_favorite);
+        assert_eq!(data.fields.len(), 4); // username, password, url, notes
+        assert_eq!(data.fields[0].label, "用户名");
+        assert!(matches!(data.fields[0].value, FieldValue::Plain(ref s) if s == "octocat"));
+        assert_eq!(data.fields[1].label, "密码");
+        assert!(matches!(data.fields[1].value, FieldValue::Masked));
+        assert_eq!(data.tags, vec!["dev"]);
+    }
+
+    #[test]
+    fn build_from_api_record() {
+        use crate::types::record::DecryptedRecord;
+        use crate::types::sensitive::SecureStr;
+
+        let record = DecryptedRecord::Api {
+            id: Uuid::new_v4(),
+            name: "Cloud API".into(),
+            app_id: "app_123".into(),
+            secret_key: SecureStr::new("secret".into()),
+            url: None,
+            notes: None,
+            is_favorite: false,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+        };
+
+        let data = DetailPanelState::build_from_record(&record);
+        assert_eq!(data.name, "Cloud API");
+        assert_eq!(data.fields.len(), 2); // AppID, SecretKey
+        assert_eq!(data.fields[0].kind, DetailFieldKind::AppId);
+        assert_eq!(data.fields[1].kind, DetailFieldKind::SecretKey);
+    }
+
+    #[test]
+    fn build_from_ssh_record() {
+        use crate::types::record::DecryptedRecord;
+        use crate::types::sensitive::SecureStr;
+
+        let record = DecryptedRecord::Ssh {
+            id: Uuid::new_v4(),
+            name: "Server Key".into(),
+            public_key: "ssh-rsa AAAA...".into(),
+            private_key: Some(SecureStr::new("private".into())),
+            passphrase: Some(SecureStr::new("pass".into())),
+            notes: None,
+            is_favorite: false,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+        };
+
+        let data = DetailPanelState::build_from_record(&record);
+        assert_eq!(data.fields.len(), 3); // PublicKey, PrivateKey, Passphrase
+        assert_eq!(data.fields[0].kind, DetailFieldKind::PublicKey);
+        assert!(matches!(data.fields[0].value, FieldValue::Plain(_)));
+        assert_eq!(data.fields[1].kind, DetailFieldKind::PrivateKey);
+        assert!(matches!(data.fields[1].value, FieldValue::Masked));
+    }
 }
