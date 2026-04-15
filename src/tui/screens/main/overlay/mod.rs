@@ -113,13 +113,13 @@ impl OverlayManager {
 /// Reversible actions default to Confirm; irreversible actions default to Cancel.
 fn default_confirm_button(variant: &ConfirmVariant) -> ConfirmButton {
     match variant {
-        // HardDelete is irreversible — default to Cancel for safety.
-        ConfirmVariant::HardDelete { .. } => ConfirmButton::Cancel,
-        // All others are reversible — default to Confirm.
-        ConfirmVariant::SoftDelete { .. }
+        // Irreversible actions — default to Cancel for safety.
+        ConfirmVariant::HardDelete { .. }
         | ConfirmVariant::EmptyTrash { .. }
-        | ConfirmVariant::BatchSoftDelete { .. }
-        | ConfirmVariant::TagDelete { .. } => ConfirmButton::Confirm,
+        | ConfirmVariant::TagDelete { .. } => ConfirmButton::Cancel,
+        // Reversible actions — default to Confirm.
+        ConfirmVariant::SoftDelete { .. }
+        | ConfirmVariant::BatchSoftDelete { .. } => ConfirmButton::Confirm,
     }
 }
 
@@ -202,6 +202,54 @@ mod tests {
         match mgr.get() {
             Some(ActiveOverlay::ConfirmDialog { focused_button, .. }) => {
                 assert_eq!(*focused_button, ConfirmButton::Cancel);
+            }
+            _ => panic!("Expected ConfirmDialog"),
+        }
+        mgr.close();
+
+        // EmptyTrash is irreversible → default focus is Cancel.
+        let state = ConfirmDialogState {
+            variant: ConfirmVariant::EmptyTrash { count: 5 },
+            focused_button: ConfirmButton::Confirm,
+        };
+        assert!(mgr.open(Overlay::ConfirmDialog(state)));
+        match mgr.get() {
+            Some(ActiveOverlay::ConfirmDialog { focused_button, .. }) => {
+                assert_eq!(*focused_button, ConfirmButton::Cancel);
+            }
+            _ => panic!("Expected ConfirmDialog"),
+        }
+        mgr.close();
+
+        // TagDelete is irreversible → default focus is Cancel.
+        let state = ConfirmDialogState {
+            variant: ConfirmVariant::TagDelete {
+                tag_name: "work".to_string(),
+                affected_count: 3,
+            },
+            focused_button: ConfirmButton::Confirm,
+        };
+        assert!(mgr.open(Overlay::ConfirmDialog(state)));
+        match mgr.get() {
+            Some(ActiveOverlay::ConfirmDialog { focused_button, .. }) => {
+                assert_eq!(*focused_button, ConfirmButton::Cancel);
+            }
+            _ => panic!("Expected ConfirmDialog"),
+        }
+        mgr.close();
+
+        // BatchSoftDelete is reversible → default focus is Confirm.
+        let state = ConfirmDialogState {
+            variant: ConfirmVariant::BatchSoftDelete {
+                record_ids: vec![id],
+                record_names: vec!["test".to_string()],
+            },
+            focused_button: ConfirmButton::Cancel,
+        };
+        assert!(mgr.open(Overlay::ConfirmDialog(state)));
+        match mgr.get() {
+            Some(ActiveOverlay::ConfirmDialog { focused_button, .. }) => {
+                assert_eq!(*focused_button, ConfirmButton::Confirm);
             }
             _ => panic!("Expected ConfirmDialog"),
         }
