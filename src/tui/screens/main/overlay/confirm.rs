@@ -64,8 +64,6 @@ pub fn render_confirm(
     let height = (total_lines + 2).min(area.height); // +2 border rows
     let overlay_rect = centered_rect(area, width, height);
 
-    let inner = inner_area(overlay_rect);
-
     let paragraph = Paragraph::new(all_lines)
         .block(block)
         .wrap(Wrap { trim: false })
@@ -73,10 +71,6 @@ pub fn render_confirm(
 
     frame.render_widget(Clear, overlay_rect);
     frame.render_widget(paragraph, overlay_rect);
-
-    // We keep a reference to inner_area for potential future use, but the
-    // paragraph widget already handles the inner layout via the block.
-    let _ = inner;
 }
 
 /// Handle a key press while the confirmation dialog is active.
@@ -117,6 +111,7 @@ fn is_danger_variant(variant: &ConfirmVariant) -> bool {
         variant,
         ConfirmVariant::HardDelete { .. }
             | ConfirmVariant::EmptyTrash { .. }
+            | ConfirmVariant::TagDelete { .. }
     )
 }
 
@@ -134,7 +129,7 @@ fn confirm_label_for(variant: &ConfirmVariant) -> &'static str {
 // ── Dialog content builder ───────────────────────────────────────
 
 /// Build (title, body_lines, confirm_label) for a variant.
-fn build_dialog_parts(variant: &ConfirmVariant, content_width: u16) -> (String, Vec<Line<'static>>, &'static str) {
+fn build_dialog_parts(variant: &ConfirmVariant, _content_width: u16) -> (String, Vec<Line<'static>>, &'static str) {
     match variant {
         ConfirmVariant::SoftDelete {
             record_name,
@@ -143,7 +138,6 @@ fn build_dialog_parts(variant: &ConfirmVariant, content_width: u16) -> (String, 
         } => {
             let mut lines = vec![line_with_name(
                 &format!("将 \"{}\" 移到回收站？", record_name),
-                content_width,
             )];
             if let Some(days) = auto_delete_days {
                 lines.push(Line::from(""));
@@ -162,7 +156,6 @@ fn build_dialog_parts(variant: &ConfirmVariant, content_width: u16) -> (String, 
         ConfirmVariant::HardDelete { record_name, .. } => {
             let lines = vec![line_with_name(
                 &format!("确定永久删除 \"{}\"？", record_name),
-                content_width,
             )];
             (
                 format!(" {} 警告 ", theme::ICON_WARNING),
@@ -217,7 +210,6 @@ fn build_dialog_parts(variant: &ConfirmVariant, content_width: u16) -> (String, 
         } => {
             let mut lines = vec![line_with_name(
                 &format!("确定删除标签 \"{}\"？", tag_name),
-                content_width,
             )];
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
@@ -274,8 +266,7 @@ fn render_buttons(
 }
 
 /// A line that respects content width (used for name-containing messages).
-/// Currently a no-op wrapper but ensures consistent styling.
-fn line_with_name(text: &str, _content_width: u16) -> Line<'static> {
+fn line_with_name(text: &str) -> Line<'static> {
     Line::from(Span::styled(
         text.to_string(),
         Style::default().fg(theme::TEXT),
@@ -294,25 +285,7 @@ fn separator_line(content_width: u16) -> Line<'static> {
 
 /// Return a `Rect` of size `width x height` centred inside `area`.
 fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
-    let x = area
-        .x
-        .checked_add((area.width.saturating_sub(width)) / 2)
-        .unwrap_or(area.x);
-    let y = area
-        .y
-        .checked_add((area.height.saturating_sub(height)) / 2)
-        .unwrap_or(area.y);
-    Rect::new(x, y, width.min(area.width), height.min(area.height))
-}
-
-/// Return the inner content area (excluding borders).
-fn inner_area(rect: Rect) -> Rect {
-    Rect::new(
-        rect.x + 1,
-        rect.y + 1,
-        rect.width.saturating_sub(2),
-        rect.height.saturating_sub(2),
-    )
+    super::centered_rect(area, width, height)
 }
 
 // ── Tests ────────────────────────────────────────────────────────
@@ -406,7 +379,7 @@ mod tests {
             record_ids: vec![Uuid::new_v4()],
             record_names: vec!["a".to_string()],
         }));
-        assert!(!is_danger_variant(&ConfirmVariant::TagDelete {
+        assert!(is_danger_variant(&ConfirmVariant::TagDelete {
             tag_name: "work".to_string(),
             affected_count: 1,
         }));
@@ -462,16 +435,6 @@ mod tests {
         let rect = centered_rect(area, 48, 10);
         assert_eq!(rect.width, 20);
         assert_eq!(rect.height, 5);
-    }
-
-    #[test]
-    fn inner_area_subtracts_borders() {
-        let rect = Rect::new(10, 5, 48, 10);
-        let inner = inner_area(rect);
-        assert_eq!(inner.x, 11);
-        assert_eq!(inner.y, 6);
-        assert_eq!(inner.width, 46);
-        assert_eq!(inner.height, 8);
     }
 
     #[test]
