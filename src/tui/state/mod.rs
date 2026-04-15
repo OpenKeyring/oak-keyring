@@ -5,6 +5,7 @@ pub mod list_state;
 pub mod loading;
 pub mod main_state;
 pub mod notification;
+pub mod overlay_state;
 
 use crate::commands::types::{AppPhase, Screen};
 use crate::tui::screens::onboarding::OnboardingScreen;
