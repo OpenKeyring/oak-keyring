@@ -45,11 +45,10 @@ pub enum HistoryAction {
 /// Render the password history overlay, centred within `area`.
 pub fn render_password_history(frame: &mut Frame, area: Rect, state: &PasswordHistoryState) {
     let width = DIALOG_WIDTH.min(area.width);
-    let content_width = width.saturating_sub(2); // subtract borders
 
-    let body_lines = build_body_lines(state, content_width);
+    let body_lines = build_body_lines(state);
     let footer_line = build_footer_line(state);
-    let close_button = build_title_line(state);
+    let close_button = build_title_line();
 
     // +2 for borders (top/bottom), +1 blank separator before footer
     let total_lines = body_lines.len() + 2;
@@ -116,21 +115,13 @@ pub fn handle_key(key: KeyCode, state: &mut PasswordHistoryState) -> HistoryActi
 
 /// Return a `Rect` of size `width x height` centred inside `area`.
 fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
-    let x = area
-        .x
-        .checked_add((area.width.saturating_sub(width)) / 2)
-        .unwrap_or(area.x);
-    let y = area
-        .y
-        .checked_add((area.height.saturating_sub(height)) / 2)
-        .unwrap_or(area.y);
-    Rect::new(x, y, width.min(area.width), height.min(area.height))
+    super::centered_rect(area, width, height)
 }
 
 // ── Rendering helpers ─────────────────────────────────────────
 
 /// Build the body lines (entry list or empty state).
-fn build_body_lines(state: &PasswordHistoryState, _content_width: u16) -> Vec<Line<'static>> {
+fn build_body_lines(state: &PasswordHistoryState) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
 
     if state.entries.is_empty() {
@@ -194,7 +185,7 @@ fn build_footer_line(state: &PasswordHistoryState) -> Line<'static> {
 }
 
 /// Build the close-button text shown in the title area.
-fn build_title_line(_state: &PasswordHistoryState) -> String {
+fn build_title_line() -> String {
     " ✕ ".to_string()
 }
 

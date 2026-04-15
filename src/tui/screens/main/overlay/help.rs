@@ -15,7 +15,7 @@ use crate::tui::theme;
 
 // ── Colour constants ──────────────────────────────────────────
 
-const OVERLAY_BG: Color = Color::Rgb(31, 35, 53); // #1f2335
+const OVERLAY_BG: Color = Color::Rgb(26, 27, 38); // #1a1b26
 
 // ── Data model ────────────────────────────────────────────────
 
@@ -183,15 +183,7 @@ fn layout_for(area: Rect) -> (Rect, Vec<usize>) {
 
 /// Return a `Rect` of size `width x height` centred inside `area`.
 fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
-    let x = area
-        .x
-        .checked_add((area.width.saturating_sub(width)) / 2)
-        .unwrap_or(area.x);
-    let y = area
-        .y
-        .checked_add((area.height.saturating_sub(height)) / 2)
-        .unwrap_or(area.y);
-    Rect::new(x, y, width.min(area.width), height.min(area.height))
+    super::centered_rect(area, width, height)
 }
 
 // ── Rendering helpers ─────────────────────────────────────────

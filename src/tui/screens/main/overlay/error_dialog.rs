@@ -40,9 +40,8 @@ pub enum ErrorDialogAction {
 /// Render the error dialog overlay, centred within `area`.
 pub fn render_error_dialog(frame: &mut Frame, area: Rect, state: &ErrorDialogFullState) {
     let width = DIALOG_WIDTH.min(area.width);
-    let content_width = width.saturating_sub(2); // borders
 
-    let lines = build_body_lines(state, content_width);
+    let lines = build_body_lines(state);
     let button_line = build_button_line(state);
 
     let total_lines = lines.len() + 2; // +1 blank line +1 button line
@@ -110,21 +109,13 @@ pub fn handle_key(key: crossterm::event::KeyCode, state: &mut ErrorDialogFullSta
 
 /// Return a `Rect` of size `width x height` centred inside `area`.
 fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
-    let x = area
-        .x
-        .checked_add((area.width.saturating_sub(width)) / 2)
-        .unwrap_or(area.x);
-    let y = area
-        .y
-        .checked_add((area.height.saturating_sub(height)) / 2)
-        .unwrap_or(area.y);
-    Rect::new(x, y, width.min(area.width), height.min(area.height))
+    super::centered_rect(area, width, height)
 }
 
 // ── Rendering helpers ─────────────────────────────────────────
 
 /// Build the body lines (message + optional detail).
-fn build_body_lines(state: &ErrorDialogFullState, _content_width: u16) -> Vec<Line<'static>> {
+fn build_body_lines(state: &ErrorDialogFullState) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
 
     // Error message

@@ -7,7 +7,7 @@ use crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::tui::state::overlay_state::{BatchTagPanelFullState, TagPanelFocus};
@@ -56,6 +56,7 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
         .style(Style::default().bg(theme::BG));
 
     let inner = outer_block.inner(panel_area);
+    frame.render_widget(Clear, panel_area);
     frame.render_widget(outer_block, panel_area);
 
     // ── Layout inside panel ──────────────────────────────────────────────
@@ -83,7 +84,6 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
         &state.current_tags,
         state.focus == TagPanelFocus::CurrentTags,
         state.tag_cursor,
-        state,
     );
 
     // ── Available tags section ───────────────────────────────────────────
@@ -99,7 +99,6 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
         &state.available_tags,
         state.focus == TagPanelFocus::AvailableTags,
         available_cursor,
-        state,
     );
 
     // ── Done button ──────────────────────────────────────────────────────
@@ -183,7 +182,6 @@ fn render_tags_section(
     tags: &[String],
     focused: bool,
     cursor: usize,
-    _state: &BatchTagPanelFullState,
 ) {
     let border_color = if focused {
         theme::PRIMARY
@@ -407,15 +405,15 @@ fn handle_available_tags_focus(
 }
 
 /// Handle keys when DoneButton zone is focused.
-fn handle_done_button_focus(key: KeyCode, _state: &mut BatchTagPanelFullState) -> BatchTagAction {
+fn handle_done_button_focus(key: KeyCode, state: &mut BatchTagPanelFullState) -> BatchTagAction {
     match key {
         KeyCode::Enter => BatchTagAction::Close,
         KeyCode::Tab => {
-            next_focus(_state);
+            next_focus(state);
             BatchTagAction::None
         }
         KeyCode::BackTab => {
-            prev_focus(_state);
+            prev_focus(state);
             BatchTagAction::None
         }
         KeyCode::Esc => BatchTagAction::Close,

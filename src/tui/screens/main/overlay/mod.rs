@@ -13,6 +13,19 @@ use crate::tui::state::overlay_state::{
     BatchTagPanelFullState, ErrorDialogFullState, PasswordHistoryState,
 };
 
+/// Return a `Rect` of size `width × height` centred inside `area`.
+pub(crate) fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
+    let x = area
+        .x
+        .checked_add((area.width.saturating_sub(width)) / 2)
+        .unwrap_or(area.x);
+    let y = area
+        .y
+        .checked_add((area.height.saturating_sub(height)) / 2)
+        .unwrap_or(area.y);
+    Rect::new(x, y, width.min(area.width), height.min(area.height))
+}
+
 /// Active overlay with its full internal state.
 #[derive(Debug, Clone)]
 pub enum ActiveOverlay {
