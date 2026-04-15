@@ -62,6 +62,7 @@ impl DetailPanel {
     ) {
         let mut lines = Vec::new();
         let pad = "  ";
+        let narrow = area.width < 100;
 
         // Title Area
         lines.push(Line::from(Span::styled(
@@ -136,6 +137,11 @@ impl DetailPanel {
 
         // Fields
         for (field_idx, field) in record.fields.iter().enumerate() {
+            // Skip notes field on narrow terminals
+            if narrow && field.kind == DetailFieldKind::Notes {
+                continue;
+            }
+
             let is_focused = focused && field_idx == state.focused_field;
 
             let label_style = if is_focused {
@@ -250,16 +256,18 @@ impl DetailPanel {
             lines.push(Line::from(""));
         }
 
-        // Timestamps
-        lines.push(Line::from(Span::styled(
-            format!(
-                "{}\u{521B}\u{5EFA}: {}  \u{66F4}\u{65B0}: {}",
-                pad,
-                record.created_at.format("%Y-%m-%d %H:%M"),
-                record.updated_at.format("%Y-%m-%d %H:%M"),
-            ),
-            Style::default().fg(theme::TEXT_MUTED),
-        )));
+        // Timestamps (hidden on narrow terminals)
+        if !narrow {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "{}\u{521B}\u{5EFA}: {}  \u{66F4}\u{65B0}: {}",
+                    pad,
+                    record.created_at.format("%Y-%m-%d %H:%M"),
+                    record.updated_at.format("%Y-%m-%d %H:%M"),
+                ),
+                Style::default().fg(theme::TEXT_MUTED),
+            )));
+        }
 
         let para = Paragraph::new(lines);
         frame.render_widget(para, area);
