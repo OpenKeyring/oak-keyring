@@ -11,8 +11,8 @@ use crate::tui::theme;
 pub fn render_text_input(
     label: &str,
     value: &str,
-    focused: bool,
-    has_error: bool,
+    _focused: bool,
+    _has_error: bool,
     is_required: bool,
     is_masked: bool,
     width: u16,
@@ -21,14 +21,6 @@ pub fn render_text_input(
         "\u{2022}".repeat(value.chars().count())
     } else {
         value.to_string()
-    };
-
-    let _border_color = if has_error {
-        theme::ERROR
-    } else if focused {
-        theme::PRIMARY
-    } else {
-        theme::BORDER
     };
 
     let label_style = Style::default().fg(theme::TEXT_SECONDARY);
@@ -65,20 +57,12 @@ pub fn render_text_input(
 pub fn render_password_input_with_buttons(
     label: &str,
     value: &str,
-    focused: bool,
-    has_error: bool,
+    _focused: bool,
+    _has_error: bool,
     buttons: &[(&str, bool)], // (label, is_focused)
     width: u16,
 ) -> Vec<Line<'static>> {
     let display_value = "\u{2022}".repeat(value.chars().count());
-    let _border_color = if has_error {
-        theme::ERROR
-    } else if focused {
-        theme::PRIMARY
-    } else {
-        theme::BORDER
-    };
-
     let input_width = width.saturating_sub(label.len() as u16 + buttons.len() as u16 * 12 + 4);
     let padded = format!("{:<width$}", display_value, width = input_width as usize);
 

@@ -12,7 +12,7 @@ use crate::tui::theme;
 pub fn render_tag_input(
     input_text: &str,
     tags: &[String],
-    focused: bool,
+    _focused: bool,
     autocomplete: Option<&TagAutocompleteState>,
     _existing_tags: &[String],
     _width: u16,
@@ -20,11 +20,6 @@ pub fn render_tag_input(
     let mut lines = Vec::new();
 
     // Input row
-    let _border_color = if focused {
-        theme::PRIMARY
-    } else {
-        theme::BORDER
-    };
     lines.push(Line::from(vec![
         Span::styled("  标签 ", Style::default().fg(theme::TEXT_SECONDARY)),
         Span::styled(

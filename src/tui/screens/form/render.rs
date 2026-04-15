@@ -2,7 +2,7 @@
 
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -324,7 +324,7 @@ pub fn render_form(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme::BORDER))
-        .style(Style::default().bg(Color::Rgb(26, 27, 38)));
+        .style(Style::default().bg(theme::BG));
 
     let paragraph = Paragraph::new(lines)
         .block(block)
@@ -377,7 +377,7 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme::BORDER))
-        .style(Style::default().bg(Color::Rgb(26, 27, 38)));
+        .style(Style::default().bg(theme::BG));
     let p = Paragraph::new(lines).block(block);
     frame.render_widget(Clear, dialog_area);
     frame.render_widget(p, dialog_area);
@@ -413,7 +413,7 @@ fn render_unsaved_dialog(frame: &mut Frame, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme::BORDER))
-        .style(Style::default().bg(Color::Rgb(26, 27, 38)));
+        .style(Style::default().bg(theme::BG));
     let p = Paragraph::new(lines).block(block);
     frame.render_widget(Clear, dialog_area);
     frame.render_widget(p, dialog_area);
