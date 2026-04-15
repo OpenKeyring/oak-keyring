@@ -83,6 +83,13 @@ const WORDS: &[&str] = &[
 ];
 
 pub fn generate_memorable_password(word_count: usize) -> Result<SecureStr, String> {
+    generate_memorable_password_with_separator(word_count, "-")
+}
+
+pub fn generate_memorable_password_with_separator(
+    word_count: usize,
+    separator: &str,
+) -> Result<SecureStr, String> {
     if !(3..=12).contains(&word_count) {
         return Err("Word count must be between 3 and 12".into());
     }
@@ -91,7 +98,7 @@ pub fn generate_memorable_password(word_count: usize) -> Result<SecureStr, Strin
         let idx = (OsRng.next_u32() as usize) % WORDS.len();
         words.push(WORDS[idx]);
     }
-    Ok(SecureStr::new(words.join("-")))
+    Ok(SecureStr::new(words.join(separator)))
 }
 
 pub fn generate_pin(length: usize) -> Result<SecureStr, String> {
