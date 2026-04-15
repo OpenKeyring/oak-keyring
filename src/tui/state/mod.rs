@@ -1,4 +1,5 @@
 pub mod animation;
+pub mod detail_state;
 pub mod focus;
 pub mod list_state;
 pub mod loading;
