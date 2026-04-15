@@ -11,7 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::commands::types::{PanelId, RecordFilter};
+use crate::commands::types::PanelId;
 use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, PANEL_SEPARATOR};
 use crate::tui::screens::main::sidebar::SidebarPanel;
 use crate::tui::screens::main::status_bar::StatusBarPanel;
@@ -75,14 +75,13 @@ impl MainScreen {
 
         // 2. List panel
         let list_focused = focused_panel == PanelId::List;
-        let is_trash = matches!(state.current_filter, RecordFilter::Trash);
         list::ListPanel::view(
             frame,
             areas.list,
             &state.list,
             list_focused,
             unicode,
-            is_trash,
+            state.current_filter.clone(),
         );
 
         // 3. Detail panel placeholder
