@@ -1,6 +1,7 @@
 pub mod animation;
 pub mod detail_state;
 pub mod focus;
+pub mod form_state;
 pub mod generator_state;
 pub mod list_state;
 pub mod loading;
