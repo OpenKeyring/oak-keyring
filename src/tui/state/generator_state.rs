@@ -157,7 +157,10 @@ impl GeneratorState {
                 )
             }
             GenerationStyle::Memorable => {
-                password::generate_memorable_password(self.memorable_config.word_count)
+                password::generate_memorable_password_with_separator(
+                    self.memorable_config.word_count,
+                    &self.memorable_config.separator,
+                )
             }
             GenerationStyle::Pin => {
                 password::generate_pin(self.pin_config.length)
