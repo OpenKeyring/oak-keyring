@@ -7,6 +7,7 @@
 //! - [`MainScreenState`] — root aggregate of all main-screen sub-states
 
 use crate::commands::types::{RecordFilter, RecordSort};
+use crate::tui::state::detail_state::DetailPanelState;
 use crate::tui::state::list_state::ListPanelState;
 use crate::types::Tag;
 
@@ -375,6 +376,8 @@ pub struct MainScreenState {
     pub sidebar: SidebarState,
     /// List panel state (records, navigation, search, visual mode).
     pub list: ListPanelState,
+    /// Detail panel state (record display, field navigation, password visibility).
+    pub detail: DetailPanelState,
     /// Status bar state.
     pub status_bar: StatusBarState,
     /// Terminal title state.
@@ -392,6 +395,7 @@ impl Default for MainScreenState {
         Self {
             sidebar: SidebarState::default(),
             list: ListPanelState::default(),
+            detail: DetailPanelState::default(),
             status_bar: StatusBarState::default(),
             terminal_title: TerminalTitleState::default(),
             current_filter: RecordFilter::All,
