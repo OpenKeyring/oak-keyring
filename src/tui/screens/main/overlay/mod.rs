@@ -1,6 +1,7 @@
 pub mod batch_tag;
 pub mod confirm;
 pub mod error_dialog;
+pub mod generator;
 pub mod help;
 pub mod password_history;
 
@@ -9,6 +10,7 @@ use ratatui::{layout::Rect, Frame};
 use uuid::Uuid;
 
 use crate::commands::types::{ConfirmButton, ConfirmVariant, Overlay};
+use crate::tui::state::generator_state::GeneratorState;
 use crate::tui::state::overlay_state::{
     BatchTagPanelFullState, ErrorDialogFullState, PasswordHistoryState,
 };
@@ -37,7 +39,7 @@ pub enum ActiveOverlay {
     },
     BatchTagPanel(BatchTagPanelFullState),
     ErrorDialog(ErrorDialogFullState),
-    PasswordGenerator,
+    PasswordGenerator(GeneratorState),
 }
 
 /// Tells the caller which panel/element should receive keyboard focus after
@@ -144,8 +146,8 @@ impl OverlayManager {
                 ActiveOverlay::ErrorDialog(state) => {
                     error_dialog::render_error_dialog(frame, area, state);
                 }
-                ActiveOverlay::PasswordGenerator => {
-                    // U6 placeholder — password generator overlay renders itself
+                ActiveOverlay::PasswordGenerator(state) => {
+                    generator::render_generator(frame, area, state);
                 }
             }
         }
@@ -238,9 +240,16 @@ impl OverlayManager {
                 }
             }
 
-            ActiveOverlay::PasswordGenerator => {
-                // U6 handles its own key events
-                OverlayKeyResult::Consumed
+            ActiveOverlay::PasswordGenerator(state) => {
+                let action = generator::handle_key(key, state);
+                match action {
+                    generator::GeneratorAction::Close => OverlayKeyResult::Close {
+                        restore: FocusRestoreTarget::PreOpenPosition,
+                    },
+                    generator::GeneratorAction::CopyToClipboard => OverlayKeyResult::Consumed,
+                    // Regenerate and None are consumed internally
+                    _ => OverlayKeyResult::Consumed,
+                }
             }
         }
     }
@@ -283,7 +292,9 @@ impl OverlayManager {
                 actions: Default::default(),
                 focused_button: 0,
             }),
-            Overlay::PasswordGenerator => ActiveOverlay::PasswordGenerator,
+            Overlay::PasswordGenerator => {
+                ActiveOverlay::PasswordGenerator(GeneratorState::new())
+            }
         }
     }
 }
