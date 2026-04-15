@@ -86,6 +86,12 @@ pub struct GeneratorState {
     pub focus: GeneratorFocus,
 }
 
+impl Default for GeneratorState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GeneratorState {
     /// Create a new state with default Random config.
     pub fn new() -> Self {
@@ -319,6 +325,12 @@ impl GeneratorState {
 pub struct EmbeddedGeneratorState {
     pub expanded: bool,
     pub generator: GeneratorState,
+}
+
+impl Default for EmbeddedGeneratorState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EmbeddedGeneratorState {
