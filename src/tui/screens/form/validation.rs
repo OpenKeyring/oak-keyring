@@ -69,16 +69,20 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
 
     // Custom date validation
     if fields.expires_at == ExpiryOption::Custom {
+        let expiry_index = match credential_type {
+            CredentialType::Login | CredentialType::Api => 5,
+            CredentialType::Ssh => 6,
+        };
         if let Some(ref date) = fields.custom_date {
             if let Err(msg) = validate_date(date) {
                 errors.push(ValidationError {
-                    field_index: 5, // expiry field
+                    field_index: expiry_index,
                     message: msg,
                 });
             }
         } else {
             errors.push(ValidationError {
-                field_index: 5,
+                field_index: expiry_index,
                 message: "✗ 日期格式错误".into(),
             });
         }

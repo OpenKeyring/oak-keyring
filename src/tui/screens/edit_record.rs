@@ -71,8 +71,20 @@ impl EditRecordScreen {
                 self.attempt_save()
             }
             KeyCode::Enter => self.handle_enter(),
-            KeyCode::Char(c) => self.handle_char_input(c),
-            KeyCode::Backspace => self.handle_backspace(),
+            KeyCode::Char(c) => {
+                if self.is_custom_date_focused() {
+                    self.handle_date_char(c)
+                } else {
+                    self.handle_char_input(c)
+                }
+            }
+            KeyCode::Backspace => {
+                if self.is_custom_date_focused() {
+                    self.handle_date_backspace()
+                } else {
+                    self.handle_backspace()
+                }
+            }
             _ => EditRecordAction::None,
         }
     }
@@ -250,6 +262,52 @@ impl EditRecordScreen {
                 }
             }
         }
+        self.form.has_changes = true;
+        EditRecordAction::None
+    }
+
+    /// Check if the custom date sub-input is currently focused.
+    fn is_custom_date_focused(&self) -> bool {
+        let expiry_idx = match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api => 5,
+            CredentialType::Ssh => 6,
+        };
+        self.form.focused_field == expiry_idx && self.form.fields.expires_at == ExpiryOption::Custom
+    }
+
+    /// Handle smart cursor backspace for YYYY-MM-DD date input.
+    fn handle_date_backspace(&mut self) -> EditRecordAction {
+        if let Some(ref mut date) = self.form.fields.custom_date {
+            if !date.is_empty() {
+                date.pop();
+                // If we just deleted a character right after a '-', delete the '-' too
+                if date.ends_with('-') {
+                    date.pop();
+                }
+            }
+        }
+        self.form.has_changes = true;
+        EditRecordAction::None
+    }
+
+    /// Handle digit input for YYYY-MM-DD with auto-skip separators.
+    fn handle_date_char(&mut self, c: char) -> EditRecordAction {
+        if !c.is_ascii_digit() {
+            return EditRecordAction::None;
+        }
+        let date = self
+            .form
+            .fields
+            .custom_date
+            .get_or_insert_with(|| "    -  -  ".to_string());
+
+        // Find next space position to place the digit
+        if let Some(pos) = date.chars().position(|ch| ch == ' ') {
+            let mut chars: Vec<char> = date.chars().collect();
+            chars[pos] = c;
+            *date = chars.into_iter().collect();
+        }
+
         self.form.has_changes = true;
         EditRecordAction::None
     }

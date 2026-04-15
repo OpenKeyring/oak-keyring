@@ -11,17 +11,9 @@ use crate::tui::theme;
 pub fn render_dropdown(
     label: &str,
     selected: &str,
-    focused: bool,
+    _focused: bool,
     disabled: bool,
 ) -> Line<'static> {
-    let _border_color = if disabled {
-        theme::TEXT_MUTED
-    } else if focused {
-        theme::PRIMARY
-    } else {
-        theme::BORDER
-    };
-
     let value_style = if disabled {
         Style::default().fg(theme::TEXT_MUTED)
     } else {
