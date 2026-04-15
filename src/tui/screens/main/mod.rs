@@ -11,7 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::commands::types::PanelId;
+use crate::commands::types::{PanelId, RecordFilter};
 use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, PANEL_SEPARATOR};
 use crate::tui::screens::main::sidebar::SidebarPanel;
 use crate::tui::screens::main::status_bar::StatusBarPanel;
@@ -22,6 +22,8 @@ use crate::tui::theme;
 pub struct MainScreen {
     #[allow(dead_code)]
     sidebar: SidebarPanel,
+    #[allow(dead_code)]
+    list: list::ListPanel,
     #[allow(dead_code)]
     status_bar: StatusBarPanel,
 }
@@ -37,6 +39,7 @@ impl MainScreen {
     pub fn new() -> Self {
         Self {
             sidebar: SidebarPanel,
+            list: list::ListPanel,
             status_bar: StatusBarPanel,
         }
     }
@@ -70,16 +73,17 @@ impl MainScreen {
             unicode,
         );
 
-        // 2. List panel placeholder
+        // 2. List panel
         let list_focused = focused_panel == PanelId::List;
-        let list_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(if list_focused {
-                theme::Styles::focused_border()
-            } else {
-                theme::Styles::unfocused_border()
-            });
-        frame.render_widget(list_block, areas.list);
+        let is_trash = matches!(state.current_filter, RecordFilter::Trash);
+        list::ListPanel::view(
+            frame,
+            areas.list,
+            &state.list,
+            list_focused,
+            unicode,
+            is_trash,
+        );
 
         // 3. Detail panel placeholder
         let detail_focused = focused_panel == PanelId::Detail;
