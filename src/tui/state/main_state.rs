@@ -7,6 +7,7 @@
 //! - [`MainScreenState`] — root aggregate of all main-screen sub-states
 
 use crate::commands::types::{RecordFilter, RecordSort};
+use crate::tui::state::list_state::ListPanelState;
 use crate::types::Tag;
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
@@ -372,6 +373,8 @@ pub struct FocusSnapshot;
 pub struct MainScreenState {
     /// Sidebar navigation state.
     pub sidebar: SidebarState,
+    /// List panel state (records, navigation, search, visual mode).
+    pub list: ListPanelState,
     /// Status bar state.
     pub status_bar: StatusBarState,
     /// Terminal title state.
@@ -388,6 +391,7 @@ impl Default for MainScreenState {
     fn default() -> Self {
         Self {
             sidebar: SidebarState::default(),
+            list: ListPanelState::default(),
             status_bar: StatusBarState::default(),
             terminal_title: TerminalTitleState::default(),
             current_filter: RecordFilter::All,

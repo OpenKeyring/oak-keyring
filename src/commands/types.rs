@@ -12,7 +12,7 @@ pub enum RecordFilter {
     Search(String),
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SortField {
     Name,
     CreatedAt,
@@ -20,7 +20,7 @@ pub enum SortField {
     UsageFrequency,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SortDirection {
     Asc,
     Desc,
