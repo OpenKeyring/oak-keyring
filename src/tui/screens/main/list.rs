@@ -11,7 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::commands::types::{SortDirection, SortField};
+use crate::commands::types::{RecordFilter, SortDirection, SortField};
 use crate::tui::components::empty_state::{EmptyStateVariant, EmptyStateWidget};
 use crate::tui::state::list_state::{
     format_relative_time, format_type_prefix, ListMode, ListPanelState,
@@ -22,6 +22,45 @@ use crate::tui::theme;
 pub struct ListPanel;
 
 impl ListPanel {
+    /// Highlight matching portions of `text` that match `query` (case-insensitive).
+    ///
+    /// Returns a vector of `Span`s where matching substrings are rendered in
+    /// yellow bold (`theme::WARNING` + `Modifier::BOLD`) and non-matching
+    /// portions in the default text color.
+    fn highlight_match(text: &str, query: &str) -> Vec<Span<'static>> {
+        if query.is_empty() {
+            return vec![Span::styled(text.to_string(), Style::default().fg(theme::TEXT))];
+        }
+        let query_lower = query.to_lowercase();
+        let text_lower = text.to_lowercase();
+        let mut spans = Vec::new();
+        let mut last_end = 0;
+
+        while let Some(pos) = text_lower[last_end..].find(&query_lower) {
+            let abs_pos = last_end + pos;
+            if abs_pos > last_end {
+                spans.push(Span::styled(
+                    text[last_end..abs_pos].to_string(),
+                    Style::default().fg(theme::TEXT),
+                ));
+            }
+            spans.push(Span::styled(
+                text[abs_pos..abs_pos + query.len()].to_string(),
+                Style::default()
+                    .fg(theme::WARNING)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            last_end = abs_pos + query.len();
+        }
+        if last_end < text.len() {
+            spans.push(Span::styled(
+                text[last_end..].to_string(),
+                Style::default().fg(theme::TEXT),
+            ));
+        }
+        spans
+    }
+
     /// Render the list panel.
     ///
     /// # Arguments
@@ -30,14 +69,14 @@ impl ListPanel {
     /// * `state` - The current list panel state (records, selection, mode, sort).
     /// * `focused` - Whether the list panel currently has keyboard focus.
     /// * `unicode` - Whether to use unicode characters (vs ASCII fallbacks).
-    /// * `is_trash_view` - Whether the current filter is Trash.
+    /// * `filter` - The current record filter, used to select the empty state variant.
     pub fn view(
         frame: &mut Frame,
         area: Rect,
         state: &ListPanelState,
         focused: bool,
         unicode: bool,
-        is_trash_view: bool,
+        filter: RecordFilter,
     ) {
         if area.width == 0 || area.height == 0 {
             return;
@@ -60,7 +99,7 @@ impl ListPanel {
 
         // 2. Render list or empty state
         if state.records.is_empty() {
-            render_empty_state(frame, list_area, state, unicode, is_trash_view);
+            render_empty_state(frame, list_area, state, unicode, &filter);
         } else {
             render_list(frame, list_area, state, focused, unicode);
         }
@@ -173,6 +212,10 @@ fn render_list(
         ListMode::Visual(vs) => Some(&vs.selected_ids),
         _ => None,
     };
+    let search_query: Option<&str> = match &state.mode {
+        ListMode::Search(s) => Some(&s.query),
+        _ => None,
+    };
 
     let items: Vec<ListItem<'_>> = state
         .records
@@ -181,8 +224,8 @@ fn render_list(
         .map(|(idx, record)| {
             let is_selected = state.selected_index == Some(idx);
             let is_visual_selected = visual_ids
-                .map_or(false, |ids| ids.contains(&record.id));
-            build_record_item(record, is_selected, is_visual_selected, focused, unicode, area.width)
+                .is_some_and(|ids| ids.contains(&record.id));
+            build_record_item(record, is_selected, is_visual_selected, focused, unicode, area.width, search_query)
         })
         .collect();
 
@@ -214,6 +257,7 @@ fn build_record_item<'a>(
     focused: bool,
     unicode: bool,
     area_width: u16,
+    search_query: Option<&str>,
 ) -> ListItem<'a> {
     let indicator = if unicode { " \u{25C0}" } else { " <" }; // ◀ / <
 
@@ -221,8 +265,8 @@ fn build_record_item<'a>(
     let type_prefix = format_type_prefix(&record.credential_type);
     let timestamp = format_relative_time(&record.updated_at);
 
-    // Calculate padding between name+badge and timestamp
-    let name_part = format!("  {}{}", type_prefix, record.name);
+    // Build name spans: prefix (plain) + highlighted name (if search active)
+    let prefix_str = format!("  {}", type_prefix);
     let badge_part = if record.has_weak_password {
         let badge = if unicode { " \u{26A0}\u{5F31}" } else { " !weak" }; // ⚠弱 / !weak
         badge.to_string()
@@ -231,8 +275,11 @@ fn build_record_item<'a>(
     };
     let right_part = format!("{}{}", timestamp, if is_selected { indicator } else { "" });
 
+    // Calculate total name content length for padding
+    let name_len = prefix_str.chars().count() + record.name.chars().count();
+
     let padding_len = (area_width as usize)
-        .saturating_sub(name_part.chars().count())
+        .saturating_sub(name_len)
         .saturating_sub(badge_part.chars().count())
         .saturating_sub(right_part.chars().count());
 
@@ -258,15 +305,16 @@ fn build_record_item<'a>(
         Style::default().fg(theme::WARNING)
     };
 
-    let title_spans = vec![
-        Span::styled(name_part, base_style),
-        Span::styled(badge_part, badge_style),
-        Span::styled(" ".repeat(padding_len), base_style),
-        Span::styled(right_part, base_style),
-    ];
-
-    // For visual-selected items, override all spans to use BRAND bg
-    // This is already handled above via is_visual_selected branch
+    // Build title spans with optional search highlighting
+    let mut title_spans = vec![Span::styled(prefix_str, base_style)];
+    if let Some(query) = search_query {
+        title_spans.extend(ListPanel::highlight_match(&record.name, query));
+    } else {
+        title_spans.push(Span::styled(record.name.clone(), base_style));
+    }
+    title_spans.push(Span::styled(badge_part, badge_style));
+    title_spans.push(Span::styled(" ".repeat(padding_len), base_style));
+    title_spans.push(Span::styled(right_part, base_style));
 
     let title_line = Line::from(title_spans);
 
@@ -283,10 +331,18 @@ fn build_record_item<'a>(
         Style::default().fg(theme::TEXT_SECONDARY)
     };
 
-    let subtitle_line = Line::from(Span::styled(
-        format!("  {}", record.subtitle),
-        subtitle_style,
-    ));
+    // Build subtitle with optional search highlighting
+    let subtitle_prefix = "  ";
+    let subtitle_line = if let Some(query) = search_query {
+        let mut sub_spans = vec![Span::styled(subtitle_prefix, subtitle_style)];
+        sub_spans.extend(ListPanel::highlight_match(&record.subtitle, query));
+        Line::from(sub_spans)
+    } else {
+        Line::from(Span::styled(
+            format!("  {}", record.subtitle),
+            subtitle_style,
+        ))
+    };
 
     // ── Line 3: Separator ──
     let sep_char = if unicode { '\u{2500}' } else { '-' }; // ─ / -
@@ -309,19 +365,33 @@ fn render_empty_state(
     area: Rect,
     state: &ListPanelState,
     unicode: bool,
-    is_trash_view: bool,
+    filter: &RecordFilter,
 ) {
-    let variant = match &state.mode {
+    let variant = build_empty_state_variant(state, filter);
+    EmptyStateWidget::view(frame, area, &variant, unicode);
+}
+
+/// Build the appropriate empty state variant based on list mode and filter.
+fn build_empty_state_variant(
+    state: &ListPanelState,
+    filter: &RecordFilter,
+) -> EmptyStateVariant {
+    match &state.mode {
         ListMode::Search(search_state) if !search_state.query.is_empty() => {
             EmptyStateVariant::NoSearchResults {
                 query: search_state.query.clone(),
             }
         }
-        _ if is_trash_view => EmptyStateVariant::EmptyTrash,
-        _ => EmptyStateVariant::NoPasswords,
-    };
-
-    EmptyStateWidget::view(frame, area, &variant, unicode);
+        _ => match filter {
+            RecordFilter::All => EmptyStateVariant::NoPasswords,
+            RecordFilter::Favorites => EmptyStateVariant::NoFavorites,
+            RecordFilter::Expired => EmptyStateVariant::NoExpired,
+            RecordFilter::HealthIssues => EmptyStateVariant::NoHealthIssues,
+            RecordFilter::Trash => EmptyStateVariant::EmptyTrash,
+            RecordFilter::Tag(name) => EmptyStateVariant::EmptyTag { tag_name: name.clone() },
+            RecordFilter::Search(q) => EmptyStateVariant::NoSearchResults { query: q.clone() },
+        },
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -408,13 +478,13 @@ mod tests {
         height: u16,
         focused: bool,
         unicode: bool,
-        is_trash_view: bool,
+        filter: RecordFilter,
     ) -> String {
         let backend = TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                ListPanel::view(frame, frame.area(), state, focused, unicode, is_trash_view);
+                ListPanel::view(frame, frame.area(), state, focused, unicode, filter);
             })
             .unwrap();
         let buf = terminal.backend().buffer().clone();
@@ -424,7 +494,7 @@ mod tests {
     #[test]
     fn render_empty_state_no_passwords() {
         let state = ListPanelState::default();
-        let result = render_snapshot(&state, 40, 10, true, true, false);
+        let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::All);
         // Should render without panicking and contain no-passwords empty state
         assert!(!result.is_empty());
     }
@@ -432,7 +502,7 @@ mod tests {
     #[test]
     fn render_empty_state_trash() {
         let state = ListPanelState::default();
-        let result = render_snapshot(&state, 40, 10, true, true, true);
+        let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::Trash);
         assert!(!result.is_empty());
     }
 
@@ -443,7 +513,7 @@ mod tests {
             query: "nonexistent".to_string(),
             cursor: 11,
         });
-        let result = render_snapshot(&state, 40, 10, true, true, false);
+        let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::All);
         assert!(!result.is_empty());
     }
 
@@ -452,7 +522,7 @@ mod tests {
         let id = Uuid::new_v4();
         let record = make_record(id, "GitHub", "user@github.com");
         let state = ListPanelState::with_records(vec![record]);
-        let result = render_snapshot(&state, 50, 10, true, true, false);
+        let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
         assert!(!result.is_empty());
     }
 
@@ -462,7 +532,7 @@ mod tests {
         let r2 = make_record_with_type(Uuid::new_v4(), "AWS Key", CredentialType::Api);
         let r3 = make_record_with_type(Uuid::new_v4(), "Server", CredentialType::Ssh);
         let state = ListPanelState::with_records(vec![r1, r2, r3]);
-        let result = render_snapshot(&state, 50, 15, true, true, false);
+        let result = render_snapshot(&state, 50, 15, true, true, RecordFilter::All);
         assert!(!result.is_empty());
     }
 
@@ -470,7 +540,7 @@ mod tests {
     fn render_weak_password_badge() {
         let record = make_record_with_weak(Uuid::new_v4(), "WeakPass");
         let state = ListPanelState::with_records(vec![record]);
-        let result = render_snapshot(&state, 50, 10, true, true, false);
+        let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
         assert!(!result.is_empty());
     }
 
@@ -486,7 +556,7 @@ mod tests {
         state.mode = ListMode::Visual(VisualState {
             selected_ids: selected,
         });
-        let result = render_snapshot(&state, 50, 15, true, true, false);
+        let result = render_snapshot(&state, 50, 15, true, true, RecordFilter::All);
         assert!(!result.is_empty());
     }
 
@@ -497,7 +567,7 @@ mod tests {
             query: "git".to_string(),
             cursor: 3,
         });
-        let result = render_snapshot(&state, 40, 10, true, true, false);
+        let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::All);
         assert!(!result.is_empty());
     }
 
@@ -505,7 +575,7 @@ mod tests {
     fn render_unfocused() {
         let record = make_record(Uuid::new_v4(), "Test", "subtitle");
         let state = ListPanelState::with_records(vec![record]);
-        let result = render_snapshot(&state, 50, 10, false, true, false);
+        let result = render_snapshot(&state, 50, 10, false, true, RecordFilter::All);
         assert!(!result.is_empty());
     }
 
@@ -513,7 +583,7 @@ mod tests {
     fn render_ascii_mode() {
         let record = make_record(Uuid::new_v4(), "Test", "subtitle");
         let state = ListPanelState::with_records(vec![record]);
-        let result = render_snapshot(&state, 50, 10, true, false, false);
+        let result = render_snapshot(&state, 50, 10, true, false, RecordFilter::All);
         assert!(!result.is_empty());
     }
 
@@ -525,7 +595,7 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                ListPanel::view(frame, frame.area(), &state, true, true, false);
+                ListPanel::view(frame, frame.area(), &state, true, true, RecordFilter::All);
             })
             .unwrap();
     }
@@ -598,21 +668,21 @@ mod tests {
     #[test]
     fn build_record_item_login_type() {
         let record = make_record(Uuid::new_v4(), "MyLogin", "user@site.com");
-        let item = build_record_item(&record, false, false, true, true, 50);
+        let item = build_record_item(&record, false, false, true, true, 50, None);
         assert!(item.height() >= 3); // title + subtitle + separator
     }
 
     #[test]
     fn build_record_item_api_type() {
         let record = make_record_with_type(Uuid::new_v4(), "AWS", CredentialType::Api);
-        let item = build_record_item(&record, false, false, true, true, 50);
+        let item = build_record_item(&record, false, false, true, true, 50, None);
         assert!(item.height() >= 3);
     }
 
     #[test]
     fn build_record_item_ssh_type() {
         let record = make_record_with_type(Uuid::new_v4(), "Server", CredentialType::Ssh);
-        let item = build_record_item(&record, false, false, true, true, 50);
+        let item = build_record_item(&record, false, false, true, true, 50, None);
         assert!(item.height() >= 3);
     }
 
@@ -620,18 +690,198 @@ mod tests {
     fn build_record_item_selected_indicator() {
         let record = make_record(Uuid::new_v4(), "Test", "sub");
         // With unicode and selected=true, should have ◀
-        let item = build_record_item(&record, true, false, true, true, 50);
+        let item = build_record_item(&record, true, false, true, true, 50, None);
         assert!(item.height() >= 3);
 
         // With ASCII and selected=true, should have <
-        let item = build_record_item(&record, true, false, true, false, 50);
+        let item = build_record_item(&record, true, false, true, false, 50, None);
         assert!(item.height() >= 3);
     }
 
     #[test]
     fn build_record_item_visual_selected() {
         let record = make_record(Uuid::new_v4(), "Test", "sub");
-        let item = build_record_item(&record, false, true, true, true, 50);
+        let item = build_record_item(&record, false, true, true, true, 50, None);
         assert!(item.height() >= 3);
+    }
+
+    // ── Search highlight tests ──
+
+    #[test]
+    fn highlight_match_basic() {
+        let spans = ListPanel::highlight_match("GitHub", "git");
+        // Should produce two spans: "Git" (highlighted) + "Hub" (normal)
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].content.as_ref(), "Git");
+        assert_eq!(spans[1].content.as_ref(), "Hub");
+        // Verify the highlighted span has WARNING color + BOLD
+        assert!(spans[0].style.fg == Some(theme::WARNING.into()));
+        assert!(spans[0].style.add_modifier.contains(Modifier::BOLD));
+        // Non-matching span should be plain text color
+        assert!(spans[1].style.fg == Some(theme::TEXT.into()));
+    }
+
+    #[test]
+    fn highlight_match_multi_occurrence() {
+        let spans = ListPanel::highlight_match("test_test_test", "test");
+        // Should produce alternating: match + "_" + match + "_" + match
+        assert_eq!(spans.len(), 5);
+        assert_eq!(spans[0].content.as_ref(), "test"); // highlighted
+        assert_eq!(spans[1].content.as_ref(), "_");    // normal
+        assert_eq!(spans[2].content.as_ref(), "test"); // highlighted
+        assert_eq!(spans[3].content.as_ref(), "_");    // normal
+        assert_eq!(spans[4].content.as_ref(), "test"); // highlighted
+        // Highlighted spans should have WARNING + BOLD
+        for i in [0, 2, 4] {
+            assert!(spans[i].style.fg == Some(theme::WARNING.into()));
+            assert!(spans[i].style.add_modifier.contains(Modifier::BOLD));
+        }
+    }
+
+    #[test]
+    fn highlight_match_empty_query() {
+        let spans = ListPanel::highlight_match("GitHub", "");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content.as_ref(), "GitHub");
+        assert!(spans[0].style.fg == Some(theme::TEXT.into()));
+    }
+
+    #[test]
+    fn highlight_match_case_insensitive() {
+        let spans = ListPanel::highlight_match("MyGitRepo", "git");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content.as_ref(), "My");
+        assert_eq!(spans[1].content.as_ref(), "Git"); // highlighted
+        assert_eq!(spans[2].content.as_ref(), "Repo");
+        assert!(spans[1].style.fg == Some(theme::WARNING.into()));
+    }
+
+    #[test]
+    fn highlight_match_no_match() {
+        let spans = ListPanel::highlight_match("GitHub", "xyz");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content.as_ref(), "GitHub");
+        assert!(spans[0].style.fg == Some(theme::TEXT.into()));
+    }
+
+    #[test]
+    fn build_record_item_with_search_highlight() {
+        let record = make_record(Uuid::new_v4(), "GitHub", "user@github.com");
+        let item = build_record_item(&record, false, false, true, true, 50, Some("git"));
+        assert!(item.height() >= 3);
+    }
+
+    // ── Filter-aware empty state variant tests ──
+
+    #[test]
+    fn render_empty_state_favorites() {
+        let state = ListPanelState::default();
+        let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::Favorites);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_empty_state_expired() {
+        let state = ListPanelState::default();
+        let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::Expired);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_empty_state_health_issues() {
+        let state = ListPanelState::default();
+        let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::HealthIssues);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_empty_state_tag() {
+        let state = ListPanelState::default();
+        let result = render_snapshot(
+            &state,
+            40,
+            10,
+            true,
+            true,
+            RecordFilter::Tag("work".to_string()),
+        );
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn build_empty_state_variant_all() {
+        let state = ListPanelState::default();
+        let variant = build_empty_state_variant(&state, &RecordFilter::All);
+        assert!(matches!(variant, EmptyStateVariant::NoPasswords));
+    }
+
+    #[test]
+    fn build_empty_state_variant_favorites() {
+        let state = ListPanelState::default();
+        let variant = build_empty_state_variant(&state, &RecordFilter::Favorites);
+        assert!(matches!(variant, EmptyStateVariant::NoFavorites));
+    }
+
+    #[test]
+    fn build_empty_state_variant_expired() {
+        let state = ListPanelState::default();
+        let variant = build_empty_state_variant(&state, &RecordFilter::Expired);
+        assert!(matches!(variant, EmptyStateVariant::NoExpired));
+    }
+
+    #[test]
+    fn build_empty_state_variant_health_issues() {
+        let state = ListPanelState::default();
+        let variant = build_empty_state_variant(&state, &RecordFilter::HealthIssues);
+        assert!(matches!(variant, EmptyStateVariant::NoHealthIssues));
+    }
+
+    #[test]
+    fn build_empty_state_variant_trash() {
+        let state = ListPanelState::default();
+        let variant = build_empty_state_variant(&state, &RecordFilter::Trash);
+        assert!(matches!(variant, EmptyStateVariant::EmptyTrash));
+    }
+
+    #[test]
+    fn build_empty_state_variant_tag() {
+        let state = ListPanelState::default();
+        let variant = build_empty_state_variant(&state, &RecordFilter::Tag("personal".to_string()));
+        match variant {
+            EmptyStateVariant::EmptyTag { tag_name } => {
+                assert_eq!(tag_name, "personal");
+            }
+            other => panic!("Expected EmptyTag, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_empty_state_variant_search_filter() {
+        let state = ListPanelState::default();
+        let variant = build_empty_state_variant(&state, &RecordFilter::Search("query".to_string()));
+        match variant {
+            EmptyStateVariant::NoSearchResults { query } => {
+                assert_eq!(query, "query");
+            }
+            other => panic!("Expected NoSearchResults, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_empty_state_variant_search_mode_overrides_filter() {
+        // When in search mode with a non-empty query, it should use NoSearchResults
+        // from the list mode search state, regardless of the filter
+        let mut state = ListPanelState::default();
+        state.mode = ListMode::Search(SearchState {
+            query: "mysearch".to_string(),
+            cursor: 8,
+        });
+        let variant = build_empty_state_variant(&state, &RecordFilter::All);
+        match variant {
+            EmptyStateVariant::NoSearchResults { query } => {
+                assert_eq!(query, "mysearch");
+            }
+            other => panic!("Expected NoSearchResults from search mode, got {:?}", other),
+        }
     }
 }
