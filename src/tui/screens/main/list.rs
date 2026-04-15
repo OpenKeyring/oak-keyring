@@ -11,7 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::commands::types::{RecordFilter, SortDirection, SortField};
+use crate::commands::types::{HealthIssue, RecordFilter, SortDirection, SortField};
 use crate::tui::components::empty_state::{EmptyStateVariant, EmptyStateWidget};
 use crate::tui::state::list_state::{
     format_relative_time, format_type_prefix, ListMode, ListPanelState,
@@ -107,6 +107,41 @@ impl ListPanel {
 }
 
 // ---------------------------------------------------------------------------
+// Health badge
+// ---------------------------------------------------------------------------
+
+/// Build a styled health badge span for a given `HealthIssue`.
+///
+/// Returns `None` for `Expired` (shown only in the detail panel) or when
+/// `issue` is `None`.
+fn health_badge(issue: Option<&HealthIssue>, unicode: bool) -> Option<Span<'static>> {
+    issue.and_then(|i| match i {
+        HealthIssue::Compromised => {
+            let icon = if unicode { "\u{1F534}" } else { "!" }; // 🔴 / !
+            Some(Span::styled(
+                format!(" {}\u{5DF2}\u{6CC4}\u{9732}", icon), // " 🔴已泄露"
+                Style::default().fg(theme::ERROR),
+            ))
+        }
+        HealthIssue::Weak => {
+            let icon = if unicode { "\u{26A0}" } else { "!" }; // ⚠ / !
+            Some(Span::styled(
+                format!(" {}\u{5F31}", icon), // " ⚠弱"
+                Style::default().fg(theme::WARNING),
+            ))
+        }
+        HealthIssue::Duplicate { group_size } => {
+            let icon = if unicode { "\u{26A0}" } else { "!" }; // ⚠ / !
+            Some(Span::styled(
+                format!(" {}\u{91CD}\u{590D}({})", icon, group_size), // " ⚠重复(N)"
+                Style::default().fg(theme::WARNING),
+            ))
+        }
+        HealthIssue::Expired => None, // Shown in detail panel, not list badge
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Bar rendering
 // ---------------------------------------------------------------------------
 
@@ -153,17 +188,23 @@ fn build_search_bar<'a>(query: &str, unicode: bool) -> Line<'a> {
     ])
 }
 
-/// Build visual mode bar: `  多选模式 (N 已选)` in BRAND bold
+/// Build visual mode bar: `  多选模式` in BRAND bold + `(N 已选)` in TEXT color
 fn build_visual_bar<'a>(selected_count: usize) -> Line<'a> {
-    Line::from(vec![Span::styled(
-        format!(
-            "  \u{591A}\u{9009}\u{6A21}\u{5F0F} ({} \u{5DF2}\u{9009})", // "  多选模式 (N 已选)"
-            selected_count
+    Line::from(vec![
+        Span::styled(
+            "  \u{591A}\u{9009}\u{6A21}\u{5F0F} ", // "  多选模式 "
+            Style::default()
+                .fg(theme::BRAND)
+                .add_modifier(Modifier::BOLD),
         ),
-        Style::default()
-            .fg(theme::BRAND)
-            .add_modifier(Modifier::BOLD),
-    )])
+        Span::styled(
+            format!(
+                "({} \u{5DF2}\u{9009})", // "(N 已选)"
+                selected_count
+            ),
+            Style::default().fg(theme::TEXT),
+        ),
+    ])
 }
 
 /// Return the Chinese display label for a sort field.
@@ -267,12 +308,12 @@ fn build_record_item<'a>(
 
     // Build name spans: prefix (plain) + highlighted name (if search active)
     let prefix_str = format!("  {}", type_prefix);
-    let badge_part = if record.has_weak_password {
-        let badge = if unicode { " \u{26A0}\u{5F31}" } else { " !weak" }; // ⚠弱 / !weak
-        badge.to_string()
+    let badge = if record.has_weak_password {
+        health_badge(Some(&HealthIssue::Weak), unicode)
     } else {
-        String::new()
+        None
     };
+    let badge_str = badge.as_ref().map(|s| s.content.as_ref()).unwrap_or("");
     let right_part = format!("{}{}", timestamp, if is_selected { indicator } else { "" });
 
     // Calculate total name content length for padding
@@ -280,7 +321,7 @@ fn build_record_item<'a>(
 
     let padding_len = (area_width as usize)
         .saturating_sub(name_len)
-        .saturating_sub(badge_part.chars().count())
+        .saturating_sub(badge_str.chars().count())
         .saturating_sub(right_part.chars().count());
 
     let base_style = if is_visual_selected {
@@ -296,14 +337,20 @@ fn build_record_item<'a>(
         Style::default().fg(theme::TEXT)
     };
 
-    let badge_style = if is_visual_selected {
-        Style::default()
-            .bg(theme::BRAND)
-            .fg(theme::WARNING)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme::WARNING)
-    };
+    // Determine badge span style (override for visual-selected context)
+    let badge_span = badge.map(|span| {
+        if is_visual_selected {
+            Span::styled(
+                span.content,
+                Style::default()
+                    .bg(theme::BRAND)
+                    .fg(theme::WARNING)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            span
+        }
+    });
 
     // Build title spans with optional search highlighting
     let mut title_spans = vec![Span::styled(prefix_str, base_style)];
@@ -312,7 +359,9 @@ fn build_record_item<'a>(
     } else {
         title_spans.push(Span::styled(record.name.clone(), base_style));
     }
-    title_spans.push(Span::styled(badge_part, badge_style));
+    if let Some(badge_s) = badge_span {
+        title_spans.push(badge_s);
+    }
     title_spans.push(Span::styled(" ".repeat(padding_len), base_style));
     title_spans.push(Span::styled(right_part, base_style));
 
@@ -661,6 +710,126 @@ mod tests {
         let combined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(combined.contains("3"));
         assert!(combined.contains("\u{5DF2}\u{9009}")); // 已选
+    }
+
+    // ── Visual mode bar tests ──
+
+    #[test]
+    fn render_visual_mode_bar() {
+        // Verify the visual mode bar shows "多选模式" in BRAND bold and selected count in TEXT
+        let line = build_visual_bar(5);
+        assert_eq!(line.spans.len(), 2, "visual bar should have two spans: label + count");
+
+        // First span: "  多选模式 " in BRAND bold
+        let label_span = &line.spans[0];
+        assert!(
+            label_span.content.as_ref().contains("\u{591A}\u{9009}\u{6A21}\u{5F0F}"),
+            "label span should contain '多选模式'"
+        );
+        assert!(
+            label_span.style.fg == Some(theme::BRAND.into()),
+            "label should use BRAND color"
+        );
+        assert!(
+            label_span.style.add_modifier.contains(Modifier::BOLD),
+            "label should be BOLD"
+        );
+
+        // Second span: "(5 已选)" in TEXT color
+        let count_span = &line.spans[1];
+        assert!(
+            count_span.content.as_ref().contains("5"),
+            "count span should contain the number 5"
+        );
+        assert!(
+            count_span.content.as_ref().contains("\u{5DF2}\u{9009}"),
+            "count span should contain '已选'"
+        );
+        assert!(
+            count_span.style.fg == Some(theme::TEXT.into()),
+            "count should use TEXT color"
+        );
+        assert!(
+            !count_span.style.add_modifier.contains(Modifier::BOLD),
+            "count should NOT be BOLD"
+        );
+    }
+
+    #[test]
+    fn render_visual_mode_with_selections() {
+        // Create records, enter visual mode, select some, render, verify count in buffer
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let id3 = Uuid::new_v4();
+        let r1 = make_record(id1, "GitHub", "user@github.com");
+        let r2 = make_record(id2, "AWS", "admin@aws.com");
+        let r3 = make_record(id3, "GitLab", "dev@gitlab.com");
+
+        let mut state = ListPanelState::with_records(vec![r1, r2, r3]);
+        let mut selected = HashSet::new();
+        selected.insert(id1);
+        selected.insert(id3);
+        state.mode = ListMode::Visual(VisualState {
+            selected_ids: selected,
+        });
+
+        let result = render_snapshot(&state, 50, 15, true, true, RecordFilter::All);
+
+        // The buffer should contain the visual mode bar with "2 已选"
+        assert!(
+            result.contains("2") || result.contains("(\u{0032}"),
+            "rendered buffer should show 2 selected items"
+        );
+        assert!(
+            result.contains("\u{591A}\u{9009}\u{6A21}\u{5F0F}"),
+            "rendered buffer should contain '多选模式'"
+        );
+    }
+
+    #[test]
+    fn render_visual_bar_zero_selections() {
+        // Visual mode with no selections should show "(0 已选)"
+        let line = build_visual_bar(0);
+        let combined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            combined.contains("(0"),
+            "zero selections should show '(0 已选)'"
+        );
+    }
+
+    #[test]
+    fn exiting_visual_mode_returns_to_sort_bar() {
+        // Enter visual mode, then exit back to normal, verify sort bar renders
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let r1 = make_record(id1, "Alpha", "");
+        let r2 = make_record(id2, "Beta", "");
+        let mut state = ListPanelState::with_records(vec![r1, r2]);
+
+        // Enter visual mode
+        state.enter_visual();
+        let visual_result = render_snapshot(&state, 50, 15, true, true, RecordFilter::All);
+        assert!(
+            visual_result.contains("\u{591A}\u{9009}\u{6A21}\u{5F0F}"),
+            "visual mode should show '多选模式'"
+        );
+
+        // Exit visual mode
+        state.exit_visual();
+        assert!(
+            matches!(state.mode, ListMode::Normal),
+            "mode should be Normal after exit"
+        );
+
+        let normal_result = render_snapshot(&state, 50, 15, true, true, RecordFilter::All);
+        assert!(
+            normal_result.contains("\u{6392}\u{5E8F}"),
+            "normal mode should show '排序' in the bar"
+        );
+        assert!(
+            !normal_result.contains("\u{591A}\u{9009}\u{6A21}\u{5F0F}"),
+            "normal mode should NOT show '多选模式'"
+        );
     }
 
     // ── Record item building tests ──
