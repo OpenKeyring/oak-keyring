@@ -1053,4 +1053,70 @@ mod tests {
             other => panic!("Expected NoSearchResults from search mode, got {:?}", other),
         }
     }
+
+    // ── Health badge tests ──
+
+    #[test]
+    fn health_badge_compromised() {
+        let span = health_badge(Some(&HealthIssue::Compromised), true).unwrap();
+        let text = span.content.as_ref();
+        assert!(text.contains('\u{1F534}')); // 🔴
+        assert!(text.contains('\u{5DF2}')); // 已 (part of 已泄露)
+        assert!(span.style.fg == Some(theme::ERROR.into()));
+    }
+
+    #[test]
+    fn health_badge_compromised_ascii() {
+        let span = health_badge(Some(&HealthIssue::Compromised), false).unwrap();
+        let text = span.content.as_ref();
+        assert!(text.contains('!'));
+        assert!(span.style.fg == Some(theme::ERROR.into()));
+    }
+
+    #[test]
+    fn health_badge_weak() {
+        let span = health_badge(Some(&HealthIssue::Weak), true).unwrap();
+        let text = span.content.as_ref();
+        assert!(text.contains('\u{26A0}')); // ⚠
+        assert!(text.contains('\u{5F31}')); // 弱
+        assert!(span.style.fg == Some(theme::WARNING.into()));
+    }
+
+    #[test]
+    fn health_badge_weak_ascii() {
+        let span = health_badge(Some(&HealthIssue::Weak), false).unwrap();
+        let text = span.content.as_ref();
+        assert!(text.contains('!'));
+        assert!(span.style.fg == Some(theme::WARNING.into()));
+    }
+
+    #[test]
+    fn health_badge_duplicate() {
+        let span = health_badge(Some(&HealthIssue::Duplicate { group_size: 3 }), true).unwrap();
+        let text = span.content.as_ref();
+        assert!(text.contains('\u{26A0}')); // ⚠
+        assert!(text.contains('3'));
+        assert!(text.contains("\u{91CD}\u{590D}")); // 重复
+        assert!(span.style.fg == Some(theme::WARNING.into()));
+    }
+
+    #[test]
+    fn health_badge_duplicate_ascii() {
+        let span = health_badge(Some(&HealthIssue::Duplicate { group_size: 5 }), false).unwrap();
+        let text = span.content.as_ref();
+        assert!(text.contains('5'));
+        assert!(span.style.fg == Some(theme::WARNING.into()));
+    }
+
+    #[test]
+    fn health_badge_expired() {
+        let result = health_badge(Some(&HealthIssue::Expired), true);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn health_badge_none() {
+        let result: Option<Span<'static>> = health_badge(None, true);
+        assert!(result.is_none());
+    }
 }
