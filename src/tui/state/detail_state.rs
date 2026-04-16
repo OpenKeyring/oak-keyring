@@ -157,16 +157,35 @@ pub struct DetailViewData {
     pub updated_at: DateTime<Utc>,
     pub fields: Vec<DetailField>,
     pub password_strength: Option<PasswordStrength>,
+    /// Deletion timestamp (set when record is in trash).
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 // ── Detail Panel State ─────────────────────────────
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct DetailPanelState {
     pub record: Option<DetailViewData>,
     pub focused_field: usize,
     pub password_visible: bool,
     pub health_issue: Option<HealthIssue>,
+    /// Whether the current record is in the trash (deleted).
+    pub is_trash: bool,
+    /// Trash retention days from config (0 = never auto-delete).
+    pub trash_retention_days: u32,
+}
+
+impl Default for DetailPanelState {
+    fn default() -> Self {
+        Self {
+            record: None,
+            focused_field: 0,
+            password_visible: false,
+            health_issue: None,
+            is_trash: false,
+            trash_retention_days: 30,
+        }
+    }
 }
 
 impl DetailPanelState {
@@ -176,6 +195,8 @@ impl DetailPanelState {
             focused_field: 0,
             password_visible: false,
             health_issue: None,
+            is_trash: false,
+            trash_retention_days: 30,
         }
     }
 
@@ -184,6 +205,14 @@ impl DetailPanelState {
         self.focused_field = 0;
         self.password_visible = false;
         self.health_issue = None;
+        self.is_trash = false;
+        self.trash_retention_days = 30;
+    }
+
+    /// Set the trash context for the current detail view.
+    pub fn set_trash_context(&mut self, is_trash: bool, retention_days: u32) {
+        self.is_trash = is_trash;
+        self.trash_retention_days = retention_days;
     }
 
     pub fn interactive_fields(&self) -> Vec<(usize, &DetailField)> {
@@ -346,6 +375,7 @@ impl DetailPanelState {
                     updated_at: *updated_at,
                     fields: all_fields,
                     password_strength: None,
+                    deleted_at: None,
                 }
             }
             crate::types::record::DecryptedRecord::Api {
@@ -412,6 +442,7 @@ impl DetailPanelState {
                     updated_at: *updated_at,
                     fields,
                     password_strength: None,
+                    deleted_at: None,
                 }
             }
             crate::types::record::DecryptedRecord::Ssh {
@@ -475,6 +506,7 @@ impl DetailPanelState {
                     updated_at: *updated_at,
                     fields,
                     password_strength: None,
+                    deleted_at: None,
                 }
             }
         }
@@ -522,6 +554,7 @@ mod tests {
                 },
             ],
             password_strength: None,
+            deleted_at: None,
         }
     }
 
