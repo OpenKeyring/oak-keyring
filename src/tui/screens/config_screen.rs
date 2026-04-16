@@ -192,7 +192,16 @@ impl ConfigScreen {
                 3 => self.open_dropdown(DropdownField::ClipboardClear),
                 4 => self.open_dropdown(DropdownField::TrashRetention),
                 5 => self.open_dropdown(DropdownField::Animation),
-                6 => ScreenResult::NavigateTo(ScreenEnum::ImportExport),
+                6 => {
+                    self.state.pending_import_export_mode =
+                        Some(crate::tui::screens::import_export::ImportExportMode::Import);
+                    ScreenResult::NavigateTo(ScreenEnum::ImportExport)
+                }
+                7 => {
+                    self.state.pending_import_export_mode =
+                        Some(crate::tui::screens::import_export::ImportExportMode::Export);
+                    ScreenResult::NavigateTo(ScreenEnum::ImportExport)
+                }
                 _ => ScreenResult::Continue,
             },
             ConfigTab::Sync => match item {

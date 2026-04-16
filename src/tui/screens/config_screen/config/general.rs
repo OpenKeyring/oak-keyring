@@ -19,7 +19,8 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
             Constraint::Length(1), // Clipboard
             Constraint::Length(1), // Trash
             Constraint::Length(1), // Animation
-            Constraint::Length(1), // Import/Export buttons
+            Constraint::Length(1), // Import button
+            Constraint::Length(1), // Export button
         ])
         .split(area);
 
@@ -132,18 +133,25 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
         chunks[6],
     );
 
-    // Row index 6: Import/Export buttons (focused == 6)
-    let btns = format!(
-        "[ {} ]  [ {} ]",
-        t!("tui.config.import_button"),
-        t!("tui.config.export_button")
-    );
+    // Row index 6: Import button (focused == 6)
+    let import_btn = format!("  [ {} ]", t!("tui.config.import_button"));
     frame.render_widget(
-        Paragraph::new(btns).style(if focused == 6 {
+        Paragraph::new(import_btn).style(if focused == 6 {
             focused_style
         } else {
             accent_style
         }),
         chunks[7],
+    );
+
+    // Row index 7: Export button (focused == 7)
+    let export_btn = format!("  [ {} ]", t!("tui.config.export_button"));
+    frame.render_widget(
+        Paragraph::new(export_btn).style(if focused == 7 {
+            focused_style
+        } else {
+            accent_style
+        }),
+        chunks[8],
     );
 }
