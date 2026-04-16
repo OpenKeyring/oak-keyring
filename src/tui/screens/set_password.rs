@@ -287,7 +287,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         frame.render_widget(hint, rows[9]);
     }
 
-    fn on_mount(&mut self, _ctx: &ScreenContext) {
+    fn on_mount(&mut self, _ctx: &mut ScreenContext) {
         // No-op
     }
 

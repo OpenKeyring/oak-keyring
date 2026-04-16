@@ -243,7 +243,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         frame.render_widget(hint, rows[6]);
     }
 
-    fn on_mount(&mut self, _ctx: &ScreenContext) {
+    fn on_mount(&mut self, _ctx: &mut ScreenContext) {
         self.password_input.zeroize();
         self.password_input.clear();
         self.state = UnlockPhase::Idle;

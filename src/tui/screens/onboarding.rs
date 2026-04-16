@@ -447,7 +447,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         }
     }
 
-    fn on_mount(&mut self, _ctx: &ScreenContext) {
+    fn on_mount(&mut self, _ctx: &mut ScreenContext) {
         self.current_step = OnboardingStep::Welcome;
         self.selected_path = None;
         self.path_input.clear();

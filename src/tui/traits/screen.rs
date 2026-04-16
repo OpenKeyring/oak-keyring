@@ -15,6 +15,6 @@ pub enum ScreenResult {
 pub trait Screen {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult;
     fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect);
-    fn on_mount(&mut self, ctx: &ScreenContext);
+    fn on_mount(&mut self, ctx: &mut ScreenContext);
     fn on_unmount(&mut self);
 }
