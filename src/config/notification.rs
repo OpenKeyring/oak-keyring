@@ -29,11 +29,11 @@ pub trait ServiceNotification: Send + Sync {
     fn unregister_service(&mut self, service_id: &str);
 }
 
-/// 可配置重载的 Service 接口
+/// Interface for services that can reload their configuration.
 pub trait ConfigReloadable: Send + Sync {
-    /// Service 唯一标识
+    /// Unique identifier for the service.
     fn service_id(&self) -> &str;
 
-    /// 重新加载配置
+    /// Reload the service with the given configuration.
     fn reload(&self, config: &crate::config::AppConfig) -> Result<(), ConfigError>;
 }
