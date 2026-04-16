@@ -69,9 +69,9 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
 
     // Row index 2: Auto lock (focused == 2)
     let auto_lock = format!(
-        "{}          [ {}秒 \u{25bc} ]",
+        "{}          [ {} \u{25bc} ]",
         t!("tui.config.auto_lock"),
-        form.auto_lock_seconds
+        t!("tui.config.seconds", n = form.auto_lock_seconds)
     );
     frame.render_widget(
         Paragraph::new(auto_lock).style(if focused == 2 {
@@ -84,9 +84,9 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
 
     // Row index 3: Clipboard (focused == 3)
     let clip = format!(
-        "{}        [ {}秒 \u{25bc} ]",
+        "{}        [ {} \u{25bc} ]",
         t!("tui.config.clipboard_clear"),
-        form.clipboard_clear_seconds
+        t!("tui.config.seconds", n = form.clipboard_clear_seconds)
     );
     frame.render_widget(
         Paragraph::new(clip).style(if focused == 3 {
@@ -99,9 +99,9 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
 
     // Row index 4: Trash (focused == 4)
     let trash = format!(
-        "{}    [ {}天 \u{25bc} ]",
+        "{}    [ {} \u{25bc} ]",
         t!("tui.config.trash_retention"),
-        form.trash_retention_days
+        t!("tui.config.days", n = form.trash_retention_days)
     );
     frame.render_widget(
         Paragraph::new(trash).style(if focused == 4 {
