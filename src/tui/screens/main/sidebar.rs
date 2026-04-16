@@ -8,7 +8,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, ListItem, ListState};
+use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::tui::state::main_state::{SidebarCategory, SidebarItem, SidebarState};
@@ -77,6 +77,13 @@ impl SidebarPanel {
         list_state.select(Some(state.selected_index));
 
         frame.render_stateful_widget(list, area, &mut list_state);
+
+        // Render inline rename edit box overlay if active
+        if state.tag_management_mode {
+            if let Some(ref edit) = state.tag_management.inline_edit {
+                render_inline_rename(frame, area, state, edit, unicode);
+            }
+        }
     }
 }
 
@@ -112,29 +119,73 @@ fn build_list_item<'a>(
             )))
         }
         SidebarItem::TagHeader => {
-            let label = if unicode {
-                if state.tags_expanded {
-                    TAG_HEADER_EXPANDED_UNICODE
+            if state.tag_management_mode {
+                let sort_label = state.tag_management.sort_order.label();
+                let down_icon = if unicode { '\u{25BC}' } else { 'v' };
+                let header_text = if unicode {
+                    format!(
+                        "\u{25BE} # \u{6807}\u{7B7E} (\u{7BA1}\u{7406}\u{6A21}\u{5F0F}) \u{6309}: {} {}",
+                        sort_label, down_icon
+                    )
                 } else {
-                    TAG_HEADER_COLLAPSED_UNICODE
-                }
-            } else if state.tags_expanded {
-                TAG_HEADER_EXPANDED_ASCII
+                    format!("v # Tags (manage) by: {} {}", sort_label, down_icon)
+                };
+                ListItem::new(Line::from(Span::styled(
+                    header_text,
+                    Style::default().fg(theme::TEXT_SECONDARY),
+                )))
             } else {
-                TAG_HEADER_COLLAPSED_ASCII
-            };
+                let label = if unicode {
+                    if state.tags_expanded {
+                        TAG_HEADER_EXPANDED_UNICODE
+                    } else {
+                        TAG_HEADER_COLLAPSED_UNICODE
+                    }
+                } else if state.tags_expanded {
+                    TAG_HEADER_EXPANDED_ASCII
+                } else {
+                    TAG_HEADER_COLLAPSED_ASCII
+                };
 
-            ListItem::new(Line::from(Span::styled(
-                label,
-                Style::default().fg(theme::TEXT_SECONDARY),
-            )))
+                ListItem::new(Line::from(Span::styled(
+                    label,
+                    Style::default().fg(theme::TEXT_SECONDARY),
+                )))
+            }
         }
         SidebarItem::Tag(name) => {
-            let display = format!("{}#{}", TAG_INDENT, name);
-            ListItem::new(Line::from(Span::styled(
-                display,
-                Style::default().fg(theme::TEXT),
-            )))
+            if state.tag_management_mode {
+                let display = format!("{}#{}", TAG_INDENT, name);
+                let edit_icon = if unicode { "\u{270E}" } else { "[e]" };
+                let delete_icon = if unicode { "\u{2717}" } else { "[x]" };
+
+                let name_chars = display.chars().count();
+                let padding_width = (area_width as usize)
+                    .saturating_sub(name_chars)
+                    .saturating_sub(edit_icon.chars().count() + delete_icon.chars().count() + 4);
+
+                ListItem::new(Line::from(vec![
+                    Span::styled(display, Style::default().fg(theme::TEXT)),
+                    Span::styled(
+                        " ".repeat(padding_width),
+                        Style::default().fg(theme::TEXT),
+                    ),
+                    Span::styled(
+                        format!(" {}", edit_icon),
+                        Style::default().fg(theme::PRIMARY),
+                    ),
+                    Span::styled(
+                        format!(" {}", delete_icon),
+                        Style::default().fg(theme::ERROR),
+                    ),
+                ]))
+            } else {
+                let display = format!("{}#{}", TAG_INDENT, name);
+                ListItem::new(Line::from(Span::styled(
+                    display,
+                    Style::default().fg(theme::TEXT),
+                )))
+            }
         }
         SidebarItem::Generator => {
             let label = if unicode {
@@ -204,6 +255,79 @@ fn format_count(count: usize) -> String {
         format!(" {}", count)
     } else {
         String::new()
+    }
+}
+
+/// Render the inline rename edit box overlay on top of the current tag item.
+fn render_inline_rename(
+    frame: &mut Frame,
+    area: Rect,
+    state: &SidebarState,
+    edit: &crate::tui::state::tag_management::InlineEditState,
+    unicode: bool,
+) {
+    // Find the visual row position of the currently selected tag
+    let tag_idx = state.selected_index;
+    if tag_idx == 0 || tag_idx >= state.items.len() {
+        return;
+    }
+
+    // Calculate the y position for the overlay
+    let y_offset = area.y + tag_idx as u16;
+    if y_offset >= area.y + area.height {
+        return; // Out of visible area
+    }
+
+    let base_x = area.x + TAG_INDENT.len() as u16;
+    let max_width = area.width.saturating_sub(TAG_INDENT.len() as u16);
+
+    // Build the edit box text with cursor
+    let text_before_cursor = &edit.text[..edit.cursor];
+    let text_after_cursor = &edit.text[edit.cursor..];
+    let cursor_char = if unicode { "\u{2588}" } else { "_" };
+
+    let edit_line = Line::from(vec![
+        Span::styled(
+            text_before_cursor.to_string(),
+            Style::default()
+                .fg(theme::TEXT)
+                .bg(theme::BG_SURFACE),
+        ),
+        Span::styled(
+            cursor_char.to_string(),
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::REVERSED)
+                .bg(theme::BG_SURFACE),
+        ),
+        Span::styled(
+            text_after_cursor.to_string(),
+            Style::default()
+                .fg(theme::TEXT)
+                .bg(theme::BG_SURFACE),
+        ),
+    ]);
+
+    let edit_area = Rect::new(base_x, y_offset, max_width.min(30), 1);
+    let para = Paragraph::new(edit_line);
+    frame.render_widget(para, edit_area);
+
+    // Conflict error line (render below if space available)
+    if edit.conflict {
+        let error_y = y_offset + 1;
+        if error_y < area.y + area.height {
+            let error_icon = if unicode { "\u{2717}" } else { "x" };
+            let error_line = Line::from(Span::styled(
+                format!(
+                    "  {} \u{6807}\u{7B7E}\"{}\"\u{5DF2}\u{5B58}\u{5728}",
+                    error_icon, edit.text.trim()
+                ),
+                Style::default().fg(theme::ERROR),
+            ));
+            let error_area = Rect::new(area.x, error_y, area.width.min(30), 1);
+            let error_para = Paragraph::new(error_line);
+            frame.render_widget(error_para, error_area);
+        }
     }
 }
 
@@ -346,5 +470,100 @@ mod tests {
                 width
             );
         }
+    }
+
+    #[test]
+    fn tag_management_mode_changes_header() {
+        use crate::types::Tag;
+
+        let mut state = SidebarState {
+            tags_expanded: true,
+            tags: vec![Tag {
+                id: 1,
+                name: "work".to_string(),
+            }],
+            tag_management_mode: true,
+            ..Default::default()
+        };
+        state.rebuild();
+
+        let backend = ratatui::backend::TestBackend::new(30, 20);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                SidebarPanel::view(frame, frame.area(), &state, true, true);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        let result = format!("{:?}", buf);
+        assert!(
+            result.contains("\u{7BA1}\u{7406}\u{6A21}\u{5F0F}"),
+            "header should contain '管理模式'"
+        );
+    }
+
+    #[test]
+    fn tag_management_shows_edit_icon() {
+        use crate::types::Tag;
+
+        let mut state = SidebarState {
+            tags_expanded: true,
+            tags: vec![Tag {
+                id: 1,
+                name: "work".to_string(),
+            }],
+            tag_management_mode: true,
+            ..Default::default()
+        };
+        state.rebuild();
+
+        let backend = ratatui::backend::TestBackend::new(40, 20);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                SidebarPanel::view(frame, frame.area(), &state, true, true);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        let result = format!("{:?}", buf);
+        assert!(result.contains('\u{270E}'), "should show edit icon");
+    }
+
+    #[test]
+    fn tag_management_sort_indicator() {
+        use crate::tui::state::tag_management::{TagManagementState, TagSortOrder};
+        use crate::types::Tag;
+
+        let mut state = SidebarState {
+            tags_expanded: true,
+            tags: vec![Tag {
+                id: 1,
+                name: "work".to_string(),
+            }],
+            tag_management_mode: true,
+            tag_management: TagManagementState {
+                sort_order: TagSortOrder::Alphabetical,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        state.rebuild();
+
+        let backend = ratatui::backend::TestBackend::new(40, 20);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                SidebarPanel::view(frame, frame.area(), &state, true, true);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        let result = format!("{:?}", buf);
+        assert!(
+            result.contains("\u{540D}\u{79F0}"),
+            "should show sort order label '名称'"
+        );
     }
 }
