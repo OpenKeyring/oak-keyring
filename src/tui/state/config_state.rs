@@ -93,19 +93,104 @@ impl DropdownField {
         }
     }
 
-    /// Human-readable label for the dropdown.
-    pub fn label(self) -> &'static str {
+    /// Human-readable label for the dropdown (i18n).
+    pub fn label(self) -> String {
         match self {
-            DropdownField::Language => "语言",
-            DropdownField::AutoLock => "自动锁定",
-            DropdownField::ClipboardClear => "剪贴板清除",
-            DropdownField::TrashRetention => "回收站保留",
-            DropdownField::Animation => "动画效果",
-            DropdownField::SyncProvider => "云同步 Provider",
-            DropdownField::SyncMode => "同步方式",
-            DropdownField::SyncInterval => "同步间隔",
-            DropdownField::HealthFrequency => "检查频率",
-            DropdownField::AuditRetention => "审计保留",
+            DropdownField::Language => crate::t!("tui.config.dropdown_language").to_string(),
+            DropdownField::AutoLock => crate::t!("tui.config.dropdown_auto_lock").to_string(),
+            DropdownField::ClipboardClear => {
+                crate::t!("tui.config.dropdown_clipboard_clear").to_string()
+            }
+            DropdownField::TrashRetention => {
+                crate::t!("tui.config.dropdown_trash_retention").to_string()
+            }
+            DropdownField::Animation => crate::t!("tui.config.dropdown_animation").to_string(),
+            DropdownField::SyncProvider => {
+                crate::t!("tui.config.dropdown_sync_provider").to_string()
+            }
+            DropdownField::SyncMode => crate::t!("tui.config.dropdown_sync_mode").to_string(),
+            DropdownField::SyncInterval => {
+                crate::t!("tui.config.dropdown_sync_interval").to_string()
+            }
+            DropdownField::HealthFrequency => {
+                crate::t!("tui.config.dropdown_health_frequency").to_string()
+            }
+            DropdownField::AuditRetention => {
+                crate::t!("tui.config.dropdown_audit_retention").to_string()
+            }
+        }
+    }
+
+    /// Translated display labels for each option in the dropdown.
+    /// Returns labels in the same order as `options()`.
+    pub fn display_labels(self) -> Vec<String> {
+        match self {
+            DropdownField::Language => vec![
+                crate::t!("tui.config.opt_language_auto").to_string(),
+                crate::t!("tui.config.opt_language_zh_cn").to_string(),
+                crate::t!("tui.config.opt_language_en").to_string(),
+            ],
+            DropdownField::AutoLock => vec![
+                crate::t!("tui.config.opt_auto_lock_60").to_string(),
+                crate::t!("tui.config.opt_auto_lock_300").to_string(),
+                crate::t!("tui.config.opt_auto_lock_600").to_string(),
+                crate::t!("tui.config.opt_auto_lock_1800").to_string(),
+                crate::t!("tui.config.opt_auto_lock_0").to_string(),
+            ],
+            DropdownField::ClipboardClear => vec![
+                crate::t!("tui.config.opt_clipboard_10").to_string(),
+                crate::t!("tui.config.opt_clipboard_30").to_string(),
+                crate::t!("tui.config.opt_clipboard_60").to_string(),
+                crate::t!("tui.config.opt_clipboard_0").to_string(),
+            ],
+            DropdownField::TrashRetention => vec![
+                crate::t!("tui.config.opt_trash_7").to_string(),
+                crate::t!("tui.config.opt_trash_30").to_string(),
+                crate::t!("tui.config.opt_trash_90").to_string(),
+                crate::t!("tui.config.opt_trash_365").to_string(),
+            ],
+            DropdownField::Animation => vec![
+                crate::t!("tui.config.opt_animation_auto").to_string(),
+                crate::t!("tui.config.opt_animation_on").to_string(),
+                crate::t!("tui.config.opt_animation_off").to_string(),
+            ],
+            DropdownField::SyncProvider => vec![
+                crate::t!("tui.config.opt_provider_disabled").to_string(),
+                crate::t!("tui.config.opt_provider_icloud").to_string(),
+                crate::t!("tui.config.opt_provider_google_drive").to_string(),
+                crate::t!("tui.config.opt_provider_dropbox").to_string(),
+                crate::t!("tui.config.opt_provider_onedrive").to_string(),
+                crate::t!("tui.config.opt_provider_webdav").to_string(),
+                crate::t!("tui.config.opt_provider_sftp").to_string(),
+                crate::t!("tui.config.opt_provider_s3").to_string(),
+                crate::t!("tui.config.opt_provider_aliyun_drive").to_string(),
+                crate::t!("tui.config.opt_provider_aliyun_oss").to_string(),
+                crate::t!("tui.config.opt_provider_tencent_cos").to_string(),
+                crate::t!("tui.config.opt_provider_huawei_obs").to_string(),
+                crate::t!("tui.config.opt_provider_upyun").to_string(),
+            ],
+            DropdownField::SyncMode => vec![
+                crate::t!("tui.config.opt_sync_mode_auto").to_string(),
+                crate::t!("tui.config.opt_sync_mode_manual").to_string(),
+            ],
+            DropdownField::SyncInterval => vec![
+                crate::t!("tui.config.opt_sync_interval_60").to_string(),
+                crate::t!("tui.config.opt_sync_interval_300").to_string(),
+                crate::t!("tui.config.opt_sync_interval_600").to_string(),
+                crate::t!("tui.config.opt_sync_interval_1800").to_string(),
+                crate::t!("tui.config.opt_sync_interval_3600").to_string(),
+            ],
+            DropdownField::HealthFrequency => vec![
+                crate::t!("tui.config.opt_freq_on_startup").to_string(),
+                crate::t!("tui.config.opt_freq_daily").to_string(),
+                crate::t!("tui.config.opt_freq_weekly").to_string(),
+            ],
+            DropdownField::AuditRetention => vec![
+                crate::t!("tui.config.opt_audit_30").to_string(),
+                crate::t!("tui.config.opt_audit_90").to_string(),
+                crate::t!("tui.config.opt_audit_180").to_string(),
+                crate::t!("tui.config.opt_audit_365").to_string(),
+            ],
         }
     }
 }

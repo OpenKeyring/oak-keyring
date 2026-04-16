@@ -13,6 +13,7 @@ use crate::config::{
     HealthCheckFrequency, HuaweiObsConfig, OneDriveConfig, ProviderConfig, S3Config, SftpConfig,
     SyncMode, SyncProvider, TencentCosConfig, UpyunConfig, WebDavConfig,
 };
+use crate::t;
 use crate::tui::state::config_state::{
     ConfirmButton, ConfigOverlay, ConfigTab, ConfigScreenState, DropdownField,
     SyncConnectionStatus,
@@ -56,10 +57,10 @@ impl Screen for ConfigScreen {
             match overlay {
                 ConfigOverlay::Dropdown {
                     field,
-                    options,
+                    options: _,
                     selected,
                 } => {
-                    render_dropdown_overlay(frame, area, field, options, *selected);
+                    render_dropdown_overlay(frame, area, field, *selected);
                 }
                 ConfigOverlay::UnsavedChanges { focused_button } => {
                     render_unsaved_changes_dialog(frame, area, *focused_button);
@@ -506,17 +507,21 @@ fn render_dropdown_overlay(
     frame: &mut Frame,
     area: Rect,
     field: &DropdownField,
-    options: &[String],
     selected: usize,
 ) {
     // Clear the area first
     frame.render_widget(Clear, area);
 
+    // Get translated display labels
+    let labels = field.display_labels();
+
     // Popup dimensions
     let max_visible = 8usize;
-    let visible_count = options.len().min(max_visible);
+    let visible_count = labels.len().min(max_visible);
     let popup_height = visible_count as u16 + 2; // +2 for border
-    let popup_width = 30u16.min(area.width).max(20);
+    // Calculate popup width based on longest translated label
+    let max_label_width = labels.iter().map(|l| l.len()).max().unwrap_or(10).max(10);
+    let popup_width = (max_label_width as u16 + 6).min(area.width).max(20);
 
     // Center the popup
     let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
@@ -542,7 +547,7 @@ fn render_dropdown_overlay(
         .split(inner);
 
     for (i, row_area) in rows.iter().enumerate() {
-        if i >= options.len() {
+        if i >= labels.len() {
             break;
         }
         let is_selected = i == selected;
@@ -554,7 +559,7 @@ fn render_dropdown_overlay(
             Style::default().fg(theme::TEXT)
         };
         let prefix = if is_selected { " > " } else { "   " };
-        let text = format!("{}{}", prefix, options[i]);
+        let text = format!("{}{}", prefix, labels[i]);
         frame.render_widget(Paragraph::new(text).style(style), *row_area);
     }
 }
@@ -574,7 +579,7 @@ fn render_unsaved_changes_dialog(frame: &mut Frame, area: Rect, focused_button: 
     let border_style = Style::default().fg(theme::WARNING);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" 未保存的更改 ")
+        .title(format!(" {} ", t!("tui.config.unsaved_dialog_title")))
         .border_style(border_style);
 
     let inner = block.inner(popup_area);
@@ -589,7 +594,7 @@ fn render_unsaved_changes_dialog(frame: &mut Frame, area: Rect, focused_button: 
         .split(inner);
 
     // Warning message
-    let msg = Paragraph::new(" 有未保存的更改，是否保存？")
+    let msg = Paragraph::new(format!(" {}", t!("tui.config.unsaved_dialog_message")))
         .style(Style::default().fg(theme::WARNING));
     frame.render_widget(msg, chunks[0]);
 
@@ -610,9 +615,15 @@ fn render_unsaved_changes_dialog(frame: &mut Frame, area: Rect, focused_button: 
     };
 
     let buttons = Line::from(vec![
-        Span::styled(" <取消> ", cancel_style),
+        Span::styled(
+            format!(" <{}> ", t!("tui.config.cancel_btn")),
+            cancel_style,
+        ),
         Span::styled("   ", Style::default()),
-        Span::styled(" <保存并退出> ", confirm_style),
+        Span::styled(
+            format!(" <{}> ", t!("tui.config.save_exit_btn")),
+            confirm_style,
+        ),
     ]);
     frame.render_widget(Paragraph::new(buttons), chunks[1]);
 }

@@ -256,6 +256,7 @@ tui:
     tab_general: "General"
     tab_sync: "Sync"
     tab_security: "Security"
+    tab_password: "Password"
     tab_about: "About"
     # -- General group --
     language: "Language"
@@ -383,6 +384,95 @@ tui:
     about_license: "License"
     # -- Save --
     saved: "Saved"
+    # -- Footer --
+    footer: " ↑↓ Navigate  Tab Switch  Ctrl+S Save  Esc Close "
+    # -- Dropdown --
+    select: "Select"
+    # -- Unsaved changes dialog --
+    unsaved_dialog_title: "Unsaved Changes"
+    unsaved_dialog_message: "You have unsaved changes. Save before exiting?"
+    cancel_btn: "Cancel"
+    save_exit_btn: "Save & Exit"
+    # -- Value placeholders --
+    seconds: "%{n}s"
+    days: "%{n}d"
+    not_set: "(not set)"
+    not_configured_hint: "No cloud sync configured. Select a provider to get started."
+    icloud_hint: "iCloud Drive requires no additional configuration. Sync directory is managed automatically."
+    # -- Password defaults --
+    password_defaults: "Password Defaults"
+    # -- Aliyun Drive types --
+    drive_type_default: "Default Space"
+    drive_type_backup: "Backup Space"
+    drive_type_resource: "Resource Library"
+    # -- Dropdown field labels (used in popup title) --
+    dropdown_language: "Language"
+    dropdown_auto_lock: "Auto Lock"
+    dropdown_clipboard_clear: "Clipboard Clear"
+    dropdown_trash_retention: "Trash Retention"
+    dropdown_animation: "Animation"
+    dropdown_sync_provider: "Sync Provider"
+    dropdown_sync_mode: "Sync Mode"
+    dropdown_sync_interval: "Sync Interval"
+    dropdown_health_frequency: "Check Frequency"
+    dropdown_audit_retention: "Audit Retention"
+    # -- Dropdown option display labels --
+    # Language options
+    opt_language_auto: "Auto"
+    opt_language_en: "English"
+    opt_language_zh_cn: "中文(简体)"
+    # Auto lock options
+    opt_auto_lock_60: "1 minute"
+    opt_auto_lock_300: "5 minutes"
+    opt_auto_lock_600: "10 minutes"
+    opt_auto_lock_1800: "30 minutes"
+    opt_auto_lock_0: "Never"
+    # Clipboard clear options
+    opt_clipboard_10: "10 seconds"
+    opt_clipboard_30: "30 seconds"
+    opt_clipboard_60: "1 minute"
+    opt_clipboard_0: "Manual"
+    # Trash retention options
+    opt_trash_7: "7 days"
+    opt_trash_30: "30 days"
+    opt_trash_90: "90 days"
+    opt_trash_365: "1 year"
+    # Animation options
+    opt_animation_auto: "Auto"
+    opt_animation_on: "On"
+    opt_animation_off: "Off"
+    # Sync mode options
+    opt_sync_mode_auto: "Auto Sync"
+    opt_sync_mode_manual: "Manual Sync"
+    # Sync interval options
+    opt_sync_interval_60: "1 minute"
+    opt_sync_interval_300: "5 minutes"
+    opt_sync_interval_600: "10 minutes"
+    opt_sync_interval_1800: "30 minutes"
+    opt_sync_interval_3600: "1 hour"
+    # Health frequency options
+    opt_freq_on_startup: "On Startup"
+    opt_freq_daily: "Daily"
+    opt_freq_weekly: "Weekly"
+    # Audit retention options
+    opt_audit_30: "30 days"
+    opt_audit_90: "90 days"
+    opt_audit_180: "180 days"
+    opt_audit_365: "1 year"
+    # Sync provider options
+    opt_provider_disabled: "Disabled"
+    opt_provider_icloud: "iCloud Drive"
+    opt_provider_google_drive: "Google Drive"
+    opt_provider_dropbox: "Dropbox"
+    opt_provider_onedrive: "OneDrive"
+    opt_provider_webdav: "WebDAV"
+    opt_provider_sftp: "SFTP"
+    opt_provider_s3: "S3 Compatible"
+    opt_provider_aliyun_drive: "Aliyun Drive"
+    opt_provider_aliyun_oss: "Aliyun OSS"
+    opt_provider_tencent_cos: "Tencent COS"
+    opt_provider_huawei_obs: "Huawei OBS"
+    opt_provider_upyun: "Upyun"
 
   # ---- U9: Import/Export ----
   import_export:

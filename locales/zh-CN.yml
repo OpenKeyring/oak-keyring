@@ -255,6 +255,7 @@ tui:
     tab_general: "常规"
     tab_sync: "同步"
     tab_security: "安全"
+    tab_password: "密码"
     tab_about: "关于"
     # -- General group --
     language: "语言"
@@ -382,6 +383,95 @@ tui:
     about_license: "许可证"
     # -- Save --
     saved: "已保存"
+    # -- Footer --
+    footer: " ↑↓ 滚动  Tab 切换  Ctrl+S 保存  Esc 关闭 "
+    # -- Dropdown --
+    select: "选择"
+    # -- Unsaved changes dialog --
+    unsaved_dialog_title: "未保存的更改"
+    unsaved_dialog_message: "有未保存的更改，是否保存？"
+    cancel_btn: "取消"
+    save_exit_btn: "保存并退出"
+    # -- Value placeholders --
+    seconds: "%{n}秒"
+    days: "%{n}天"
+    not_set: "(未设置)"
+    not_configured_hint: "未配置云同步。选择 Provider 以开始。"
+    icloud_hint: "iCloud Drive 无需额外配置，同步目录自动管理。"
+    # -- Password defaults --
+    password_defaults: "密码默认设置"
+    # -- Aliyun Drive types --
+    drive_type_default: "默认空间"
+    drive_type_backup: "备份空间"
+    drive_type_resource: "资源库"
+    # -- Dropdown field labels (used in popup title) --
+    dropdown_language: "语言"
+    dropdown_auto_lock: "自动锁定"
+    dropdown_clipboard_clear: "剪贴板清除"
+    dropdown_trash_retention: "回收站保留"
+    dropdown_animation: "动画效果"
+    dropdown_sync_provider: "云同步 Provider"
+    dropdown_sync_mode: "同步方式"
+    dropdown_sync_interval: "同步间隔"
+    dropdown_health_frequency: "检查频率"
+    dropdown_audit_retention: "审计保留"
+    # -- Dropdown option display labels --
+    # Language options
+    opt_language_auto: "自动"
+    opt_language_en: "English"
+    opt_language_zh_cn: "中文(简体)"
+    # Auto lock options
+    opt_auto_lock_60: "1 分钟"
+    opt_auto_lock_300: "5 分钟"
+    opt_auto_lock_600: "10 分钟"
+    opt_auto_lock_1800: "30 分钟"
+    opt_auto_lock_0: "从不"
+    # Clipboard clear options
+    opt_clipboard_10: "10 秒"
+    opt_clipboard_30: "30 秒"
+    opt_clipboard_60: "1 分钟"
+    opt_clipboard_0: "手动"
+    # Trash retention options
+    opt_trash_7: "7 天"
+    opt_trash_30: "30 天"
+    opt_trash_90: "90 天"
+    opt_trash_365: "1 年"
+    # Animation options
+    opt_animation_auto: "自动"
+    opt_animation_on: "开启"
+    opt_animation_off: "关闭"
+    # Sync mode options
+    opt_sync_mode_auto: "自动同步"
+    opt_sync_mode_manual: "手动同步"
+    # Sync interval options
+    opt_sync_interval_60: "1 分钟"
+    opt_sync_interval_300: "5 分钟"
+    opt_sync_interval_600: "10 分钟"
+    opt_sync_interval_1800: "30 分钟"
+    opt_sync_interval_3600: "1 小时"
+    # Health frequency options
+    opt_freq_on_startup: "启动时"
+    opt_freq_daily: "每天"
+    opt_freq_weekly: "每周"
+    # Audit retention options
+    opt_audit_30: "30 天"
+    opt_audit_90: "90 天"
+    opt_audit_180: "180 天"
+    opt_audit_365: "1 年"
+    # Sync provider options
+    opt_provider_disabled: "禁用"
+    opt_provider_icloud: "iCloud Drive"
+    opt_provider_google_drive: "Google Drive"
+    opt_provider_dropbox: "Dropbox"
+    opt_provider_onedrive: "OneDrive"
+    opt_provider_webdav: "WebDAV"
+    opt_provider_sftp: "SFTP"
+    opt_provider_s3: "S3 兼容"
+    opt_provider_aliyun_drive: "阿里云盘"
+    opt_provider_aliyun_oss: "阿里云 OSS"
+    opt_provider_tencent_cos: "腾讯云 COS"
+    opt_provider_huawei_obs: "华为云 OBS"
+    opt_provider_upyun: "又拍云"
 
   # ---- U9: Import/Export ----
   import_export:

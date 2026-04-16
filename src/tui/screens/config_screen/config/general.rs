@@ -4,6 +4,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::{Frame, layout::Rect};
 
 use crate::config::AnimationMode;
+use crate::t;
 use crate::tui::state::config_state::GeneralConfigForm;
 use crate::tui::theme;
 
@@ -31,11 +32,15 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
     let accent_style = Style::default().fg(theme::PRIMARY);
 
     // Title row is NOT focusable — always dim
-    let title = Paragraph::new("常规").style(dim_style);
+    let title = Paragraph::new(t!("tui.config.tab_general").to_string()).style(dim_style);
     frame.render_widget(title, chunks[0]);
 
     // Row index 0: Language (focused == 0)
-    let lang = format!("语言                [ {} \u{25bc} ]", form.language);
+    let lang = format!(
+        "{}                [ {} \u{25bc} ]",
+        t!("tui.config.language"),
+        form.language
+    );
     frame.render_widget(
         Paragraph::new(lang).style(if focused == 0 {
             focused_style
@@ -47,7 +52,12 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
 
     // Row index 1: Vault path (focused == 1)
     let vault_display = form.vault_path.display();
-    let vault = format!("Vault 路径          {}  [ 修改 ]", vault_display);
+    let vault = format!(
+        "{}          {}  [ {} ]",
+        t!("tui.config.vault_path"),
+        vault_display,
+        t!("tui.config.vault_path_modify")
+    );
     frame.render_widget(
         Paragraph::new(vault).style(if focused == 1 {
             focused_style
@@ -58,7 +68,11 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
     );
 
     // Row index 2: Auto lock (focused == 2)
-    let auto_lock = format!("自动锁定          [ {}秒 \u{25bc} ]", form.auto_lock_seconds);
+    let auto_lock = format!(
+        "{}          [ {}秒 \u{25bc} ]",
+        t!("tui.config.auto_lock"),
+        form.auto_lock_seconds
+    );
     frame.render_widget(
         Paragraph::new(auto_lock).style(if focused == 2 {
             focused_style
@@ -70,7 +84,8 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
 
     // Row index 3: Clipboard (focused == 3)
     let clip = format!(
-        "剪贴板清除        [ {}秒 \u{25bc} ]",
+        "{}        [ {}秒 \u{25bc} ]",
+        t!("tui.config.clipboard_clear"),
         form.clipboard_clear_seconds
     );
     frame.render_widget(
@@ -84,7 +99,8 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
 
     // Row index 4: Trash (focused == 4)
     let trash = format!(
-        "回收站保留天数    [ {}天 \u{25bc} ]",
+        "{}    [ {}天 \u{25bc} ]",
+        t!("tui.config.trash_retention"),
         form.trash_retention_days
     );
     frame.render_widget(
@@ -98,11 +114,15 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
 
     // Row index 5: Animation (focused == 5)
     let anim_label = match form.animation {
-        AnimationMode::Auto => "自动",
-        AnimationMode::On => "开启",
-        AnimationMode::Off => "关闭",
+        AnimationMode::Auto => t!("tui.config.animation_auto").to_string(),
+        AnimationMode::On => t!("tui.config.animation_on").to_string(),
+        AnimationMode::Off => t!("tui.config.animation_off").to_string(),
     };
-    let anim = format!("动画效果          [ {} \u{25bc} ]", anim_label);
+    let anim = format!(
+        "{}          [ {} \u{25bc} ]",
+        t!("tui.config.animation"),
+        anim_label
+    );
     frame.render_widget(
         Paragraph::new(anim).style(if focused == 5 {
             focused_style
@@ -113,7 +133,11 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
     );
 
     // Row index 6: Import/Export buttons (focused == 6)
-    let btns = "[ 从其他管理器导入... ]  [ 导出数据... ]";
+    let btns = format!(
+        "[ {} ]  [ {} ]",
+        t!("tui.config.import_button"),
+        t!("tui.config.export_button")
+    );
     frame.render_widget(
         Paragraph::new(btns).style(if focused == 6 {
             focused_style

@@ -4,6 +4,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::config::{AliyunDriveType, ProviderConfig, SftpHostCheck, SyncMode, SyncProvider};
+use crate::t;
 use crate::tui::state::config_state::{SyncConfigForm, SyncConnectionStatus};
 use crate::tui::theme;
 
@@ -15,20 +16,20 @@ const DIVIDER: ratatui::style::Color = ratatui::style::Color::Rgb(41, 46, 66);
 
 // ── Masking helpers ────────────────────────────────────────────────────────
 
-fn mask(value: &str) -> &'static str {
+fn mask(value: &str) -> String {
     if value.is_empty() {
-        "(未设置)"
+        t!("tui.config.not_set").to_string()
     } else {
-        "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"
+        "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string()
     }
 }
 
-fn mask_opt(value: &Option<String>) -> &'static str {
+fn mask_opt(value: &Option<String>) -> String {
     match value {
         Some(v) if !v.is_empty() => {
-            "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"
+            "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string()
         }
-        _ => "(未设置)",
+        _ => t!("tui.config.not_set").to_string(),
     }
 }
 
@@ -75,30 +76,31 @@ pub fn render(
 
     // ── Title (not focusable) ─────────────────────────────────────────────
     frame.render_widget(
-        Paragraph::new("同步").style(dim_style),
+        Paragraph::new(t!("tui.config.tab_sync").to_string()).style(dim_style),
         chunks[row],
     );
     row += 1;
 
     // ── Provider dropdown (focus index 0) ─────────────────────────────────
     let provider_name = match form.provider {
-        SyncProvider::Disabled => "禁用",
-        SyncProvider::ICloud => "iCloud Drive",
-        SyncProvider::GoogleDrive => "Google Drive",
-        SyncProvider::Dropbox => "Dropbox",
-        SyncProvider::OneDrive => "OneDrive",
-        SyncProvider::WebDav => "WebDAV",
-        SyncProvider::Sftp => "SFTP",
-        SyncProvider::S3 => "S3 兼容",
-        SyncProvider::AliyunDrive => "阿里云盘",
-        SyncProvider::AliyunOss => "阿里云 OSS",
-        SyncProvider::TencentCos => "腾讯云 COS",
-        SyncProvider::HuaweiObs => "华为云 OBS",
-        SyncProvider::Upyun => "又拍云",
+        SyncProvider::Disabled => t!("tui.config.sync_disabled").to_string(),
+        SyncProvider::ICloud => t!("tui.config.sync_icloud").to_string(),
+        SyncProvider::GoogleDrive => t!("tui.config.sync_google_drive").to_string(),
+        SyncProvider::Dropbox => t!("tui.config.sync_dropbox").to_string(),
+        SyncProvider::OneDrive => t!("tui.config.sync_onedrive").to_string(),
+        SyncProvider::WebDav => t!("tui.config.sync_webdav").to_string(),
+        SyncProvider::Sftp => t!("tui.config.sync_sftp").to_string(),
+        SyncProvider::S3 => t!("tui.config.sync_s3").to_string(),
+        SyncProvider::AliyunDrive => t!("tui.config.sync_aliyun_drive").to_string(),
+        SyncProvider::AliyunOss => t!("tui.config.sync_aliyun_oss").to_string(),
+        SyncProvider::TencentCos => t!("tui.config.sync_tencent_cos").to_string(),
+        SyncProvider::HuaweiObs => t!("tui.config.sync_huawei_obs").to_string(),
+        SyncProvider::Upyun => t!("tui.config.sync_upyun").to_string(),
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "云同步 Provider     [ {} \u{25bc} ]",
+            "{}     [ {} \u{25bc} ]",
+            t!("tui.config.sync_provider"),
             provider_name
         ))
         .style(if focused == 0 {
@@ -112,12 +114,13 @@ pub fn render(
 
     // ── Sync mode (focus index 1) ─────────────────────────────────────────
     let mode_label = match form.sync_mode {
-        SyncMode::Auto => "自动",
-        SyncMode::Manual => "手动",
+        SyncMode::Auto => t!("tui.config.sync_mode_auto").to_string(),
+        SyncMode::Manual => t!("tui.config.sync_mode_manual").to_string(),
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "同步方式            [ {} \u{25bc} ]",
+            "{}            [ {} \u{25bc} ]",
+            t!("tui.config.sync_mode"),
             mode_label
         ))
         .style(if focused == 1 {
@@ -141,7 +144,8 @@ pub fn render(
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "自动同步间隔        [ {}秒 \u{25bc} ]",
+            "{}        [ {}秒 \u{25bc} ]",
+            t!("tui.config.sync_interval"),
             form.auto_interval_seconds
         ))
         .style(interval_style),
@@ -176,14 +180,28 @@ pub fn render(
 
     // ── Test button + status (focus index 3) ──────────────────────────────
     let (status_text, status_color) = match status {
-        SyncConnectionStatus::Connected => ("\u{2713} 已连接", ratatui::style::Color::Rgb(158, 206, 106)),
-        SyncConnectionStatus::Disconnected => ("\u{2717} 未连接", ratatui::style::Color::Rgb(247, 118, 142)),
-        SyncConnectionStatus::NotConfigured => ("\u{2014} 未配置", ratatui::style::Color::Rgb(59, 66, 97)),
-        SyncConnectionStatus::Testing => ("\u{27f3} 测试连接中...", theme::PRIMARY),
+        SyncConnectionStatus::Connected => (
+            format!("\u{2713} {}", t!("tui.config.sync_connected")),
+            ratatui::style::Color::Rgb(158, 206, 106),
+        ),
+        SyncConnectionStatus::Disconnected => (
+            format!("\u{2717} {}", t!("tui.config.sync_disconnected")),
+            ratatui::style::Color::Rgb(247, 118, 142),
+        ),
+        SyncConnectionStatus::NotConfigured => (
+            format!("\u{2014} {}", t!("tui.config.sync_not_configured")),
+            ratatui::style::Color::Rgb(59, 66, 97),
+        ),
+        SyncConnectionStatus::Testing => (
+            format!("\u{27f3} {}", t!("tui.config.sync_testing")),
+            theme::PRIMARY,
+        ),
     };
 
     let status_line = format!(
-        "[ 测试连接 ]   同步状态  {}",
+        "[ {} ]   {}  {}",
+        t!("tui.config.sync_test_button"),
+        t!("tui.config.sync_status"),
         status_text
     );
     frame.render_widget(
@@ -226,93 +244,95 @@ fn render_provider_fields(
 ) {
     match pc {
         None => {
-            render_label_value(chunks, fi, frame, "未配置云同步。选择 Provider 以开始。", "", LABEL);
+            let hint = t!("tui.config.not_configured_hint").to_string();
+            render_label_value(chunks, fi, frame, &hint, "", LABEL);
         }
         Some(ProviderConfig::ICloud) => {
-            render_label_value(chunks, fi, frame, "iCloud Drive 无需额外配置，同步目录自动管理。", "", LABEL);
+            let hint = t!("tui.config.icloud_hint").to_string();
+            render_label_value(chunks, fi, frame, &hint, "", LABEL);
         }
         Some(ProviderConfig::GoogleDrive(cfg)) => {
-            render_field(chunks, fi, frame, "Client ID",        &cfg.client_id,     false);
-            render_field(chunks, fi, frame, "Client Secret",    &cfg.client_secret, true);
-            render_field(chunks, fi, frame, "Refresh Token",    &cfg.refresh_token, true);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,     false);
+            let l = t!("tui.config.field_client_id"); render_field(chunks, fi, frame, &l, &cfg.client_id, false);
+            let l = t!("tui.config.field_client_secret"); render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
+            let l = t!("tui.config.field_refresh_token"); render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::Dropbox(cfg)) => {
-            render_field(chunks, fi, frame, "Client ID",        &cfg.client_id,     false);
-            render_field(chunks, fi, frame, "Client Secret",    &cfg.client_secret, true);
-            render_field(chunks, fi, frame, "Refresh Token",    &cfg.refresh_token, true);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,     false);
+            let l = t!("tui.config.field_client_id"); render_field(chunks, fi, frame, &l, &cfg.client_id, false);
+            let l = t!("tui.config.field_client_secret"); render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
+            let l = t!("tui.config.field_refresh_token"); render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::OneDrive(cfg)) => {
-            render_field(chunks, fi, frame, "Client ID",        &cfg.client_id,     false);
-            render_field(chunks, fi, frame, "Client Secret",    &cfg.client_secret, true);
-            render_field(chunks, fi, frame, "Refresh Token",    &cfg.refresh_token, true);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,     false);
+            let l = t!("tui.config.field_client_id"); render_field(chunks, fi, frame, &l, &cfg.client_id, false);
+            let l = t!("tui.config.field_client_secret"); render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
+            let l = t!("tui.config.field_refresh_token"); render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::WebDav(cfg)) => {
-            render_field(chunks, fi, frame, "Endpoint",         &cfg.endpoint,      false);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,     false);
-            render_field_opt(chunks, fi, frame, "Username",     &cfg.username,      false);
-            render_field_opt(chunks, fi, frame, "Password",     &cfg.password,      true);
-            render_field_opt(chunks, fi, frame, "Bearer Token", &cfg.bearer_token,  true);
+            let l = t!("tui.config.field_endpoint"); render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_username"); render_field_opt(chunks, fi, frame, &l, &cfg.username, false);
+            let l = t!("tui.config.field_password"); render_field_opt(chunks, fi, frame, &l, &cfg.password, true);
+            let l = t!("tui.config.field_bearer_token"); render_field_opt(chunks, fi, frame, &l, &cfg.bearer_token, true);
         }
         Some(ProviderConfig::Sftp(cfg)) => {
-            render_field(chunks, fi, frame, "Server",           &cfg.server,        false);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,     false);
-            render_field(chunks, fi, frame, "SSH Key Path",    &cfg.ssh_key_path,  false);
+            let l = t!("tui.config.field_server"); render_field(chunks, fi, frame, &l, &cfg.server, false);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_ssh_key_path"); render_field(chunks, fi, frame, &l, &cfg.ssh_key_path, false);
             let host_check_str = match cfg.host_check {
-                SftpHostCheck::Strict => "Strict",
-                SftpHostCheck::Accept => "Accept",
-                SftpHostCheck::Add => "Add",
+                SftpHostCheck::Strict => t!("tui.config.host_check_strict").to_string(),
+                SftpHostCheck::Accept => t!("tui.config.host_check_accept").to_string(),
+                SftpHostCheck::Add => t!("tui.config.host_check_add").to_string(),
             };
-            render_label_value(chunks, fi, frame, "Host Check", host_check_str, LABEL);
+            let l = t!("tui.config.field_host_check"); render_label_value(chunks, fi, frame, &l, &host_check_str, LABEL);
         }
         Some(ProviderConfig::S3(cfg)) => {
-            render_field_opt(chunks, fi, frame, "Endpoint",     &cfg.endpoint,      false);
-            render_field(chunks, fi, frame, "Bucket",           &cfg.bucket,        false);
-            render_field_opt(chunks, fi, frame, "Region",       &cfg.region,        false);
-            render_field(chunks, fi, frame, "Access Key ID",    &cfg.access_key_id, false);
-            render_field(chunks, fi, frame, "Secret Access Key",&cfg.secret_access_key, true);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,     false);
+            let l = t!("tui.config.field_endpoint"); render_field_opt(chunks, fi, frame, &l, &cfg.endpoint, false);
+            let l = t!("tui.config.field_bucket"); render_field(chunks, fi, frame, &l, &cfg.bucket, false);
+            let l = t!("tui.config.field_region"); render_field_opt(chunks, fi, frame, &l, &cfg.region, false);
+            let l = t!("tui.config.field_access_key_id"); render_field(chunks, fi, frame, &l, &cfg.access_key_id, false);
+            let l = t!("tui.config.field_access_key_secret"); render_field(chunks, fi, frame, &l, &cfg.secret_access_key, true);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::AliyunDrive(cfg)) => {
-            render_field(chunks, fi, frame, "Client ID",        &cfg.client_id,     false);
-            render_field(chunks, fi, frame, "Client Secret",    &cfg.client_secret, true);
-            render_field(chunks, fi, frame, "Refresh Token",    &cfg.refresh_token, true);
+            let l = t!("tui.config.field_client_id"); render_field(chunks, fi, frame, &l, &cfg.client_id, false);
+            let l = t!("tui.config.field_client_secret"); render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
+            let l = t!("tui.config.field_refresh_token"); render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
             let drive_type_str = match cfg.drive_type {
-                AliyunDriveType::Default => "默认空间",
-                AliyunDriveType::Backup => "备份空间",
-                AliyunDriveType::Resource => "资源库",
+                AliyunDriveType::Default => t!("tui.config.drive_type_default").to_string(),
+                AliyunDriveType::Backup => t!("tui.config.drive_type_backup").to_string(),
+                AliyunDriveType::Resource => t!("tui.config.drive_type_resource").to_string(),
             };
-            render_label_value(chunks, fi, frame, "Drive Type", drive_type_str, LABEL);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,     false);
+            let l = t!("tui.config.field_drive_type"); render_label_value(chunks, fi, frame, &l, &drive_type_str, LABEL);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::AliyunOss(cfg)) => {
-            render_field(chunks, fi, frame, "Endpoint",         &cfg.endpoint,      false);
-            render_field(chunks, fi, frame, "Bucket",           &cfg.bucket,        false);
-            render_field(chunks, fi, frame, "Access Key ID",    &cfg.access_key_id, false);
-            render_field(chunks, fi, frame, "Access Key Secret",&cfg.access_key_secret, true);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,     false);
+            let l = t!("tui.config.field_endpoint"); render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
+            let l = t!("tui.config.field_bucket"); render_field(chunks, fi, frame, &l, &cfg.bucket, false);
+            let l = t!("tui.config.field_access_key_id"); render_field(chunks, fi, frame, &l, &cfg.access_key_id, false);
+            let l = t!("tui.config.field_access_key_secret"); render_field(chunks, fi, frame, &l, &cfg.access_key_secret, true);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::TencentCos(cfg)) => {
-            render_field(chunks, fi, frame, "Endpoint",         &cfg.endpoint,      false);
-            render_field(chunks, fi, frame, "Bucket",           &cfg.bucket,        false);
-            render_field(chunks, fi, frame, "Secret ID",        &cfg.secret_id,     false);
-            render_field(chunks, fi, frame, "Secret Key",       &cfg.secret_key,    true);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,     false);
+            let l = t!("tui.config.field_endpoint"); render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
+            let l = t!("tui.config.field_bucket"); render_field(chunks, fi, frame, &l, &cfg.bucket, false);
+            let l = t!("tui.config.field_secret_id"); render_field(chunks, fi, frame, &l, &cfg.secret_id, false);
+            let l = t!("tui.config.field_secret_key"); render_field(chunks, fi, frame, &l, &cfg.secret_key, true);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::HuaweiObs(cfg)) => {
-            render_field(chunks, fi, frame, "Endpoint",         &cfg.endpoint,      false);
-            render_field(chunks, fi, frame, "Bucket",           &cfg.bucket,        false);
-            render_field(chunks, fi, frame, "Access Key ID",    &cfg.access_key_id, false);
-            render_field(chunks, fi, frame, "Secret Access Key",&cfg.secret_access_key, true);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,     false);
+            let l = t!("tui.config.field_endpoint"); render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
+            let l = t!("tui.config.field_bucket"); render_field(chunks, fi, frame, &l, &cfg.bucket, false);
+            let l = t!("tui.config.field_access_key_id"); render_field(chunks, fi, frame, &l, &cfg.access_key_id, false);
+            let l = t!("tui.config.field_access_key_secret"); render_field(chunks, fi, frame, &l, &cfg.secret_access_key, true);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::Upyun(cfg)) => {
-            render_field(chunks, fi, frame, "Bucket",           &cfg.bucket,             false);
-            render_field(chunks, fi, frame, "Operator",         &cfg.operator,           false);
-            render_field(chunks, fi, frame, "Operator Password",&cfg.operator_password,  true);
-            render_field(chunks, fi, frame, "Root Path",        &cfg.root_path,          false);
+            let l = t!("tui.config.field_bucket"); render_field(chunks, fi, frame, &l, &cfg.bucket, false);
+            let l = t!("tui.config.field_operator"); render_field(chunks, fi, frame, &l, &cfg.operator, false);
+            let l = t!("tui.config.field_operator_password"); render_field(chunks, fi, frame, &l, &cfg.operator_password, true);
+            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
     }
 }
@@ -327,8 +347,8 @@ fn render_field(
     value: &str,
     sensitive: bool,
 ) {
-    let display = if sensitive { mask(value) } else { value };
-    render_label_value(chunks, fi, frame, label, display, LABEL);
+    let display = if sensitive { mask(value) } else { value.to_string() };
+    render_label_value(chunks, fi, frame, label, &display, LABEL);
 }
 
 fn render_field_opt(
@@ -343,11 +363,11 @@ fn render_field_opt(
         mask_opt(value)
     } else {
         match value {
-            Some(v) if !v.is_empty() => v.as_str(),
-            _ => "(未设置)",
+            Some(v) if !v.is_empty() => v.clone(),
+            _ => t!("tui.config.not_set").to_string(),
         }
     };
-    render_label_value(chunks, fi, frame, label, display, LABEL);
+    render_label_value(chunks, fi, frame, label, &display, LABEL);
 }
 
 fn render_label_value(

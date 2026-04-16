@@ -4,6 +4,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::{Frame, layout::Rect};
 
 use crate::config::HealthCheckFrequency;
+use crate::t;
 use crate::tui::state::config_state::SecurityConfigForm;
 use crate::tui::theme;
 
@@ -28,16 +29,17 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused:
         .bg(theme::BG_SURFACE);
 
     // Title row is NOT focusable
-    let title = Paragraph::new("安全").style(dim_style);
+    let title = Paragraph::new(t!("tui.config.tab_security").to_string()).style(dim_style);
     frame.render_widget(title, chunks[0]);
 
     // Row index 0: Health check (focused == 0)
     let health = format!(
-        "健康检查            [ {} ]",
+        "{}            [ {} ]",
+        t!("tui.config.health_check"),
         if form.health_check_enabled {
-            "\u{2713} 已开启"
+            format!("\u{2713} {}", t!("tui.config.enabled"))
         } else {
-            "\u{2717} 已关闭"
+            format!("\u{2717} {}", t!("tui.config.disabled"))
         }
     );
     frame.render_widget(
@@ -51,11 +53,15 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused:
 
     // Row index 1: Check frequency (focused == 1)
     let freq_label = match form.health_check_frequency {
-        HealthCheckFrequency::OnStartup => "启动时",
-        HealthCheckFrequency::Daily => "每天",
-        HealthCheckFrequency::Weekly => "每周",
+        HealthCheckFrequency::OnStartup => t!("tui.config.frequency_on_startup").to_string(),
+        HealthCheckFrequency::Daily => t!("tui.config.frequency_daily").to_string(),
+        HealthCheckFrequency::Weekly => t!("tui.config.frequency_weekly").to_string(),
     };
-    let freq = format!("检查频率            [ {} \u{25bc} ]", freq_label);
+    let freq = format!(
+        "{}            [ {} \u{25bc} ]",
+        t!("tui.config.check_frequency"),
+        freq_label
+    );
     frame.render_widget(
         Paragraph::new(freq).style(if focused == 1 {
             focused_style
@@ -66,7 +72,12 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused:
     );
 
     // Row index 2: Master password (focused == 2)
-    let pwd = "主密码              [\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}]        [ 修改 ]";
+    let pwd = format!(
+        "{}              [{}]        [ {} ]",
+        t!("tui.config.master_password"),
+        t!("tui.config.master_password_masked"),
+        t!("tui.config.change_password")
+    );
     frame.render_widget(
         Paragraph::new(pwd).style(if focused == 2 {
             focused_style
@@ -78,12 +89,14 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused:
 
     // Row index 3: Audit (focused == 3)
     let audit = format!(
-        "操作审计            [ {} ]  [ 查看记录 ]",
+        "{}            [ {} ]  [ {} ]",
+        t!("tui.config.audit"),
         if form.audit_enabled {
-            "\u{2713} 已开启"
+            format!("\u{2713} {}", t!("tui.config.enabled"))
         } else {
-            "\u{2717} 已关闭"
-        }
+            format!("\u{2717} {}", t!("tui.config.disabled"))
+        },
+        t!("tui.config.view_audit_log")
     );
     frame.render_widget(
         Paragraph::new(audit).style(if focused == 3 {
@@ -96,7 +109,8 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused:
 
     // Row index 4: Audit retention (focused == 4)
     let retention = format!(
-        "审计保留时长        [ {}天 \u{25bc} ]",
+        "{}        [ {}天 \u{25bc} ]",
+        t!("tui.config.audit_retention"),
         form.audit_retention_days
     );
     frame.render_widget(
