@@ -18,6 +18,9 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     // Route to current screen's view().
     match app.state.current_screen {
+        Screen::Main => {
+            app.state.screens.main.view(frame, area);
+        }
         Screen::Unlock => {
             app.state.screens.unlock.view(frame, area);
         }

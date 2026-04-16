@@ -6,9 +6,15 @@
 //! - [`TerminalTitleState`] — dynamic terminal window title
 //! - [`MainScreenState`] — root aggregate of all main-screen sub-states
 
-use crate::commands::types::{RecordFilter, RecordSort};
+use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::{Frame, layout::Rect};
+
+use crate::commands::Message;
+use crate::commands::types::{PanelId, RecordFilter, RecordSort, Screen as ScreenEnum};
+use crate::tui::screens::main::MainScreen;
 use crate::tui::state::detail_state::DetailPanelState;
 use crate::tui::state::list_state::ListPanelState;
+use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::Tag;
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
@@ -388,6 +394,10 @@ pub struct MainScreenState {
     pub current_sort: RecordSort,
     /// Snapshot of focus state before vault lock (placeholder).
     pub pre_lock_snapshot: Option<FocusSnapshot>,
+    /// Currently focused panel (synced from AppState.shared.focus.focused_panel).
+    pub focused_panel: PanelId,
+    /// Whether the terminal supports unicode characters (synced from AppState.unicode_capable).
+    pub unicode_capable: bool,
 }
 
 impl Default for MainScreenState {
@@ -401,6 +411,8 @@ impl Default for MainScreenState {
             current_filter: RecordFilter::All,
             current_sort: RecordSort::default(),
             pre_lock_snapshot: None,
+            focused_panel: PanelId::Sidebar,
+            unicode_capable: true,
         }
     }
 }
@@ -409,6 +421,44 @@ impl MainScreenState {
     /// Create a new MainScreenState with default values.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sync render-only fields from AppState-level shared state.
+    /// Called by the screen router before dispatching to update/view.
+    pub fn sync_from_app(&mut self, focused_panel: PanelId, unicode_capable: bool) {
+        self.focused_panel = focused_panel;
+        self.unicode_capable = unicode_capable;
+    }
+}
+
+impl Screen for MainScreenState {
+    fn update(&mut self, msg: Message, _ctx: &mut ScreenContext) -> ScreenResult {
+        match msg {
+            Message::KeyEvent(key) => self.handle_key(key),
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn view(&self, frame: &mut Frame, area: Rect) {
+        let renderer = MainScreen::new();
+        renderer.view(frame, area, self, self.focused_panel, self.unicode_capable);
+    }
+
+    fn on_mount(&mut self, _ctx: &mut ScreenContext) {
+        // No-op: mount sync handled by router calling sync_from_app().
+    }
+
+    fn on_unmount(&mut self) {
+        // No-op for now.
+    }
+}
+
+impl MainScreenState {
+    fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
+        match key.code {
+            KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
+            _ => ScreenResult::Continue,
+        }
     }
 }
 

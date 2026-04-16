@@ -255,6 +255,13 @@ fn route_to_screen(
     ctx: &mut ScreenContext<'_>,
 ) -> ScreenResult {
     match state.current_screen {
+        Screen::Main => {
+            state.screens.main.sync_from_app(
+                state.shared.focus.focused_panel,
+                state.unicode_capable,
+            );
+            state.screens.main.update(msg, ctx)
+        }
         Screen::Unlock => state.screens.unlock.update(msg, ctx),
         Screen::Onboarding => state.screens.onboarding.update(msg, ctx),
         Screen::Config => state.screens.config.update(msg, ctx),
@@ -267,6 +274,13 @@ fn route_to_screen(
 /// Call `on_mount()` on the current screen after navigation.
 fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut ScreenContext<'_>) {
     match state.current_screen {
+        Screen::Main => {
+            state.screens.main.sync_from_app(
+                state.shared.focus.focused_panel,
+                state.unicode_capable,
+            );
+            state.screens.main.on_mount(ctx)
+        }
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
         Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
         Screen::Config => state.screens.config.on_mount(ctx),
@@ -278,6 +292,7 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
 /// Call `on_unmount()` on the current screen before navigation.
 fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
     match state.current_screen {
+        Screen::Main => state.screens.main.on_unmount(),
         Screen::Unlock => state.screens.unlock.on_unmount(),
         Screen::Onboarding => state.screens.onboarding.on_unmount(),
         Screen::Config => state.screens.config.on_unmount(),
