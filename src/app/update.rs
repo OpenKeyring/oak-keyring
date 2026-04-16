@@ -283,7 +283,12 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
         }
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
         Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
-        Screen::Config => state.screens.config.on_mount(ctx),
+        Screen::Config => {
+            // Save current main screen focus panel before entering Config
+            let current_panel = state.shared.focus.focused_panel;
+            state.shared.screen_focus_stack.push(current_panel);
+            state.screens.config.on_mount(ctx)
+        }
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
         _ => {}
     }
@@ -295,7 +300,13 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         Screen::Main => state.screens.main.on_unmount(),
         Screen::Unlock => state.screens.unlock.on_unmount(),
         Screen::Onboarding => state.screens.onboarding.on_unmount(),
-        Screen::Config => state.screens.config.on_unmount(),
+        Screen::Config => {
+            // Restore focus panel when leaving Config
+            if let Some(panel) = state.shared.screen_focus_stack.pop() {
+                state.shared.focus.focused_panel = panel;
+            }
+            state.screens.config.on_unmount()
+        }
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
         _ => {}
     }
