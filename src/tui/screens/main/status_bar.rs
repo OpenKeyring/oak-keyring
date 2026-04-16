@@ -35,6 +35,21 @@ const SHORTCUTS_SIDEBAR_LIST_ASCII: &str = "Ctrl+K Search  N New  E Edit  D Dele
 const SHORTCUTS_DETAIL_ASCII: &str =
     "C CopyPwd  U CopyUser  P Show/Hide  E Edit  D Delete  F1 Help";
 
+// ── Trash shortcut strings (unicode) ──────────────────────────────────────────
+
+const SHORTCUTS_TRASH_LIST: &str = "r\u{6062}\u{590D} D\u{6C38}\u{4E45}\u{5220}\u{9664} a\u{6E05}\u{7A7A}\u{56DE}\u{6536}\u{7AD9} F1\u{5E2E}\u{52A9}";
+// r恢复 D永久删除 a清空回收站 F1帮助
+
+const SHORTCUTS_TRASH_DETAIL: &str =
+    "c\u{590D}\u{5236}\u{5BC6}\u{7801} u\u{590D}\u{5236}\u{7528}\u{6237}\u{540D} p\u{663E}\u{793A}/\u{9690}\u{85CF} r\u{6062}\u{590D} D\u{6C38}\u{4E45}\u{5220}\u{9664} F1\u{5E2E}\u{52A9}";
+// c复制密码 u复制用户名 p显示/隐藏 r恢复 D永久删除 F1帮助
+
+// ── Trash shortcut ASCII fallbacks ─────────────────────────────────────────────
+
+const SHORTCUTS_TRASH_LIST_ASCII: &str = "R Restore  D PermDelete  A EmptyTrash  F1 Help";
+const SHORTCUTS_TRASH_DETAIL_ASCII: &str =
+    "C CopyPwd  U CopyUser  P Show/Hide  R Restore  D PermDelete  F1 Help";
+
 // ── Sync indicator strings (unicode) ─────────────────────────────────────────
 
 const SYNC_SYNCED_UNICODE: &str = "\u{2713} \u{5DF2}\u{540C}\u{6B65}"; // ✓ 已同步
@@ -72,6 +87,7 @@ impl StatusBarPanel {
         state: &StatusBarState,
         focused_panel: PanelId,
         unicode: bool,
+        is_trash: bool,
     ) {
         if area.width == 0 || area.height == 0 {
             return;
@@ -86,7 +102,7 @@ impl StatusBarPanel {
             .bg(bar_bg);
         let msg_style = Style::default().fg(theme::TEXT_SECONDARY).bg(bar_bg);
 
-        let shortcuts = shortcuts_text(focused_panel, unicode);
+        let shortcuts = shortcuts_text(focused_panel, unicode, is_trash);
         let sync_text = sync_indicator_text(&state.sync_status, unicode);
         let status_msg = status_message_text(&state.status_message);
 
@@ -112,21 +128,35 @@ impl StatusBarPanel {
     }
 }
 
-/// Return the shortcut hint string based on the focused panel.
-fn shortcuts_text(focused_panel: PanelId, unicode: bool) -> &'static str {
-    match focused_panel {
-        PanelId::Sidebar | PanelId::List => {
+/// Return the shortcut hint string based on the focused panel and trash state.
+fn shortcuts_text(focused_panel: PanelId, unicode: bool, is_trash: bool) -> &'static str {
+    match (focused_panel, is_trash) {
+        (PanelId::Sidebar, _) | (PanelId::List, false) => {
             if unicode {
                 SHORTCUTS_SIDEBAR_LIST
             } else {
                 SHORTCUTS_SIDEBAR_LIST_ASCII
             }
         }
-        PanelId::Detail => {
+        (PanelId::List, true) => {
+            if unicode {
+                SHORTCUTS_TRASH_LIST
+            } else {
+                SHORTCUTS_TRASH_LIST_ASCII
+            }
+        }
+        (PanelId::Detail, false) => {
             if unicode {
                 SHORTCUTS_DETAIL
             } else {
                 SHORTCUTS_DETAIL_ASCII
+            }
+        }
+        (PanelId::Detail, true) => {
+            if unicode {
+                SHORTCUTS_TRASH_DETAIL
+            } else {
+                SHORTCUTS_TRASH_DETAIL_ASCII
             }
         }
     }
@@ -207,33 +237,33 @@ mod tests {
 
     #[test]
     fn shortcuts_sidebar_unicode() {
-        let text = shortcuts_text(PanelId::Sidebar, true);
+        let text = shortcuts_text(PanelId::Sidebar, true, false);
         assert!(text.contains('\u{2318}')); // ⌘
     }
 
     #[test]
     fn shortcuts_list_same_as_sidebar() {
         assert_eq!(
-            shortcuts_text(PanelId::Sidebar, true),
-            shortcuts_text(PanelId::List, true)
+            shortcuts_text(PanelId::Sidebar, true, false),
+            shortcuts_text(PanelId::List, true, false)
         );
     }
 
     #[test]
     fn shortcuts_detail_unicode() {
-        let text = shortcuts_text(PanelId::Detail, true);
+        let text = shortcuts_text(PanelId::Detail, true, false);
         assert!(text.contains('c'));
     }
 
     #[test]
     fn shortcuts_sidebar_ascii() {
-        let text = shortcuts_text(PanelId::Sidebar, false);
+        let text = shortcuts_text(PanelId::Sidebar, false, false);
         assert!(text.contains("Search"));
     }
 
     #[test]
     fn shortcuts_detail_ascii() {
-        let text = shortcuts_text(PanelId::Detail, false);
+        let text = shortcuts_text(PanelId::Detail, false, false);
         assert!(text.contains("CopyPwd"));
     }
 
@@ -344,5 +374,59 @@ mod tests {
     #[test]
     fn version_constant() {
         assert_eq!(VERSION, "v0.1.0");
+    }
+
+    // ── Trash-aware status bar tests ─────────────────────────────────────────
+
+    #[test]
+    fn trash_list_shortcuts_unicode() {
+        let text = shortcuts_text(PanelId::List, true, true);
+        assert!(
+            text.contains('r'),
+            "trash list shortcuts should contain 'r' for restore"
+        );
+        assert!(
+            text.contains('D'),
+            "trash list shortcuts should contain 'D' for permanent delete"
+        );
+        assert!(
+            text.contains('a'),
+            "trash list shortcuts should contain 'a' for empty trash"
+        );
+    }
+
+    #[test]
+    fn trash_detail_shortcuts_unicode() {
+        let text = shortcuts_text(PanelId::Detail, true, true);
+        assert!(
+            text.contains('c'),
+            "trash detail shortcuts should contain 'c' for copy"
+        );
+        assert!(
+            text.contains('r'),
+            "trash detail shortcuts should contain 'r' for restore"
+        );
+        assert!(
+            text.contains('D'),
+            "trash detail shortcuts should contain 'D' for permanent delete"
+        );
+    }
+
+    #[test]
+    fn normal_list_shortcuts_no_trash() {
+        let text = shortcuts_text(PanelId::List, true, false);
+        assert!(
+            !text.contains("\u{6E05}\u{7A7A}\u{56DE}\u{6536}\u{7AD9}"),
+            "normal list should not contain '清空回收站'"
+        );
+    }
+
+    #[test]
+    fn normal_detail_shortcuts_no_trash() {
+        let text = shortcuts_text(PanelId::Detail, true, false);
+        assert!(
+            !text.contains("\u{6062}\u{590D}"),
+            "normal detail should not contain '恢复'"
+        );
     }
 }
