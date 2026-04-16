@@ -11,7 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::commands::types::PanelId;
+use crate::commands::types::{PanelId, RecordFilter};
 use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, PANEL_SEPARATOR};
 use crate::tui::screens::main::sidebar::SidebarPanel;
 use crate::tui::screens::main::status_bar::StatusBarPanel;
@@ -101,6 +101,9 @@ impl MainScreen {
             render_vertical_separators(frame, &areas);
         }
 
+        // Determine if we are viewing trash
+        let is_trash = matches!(state.current_filter, RecordFilter::Trash);
+
         // 6. Status bar
         StatusBarPanel::view(
             frame,
@@ -108,6 +111,7 @@ impl MainScreen {
             &state.status_bar,
             focused_panel,
             unicode,
+            is_trash,
         );
     }
 
