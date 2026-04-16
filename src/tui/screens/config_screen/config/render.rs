@@ -1,8 +1,10 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
+use crate::t;
 use crate::tui::state::config_state::{ConfigTab, ConfigScreenState, PasswordDefaultsForm};
 use crate::tui::theme;
 
@@ -17,14 +19,18 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
         .split(area);
 
     // Tab bar with active tab highlight
-    let tab_names = ["常规", "同步", "安全", "密码", "关于"];
+    let tab_names = [
+        t!("tui.config.tab_general").to_string(),
+        t!("tui.config.tab_sync").to_string(),
+        t!("tui.config.tab_security").to_string(),
+        t!("tui.config.tab_password").to_string(),
+        t!("tui.config.tab_about").to_string(),
+    ];
 
     // Build header with active tab indicator using Spans
-    use ratatui::text::{Line, Span};
-
     let mut spans: Vec<Span> = Vec::new();
     spans.push(Span::styled(
-        " 配置  ",
+        format!(" {}  ", t!("tui.config.title")),
         Style::default().fg(theme::TEXT).bold(),
     ));
 
@@ -35,7 +41,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
                 Style::default().fg(theme::TEXT_SECONDARY),
             ));
         }
-        let name = tab_names[i];
+        let name = &tab_names[i];
         if *tab == state.active_tab {
             spans.push(Span::styled(
                 format!(" {} ", name),
@@ -68,7 +74,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
     }
 
     // Footer
-    let footer = Paragraph::new(" \u{2191}\u{2193} 滚动  Tab 切换  Ctrl+S 保存  Esc 关闭 ")
+    let footer = Paragraph::new(t!("tui.config.footer").to_string())
         .style(Style::default().fg(theme::TEXT_SECONDARY));
     frame.render_widget(footer, chunks[2]);
 }
@@ -96,11 +102,15 @@ fn render_password_defaults(
         .fg(theme::TEXT)
         .add_modifier(Modifier::BOLD)
         .bg(theme::BG_SURFACE);
-    let title = Paragraph::new("密码默认设置").style(dim_style);
+    let title = Paragraph::new(t!("tui.config.password_defaults").to_string()).style(dim_style);
     frame.render_widget(title, chunks[0]);
 
     // Row index 0: Length (focused == 0)
-    let length = format!("默认密码长度      [ {} ]", form.length);
+    let length = format!(
+        "{}      [ {} ]",
+        t!("tui.config.default_length"),
+        form.length
+    );
     frame.render_widget(
         Paragraph::new(length).style(if focused == 0 {
             focused_style
@@ -112,7 +122,8 @@ fn render_password_defaults(
 
     // Row index 1: Digits (focused == 1)
     let digits = format!(
-        "包含数字          [ {} ]",
+        "{}          [ {} ]",
+        t!("tui.config.default_digits"),
         if form.include_digits {
             "\u{2713}"
         } else {
@@ -130,7 +141,8 @@ fn render_password_defaults(
 
     // Row index 2: Uppercase (focused == 2)
     let upper = format!(
-        "包含大写字母      [ {} ]",
+        "{}      [ {} ]",
+        t!("tui.config.default_uppercase"),
         if form.include_uppercase {
             "\u{2713}"
         } else {
@@ -148,7 +160,8 @@ fn render_password_defaults(
 
     // Row index 3: Special (focused == 3)
     let special = format!(
-        "包含特殊字符      [ {} ]",
+        "{}      [ {} ]",
+        t!("tui.config.default_symbols"),
         if form.include_special {
             "\u{2713}"
         } else {
