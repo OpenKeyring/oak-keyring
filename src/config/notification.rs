@@ -13,8 +13,8 @@ pub trait ServiceNotification: Send + Sync {
     /// Notify services that configuration has changed.
     ///
     /// `config` is the new configuration to reload into each service.
-    /// `changed_fields` lists the names of changed config fields so services can decide
-    /// whether they need to respond. An empty list means a full reload (notify all).
+    /// `changed_fields` lists service IDs that should be notified.
+    /// An empty list means a full reload (notify all registered services).
     /// Returns one result per notified service.
     fn notify_config_change(
         &self,
