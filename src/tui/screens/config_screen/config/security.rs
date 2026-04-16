@@ -109,9 +109,9 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused:
 
     // Row index 4: Audit retention (focused == 4)
     let retention = format!(
-        "{}        [ {}天 \u{25bc} ]",
+        "{}        [ {} \u{25bc} ]",
         t!("tui.config.audit_retention"),
-        form.audit_retention_days
+        t!("tui.config.days", n = form.audit_retention_days)
     );
     frame.render_widget(
         Paragraph::new(retention).style(if focused == 4 {

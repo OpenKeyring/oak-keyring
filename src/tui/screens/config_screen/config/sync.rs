@@ -144,9 +144,9 @@ pub fn render(
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{}        [ {}秒 \u{25bc} ]",
+            "{}        [ {} \u{25bc} ]",
             t!("tui.config.sync_interval"),
-            form.auto_interval_seconds
+            t!("tui.config.seconds", n = form.auto_interval_seconds)
         ))
         .style(interval_style),
         chunks[row],
