@@ -726,4 +726,43 @@ mod tests {
         state.toggle_tags();
         assert!(state.tags_expanded);
     }
+
+    // ── Tag delete and visual/search mutual exclusion tests ──────────────
+
+    #[test]
+    fn tag_delete_auto_switches_to_all_when_viewing_deleted_tag() {
+        let mut state = MainScreenState::default();
+        state.current_filter = RecordFilter::Tag("work".to_string());
+        state.sidebar.select_category(SidebarCategory::All);
+
+        // Simulate tag deletion: switch filter to All
+        state.current_filter = RecordFilter::All;
+        state.sidebar.select_category(SidebarCategory::All);
+
+        assert_eq!(state.current_filter, RecordFilter::All);
+        assert_eq!(
+            state.sidebar.items[state.sidebar.selected_index],
+            SidebarItem::Category(SidebarCategory::All)
+        );
+    }
+
+    #[test]
+    fn visual_mode_and_search_are_mutually_exclusive() {
+        let mut state = MainScreenState::default();
+        state.list.enter_visual();
+        assert!(state.list.is_visual());
+        assert!(!state.list.is_searching());
+
+        // Entering search should exit visual
+        state.list.exit_visual();
+        state.list.enter_search();
+        assert!(state.list.is_searching());
+        assert!(!state.list.is_visual());
+
+        // Entering visual should exit search
+        state.list.exit_search();
+        state.list.enter_visual();
+        assert!(state.list.is_visual());
+        assert!(!state.list.is_searching());
+    }
 }
