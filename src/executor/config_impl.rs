@@ -30,27 +30,27 @@ impl ConfigManagerImpl {
 impl ConfigManager for ConfigManagerImpl {
     fn load(&self, vault_dir: &Path) -> Result<AppConfig, ConfigError> {
         let config = AppConfig::load(vault_dir)?;
-        let mut current = self.config.write().unwrap();
+        let mut current = self.config.write().unwrap_or_else(|e| e.into_inner());
         *current = config.clone();
         Ok(config)
     }
 
     fn save(&self, config: &AppConfig, vault_dir: &Path) -> Result<(), ConfigError> {
         config.save(vault_dir)?;
-        let mut current = self.config.write().unwrap();
+        let mut current = self.config.write().unwrap_or_else(|e| e.into_inner());
         *current = config.clone();
         Ok(())
     }
 
     fn reload(&self, vault_dir: &Path) -> Result<AppConfig, ConfigError> {
-        let config = AppConfig::load(vault_dir)?;
-        let mut current = self.config.write().unwrap();
-        *current = config.clone();
-        Ok(config)
+        self.load(vault_dir)
     }
 
     fn get_config(&self) -> AppConfig {
-        self.config.read().unwrap().clone()
+        self.config
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 
