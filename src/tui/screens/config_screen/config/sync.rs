@@ -1,17 +1,17 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::config::{AliyunDriveType, ProviderConfig, SftpHostCheck, SyncMode, SyncProvider};
 use crate::tui::state::config_state::{SyncConfigForm, SyncConnectionStatus};
+use crate::tui::theme;
 
-// ── Color palette ──────────────────────────────────────────────────────────
+// ── Color palette (for provider-specific field area, not focusable) ────────
 
-const LABEL: Color = Color::Rgb(86, 95, 137);
-const VALUE: Color = Color::Rgb(192, 202, 245);
-const DIVIDER: Color = Color::Rgb(41, 46, 66);
-const ACCENT: Color = Color::Rgb(122, 162, 247);
+const LABEL: ratatui::style::Color = ratatui::style::Color::Rgb(86, 95, 137);
+const VALUE: ratatui::style::Color = ratatui::style::Color::Rgb(192, 202, 245);
+const DIVIDER: ratatui::style::Color = ratatui::style::Color::Rgb(41, 46, 66);
 
 // ── Masking helpers ────────────────────────────────────────────────────────
 
@@ -34,7 +34,20 @@ fn mask_opt(value: &Option<String>) -> &'static str {
 
 // ── Main render ────────────────────────────────────────────────────────────
 
-pub fn render(frame: &mut Frame, area: Rect, form: &SyncConfigForm, status: SyncConnectionStatus) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    form: &SyncConfigForm,
+    status: SyncConnectionStatus,
+    focused: usize,
+) {
+    let dim_style = Style::default().fg(theme::TEXT_SECONDARY).bold();
+    let normal_style = Style::default().fg(theme::TEXT);
+    let focused_style = Style::default()
+        .fg(theme::TEXT)
+        .add_modifier(Modifier::BOLD)
+        .bg(theme::BG_SURFACE);
+
     // Count provider-specific field rows so we can size the layout dynamically.
     let field_count = provider_field_count(&form.provider_config);
 
@@ -60,14 +73,14 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SyncConfigForm, status: Sync
 
     let mut row = 0;
 
-    // ── Title ───────────────────────────────────────────────────────────────
+    // ── Title (not focusable) ─────────────────────────────────────────────
     frame.render_widget(
-        Paragraph::new("同步").style(Style::default().fg(LABEL).bold()),
+        Paragraph::new("同步").style(dim_style),
         chunks[row],
     );
     row += 1;
 
-    // ── Provider dropdown ───────────────────────────────────────────────────
+    // ── Provider dropdown (focus index 0) ─────────────────────────────────
     let provider_name = match form.provider {
         SyncProvider::Disabled => "禁用",
         SyncProvider::ICloud => "iCloud Drive",
@@ -88,12 +101,16 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SyncConfigForm, status: Sync
             "云同步 Provider     [ {} \u{25bc} ]",
             provider_name
         ))
-        .style(Style::default().fg(VALUE)),
+        .style(if focused == 0 {
+            focused_style
+        } else {
+            normal_style
+        }),
         chunks[row],
     );
     row += 1;
 
-    // ── Sync mode ───────────────────────────────────────────────────────────
+    // ── Sync mode (focus index 1) ─────────────────────────────────────────
     let mode_label = match form.sync_mode {
         SyncMode::Auto => "自动",
         SyncMode::Manual => "手动",
@@ -103,23 +120,31 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SyncConfigForm, status: Sync
             "同步方式            [ {} \u{25bc} ]",
             mode_label
         ))
-        .style(Style::default().fg(VALUE)),
+        .style(if focused == 1 {
+            focused_style
+        } else {
+            normal_style
+        }),
         chunks[row],
     );
     row += 1;
 
-    // ── Auto interval ───────────────────────────────────────────────────────
+    // ── Auto interval (focus index 2) ─────────────────────────────────────
     frame.render_widget(
         Paragraph::new(format!(
             "自动同步间隔        [ {}秒 \u{25bc} ]",
             form.auto_interval_seconds
         ))
-        .style(Style::default().fg(VALUE)),
+        .style(if focused == 2 {
+            focused_style
+        } else {
+            normal_style
+        }),
         chunks[row],
     );
     row += 1;
 
-    // ── Divider ─────────────────────────────────────────────────────────────
+    // ── Divider (not focusable) ───────────────────────────────────────────
     let divider_width = area.width as usize;
     let divider_text: String = "\u{2500}".repeat(divider_width);
     frame.render_widget(
@@ -128,7 +153,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SyncConfigForm, status: Sync
     );
     row += 1;
 
-    // ── Provider-specific fields ────────────────────────────────────────────
+    // ── Provider-specific fields (not focusable) ──────────────────────────
     if field_count > 0 {
         let field_area = chunks[row];
         let field_constraints = (0..field_count)
@@ -144,12 +169,12 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SyncConfigForm, status: Sync
         row += 1;
     }
 
-    // ── Status row ──────────────────────────────────────────────────────────
+    // ── Test button + status (focus index 3) ──────────────────────────────
     let (status_text, status_color) = match status {
-        SyncConnectionStatus::Connected => ("\u{2713} 已连接", Color::Rgb(158, 206, 106)),
-        SyncConnectionStatus::Disconnected => ("\u{2717} 未连接", Color::Rgb(247, 118, 142)),
-        SyncConnectionStatus::NotConfigured => ("\u{2014} 未配置", Color::Rgb(59, 66, 97)),
-        SyncConnectionStatus::Testing => ("\u{27f3} 测试连接中...", ACCENT),
+        SyncConnectionStatus::Connected => ("\u{2713} 已连接", ratatui::style::Color::Rgb(158, 206, 106)),
+        SyncConnectionStatus::Disconnected => ("\u{2717} 未连接", ratatui::style::Color::Rgb(247, 118, 142)),
+        SyncConnectionStatus::NotConfigured => ("\u{2014} 未配置", ratatui::style::Color::Rgb(59, 66, 97)),
+        SyncConnectionStatus::Testing => ("\u{27f3} 测试连接中...", theme::PRIMARY),
     };
 
     let status_line = format!(
@@ -157,7 +182,11 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SyncConfigForm, status: Sync
         status_text
     );
     frame.render_widget(
-        Paragraph::new(status_line).style(Style::default().fg(status_color)),
+        Paragraph::new(status_line).style(if focused == 3 {
+            focused_style
+        } else {
+            Style::default().fg(status_color)
+        }),
         chunks[row],
     );
 }
@@ -322,7 +351,7 @@ fn render_label_value(
     frame: &mut Frame,
     label: &str,
     value: &str,
-    label_color: Color,
+    label_color: ratatui::style::Color,
 ) {
     let idx = *fi as usize;
     if idx < chunks.len() {

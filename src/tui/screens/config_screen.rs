@@ -109,11 +109,13 @@ impl ConfigScreen {
                 ScreenResult::Continue
             }
             (KeyCode::Up, _) => {
-                self.state.focus_prev(20); // approximate, each tab has different counts
+                let count = self.state.active_tab.item_count();
+                self.state.focus_prev(count);
                 ScreenResult::Continue
             }
             (KeyCode::Down, _) => {
-                self.state.focus_next(20);
+                let count = self.state.active_tab.item_count();
+                self.state.focus_next(count);
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
