@@ -26,11 +26,9 @@ impl InlineValidation {
                 msg.as_str(),
                 Style::default().fg(theme::SUCCESS),
             ),
-            ValidationKind::Invalid(msg) => (
-                "\u{2715}",
-                msg.as_str(),
-                Style::default().fg(theme::ERROR),
-            ),
+            ValidationKind::Invalid(msg) => {
+                ("\u{2715}", msg.as_str(), Style::default().fg(theme::ERROR))
+            }
             ValidationKind::Warning(msg) => (
                 "\u{26A0}",
                 msg.as_str(),
@@ -38,10 +36,7 @@ impl InlineValidation {
             ),
         };
         let line = Line::from(vec![
-            Span::styled(
-                format!(" {} ", icon),
-                style.add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(format!(" {} ", icon), style.add_modifier(Modifier::BOLD)),
             Span::styled(text.to_string(), style),
         ]);
         frame.render_widget(Paragraph::new(line), area);

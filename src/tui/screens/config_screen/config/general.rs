@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Paragraph;
-use ratatui::{Frame, layout::Rect};
+use ratatui::{layout::Rect, Frame};
 
 use crate::config::AnimationMode;
 use crate::t;

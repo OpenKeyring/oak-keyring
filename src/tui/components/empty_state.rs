@@ -1,10 +1,10 @@
 //! Empty state display widget with 7 variants per U11 spec.
 
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::Frame;
 
 use crate::tui::theme;
 

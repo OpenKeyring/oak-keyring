@@ -76,9 +76,15 @@ pub enum OverlayKeyResult {
     /// Copy a historical password entry to the clipboard.
     CopyHistoryPassword { record_id: Uuid, index: usize },
     /// Add a tag to the selected records.
-    BatchAddTag { record_ids: Vec<Uuid>, tag_name: String },
+    BatchAddTag {
+        record_ids: Vec<Uuid>,
+        tag_name: String,
+    },
     /// Remove a tag from the selected records.
-    BatchRemoveTag { record_ids: Vec<Uuid>, tag_name: String },
+    BatchRemoveTag {
+        record_ids: Vec<Uuid>,
+        tag_name: String,
+    },
     /// User wants to retry the failed operation.
     ErrorRetry,
     /// User wants to quit / dismiss the error dialog.
@@ -162,14 +168,12 @@ impl OverlayManager {
         };
 
         match overlay {
-            ActiveOverlay::Help => {
-                match key {
-                    KeyCode::F(1) | KeyCode::Esc => OverlayKeyResult::Close {
-                        restore: FocusRestoreTarget::PreOpenPosition,
-                    },
-                    _ => OverlayKeyResult::Consumed,
-                }
-            }
+            ActiveOverlay::Help => match key {
+                KeyCode::F(1) | KeyCode::Esc => OverlayKeyResult::Close {
+                    restore: FocusRestoreTarget::PreOpenPosition,
+                },
+                _ => OverlayKeyResult::Consumed,
+            },
 
             ActiveOverlay::PasswordHistory(state) => {
                 let action = password_history::handle_key(key, state);
@@ -215,12 +219,10 @@ impl OverlayManager {
                     batch_tag::BatchTagAction::Close => OverlayKeyResult::Close {
                         restore: FocusRestoreTarget::PreOpenPosition,
                     },
-                    batch_tag::BatchTagAction::AddTag(tag_name) => {
-                        OverlayKeyResult::BatchAddTag {
-                            record_ids: state.selected_record_ids.clone(),
-                            tag_name,
-                        }
-                    }
+                    batch_tag::BatchTagAction::AddTag(tag_name) => OverlayKeyResult::BatchAddTag {
+                        record_ids: state.selected_record_ids.clone(),
+                        tag_name,
+                    },
                     batch_tag::BatchTagAction::RemoveTag(tag_name) => {
                         OverlayKeyResult::BatchRemoveTag {
                             record_ids: state.selected_record_ids.clone(),
@@ -258,14 +260,14 @@ impl OverlayManager {
     fn into_active(overlay: Overlay) -> ActiveOverlay {
         match overlay {
             Overlay::Help => ActiveOverlay::Help,
-            Overlay::PasswordHistory { record_id } => ActiveOverlay::PasswordHistory(
-                PasswordHistoryState {
+            Overlay::PasswordHistory { record_id } => {
+                ActiveOverlay::PasswordHistory(PasswordHistoryState {
                     record_id,
                     record_name: String::new(),
                     entries: Vec::new(),
                     selected_index: 0,
-                },
-            ),
+                })
+            }
             Overlay::ConfirmDialog(state) => {
                 let default_button = default_confirm_button(&state.variant);
                 ActiveOverlay::ConfirmDialog {
@@ -273,18 +275,16 @@ impl OverlayManager {
                     focused_button: default_button,
                 }
             }
-            Overlay::BatchTagPanel(state) => ActiveOverlay::BatchTagPanel(
-                BatchTagPanelFullState {
-                    selected_record_ids: state.record_ids,
-                    selected_record_names: Vec::new(),
-                    input_text: String::new(),
-                    current_tags: Vec::new(),
-                    available_tags: Vec::new(),
-                    focus: Default::default(),
-                    tag_cursor: 0,
-                    current_tag: state.current_tag,
-                },
-            ),
+            Overlay::BatchTagPanel(state) => ActiveOverlay::BatchTagPanel(BatchTagPanelFullState {
+                selected_record_ids: state.record_ids,
+                selected_record_names: Vec::new(),
+                input_text: String::new(),
+                current_tags: Vec::new(),
+                available_tags: Vec::new(),
+                focus: Default::default(),
+                tag_cursor: 0,
+                current_tag: state.current_tag,
+            }),
             Overlay::ErrorDialog(state) => ActiveOverlay::ErrorDialog(ErrorDialogFullState {
                 title: state.title,
                 message: state.message,
@@ -292,9 +292,7 @@ impl OverlayManager {
                 actions: Default::default(),
                 focused_button: 0,
             }),
-            Overlay::PasswordGenerator => {
-                ActiveOverlay::PasswordGenerator(GeneratorState::new())
-            }
+            Overlay::PasswordGenerator => ActiveOverlay::PasswordGenerator(GeneratorState::new()),
         }
     }
 }
@@ -308,17 +306,16 @@ fn default_confirm_button(variant: &ConfirmVariant) -> ConfirmButton {
         | ConfirmVariant::EmptyTrash { .. }
         | ConfirmVariant::TagDelete { .. } => ConfirmButton::Cancel,
         // Reversible actions — default to Confirm.
-        ConfirmVariant::SoftDelete { .. }
-        | ConfirmVariant::BatchSoftDelete { .. } => ConfirmButton::Confirm,
+        ConfirmVariant::SoftDelete { .. } | ConfirmVariant::BatchSoftDelete { .. } => {
+            ConfirmButton::Confirm
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::types::{
-        BatchTagPanelState, ConfirmDialogState, ErrorDialogState,
-    };
+    use crate::commands::types::{BatchTagPanelState, ConfirmDialogState, ErrorDialogState};
     use uuid::Uuid;
 
     #[test]

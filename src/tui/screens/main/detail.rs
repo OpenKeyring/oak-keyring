@@ -1,10 +1,10 @@
 //! Password detail panel: credential fields, health line, metadata.
 
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 
 use crate::tui::state::detail_state::{
     DetailFieldKind, DetailPanelState, DetailViewData, ExpiryStatus, FieldValue, PasswordStrength,
@@ -229,10 +229,7 @@ impl DetailPanel {
             };
             if !text.is_empty() {
                 lines.push(Line::from(Span::styled(
-                    format!(
-                        "{}\u{26A0} {}",
-                        pad, text
-                    ),
+                    format!("{}\u{26A0} {}", pad, text),
                     Style::default().fg(color),
                 )));
                 lines.push(Line::from(""));

@@ -1,10 +1,10 @@
 //! Braille dot spinner widget.
 
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Span;
 use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 
 use crate::tui::state::loading::SpinnerState;
 use crate::tui::theme;

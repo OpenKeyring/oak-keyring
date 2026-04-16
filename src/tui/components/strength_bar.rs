@@ -17,14 +17,8 @@ pub fn render_strength_bar(strength: &PasswordStrength) -> Line<'static> {
 
     Line::from(vec![
         Span::styled("  强度: ", Style::default().fg(theme::TEXT_SECONDARY)),
-        Span::styled(
-            "█".repeat(fill),
-            Style::default().fg(color),
-        ),
-        Span::styled(
-            "░".repeat(empty),
-            Style::default().fg(theme::BORDER),
-        ),
+        Span::styled("█".repeat(fill), Style::default().fg(color)),
+        Span::styled("░".repeat(empty), Style::default().fg(theme::BORDER)),
         Span::raw(" "),
         Span::styled(
             strength.level.label_zh().to_string(),

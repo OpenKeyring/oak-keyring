@@ -129,16 +129,20 @@ fn confirm_label_for(variant: &ConfirmVariant) -> &'static str {
 // ── Dialog content builder ───────────────────────────────────────
 
 /// Build (title, body_lines, confirm_label) for a variant.
-fn build_dialog_parts(variant: &ConfirmVariant, _content_width: u16) -> (String, Vec<Line<'static>>, &'static str) {
+fn build_dialog_parts(
+    variant: &ConfirmVariant,
+    _content_width: u16,
+) -> (String, Vec<Line<'static>>, &'static str) {
     match variant {
         ConfirmVariant::SoftDelete {
             record_name,
             auto_delete_days,
             ..
         } => {
-            let mut lines = vec![line_with_name(
-                &format!("将 \"{}\" 移到回收站？", record_name),
-            )];
+            let mut lines = vec![line_with_name(&format!(
+                "将 \"{}\" 移到回收站？",
+                record_name
+            ))];
             if let Some(days) = auto_delete_days {
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
@@ -146,17 +150,14 @@ fn build_dialog_parts(variant: &ConfirmVariant, _content_width: u16) -> (String,
                     Style::default().fg(theme::TEXT_SECONDARY),
                 )));
             }
-            (
-                " 确认 ".to_string(),
-                lines,
-                confirm_label_for(variant),
-            )
+            (" 确认 ".to_string(), lines, confirm_label_for(variant))
         }
 
         ConfirmVariant::HardDelete { record_name, .. } => {
-            let lines = vec![line_with_name(
-                &format!("确定永久删除 \"{}\"？", record_name),
-            )];
+            let lines = vec![line_with_name(&format!(
+                "确定永久删除 \"{}\"？",
+                record_name
+            ))];
             (
                 format!(" {} 警告 ", theme::ICON_WARNING),
                 lines,
@@ -176,9 +177,7 @@ fn build_dialog_parts(variant: &ConfirmVariant, _content_width: u16) -> (String,
             )
         }
 
-        ConfirmVariant::BatchSoftDelete {
-            record_names, ..
-        } => {
+        ConfirmVariant::BatchSoftDelete { record_names, .. } => {
             let count = record_names.len();
             let mut lines = vec![Line::from(Span::styled(
                 format!("将 {} 条密码移到回收站？", count),
@@ -197,30 +196,20 @@ fn build_dialog_parts(variant: &ConfirmVariant, _content_width: u16) -> (String,
                     Style::default().fg(theme::TEXT_MUTED),
                 )));
             }
-            (
-                " 确认 ".to_string(),
-                lines,
-                confirm_label_for(variant),
-            )
+            (" 确认 ".to_string(), lines, confirm_label_for(variant))
         }
 
         ConfirmVariant::TagDelete {
             tag_name,
             affected_count,
         } => {
-            let mut lines = vec![line_with_name(
-                &format!("确定删除标签 \"{}\"？", tag_name),
-            )];
+            let mut lines = vec![line_with_name(&format!("确定删除标签 \"{}\"？", tag_name))];
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 format!("  影响 {} 条密码", affected_count),
                 Style::default().fg(theme::TEXT_SECONDARY),
             )));
-            (
-                " 确认 ".to_string(),
-                lines,
-                confirm_label_for(variant),
-            )
+            (" 确认 ".to_string(), lines, confirm_label_for(variant))
         }
     }
 }
@@ -228,11 +217,7 @@ fn build_dialog_parts(variant: &ConfirmVariant, _content_width: u16) -> (String,
 // ── Rendering helpers ────────────────────────────────────────────
 
 /// Build the button line with Cancel and Confirm buttons.
-fn render_buttons(
-    focused: ConfirmButton,
-    confirm_label: &str,
-    is_danger: bool,
-) -> Line<'static> {
+fn render_buttons(focused: ConfirmButton, confirm_label: &str, is_danger: bool) -> Line<'static> {
     let cancel_text = " 取消 ";
     let confirm_text = format!(" {} ", confirm_label);
 
@@ -277,10 +262,7 @@ fn line_with_name(text: &str) -> Line<'static> {
 fn separator_line(content_width: u16) -> Line<'static> {
     let dash_count = content_width as usize;
     let sep = "-".repeat(dash_count);
-    Line::from(Span::styled(
-        sep,
-        Style::default().fg(theme::BORDER),
-    ))
+    Line::from(Span::styled(sep, Style::default().fg(theme::BORDER)))
 }
 
 /// Return a `Rect` of size `width x height` centred inside `area`.
@@ -387,10 +369,7 @@ mod tests {
 
     #[test]
     fn confirm_labels_are_correct() {
-        assert_eq!(
-            confirm_label_for(&soft_delete_variant()),
-            "移到回收站"
-        );
+        assert_eq!(confirm_label_for(&soft_delete_variant()), "移到回收站");
         assert_eq!(
             confirm_label_for(&ConfirmVariant::HardDelete {
                 record_id: Uuid::new_v4(),

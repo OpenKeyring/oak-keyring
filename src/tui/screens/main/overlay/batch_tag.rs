@@ -67,7 +67,7 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
     let constraints = vec![
         Constraint::Length(3),                       // Input section
         Constraint::Length(current_tags_rows + 2),   // Current tags section
-        Constraint::Length(available_tags_rows + 2),  // Available tags section
+        Constraint::Length(available_tags_rows + 2), // Available tags section
         Constraint::Length(3),                       // Done button section
     ];
 
@@ -365,10 +365,7 @@ fn handle_current_tags_focus(key: KeyCode, state: &mut BatchTagPanelFullState) -
 }
 
 /// Handle keys when AvailableTags zone is focused.
-fn handle_available_tags_focus(
-    key: KeyCode,
-    state: &mut BatchTagPanelFullState,
-) -> BatchTagAction {
+fn handle_available_tags_focus(key: KeyCode, state: &mut BatchTagPanelFullState) -> BatchTagAction {
     let count = state.available_tags.len();
     match key {
         KeyCode::Left | KeyCode::Char('h') => {
@@ -486,7 +483,10 @@ mod tests {
 
         let result = handle_key(KeyCode::Enter, &mut state);
         assert_eq!(result, BatchTagAction::AddTag("newtag".into()));
-        assert!(state.input_text.is_empty(), "input should be cleared after Enter");
+        assert!(
+            state.input_text.is_empty(),
+            "input should be cleared after Enter"
+        );
 
         // Enter on empty input does nothing
         let result = handle_key(KeyCode::Enter, &mut state);

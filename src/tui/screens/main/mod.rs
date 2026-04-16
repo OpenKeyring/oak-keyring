@@ -89,13 +89,8 @@ impl MainScreen {
 
         // 3. Detail panel
         let detail_focused = focused_panel == PanelId::Detail;
-        self.detail.view(
-            frame,
-            areas.detail,
-            &state.detail,
-            detail_focused,
-            unicode,
-        );
+        self.detail
+            .view(frame, areas.detail, &state.detail, detail_focused, unicode);
 
         // 4. Horizontal separator between content and status bar
         render_horizontal_separator(frame, areas.status_separator, unicode);

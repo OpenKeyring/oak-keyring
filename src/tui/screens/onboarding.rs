@@ -11,8 +11,8 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
-use crate::commands::{Command, Message};
 use crate::commands::types::Screen;
+use crate::commands::{Command, Message};
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::theme::{
     self, Styles, BORDER, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER,
@@ -43,9 +43,7 @@ pub enum OnboardingStep {
     /// Show 24 recovery words (read-only 4x6 grid).
     RecoveryDisplay,
     /// Verify 4 random positions from the recovery words.
-    RecoveryVerify {
-        positions: [usize; 4],
-    },
+    RecoveryVerify { positions: [usize; 4] },
     /// Input recovery key for restore (delegates to WordGridState).
     RecoveryInput,
     /// Post-restore security advisory.
@@ -104,9 +102,9 @@ impl OnboardingScreen {
     pub fn total_steps(&self) -> usize {
         match self.selected_path {
             None => 1,
-            Some(OnboardingPath::CreateNew) => 5,  // Welcome + VaultPath + RecoveryDisplay + RecoveryVerify + SetPassword
-            Some(OnboardingPath::Restore) => 4,    // Welcome + RecoveryInput + VaultPath + SecurityAdvisory + SetPassword = 5... but spec says 3
-            Some(OnboardingPath::Import) => 6,     // Welcome + ImportSource + ImportPreview + VaultPath + RecoveryDisplay + RecoveryVerify + SetPassword
+            Some(OnboardingPath::CreateNew) => 5, // Welcome + VaultPath + RecoveryDisplay + RecoveryVerify + SetPassword
+            Some(OnboardingPath::Restore) => 4, // Welcome + RecoveryInput + VaultPath + SecurityAdvisory + SetPassword = 5... but spec says 3
+            Some(OnboardingPath::Import) => 6, // Welcome + ImportSource + ImportPreview + VaultPath + RecoveryDisplay + RecoveryVerify + SetPassword
         }
     }
 
@@ -267,8 +265,7 @@ impl OnboardingScreen {
                 // Validate the 4 positions match recovery words
                 let all_correct = self.verify_positions.iter().enumerate().all(|(i, &pos)| {
                     pos < self.recovery_words.len()
-                        && self.verify_inputs[i]
-                            .eq_ignore_ascii_case(&self.recovery_words[pos])
+                        && self.verify_inputs[i].eq_ignore_ascii_case(&self.recovery_words[pos])
                 });
                 if all_correct {
                     self.verify_errors = [false; 4];
@@ -309,7 +306,11 @@ impl OnboardingScreen {
         }
     }
 
-    fn handle_recovery_input_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
+    fn handle_recovery_input_key(
+        &mut self,
+        key: KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
         match key.code {
             KeyCode::Esc => {
                 self.current_step = OnboardingStep::Welcome;
@@ -519,9 +520,21 @@ impl OnboardingScreen {
 
         // Options
         let options = [
-            ("1", "Create new vault", "Generate a fresh vault with recovery key"),
-            ("2", "Restore from recovery key", "Recover an existing vault"),
-            ("3", "Import from other manager", "Import from KeePass, 1Password, Bitwarden, etc."),
+            (
+                "1",
+                "Create new vault",
+                "Generate a fresh vault with recovery key",
+            ),
+            (
+                "2",
+                "Restore from recovery key",
+                "Recover an existing vault",
+            ),
+            (
+                "3",
+                "Import from other manager",
+                "Import from KeePass, 1Password, Bitwarden, etc.",
+            ),
         ];
 
         for (i, (num, label, desc)) in options.iter().enumerate() {
@@ -534,10 +547,7 @@ impl OnboardingScreen {
                     format!("{} ", label),
                     Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!("- {}", desc),
-                    Style::default().fg(TEXT_SECONDARY),
-                ),
+                Span::styled(format!("- {}", desc), Style::default().fg(TEXT_SECONDARY)),
             ]);
             let para = Paragraph::new(line);
             frame.render_widget(para, rows[2 + i]);
@@ -585,8 +595,7 @@ impl OnboardingScreen {
 
         let display_text = if self.path_input.is_empty() {
             let placeholder = "~/.local/share/open-keyring/vault.db";
-            Paragraph::new(placeholder)
-                .style(Style::default().fg(TEXT_PLACEHOLDER))
+            Paragraph::new(placeholder).style(Style::default().fg(TEXT_PLACEHOLDER))
         } else {
             Paragraph::new(self.path_input.as_str()).style(Style::default().fg(TEXT))
         };
@@ -594,13 +603,8 @@ impl OnboardingScreen {
         frame.render_widget(input_block, rows[2]);
 
         // Render input text inside the bordered area
-        let inner = Layout::vertical([Constraint::Length(1)])
-            .split(rows[2])[0];
-        let padded = Layout::horizontal([
-            Constraint::Length(1),
-            Constraint::Fill(1),
-        ])
-        .split(inner);
+        let inner = Layout::vertical([Constraint::Length(1)]).split(rows[2])[0];
+        let padded = Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(inner);
         frame.render_widget(display_text, padded[1]);
 
         // Error
@@ -629,21 +633,24 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, 20);
 
         let rows = Layout::vertical([
-            Constraint::Length(1), // title
-            Constraint::Length(1), // gap
+            Constraint::Length(1),  // title
+            Constraint::Length(1),  // gap
             Constraint::Length(10), // word grid (4 rows x 6 cols = ~8 + borders)
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // checkbox
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // hint
-            Constraint::Length(1), // step indicator
+            Constraint::Length(1),  // gap
+            Constraint::Length(1),  // checkbox
+            Constraint::Length(1),  // gap
+            Constraint::Length(1),  // hint
+            Constraint::Length(1),  // step indicator
         ])
         .split(content_area);
 
         // Title
-        let title = Paragraph::new(format!("{} Recovery Key - Write These Down!", theme::ICON_WARNING))
-            .style(Style::default().fg(WARNING).add_modifier(Modifier::BOLD))
-            .alignment(Alignment::Center);
+        let title = Paragraph::new(format!(
+            "{} Recovery Key - Write These Down!",
+            theme::ICON_WARNING
+        ))
+        .style(Style::default().fg(WARNING).add_modifier(Modifier::BOLD))
+        .alignment(Alignment::Center);
         frame.render_widget(title, rows[0]);
 
         // Word grid (read-only)
@@ -679,12 +686,9 @@ impl OnboardingScreen {
         } else {
             Style::default().fg(TEXT_SECONDARY)
         };
-        let checkbox = Paragraph::new(format!(
-            " {} I have saved my recovery key",
-            check_icon
-        ))
-        .style(check_style)
-        .alignment(Alignment::Center);
+        let checkbox = Paragraph::new(format!(" {} I have saved my recovery key", check_icon))
+            .style(check_style)
+            .alignment(Alignment::Center);
         frame.render_widget(checkbox, rows[4]);
 
         // Hint
@@ -708,11 +712,7 @@ impl OnboardingScreen {
     }
 
     /// Render a read-only 4x6 word grid from recovery_words.
-    fn render_readonly_word_grid(
-        &self,
-        frame: &mut ratatui::Frame,
-        area: ratatui::layout::Rect,
-    ) {
+    fn render_readonly_word_grid(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
         use ratatui::widgets::{Row, Table};
 
         let rows: Vec<Row> = (0..6)
@@ -727,15 +727,9 @@ impl OnboardingScreen {
                             "..."
                         };
                         Line::from(vec![
-                            Span::styled(
-                                num_str,
-                                Style::default().fg(TEXT_SECONDARY),
-                            ),
+                            Span::styled(num_str, Style::default().fg(TEXT_SECONDARY)),
                             Span::raw(" "),
-                            Span::styled(
-                                word.to_string(),
-                                Style::default().fg(TEXT),
-                            ),
+                            Span::styled(word.to_string(), Style::default().fg(TEXT)),
                         ])
                     })
                     .collect();
@@ -827,12 +821,12 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, 16);
 
         let rows = Layout::vertical([
-            Constraint::Length(1), // title
-            Constraint::Length(1), // gap
+            Constraint::Length(1),  // title
+            Constraint::Length(1),  // gap
             Constraint::Length(10), // grid
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // hint
-            Constraint::Length(1), // step indicator
+            Constraint::Length(1),  // gap
+            Constraint::Length(1),  // hint
+            Constraint::Length(1),  // step indicator
         ])
         .split(content_area);
 
@@ -944,7 +938,12 @@ impl OnboardingScreen {
         frame.render_widget(step_text, rows[6]);
     }
 
-    fn view_placeholder(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, step_name: &str) {
+    fn view_placeholder(
+        &self,
+        frame: &mut ratatui::Frame,
+        area: ratatui::layout::Rect,
+        step_name: &str,
+    ) {
         let content_area = Self::centered_content(area, 8);
 
         let rows = Layout::vertical([
@@ -1282,7 +1281,10 @@ mod tests {
             KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
             &mut dummy_ctx(),
         );
-        assert_eq!(result, ScreenResult::NavigateTo(Screen::SetNewMasterPassword));
+        assert_eq!(
+            result,
+            ScreenResult::NavigateTo(Screen::SetNewMasterPassword)
+        );
     }
 
     #[test]

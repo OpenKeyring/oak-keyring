@@ -218,7 +218,7 @@ pub fn render(
 
 fn provider_field_count(pc: &Option<ProviderConfig>) -> u16 {
     match pc {
-        None => 0, // Disabled or not configured yet
+        None => 0,                         // Disabled or not configured yet
         Some(ProviderConfig::ICloud) => 1, // just a hint line
         Some(ProviderConfig::GoogleDrive(_)) => 4,
         Some(ProviderConfig::Dropbox(_)) => 4,
@@ -252,87 +252,138 @@ fn render_provider_fields(
             render_label_value(chunks, fi, frame, &hint, "", LABEL);
         }
         Some(ProviderConfig::GoogleDrive(cfg)) => {
-            let l = t!("tui.config.field_client_id"); render_field(chunks, fi, frame, &l, &cfg.client_id, false);
-            let l = t!("tui.config.field_client_secret"); render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
-            let l = t!("tui.config.field_refresh_token"); render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_client_id");
+            render_field(chunks, fi, frame, &l, &cfg.client_id, false);
+            let l = t!("tui.config.field_client_secret");
+            render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
+            let l = t!("tui.config.field_refresh_token");
+            render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::Dropbox(cfg)) => {
-            let l = t!("tui.config.field_client_id"); render_field(chunks, fi, frame, &l, &cfg.client_id, false);
-            let l = t!("tui.config.field_client_secret"); render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
-            let l = t!("tui.config.field_refresh_token"); render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_client_id");
+            render_field(chunks, fi, frame, &l, &cfg.client_id, false);
+            let l = t!("tui.config.field_client_secret");
+            render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
+            let l = t!("tui.config.field_refresh_token");
+            render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::OneDrive(cfg)) => {
-            let l = t!("tui.config.field_client_id"); render_field(chunks, fi, frame, &l, &cfg.client_id, false);
-            let l = t!("tui.config.field_client_secret"); render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
-            let l = t!("tui.config.field_refresh_token"); render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_client_id");
+            render_field(chunks, fi, frame, &l, &cfg.client_id, false);
+            let l = t!("tui.config.field_client_secret");
+            render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
+            let l = t!("tui.config.field_refresh_token");
+            render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::WebDav(cfg)) => {
-            let l = t!("tui.config.field_endpoint"); render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
-            let l = t!("tui.config.field_username"); render_field_opt(chunks, fi, frame, &l, &cfg.username, false);
-            let l = t!("tui.config.field_password"); render_field_opt(chunks, fi, frame, &l, &cfg.password, true);
-            let l = t!("tui.config.field_bearer_token"); render_field_opt(chunks, fi, frame, &l, &cfg.bearer_token, true);
+            let l = t!("tui.config.field_endpoint");
+            render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_username");
+            render_field_opt(chunks, fi, frame, &l, &cfg.username, false);
+            let l = t!("tui.config.field_password");
+            render_field_opt(chunks, fi, frame, &l, &cfg.password, true);
+            let l = t!("tui.config.field_bearer_token");
+            render_field_opt(chunks, fi, frame, &l, &cfg.bearer_token, true);
         }
         Some(ProviderConfig::Sftp(cfg)) => {
-            let l = t!("tui.config.field_server"); render_field(chunks, fi, frame, &l, &cfg.server, false);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
-            let l = t!("tui.config.field_ssh_key_path"); render_field(chunks, fi, frame, &l, &cfg.ssh_key_path, false);
+            let l = t!("tui.config.field_server");
+            render_field(chunks, fi, frame, &l, &cfg.server, false);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_ssh_key_path");
+            render_field(chunks, fi, frame, &l, &cfg.ssh_key_path, false);
             let host_check_str = match cfg.host_check {
                 SftpHostCheck::Strict => t!("tui.config.host_check_strict").to_string(),
                 SftpHostCheck::Accept => t!("tui.config.host_check_accept").to_string(),
                 SftpHostCheck::Add => t!("tui.config.host_check_add").to_string(),
             };
-            let l = t!("tui.config.field_host_check"); render_label_value(chunks, fi, frame, &l, &host_check_str, LABEL);
+            let l = t!("tui.config.field_host_check");
+            render_label_value(chunks, fi, frame, &l, &host_check_str, LABEL);
         }
         Some(ProviderConfig::S3(cfg)) => {
-            let l = t!("tui.config.field_endpoint"); render_field_opt(chunks, fi, frame, &l, &cfg.endpoint, false);
-            let l = t!("tui.config.field_bucket"); render_field(chunks, fi, frame, &l, &cfg.bucket, false);
-            let l = t!("tui.config.field_region"); render_field_opt(chunks, fi, frame, &l, &cfg.region, false);
-            let l = t!("tui.config.field_access_key_id"); render_field(chunks, fi, frame, &l, &cfg.access_key_id, false);
-            let l = t!("tui.config.field_access_key_secret"); render_field(chunks, fi, frame, &l, &cfg.secret_access_key, true);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_endpoint");
+            render_field_opt(chunks, fi, frame, &l, &cfg.endpoint, false);
+            let l = t!("tui.config.field_bucket");
+            render_field(chunks, fi, frame, &l, &cfg.bucket, false);
+            let l = t!("tui.config.field_region");
+            render_field_opt(chunks, fi, frame, &l, &cfg.region, false);
+            let l = t!("tui.config.field_access_key_id");
+            render_field(chunks, fi, frame, &l, &cfg.access_key_id, false);
+            let l = t!("tui.config.field_access_key_secret");
+            render_field(chunks, fi, frame, &l, &cfg.secret_access_key, true);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::AliyunDrive(cfg)) => {
-            let l = t!("tui.config.field_client_id"); render_field(chunks, fi, frame, &l, &cfg.client_id, false);
-            let l = t!("tui.config.field_client_secret"); render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
-            let l = t!("tui.config.field_refresh_token"); render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
+            let l = t!("tui.config.field_client_id");
+            render_field(chunks, fi, frame, &l, &cfg.client_id, false);
+            let l = t!("tui.config.field_client_secret");
+            render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
+            let l = t!("tui.config.field_refresh_token");
+            render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
             let drive_type_str = match cfg.drive_type {
                 AliyunDriveType::Default => t!("tui.config.drive_type_default").to_string(),
                 AliyunDriveType::Backup => t!("tui.config.drive_type_backup").to_string(),
                 AliyunDriveType::Resource => t!("tui.config.drive_type_resource").to_string(),
             };
-            let l = t!("tui.config.field_drive_type"); render_label_value(chunks, fi, frame, &l, &drive_type_str, LABEL);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_drive_type");
+            render_label_value(chunks, fi, frame, &l, &drive_type_str, LABEL);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::AliyunOss(cfg)) => {
-            let l = t!("tui.config.field_endpoint"); render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
-            let l = t!("tui.config.field_bucket"); render_field(chunks, fi, frame, &l, &cfg.bucket, false);
-            let l = t!("tui.config.field_access_key_id"); render_field(chunks, fi, frame, &l, &cfg.access_key_id, false);
-            let l = t!("tui.config.field_access_key_secret"); render_field(chunks, fi, frame, &l, &cfg.access_key_secret, true);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_endpoint");
+            render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
+            let l = t!("tui.config.field_bucket");
+            render_field(chunks, fi, frame, &l, &cfg.bucket, false);
+            let l = t!("tui.config.field_access_key_id");
+            render_field(chunks, fi, frame, &l, &cfg.access_key_id, false);
+            let l = t!("tui.config.field_access_key_secret");
+            render_field(chunks, fi, frame, &l, &cfg.access_key_secret, true);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::TencentCos(cfg)) => {
-            let l = t!("tui.config.field_endpoint"); render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
-            let l = t!("tui.config.field_bucket"); render_field(chunks, fi, frame, &l, &cfg.bucket, false);
-            let l = t!("tui.config.field_secret_id"); render_field(chunks, fi, frame, &l, &cfg.secret_id, false);
-            let l = t!("tui.config.field_secret_key"); render_field(chunks, fi, frame, &l, &cfg.secret_key, true);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_endpoint");
+            render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
+            let l = t!("tui.config.field_bucket");
+            render_field(chunks, fi, frame, &l, &cfg.bucket, false);
+            let l = t!("tui.config.field_secret_id");
+            render_field(chunks, fi, frame, &l, &cfg.secret_id, false);
+            let l = t!("tui.config.field_secret_key");
+            render_field(chunks, fi, frame, &l, &cfg.secret_key, true);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::HuaweiObs(cfg)) => {
-            let l = t!("tui.config.field_endpoint"); render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
-            let l = t!("tui.config.field_bucket"); render_field(chunks, fi, frame, &l, &cfg.bucket, false);
-            let l = t!("tui.config.field_access_key_id"); render_field(chunks, fi, frame, &l, &cfg.access_key_id, false);
-            let l = t!("tui.config.field_access_key_secret"); render_field(chunks, fi, frame, &l, &cfg.secret_access_key, true);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_endpoint");
+            render_field(chunks, fi, frame, &l, &cfg.endpoint, false);
+            let l = t!("tui.config.field_bucket");
+            render_field(chunks, fi, frame, &l, &cfg.bucket, false);
+            let l = t!("tui.config.field_access_key_id");
+            render_field(chunks, fi, frame, &l, &cfg.access_key_id, false);
+            let l = t!("tui.config.field_access_key_secret");
+            render_field(chunks, fi, frame, &l, &cfg.secret_access_key, true);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::Upyun(cfg)) => {
-            let l = t!("tui.config.field_bucket"); render_field(chunks, fi, frame, &l, &cfg.bucket, false);
-            let l = t!("tui.config.field_operator"); render_field(chunks, fi, frame, &l, &cfg.operator, false);
-            let l = t!("tui.config.field_operator_password"); render_field(chunks, fi, frame, &l, &cfg.operator_password, true);
-            let l = t!("tui.config.field_work_dir"); render_field(chunks, fi, frame, &l, &cfg.root_path, false);
+            let l = t!("tui.config.field_bucket");
+            render_field(chunks, fi, frame, &l, &cfg.bucket, false);
+            let l = t!("tui.config.field_operator");
+            render_field(chunks, fi, frame, &l, &cfg.operator, false);
+            let l = t!("tui.config.field_operator_password");
+            render_field(chunks, fi, frame, &l, &cfg.operator_password, true);
+            let l = t!("tui.config.field_work_dir");
+            render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
     }
 }
@@ -347,7 +398,11 @@ fn render_field(
     value: &str,
     sensitive: bool,
 ) {
-    let display = if sensitive { mask(value) } else { value.to_string() };
+    let display = if sensitive {
+        mask(value)
+    } else {
+        value.to_string()
+    };
     render_label_value(chunks, fi, frame, label, &display, LABEL);
 }
 
@@ -384,10 +439,7 @@ fn render_label_value(
         // Split row into label (fixed 22 chars) and value
         let h_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(22),
-                Constraint::Min(0),
-            ])
+            .constraints([Constraint::Length(22), Constraint::Min(0)])
             .split(row_area);
 
         frame.render_widget(

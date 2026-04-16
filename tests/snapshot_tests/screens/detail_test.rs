@@ -38,31 +38,39 @@ fn detail_login_record() {
         expiry_status: ExpiryStatus::None,
         tags: vec!["work".into(), "dev".into()],
         notes: Some("Personal account".into()),
-        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
-        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
+        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
+        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
         fields: vec![
             DetailField {
                 label: "用户名".into(),
                 value: FieldValue::Plain("octocat".into()),
-                copyable: true, toggleable: false,
+                copyable: true,
+                toggleable: false,
                 kind: DetailFieldKind::Username,
             },
             DetailField {
                 label: "密码".into(),
                 value: FieldValue::Masked,
-                copyable: true, toggleable: true,
+                copyable: true,
+                toggleable: true,
                 kind: DetailFieldKind::Password,
             },
             DetailField {
                 label: "网址".into(),
                 value: FieldValue::Plain("https://github.com".into()),
-                copyable: true, toggleable: false,
+                copyable: true,
+                toggleable: false,
                 kind: DetailFieldKind::Url,
             },
             DetailField {
                 label: "备注".into(),
                 value: FieldValue::Plain("Personal account".into()),
-                copyable: true, toggleable: false,
+                copyable: true,
+                toggleable: false,
                 kind: DetailFieldKind::Notes,
             },
         ],
@@ -71,9 +79,11 @@ fn detail_login_record() {
     let state = DetailPanelState::with_record(data);
     let panel = DetailPanel;
 
-    terminal.draw(|frame| {
-        panel.view(frame, frame.area(), &state, true, true);
-    }).unwrap();
+    terminal
+        .draw(|frame| {
+            panel.view(frame, frame.area(), &state, true, true);
+        })
+        .unwrap();
 
     insta::assert_snapshot!("detail_login_record", terminal.backend());
 }
@@ -96,19 +106,25 @@ fn detail_api_record() {
         expiry_status: ExpiryStatus::None,
         tags: vec!["cloud".into()],
         notes: None,
-        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
-        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
+        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
+        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
         fields: vec![
             DetailField {
                 label: "AppID".into(),
                 value: FieldValue::Plain("app_1234567890".into()),
-                copyable: true, toggleable: false,
+                copyable: true,
+                toggleable: false,
                 kind: DetailFieldKind::AppId,
             },
             DetailField {
                 label: "SecretKey".into(),
                 value: FieldValue::Masked,
-                copyable: true, toggleable: true,
+                copyable: true,
+                toggleable: true,
                 kind: DetailFieldKind::SecretKey,
             },
         ],
@@ -117,9 +133,11 @@ fn detail_api_record() {
     let state = DetailPanelState::with_record(data);
     let panel = DetailPanel;
 
-    terminal.draw(|frame| {
-        panel.view(frame, frame.area(), &state, true, true);
-    }).unwrap();
+    terminal
+        .draw(|frame| {
+            panel.view(frame, frame.area(), &state, true, true);
+        })
+        .unwrap();
 
     insta::assert_snapshot!("detail_api_record", terminal.backend());
 }
@@ -142,25 +160,32 @@ fn detail_ssh_record() {
         expiry_status: ExpiryStatus::None,
         tags: vec!["servers".into()],
         notes: None,
-        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
-        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
+        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
+        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
         fields: vec![
             DetailField {
                 label: "公钥".into(),
                 value: FieldValue::Plain("ssh-rsa AAAA...".into()),
-                copyable: true, toggleable: false,
+                copyable: true,
+                toggleable: false,
                 kind: DetailFieldKind::PublicKey,
             },
             DetailField {
                 label: "私钥".into(),
                 value: FieldValue::Masked,
-                copyable: true, toggleable: true,
+                copyable: true,
+                toggleable: true,
                 kind: DetailFieldKind::PrivateKey,
             },
             DetailField {
                 label: "Passphrase".into(),
                 value: FieldValue::Masked,
-                copyable: true, toggleable: true,
+                copyable: true,
+                toggleable: true,
                 kind: DetailFieldKind::Passphrase,
             },
         ],
@@ -169,17 +194,19 @@ fn detail_ssh_record() {
     let state = DetailPanelState::with_record(data);
     let panel = DetailPanel;
 
-    terminal.draw(|frame| {
-        panel.view(frame, frame.area(), &state, true, true);
-    }).unwrap();
+    terminal
+        .draw(|frame| {
+            panel.view(frame, frame.area(), &state, true, true);
+        })
+        .unwrap();
 
     insta::assert_snapshot!("detail_ssh_record", terminal.backend());
 }
 
 #[test]
 fn detail_with_health_compromised() {
-    use oak_keyring::tui::state::detail_state::*;
     use oak_keyring::commands::types::HealthIssue;
+    use oak_keyring::tui::state::detail_state::*;
     use uuid::Uuid;
 
     let backend = TestBackend::new(60, 25);
@@ -195,11 +222,27 @@ fn detail_with_health_compromised() {
         expiry_status: ExpiryStatus::None,
         tags: vec![],
         notes: None,
-        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
-        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
+        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
+        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
         fields: vec![
-            DetailField { label: "用户名".into(), value: FieldValue::Plain("user".into()), copyable: true, toggleable: false, kind: DetailFieldKind::Username },
-            DetailField { label: "密码".into(), value: FieldValue::Masked, copyable: true, toggleable: true, kind: DetailFieldKind::Password },
+            DetailField {
+                label: "用户名".into(),
+                value: FieldValue::Plain("user".into()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::Username,
+            },
+            DetailField {
+                label: "密码".into(),
+                value: FieldValue::Masked,
+                copyable: true,
+                toggleable: true,
+                kind: DetailFieldKind::Password,
+            },
         ],
         password_strength: Some(PasswordStrength::VeryWeak),
     };
@@ -207,17 +250,19 @@ fn detail_with_health_compromised() {
     state.health_issue = Some(HealthIssue::Compromised);
     let panel = DetailPanel;
 
-    terminal.draw(|frame| {
-        panel.view(frame, frame.area(), &state, true, true);
-    }).unwrap();
+    terminal
+        .draw(|frame| {
+            panel.view(frame, frame.area(), &state, true, true);
+        })
+        .unwrap();
 
     insta::assert_snapshot!("detail_health_compromised", terminal.backend());
 }
 
 #[test]
 fn detail_with_health_duplicate() {
-    use oak_keyring::tui::state::detail_state::*;
     use oak_keyring::commands::types::HealthIssue;
+    use oak_keyring::tui::state::detail_state::*;
     use uuid::Uuid;
 
     let backend = TestBackend::new(60, 20);
@@ -233,11 +278,27 @@ fn detail_with_health_duplicate() {
         expiry_status: ExpiryStatus::None,
         tags: vec![],
         notes: None,
-        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
-        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
+        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
+        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
         fields: vec![
-            DetailField { label: "用户名".into(), value: FieldValue::Plain("user".into()), copyable: true, toggleable: false, kind: DetailFieldKind::Username },
-            DetailField { label: "密码".into(), value: FieldValue::Masked, copyable: true, toggleable: true, kind: DetailFieldKind::Password },
+            DetailField {
+                label: "用户名".into(),
+                value: FieldValue::Plain("user".into()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::Username,
+            },
+            DetailField {
+                label: "密码".into(),
+                value: FieldValue::Masked,
+                copyable: true,
+                toggleable: true,
+                kind: DetailFieldKind::Password,
+            },
         ],
         password_strength: None,
     };
@@ -245,9 +306,11 @@ fn detail_with_health_duplicate() {
     state.health_issue = Some(HealthIssue::Duplicate { group_size: 3 });
     let panel = DetailPanel;
 
-    terminal.draw(|frame| {
-        panel.view(frame, frame.area(), &state, true, true);
-    }).unwrap();
+    terminal
+        .draw(|frame| {
+            panel.view(frame, frame.area(), &state, true, true);
+        })
+        .unwrap();
 
     insta::assert_snapshot!("detail_health_duplicate", terminal.backend());
 }
@@ -270,31 +333,39 @@ fn detail_narrow_width() {
         expiry_status: ExpiryStatus::None,
         tags: vec!["work".into()],
         notes: Some("Personal account".into()),
-        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
-        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap().to_utc(),
+        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
+        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
         fields: vec![
             DetailField {
                 label: "用户名".into(),
                 value: FieldValue::Plain("octocat".into()),
-                copyable: true, toggleable: false,
+                copyable: true,
+                toggleable: false,
                 kind: DetailFieldKind::Username,
             },
             DetailField {
                 label: "密码".into(),
                 value: FieldValue::Masked,
-                copyable: true, toggleable: true,
+                copyable: true,
+                toggleable: true,
                 kind: DetailFieldKind::Password,
             },
             DetailField {
                 label: "网址".into(),
                 value: FieldValue::Plain("https://github.com".into()),
-                copyable: true, toggleable: false,
+                copyable: true,
+                toggleable: false,
                 kind: DetailFieldKind::Url,
             },
             DetailField {
                 label: "备注".into(),
                 value: FieldValue::Plain("Personal account".into()),
-                copyable: true, toggleable: false,
+                copyable: true,
+                toggleable: false,
                 kind: DetailFieldKind::Notes,
             },
         ],
@@ -303,9 +374,11 @@ fn detail_narrow_width() {
     let state = DetailPanelState::with_record(data);
     let panel = DetailPanel;
 
-    terminal.draw(|frame| {
-        panel.view(frame, frame.area(), &state, true, true);
-    }).unwrap();
+    terminal
+        .draw(|frame| {
+            panel.view(frame, frame.area(), &state, true, true);
+        })
+        .unwrap();
 
     insta::assert_snapshot!("detail_narrow_width", terminal.backend());
 }

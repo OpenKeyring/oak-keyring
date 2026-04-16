@@ -7,7 +7,9 @@ use crate::commands::result::CommandResult;
 use crate::commands::types::Screen as ScreenEnum;
 use crate::commands::{Command, Message};
 use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel};
-use crate::tui::theme::{self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING};
+use crate::tui::theme::{
+    self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING,
+};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::SecureStr;
 
@@ -151,8 +153,7 @@ impl Screen for ChangeMasterPasswordScreen {
                 Paragraph::new(new_placeholder)
                     .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
             } else {
-                Paragraph::new(new_display)
-                    .style(ratatui::style::Style::default().fg(TEXT))
+                Paragraph::new(new_display).style(ratatui::style::Style::default().fg(TEXT))
             };
 
             // -- Strength bar --
@@ -169,8 +170,7 @@ impl Screen for ChangeMasterPasswordScreen {
                 let color = Self::strength_color(&s.level);
                 Paragraph::new(label).style(ratatui::style::Style::default().fg(color))
             } else {
-                Paragraph::new("Strength: ")
-                    .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+                Paragraph::new("Strength: ").style(ratatui::style::Style::default().fg(TEXT_MUTED))
             };
 
             // -- Confirm password field --
@@ -200,24 +200,22 @@ impl Screen for ChangeMasterPasswordScreen {
                 Paragraph::new(confirm_placeholder)
                     .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
             } else {
-                Paragraph::new(confirm_display)
-                    .style(ratatui::style::Style::default().fg(TEXT))
+                Paragraph::new(confirm_display).style(ratatui::style::Style::default().fg(TEXT))
             };
 
             // -- Match indicator --
-            let match_line =
-                if !self.new_password.is_empty() && !self.confirm_password.is_empty() {
-                    if self.new_password == self.confirm_password {
-                        Some(
-                            Paragraph::new(format!("{} Passwords match", theme::ICON_SUCCESS))
-                                .style(Styles::success_text()),
-                        )
-                    } else {
-                        None
-                    }
+            let match_line = if !self.new_password.is_empty() && !self.confirm_password.is_empty() {
+                if self.new_password == self.confirm_password {
+                    Some(
+                        Paragraph::new(format!("{} Passwords match", theme::ICON_SUCCESS))
+                            .style(Styles::success_text()),
+                    )
                 } else {
                     None
-                };
+                }
+            } else {
+                None
+            };
 
             // -- Error message --
             let error_line = self.error_message.as_ref().map(|msg| {
@@ -250,8 +248,7 @@ impl Screen for ChangeMasterPasswordScreen {
 
             // New password field
             frame.render_widget(new_input_block, rows[2]);
-            let new_inner =
-                Layout::vertical([Constraint::Length(1)]).split(rows[2])[0];
+            let new_inner = Layout::vertical([Constraint::Length(1)]).split(rows[2])[0];
             let new_padded =
                 Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(new_inner);
             frame.render_widget(new_input_text, new_padded[1]);
@@ -261,11 +258,9 @@ impl Screen for ChangeMasterPasswordScreen {
 
             // Confirm password field
             frame.render_widget(confirm_input_block, rows[5]);
-            let confirm_inner =
-                Layout::vertical([Constraint::Length(1)]).split(rows[5])[0];
-            let confirm_padded =
-                Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)])
-                    .split(confirm_inner);
+            let confirm_inner = Layout::vertical([Constraint::Length(1)]).split(rows[5])[0];
+            let confirm_padded = Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)])
+                .split(confirm_inner);
             frame.render_widget(confirm_input_text, confirm_padded[1]);
 
             // Match indicator
@@ -363,11 +358,9 @@ impl ChangeMasterPasswordScreen {
         };
 
         let input_text = if display.is_empty() {
-            Paragraph::new(placeholder)
-                .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
+            Paragraph::new(placeholder).style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
-            Paragraph::new(display)
-                .style(ratatui::style::Style::default().fg(TEXT))
+            Paragraph::new(display).style(ratatui::style::Style::default().fg(TEXT))
         };
 
         // Error message
@@ -400,8 +393,7 @@ impl ChangeMasterPasswordScreen {
         // Password input
         frame.render_widget(input_block, rows[3]);
         let inner = Layout::vertical([Constraint::Length(1)]).split(rows[3])[0];
-        let padded =
-            Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(inner);
+        let padded = Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(inner);
         frame.render_widget(input_text, padded[1]);
 
         // Error
@@ -439,8 +431,7 @@ impl ChangeMasterPasswordScreen {
 
             KeyCode::Enter if self.step == 2 => {
                 if self.new_password.len() < 8 {
-                    self.error_message =
-                        Some("Password must be at least 8 characters".to_string());
+                    self.error_message = Some("Password must be at least 8 characters".to_string());
                     return ScreenResult::Continue;
                 }
                 if self.new_password != self.confirm_password {
@@ -514,9 +505,7 @@ impl ChangeMasterPasswordScreen {
                 self.step = 2;
                 ScreenResult::Continue
             }
-            CommandResult::MasterPasswordChanged => {
-                ScreenResult::NavigateTo(ScreenEnum::Config)
-            }
+            CommandResult::MasterPasswordChanged => ScreenResult::NavigateTo(ScreenEnum::Config),
             CommandResult::Error { fallback, .. } => {
                 self.error_message = Some(fallback);
                 ScreenResult::Continue
@@ -589,11 +578,17 @@ mod tests {
 
         screen.new_password = "a".to_string();
         screen.update_strength();
-        assert_eq!(screen.password_strength.as_ref().unwrap().level, StrengthLevel::VeryWeak);
+        assert_eq!(
+            screen.password_strength.as_ref().unwrap().level,
+            StrengthLevel::VeryWeak
+        );
 
         screen.new_password = "abcd1234ABCD!@ab".to_string();
         screen.update_strength();
-        assert_eq!(screen.password_strength.as_ref().unwrap().level, StrengthLevel::Strong);
+        assert_eq!(
+            screen.password_strength.as_ref().unwrap().level,
+            StrengthLevel::Strong
+        );
 
         screen.new_password.clear();
         screen.update_strength();
@@ -609,11 +604,26 @@ mod tests {
 
     #[test]
     fn strength_color_mapping() {
-        assert_eq!(ChangeMasterPasswordScreen::strength_color(&StrengthLevel::VeryWeak), ERROR);
-        assert_eq!(ChangeMasterPasswordScreen::strength_color(&StrengthLevel::Weak), ERROR);
-        assert_eq!(ChangeMasterPasswordScreen::strength_color(&StrengthLevel::Fair), WARNING);
-        assert_eq!(ChangeMasterPasswordScreen::strength_color(&StrengthLevel::Strong), PRIMARY);
-        assert_eq!(ChangeMasterPasswordScreen::strength_color(&StrengthLevel::VeryStrong), SUCCESS);
+        assert_eq!(
+            ChangeMasterPasswordScreen::strength_color(&StrengthLevel::VeryWeak),
+            ERROR
+        );
+        assert_eq!(
+            ChangeMasterPasswordScreen::strength_color(&StrengthLevel::Weak),
+            ERROR
+        );
+        assert_eq!(
+            ChangeMasterPasswordScreen::strength_color(&StrengthLevel::Fair),
+            WARNING
+        );
+        assert_eq!(
+            ChangeMasterPasswordScreen::strength_color(&StrengthLevel::Strong),
+            PRIMARY
+        );
+        assert_eq!(
+            ChangeMasterPasswordScreen::strength_color(&StrengthLevel::VeryStrong),
+            SUCCESS
+        );
     }
 
     #[test]

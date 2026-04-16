@@ -29,7 +29,10 @@ impl ListPanel {
     /// portions in the default text color.
     fn highlight_match(text: &str, query: &str) -> Vec<Span<'static>> {
         if query.is_empty() {
-            return vec![Span::styled(text.to_string(), Style::default().fg(theme::TEXT))];
+            return vec![Span::styled(
+                text.to_string(),
+                Style::default().fg(theme::TEXT),
+            )];
         }
         let query_lower = query.to_lowercase();
         let text_lower = text.to_lowercase();
@@ -180,12 +183,10 @@ fn build_search_bar<'a>(query: &str, unicode: bool) -> Line<'a> {
     let search_icon = if unicode { "\u{1F50D}" } else { ">" }; // 🔍 / >
     let display_query = format!("{} \u{641C}\u{7D22}: {}_", search_icon, query); // "🔍 搜索: <query>_"
 
-    Line::from(vec![
-        Span::styled(
-            format!("  {}", display_query),
-            Style::default().fg(theme::TEXT),
-        ),
-    ])
+    Line::from(vec![Span::styled(
+        format!("  {}", display_query),
+        Style::default().fg(theme::TEXT),
+    )])
 }
 
 /// Build visual mode bar: `  多选模式` in BRAND bold + `(N 已选)` in TEXT color
@@ -210,9 +211,9 @@ fn build_visual_bar<'a>(selected_count: usize) -> Line<'a> {
 /// Return the Chinese display label for a sort field.
 fn sort_field_label(field: &SortField) -> &'static str {
     match field {
-        SortField::CreatedAt => "\u{521B}\u{5EFA}\u{65F6}\u{95F4}",  // 创建时间
-        SortField::UpdatedAt => "\u{66F4}\u{65B0}\u{65F6}\u{95F4}",  // 更新时间
-        SortField::Name => "\u{540D}\u{79F0}",                        // 名称
+        SortField::CreatedAt => "\u{521B}\u{5EFA}\u{65F6}\u{95F4}", // 创建时间
+        SortField::UpdatedAt => "\u{66F4}\u{65B0}\u{65F6}\u{95F4}", // 更新时间
+        SortField::Name => "\u{540D}\u{79F0}",                      // 名称
         SortField::UsageFrequency => "\u{4F7F}\u{7528}\u{9891}\u{7387}", // 使用频率
     }
 }
@@ -264,9 +265,16 @@ fn render_list(
         .enumerate()
         .map(|(idx, record)| {
             let is_selected = state.selected_index == Some(idx);
-            let is_visual_selected = visual_ids
-                .is_some_and(|ids| ids.contains(&record.id));
-            build_record_item(record, is_selected, is_visual_selected, focused, unicode, area.width, search_query)
+            let is_visual_selected = visual_ids.is_some_and(|ids| ids.contains(&record.id));
+            build_record_item(
+                record,
+                is_selected,
+                is_visual_selected,
+                focused,
+                unicode,
+                area.width,
+                search_query,
+            )
         })
         .collect();
 
@@ -369,9 +377,7 @@ fn build_record_item<'a>(
 
     // ── Line 2: Subtitle ──
     let subtitle_style = if is_visual_selected {
-        Style::default()
-            .bg(theme::BRAND)
-            .fg(theme::TEXT_SECONDARY)
+        Style::default().bg(theme::BRAND).fg(theme::TEXT_SECONDARY)
     } else if is_selected && focused {
         Style::default()
             .fg(theme::TEXT_SECONDARY)
@@ -396,10 +402,7 @@ fn build_record_item<'a>(
     // ── Line 3: Separator ──
     let sep_char = if unicode { '\u{2500}' } else { '-' }; // ─ / -
     let sep_text: String = std::iter::repeat_n(sep_char, area_width as usize).collect();
-    let separator_line = Line::from(Span::styled(
-        sep_text,
-        Style::default().fg(theme::BORDER),
-    ));
+    let separator_line = Line::from(Span::styled(sep_text, Style::default().fg(theme::BORDER)));
 
     ListItem::new(vec![title_line, subtitle_line, separator_line])
 }
@@ -421,10 +424,7 @@ fn render_empty_state(
 }
 
 /// Build the appropriate empty state variant based on list mode and filter.
-fn build_empty_state_variant(
-    state: &ListPanelState,
-    filter: &RecordFilter,
-) -> EmptyStateVariant {
+fn build_empty_state_variant(state: &ListPanelState, filter: &RecordFilter) -> EmptyStateVariant {
     match &state.mode {
         ListMode::Search(search_state) if !search_state.query.is_empty() => {
             EmptyStateVariant::NoSearchResults {
@@ -437,7 +437,9 @@ fn build_empty_state_variant(
             RecordFilter::Expired => EmptyStateVariant::NoExpired,
             RecordFilter::HealthIssues => EmptyStateVariant::NoHealthIssues,
             RecordFilter::Trash => EmptyStateVariant::EmptyTrash,
-            RecordFilter::Tag(name) => EmptyStateVariant::EmptyTag { tag_name: name.clone() },
+            RecordFilter::Tag(name) => EmptyStateVariant::EmptyTag {
+                tag_name: name.clone(),
+            },
             RecordFilter::Search(q) => EmptyStateVariant::NoSearchResults { query: q.clone() },
         },
     }
@@ -478,11 +480,7 @@ mod tests {
         }
     }
 
-    fn make_record_with_type(
-        id: Uuid,
-        name: &str,
-        cred_type: CredentialType,
-    ) -> TuiRecord {
+    fn make_record_with_type(id: Uuid, name: &str, cred_type: CredentialType) -> TuiRecord {
         TuiRecord {
             id,
             credential_type: cred_type,
@@ -718,12 +716,19 @@ mod tests {
     fn render_visual_mode_bar() {
         // Verify the visual mode bar shows "多选模式" in BRAND bold and selected count in TEXT
         let line = build_visual_bar(5);
-        assert_eq!(line.spans.len(), 2, "visual bar should have two spans: label + count");
+        assert_eq!(
+            line.spans.len(),
+            2,
+            "visual bar should have two spans: label + count"
+        );
 
         // First span: "  多选模式 " in BRAND bold
         let label_span = &line.spans[0];
         assert!(
-            label_span.content.as_ref().contains("\u{591A}\u{9009}\u{6A21}\u{5F0F}"),
+            label_span
+                .content
+                .as_ref()
+                .contains("\u{591A}\u{9009}\u{6A21}\u{5F0F}"),
             "label span should contain '多选模式'"
         );
         assert!(
@@ -896,11 +901,11 @@ mod tests {
         // Should produce alternating: match + "_" + match + "_" + match
         assert_eq!(spans.len(), 5);
         assert_eq!(spans[0].content.as_ref(), "test"); // highlighted
-        assert_eq!(spans[1].content.as_ref(), "_");    // normal
+        assert_eq!(spans[1].content.as_ref(), "_"); // normal
         assert_eq!(spans[2].content.as_ref(), "test"); // highlighted
-        assert_eq!(spans[3].content.as_ref(), "_");    // normal
+        assert_eq!(spans[3].content.as_ref(), "_"); // normal
         assert_eq!(spans[4].content.as_ref(), "test"); // highlighted
-        // Highlighted spans should have WARNING + BOLD
+                                                       // Highlighted spans should have WARNING + BOLD
         for i in [0, 2, 4] {
             assert!(spans[i].style.fg == Some(theme::WARNING.into()));
             assert!(spans[i].style.add_modifier.contains(Modifier::BOLD));

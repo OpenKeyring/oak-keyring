@@ -19,9 +19,7 @@ pub enum ConfigOverlay {
         selected: usize,
     },
     /// Unsaved changes confirmation.
-    UnsavedChanges {
-        focused_button: ConfirmButton,
-    },
+    UnsavedChanges { focused_button: ConfirmButton },
 }
 
 /// Buttons in the unsaved-changes confirmation dialog.
@@ -64,7 +62,13 @@ impl DropdownField {
         match self {
             DropdownField::Language => vec!["auto".into(), "zh-CN".into(), "en".into()],
             DropdownField::AutoLock => {
-                vec!["60".into(), "300".into(), "600".into(), "1800".into(), "0".into()]
+                vec![
+                    "60".into(),
+                    "300".into(),
+                    "600".into(),
+                    "1800".into(),
+                    "0".into(),
+                ]
             }
             DropdownField::ClipboardClear => {
                 vec!["10".into(), "30".into(), "60".into(), "0".into()]
@@ -74,15 +78,32 @@ impl DropdownField {
             }
             DropdownField::Animation => vec!["auto".into(), "on".into(), "off".into()],
             DropdownField::SyncProvider => vec![
-                "Disabled", "ICloud", "GoogleDrive", "Dropbox", "OneDrive", "WebDav", "Sftp", "S3",
-                "AliyunDrive", "AliyunOss", "TencentCos", "HuaweiObs", "Upyun",
+                "Disabled",
+                "ICloud",
+                "GoogleDrive",
+                "Dropbox",
+                "OneDrive",
+                "WebDav",
+                "Sftp",
+                "S3",
+                "AliyunDrive",
+                "AliyunOss",
+                "TencentCos",
+                "HuaweiObs",
+                "Upyun",
             ]
             .iter()
             .map(|s| s.to_string())
             .collect(),
             DropdownField::SyncMode => vec!["Auto".into(), "Manual".into()],
             DropdownField::SyncInterval => {
-                vec!["60".into(), "300".into(), "600".into(), "1800".into(), "3600".into()]
+                vec![
+                    "60".into(),
+                    "300".into(),
+                    "600".into(),
+                    "1800".into(),
+                    "3600".into(),
+                ]
             }
             DropdownField::HealthFrequency => {
                 vec!["OnStartup".into(), "Daily".into(), "Weekly".into()]
@@ -234,11 +255,11 @@ impl ConfigTab {
     /// Returns the number of focusable items in this tab.
     pub fn item_count(self) -> usize {
         match self {
-            Self::General => 7,  // language, vault_path, auto_lock, clipboard, trash, animation, import_export
-            Self::Sync => 4,     // provider, sync_mode, interval, test_button
+            Self::General => 7, // language, vault_path, auto_lock, clipboard, trash, animation, import_export
+            Self::Sync => 4,    // provider, sync_mode, interval, test_button
             Self::Security => 5, // health_check, frequency, master_password, audit, retention
             Self::Password => 4, // length, digits, uppercase, special
-            Self::About => 0,    // read-only, no focusable items
+            Self::About => 0,   // read-only, no focusable items
         }
     }
 

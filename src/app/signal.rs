@@ -59,15 +59,15 @@ impl SignalHandler {
             let cancel_term = cancel.clone();
             let tx_term = result_tx.clone();
             tokio::spawn(async move {
-                let mut stream = match tokio::signal::unix::signal(
-                    tokio::signal::unix::SignalKind::terminate(),
-                ) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::error!("failed to install SIGTERM handler: {}", e);
-                        return;
-                    }
-                };
+                let mut stream =
+                    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::error!("failed to install SIGTERM handler: {}", e);
+                            return;
+                        }
+                    };
 
                 tokio::select! {
                     _ = cancel_term.cancelled() => {}

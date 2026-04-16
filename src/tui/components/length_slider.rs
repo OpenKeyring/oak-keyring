@@ -33,19 +33,26 @@ pub fn render_length_slider(
     };
 
     let value_style = if focused {
-        Style::default().fg(theme::TEXT).add_modifier(Modifier::REVERSED)
+        Style::default()
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::REVERSED)
     } else {
         Style::default().fg(theme::TEXT)
     };
 
     let bar_fill_style = if focused {
-        Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme::PRIMARY)
     };
 
     Line::from(vec![
-        Span::styled(format!("  {} ", label), Style::default().fg(theme::TEXT_SECONDARY)),
+        Span::styled(
+            format!("  {} ", label),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
         Span::styled(format!("[ {} ]", value), value_style),
         Span::raw("  "),
         Span::styled("[-]", minus_style),

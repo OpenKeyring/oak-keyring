@@ -77,9 +77,7 @@ impl Styles {
         Style::default().fg(BRAND).add_modifier(Modifier::BOLD)
     }
     pub fn dim_text() -> Style {
-        Style::default()
-            .fg(TEXT_MUTED)
-            .add_modifier(Modifier::DIM)
+        Style::default().fg(TEXT_MUTED).add_modifier(Modifier::DIM)
     }
     pub fn selected_unfocused() -> Style {
         Style::default().add_modifier(Modifier::DIM)
@@ -88,17 +86,13 @@ impl Styles {
         Style::default().add_modifier(Modifier::REVERSED)
     }
     pub fn button_primary() -> Style {
-        Style::default()
-            .fg(PRIMARY)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD)
     }
     pub fn button_secondary() -> Style {
         Style::default().fg(TEXT_SECONDARY)
     }
     pub fn button_disabled() -> Style {
-        Style::default()
-            .fg(TEXT_MUTED)
-            .add_modifier(Modifier::DIM)
+        Style::default().fg(TEXT_MUTED).add_modifier(Modifier::DIM)
     }
     pub fn title_bar() -> Style {
         Style::default().bg(BG_BAR).fg(TEXT)

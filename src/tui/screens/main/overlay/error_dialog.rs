@@ -76,7 +76,10 @@ pub fn render_error_dialog(frame: &mut Frame, area: Rect, state: &ErrorDialogFul
 }
 
 /// Handle a key press in the error dialog, returning the action to take.
-pub fn handle_key(key: crossterm::event::KeyCode, state: &mut ErrorDialogFullState) -> ErrorDialogAction {
+pub fn handle_key(
+    key: crossterm::event::KeyCode,
+    state: &mut ErrorDialogFullState,
+) -> ErrorDialogAction {
     use crossterm::event::KeyCode;
 
     match key {

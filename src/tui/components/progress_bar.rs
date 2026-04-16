@@ -1,10 +1,10 @@
 //! Import progress bar widget per U11 spec.
 
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 
 use crate::tui::state::loading::ProgressBarState;
 use crate::tui::theme;
@@ -32,10 +32,7 @@ impl ProgressBarWidget {
             state.label,
         );
         let lines = vec![
-            Line::from(Span::styled(
-                bar,
-                Style::default().fg(theme::PRIMARY),
-            )),
+            Line::from(Span::styled(bar, Style::default().fg(theme::PRIMARY))),
             Line::from(Span::styled(
                 "Press Esc to cancel",
                 Style::default().fg(theme::TEXT_MUTED),
