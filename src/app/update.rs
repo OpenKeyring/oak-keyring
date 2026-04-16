@@ -52,7 +52,8 @@ pub fn run(
                     }
                 }
                 CrosstermEvent::Resize(width, height) => {
-                    if handle_message(app, Message::Resize { width, height })? == LoopControl::Exit {
+                    if handle_message(app, Message::Resize { width, height })? == LoopControl::Exit
+                    {
                         return Ok(());
                     }
                 }
@@ -79,10 +80,7 @@ enum LoopControl {
 }
 
 /// Dispatch a single Message. Returns Exit if the app should shut down.
-fn handle_message(
-    app: &mut App,
-    msg: Message,
-) -> Result<LoopControl, Box<dyn std::error::Error>> {
+fn handle_message(app: &mut App, msg: Message) -> Result<LoopControl, Box<dyn std::error::Error>> {
     match &msg {
         // -- Shutdown handling (direct) ----
         Message::ShutdownRequested { force } => {
@@ -143,9 +141,10 @@ fn handle_message(
 
             match result {
                 CommandResult::ConfigSaved => {
-                    app.state.shared.notification.enqueue(
-                        StatusMessage::success("Configuration saved".into()),
-                    );
+                    app.state
+                        .shared
+                        .notification
+                        .enqueue(StatusMessage::success("Configuration saved".into()));
                 }
                 CommandResult::ConfigLoaded { config } => {
                     // Language change
@@ -175,14 +174,16 @@ fn handle_message(
                     app.state.shared.notification.enqueue(msg);
                 }
                 CommandResult::Error { fallback, .. } => {
-                    app.state.shared.notification.enqueue(
-                        StatusMessage::error(fallback.clone()),
-                    );
+                    app.state
+                        .shared
+                        .notification
+                        .enqueue(StatusMessage::error(fallback.clone()));
                 }
                 CommandResult::FatalError { fallback, .. } => {
-                    app.state.shared.notification.enqueue(
-                        StatusMessage::error(fallback.clone()),
-                    );
+                    app.state
+                        .shared
+                        .notification
+                        .enqueue(StatusMessage::error(fallback.clone()));
                 }
                 _ => {} // Screen-specific results handled below
             }
@@ -256,10 +257,10 @@ fn route_to_screen(
 ) -> ScreenResult {
     match state.current_screen {
         Screen::Main => {
-            state.screens.main.sync_from_app(
-                state.shared.focus.focused_panel,
-                state.unicode_capable,
-            );
+            state
+                .screens
+                .main
+                .sync_from_app(state.shared.focus.focused_panel, state.unicode_capable);
             state.screens.main.update(msg, ctx)
         }
         Screen::Unlock => state.screens.unlock.update(msg, ctx),
@@ -269,6 +270,7 @@ fn route_to_screen(
             state.screens.config.update(msg, ctx)
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.update(msg, ctx),
+        Screen::ImportExport => state.screens.import_export.update(msg, ctx),
         // Placeholder screens — ignore messages.
         _ => ScreenResult::Continue,
     }
@@ -278,10 +280,10 @@ fn route_to_screen(
 fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut ScreenContext<'_>) {
     match state.current_screen {
         Screen::Main => {
-            state.screens.main.sync_from_app(
-                state.shared.focus.focused_panel,
-                state.unicode_capable,
-            );
+            state
+                .screens
+                .main
+                .sync_from_app(state.shared.focus.focused_panel, state.unicode_capable);
             state.screens.main.on_mount(ctx)
         }
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
@@ -293,6 +295,11 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
             state.screens.config.on_mount(ctx)
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
+        Screen::ImportExport => {
+            let current_panel = state.shared.focus.focused_panel;
+            state.shared.screen_focus_stack.push(current_panel);
+            state.screens.import_export.on_mount(ctx)
+        }
         _ => {}
     }
 }
@@ -311,6 +318,12 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
             state.screens.config.on_unmount()
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
+        Screen::ImportExport => {
+            if let Some(panel) = state.shared.screen_focus_stack.pop() {
+                state.shared.focus.focused_panel = panel;
+            }
+            state.screens.import_export.on_unmount()
+        }
         _ => {}
     }
 }

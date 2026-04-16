@@ -33,6 +33,9 @@ pub fn render(frame: &mut Frame, app: &App) {
         Screen::ChangeMasterPassword => {
             app.state.screens.change_master_password.view(frame, area);
         }
+        Screen::ImportExport => {
+            app.state.screens.import_export.view(frame, area);
+        }
         // Placeholder for unimplemented screens.
         _ => {
             render_placeholder(frame, area, &format!("{:?}", app.state.current_screen));
@@ -45,10 +48,7 @@ fn render_too_small(frame: &mut Frame, area: ratatui::layout::Rect) {
     use ratatui::widgets::{Block, Borders, Paragraph};
 
     let (w, h) = (area.width, area.height);
-    let text = format!(
-        "Terminal too small: {}x{}\nMinimum required: 80x24",
-        w, h
-    );
+    let text = format!("Terminal too small: {}x{}\nMinimum required: 80x24", w, h);
     let paragraph = Paragraph::new(text)
         .style(theme::Styles::warning_text())
         .alignment(Alignment::Center)

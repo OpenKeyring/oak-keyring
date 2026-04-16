@@ -13,6 +13,7 @@ pub mod overlay_state;
 use crate::commands::types::{AppPhase, Screen};
 use crate::tui::screens::change_master_password::ChangeMasterPasswordScreen;
 use crate::tui::screens::config_screen::ConfigScreen;
+use crate::tui::screens::import_export::ImportExportScreen;
 use crate::tui::screens::onboarding::OnboardingScreen;
 use crate::tui::screens::unlock::UnlockScreen;
 use main_state::MainScreenState;
@@ -56,6 +57,7 @@ pub struct ScreenStates {
     pub main: MainScreenState,
     pub config: ConfigScreen,
     pub change_master_password: ChangeMasterPasswordScreen,
+    pub import_export: ImportExportScreen,
 }
 
 impl Default for AppState {
