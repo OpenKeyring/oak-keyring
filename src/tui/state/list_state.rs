@@ -861,4 +861,74 @@ mod tests {
         let tier = trash_warning_tier(0);
         assert_eq!(tier, TrashWarningTier::Critical);
     }
+
+    // ── Post-batch cleanup tests ─────────────────────────────────────────
+
+    #[test]
+    fn cleanup_after_batch_exits_visual_and_positions_cursor() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let id3 = Uuid::new_v4();
+        let r1 = make_record(id1, "A", "");
+        let r2 = make_record(id2, "B", "");
+        let r3 = make_record(id3, "C", "");
+        let mut state = ListPanelState::with_records(vec![r1, r2, r3]);
+
+        // Enter visual, select id1 and id2, cursor at index 1
+        state.enter_visual();
+        if let ListMode::Visual(ref mut vs) = state.mode {
+            vs.selected_ids.insert(id1);
+            vs.selected_ids.insert(id2);
+        }
+        state.selected_index = Some(1);
+
+        // Batch delete id1 and id2
+        state.cleanup_after_batch(&[id1, id2]);
+
+        // Should exit visual mode
+        assert!(!state.is_visual());
+        // Only r3 remains
+        assert_eq!(state.records.len(), 1);
+        // Cursor should be clamped to valid index
+        assert!(state.selected_index.unwrap() < state.records.len());
+        // Total count updated
+        assert_eq!(state.total_count, 1);
+    }
+
+    #[test]
+    fn cleanup_preserves_cursor_if_record_remains() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let id3 = Uuid::new_v4();
+        let r1 = make_record(id1, "A", "");
+        let r2 = make_record(id2, "B", "");
+        let r3 = make_record(id3, "C", "");
+        let mut state = ListPanelState::with_records(vec![r1, r2, r3]);
+
+        // Cursor at r3 (index 2), delete r1 only
+        state.selected_index = Some(2);
+        state.enter_visual();
+        if let ListMode::Visual(ref mut vs) = state.mode {
+            vs.selected_ids.insert(id1);
+        }
+        state.cleanup_after_batch(&[id1]);
+
+        // r3 (index 1 after removal) should still be selected
+        assert_eq!(state.records.len(), 2);
+        assert!(state.selected_index.unwrap() < state.records.len());
+    }
+
+    #[test]
+    fn cleanup_empty_list_sets_none_selection() {
+        let id1 = Uuid::new_v4();
+        let r1 = make_record(id1, "A", "");
+        let mut state = ListPanelState::with_records(vec![r1]);
+
+        state.enter_visual();
+        state.cleanup_after_batch(&[id1]);
+
+        assert!(state.records.is_empty());
+        assert_eq!(state.selected_index, None);
+        assert!(!state.is_visual());
+    }
 }

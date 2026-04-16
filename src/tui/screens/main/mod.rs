@@ -16,7 +16,7 @@ use crate::commands::Message;
 use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, PANEL_SEPARATOR};
 use crate::tui::screens::main::sidebar::SidebarPanel;
 use crate::tui::screens::main::status_bar::StatusBarPanel;
-use crate::tui::state::main_state::{MainScreenState, SidebarItem};
+use crate::tui::state::main_state::{MainScreenState, SidebarCategory, SidebarItem};
 use crate::tui::state::tag_management::TagSortOrder;
 use crate::tui::theme;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -359,6 +359,92 @@ impl MainScreen {
         }
 
         MainKeyResult { messages, overlay }
+    }
+
+    /// Handle post-batch-delete cleanup.
+    pub fn handle_batch_delete_result(
+        state: &mut MainScreenState,
+        deleted_count: usize,
+    ) {
+        let removed_ids: Vec<uuid::Uuid> = state.list.visual_selected_ids();
+        state.list.cleanup_after_batch(&removed_ids);
+
+        // Set temporary status bar message
+        state.status_bar.status_message = Some(
+            crate::tui::state::main_state::StatusMessage::Temporary {
+                text: format!(
+                    "\u{2713} \u{5DF2}\u{5220}\u{9664} {} \u{6761}\u{5BC6}\u{7801}",
+                    deleted_count
+                ),
+                ttl: 100,
+            },
+        );
+        state.status_bar.temp_message_timer = Some(100);
+    }
+
+    /// Handle post-tag-delete cleanup.
+    /// If the user was viewing the deleted tag, auto-switch to "All".
+    pub fn handle_tag_delete_result(
+        state: &mut MainScreenState,
+        deleted_tag_name: &str,
+    ) {
+        // Remove tag from sidebar
+        state.sidebar.tags.retain(|t| t.name != deleted_tag_name);
+        state.sidebar.rebuild();
+
+        // If currently viewing the deleted tag, switch to All
+        if let RecordFilter::Tag(ref name) = state.current_filter {
+            if name == deleted_tag_name {
+                state.current_filter = RecordFilter::All;
+                state.sidebar.select_category(SidebarCategory::All);
+            }
+        }
+
+        // Status bar message
+        state.status_bar.status_message = Some(
+            crate::tui::state::main_state::StatusMessage::Temporary {
+                text: format!(
+                    "\u{2713} \u{5DF2}\u{5220}\u{9664}\u{6807}\u{7B7E} \"{}\"",
+                    deleted_tag_name
+                ),
+                ttl: 100,
+            },
+        );
+        state.status_bar.temp_message_timer = Some(100);
+    }
+
+    /// Handle tag rename result.
+    pub fn handle_tag_rename_result(
+        state: &mut MainScreenState,
+        old_name: &str,
+        new_name: &str,
+    ) {
+        // Update tag in sidebar
+        for tag in &mut state.sidebar.tags {
+            if tag.name == old_name {
+                tag.name = new_name.to_string();
+            }
+        }
+        state.sidebar.rebuild();
+
+        // Update current filter if viewing the renamed tag
+        if let RecordFilter::Tag(ref name) = state.current_filter {
+            if name == old_name {
+                state.current_filter = RecordFilter::Tag(new_name.to_string());
+            }
+        }
+
+        // Status bar message
+        state.status_bar.status_message = Some(
+            crate::tui::state::main_state::StatusMessage::Temporary {
+                text: format!(
+                    "\u{2713} \u{5DF2}\u{91CD}\u{547D}\u{540D} \"{}\" \u{2192} \"{}\"",
+                    old_name, new_name
+                ),
+                ttl: 100,
+            },
+        );
+        state.status_bar.temp_message_timer = Some(100);
     }
 }
 
