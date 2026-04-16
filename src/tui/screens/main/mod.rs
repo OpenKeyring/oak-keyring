@@ -112,6 +112,7 @@ impl MainScreen {
             focused_panel,
             unicode,
             is_trash,
+            state.list.is_visual(),
         );
     }
 

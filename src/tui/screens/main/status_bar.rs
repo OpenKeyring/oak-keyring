@@ -6,7 +6,7 @@
 //! - Right: sync status indicator + status message
 
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
@@ -50,6 +50,17 @@ const SHORTCUTS_TRASH_LIST_ASCII: &str = "R Restore  D PermDelete  A EmptyTrash 
 const SHORTCUTS_TRASH_DETAIL_ASCII: &str =
     "C CopyPwd  U CopyUser  P Show/Hide  R Restore  D PermDelete  F1 Help";
 
+// ── Visual mode shortcut strings ──────────────────────────────────────────────
+
+const SHORTCUTS_VISUAL_UNICODE: &str = "Space\u{9009}\u{62E9} a\u{5168}\u{9009} d\u{6279}\u{91CF}\u{5220}\u{9664} t\u{6279}\u{91CF}\u{6807}\u{7B7E} Esc\u{9000}\u{51FA}";
+// Space选择 a全选 d批量删除 t批量标签 Esc退出
+
+const SHORTCUTS_VISUAL_ASCII: &str = "Space Select  A All  D BatchDel  T BatchTag  Esc Exit";
+
+/// Visual indicator text shown in status bar when visual mode is active.
+const VISUAL_INDICATOR_UNICODE: &str = "VISUAL";
+const VISUAL_INDICATOR_ASCII: &str = "[VISUAL]";
+
 // ── Sync indicator strings (unicode) ─────────────────────────────────────────
 
 const SYNC_SYNCED_UNICODE: &str = "\u{2713} \u{5DF2}\u{540C}\u{6B65}"; // ✓ 已同步
@@ -88,6 +99,7 @@ impl StatusBarPanel {
         focused_panel: PanelId,
         unicode: bool,
         is_trash: bool,
+        visual_mode: bool,
     ) {
         if area.width == 0 || area.height == 0 {
             return;
@@ -102,21 +114,44 @@ impl StatusBarPanel {
             .bg(bar_bg);
         let msg_style = Style::default().fg(theme::TEXT_SECONDARY).bg(bar_bg);
 
-        let shortcuts = shortcuts_text(focused_panel, unicode, is_trash);
+        let shortcuts = if visual_mode && matches!(focused_panel, PanelId::List | PanelId::Detail) {
+            visual_shortcuts_text(unicode)
+        } else {
+            shortcuts_text(focused_panel, unicode, is_trash)
+        };
         let sync_text = sync_indicator_text(&state.sync_status, unicode);
         let status_msg = status_message_text(&state.status_message);
 
-        let spans = vec![
+        let mut all_spans = vec![
             Span::styled("  ", shortcut_style),
             Span::styled(shortcuts, shortcut_style),
-            Span::styled(SEPARATOR, sep_style),
-            Span::styled(VERSION, version_style),
-            Span::styled(SEPARATOR, sep_style),
-            Span::styled(sync_text, sync_style),
         ];
 
+        // VISUAL indicator when in visual mode
+        if visual_mode {
+            let indicator = if unicode {
+                VISUAL_INDICATOR_UNICODE
+            } else {
+                VISUAL_INDICATOR_ASCII
+            };
+            all_spans.push(Span::styled(SEPARATOR, sep_style));
+            all_spans.push(
+                Span::styled(
+                    format!(" {} ", indicator),
+                    Style::default()
+                        .fg(theme::TEXT)
+                        .add_modifier(Modifier::BOLD)
+                        .bg(theme::BG_BAR),
+                ),
+            );
+        }
+
+        all_spans.push(Span::styled(SEPARATOR, sep_style));
+        all_spans.push(Span::styled(VERSION, version_style));
+        all_spans.push(Span::styled(SEPARATOR, sep_style));
+        all_spans.push(Span::styled(sync_text, sync_style));
+
         // Add status message if present
-        let mut all_spans = spans;
         if let Some(msg) = status_msg {
             all_spans.push(Span::styled(SEPARATOR, sep_style));
             all_spans.push(Span::styled(msg, msg_style));
@@ -159,6 +194,15 @@ fn shortcuts_text(focused_panel: PanelId, unicode: bool, is_trash: bool) -> &'st
                 SHORTCUTS_TRASH_DETAIL_ASCII
             }
         }
+    }
+}
+
+/// Return the visual mode shortcut text.
+fn visual_shortcuts_text(unicode: bool) -> &'static str {
+    if unicode {
+        SHORTCUTS_VISUAL_UNICODE
+    } else {
+        SHORTCUTS_VISUAL_ASCII
     }
 }
 
@@ -427,6 +471,24 @@ mod tests {
         assert!(
             !text.contains("\u{6062}\u{590D}"),
             "normal detail should not contain '恢复'"
+        );
+    }
+
+    #[test]
+    fn visual_mode_shortcuts_shown_when_visual_active() {
+        let text = visual_shortcuts_text(true);
+        assert!(
+            text.contains("Space") || text.contains("Space\u{9009}\u{62E9}"),
+            "visual shortcuts should mention Space"
+        );
+    }
+
+    #[test]
+    fn normal_shortcuts_shown_when_not_visual() {
+        let text = shortcuts_text(PanelId::List, true, false);
+        assert!(
+            text.is_empty() || !text.contains("Space\u{9009}\u{62E9}"),
+            "non-visual should not show Space shortcut"
         );
     }
 }
