@@ -4,6 +4,7 @@ pub mod recovery_key;
 pub mod unlock;
 
 pub mod audit_log;
+pub mod change_master_password;
 pub mod config_screen;
 pub mod create_record;
 pub mod edit_record;
