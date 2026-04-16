@@ -41,10 +41,15 @@ impl Screen for ConfigScreen {
     }
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
+        // TODO(U7.5/L1): ctx.focus_stack.push(ScreenSnapshot::Main);
+        // Push main screen snapshot to focus stack for restoration on close.
+        // Depends on Plan L1 (UI Infrastructure) focus stack implementation.
         let _ = ctx.command_tx.try_send(Command::LoadConfig);
     }
 
-    fn on_unmount(&mut self) {}
+    fn on_unmount(&mut self) {
+        // TODO(U7.5/L1): Focus stack pop handled by screen router.
+    }
 }
 
 impl ConfigScreen {

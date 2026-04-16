@@ -284,6 +284,9 @@ impl Screen for ChangeMasterPasswordScreen {
     }
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {
+        // TODO(U7.5/L1): _ctx.focus_stack.push(ScreenSnapshot::ConfigPage);
+        // Push config screen snapshot for restoration on close.
+        // Depends on Plan L1 (UI Infrastructure) focus stack implementation.
         self.step = 1;
         self.current_password.zeroize();
         self.current_password.clear();
@@ -297,6 +300,7 @@ impl Screen for ChangeMasterPasswordScreen {
     }
 
     fn on_unmount(&mut self) {
+        // TODO(U7.5/L1): Focus stack pop handled by screen router.
         self.current_password.zeroize();
         self.new_password.zeroize();
         self.confirm_password.zeroize();
