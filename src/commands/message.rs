@@ -67,6 +67,16 @@ pub enum Message {
     ClipboardTimerTick,
     AutoLockTimerTick,
     SyncTimerTick,
+
+    // -- Tag Management ----------------------------------
+    EnterTagManagement,
+    ExitTagManagement,
+    RenameTagStart,
+    RenameTagConfirm,
+    RenameTagCancel,
+    CycleTagSort,
+    DeleteTagFromManagement,
+
     ImportProgress {
         current: usize,
         total: usize,
@@ -127,6 +137,14 @@ mod exhaustive_tests {
                 Message::ClipboardTimerTick => {}
                 Message::AutoLockTimerTick => {}
                 Message::SyncTimerTick => {}
+                // Tag Management
+                Message::EnterTagManagement => {}
+                Message::ExitTagManagement => {}
+                Message::RenameTagStart => {}
+                Message::RenameTagConfirm => {}
+                Message::RenameTagCancel => {}
+                Message::CycleTagSort => {}
+                Message::DeleteTagFromManagement => {}
                 Message::ImportProgress { .. } => {}
                 Message::NavigateToRecord { .. } => {}
                 // Shutdown
