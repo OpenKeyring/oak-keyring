@@ -9,6 +9,9 @@ use ratatui::Frame;
 use crate::tui::state::detail_state::{
     DetailFieldKind, DetailPanelState, DetailViewData, ExpiryStatus, FieldValue, PasswordStrength,
 };
+use crate::tui::state::list_state::{
+    calculate_remaining_days, format_days_since_deletion, trash_warning_tier, TrashWarningTier,
+};
 use crate::tui::theme;
 
 pub struct DetailPanel;
@@ -63,6 +66,66 @@ impl DetailPanel {
         let mut lines = Vec::new();
         let pad = "  ";
         let narrow = area.width < 100;
+
+        // ── Trash warning banner (if in trash) ──
+        if state.is_trash {
+            let trash_icon = if unicode { "\u{1F5D1}" } else { "[DEL]" };
+
+            let deleted_at = record.deleted_at.unwrap_or(record.updated_at);
+            let days_ago = format_days_since_deletion(&deleted_at);
+
+            let mut banner_spans = vec![
+                Span::styled(
+                    format!("{}{} ", pad, trash_icon),
+                    Style::default().fg(theme::WARNING),
+                ),
+                Span::styled(
+                    "已删除".to_string(),
+                    Style::default()
+                        .fg(theme::WARNING)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ];
+
+            let info_prefix = format!(" — {}", days_ago);
+
+            match calculate_remaining_days(&deleted_at, state.trash_retention_days) {
+                None => {
+                    banner_spans.push(Span::styled(
+                        format!("{}  · 不会自动删除", info_prefix),
+                        Style::default().fg(theme::TEXT_SECONDARY),
+                    ));
+                }
+                Some(remaining) => {
+                    let tier = trash_warning_tier(remaining);
+                    let (dot_color, remaining_text) = match tier {
+                        TrashWarningTier::Safe => {
+                            (theme::TEXT_SECONDARY, format!(" · 剩余 {} 天", remaining.max(0)))
+                        }
+                        TrashWarningTier::Moderate => {
+                            (theme::WARNING, format!(" · 剩余 {} 天", remaining.max(0)))
+                        }
+                        TrashWarningTier::Urgent => {
+                            (theme::WARNING, format!(" \u{26A0} 剩余 {} 天", remaining.max(0)))
+                        }
+                        TrashWarningTier::Critical => {
+                            (theme::ERROR, format!(" \u{26A0} 剩余 {} 天", remaining.max(0)))
+                        }
+                    };
+                    banner_spans.push(Span::styled(
+                        info_prefix,
+                        Style::default().fg(theme::TEXT_SECONDARY),
+                    ));
+                    banner_spans.push(Span::styled(
+                        remaining_text,
+                        Style::default().fg(dot_color),
+                    ));
+                }
+            }
+
+            lines.push(Line::from(banner_spans));
+            lines.push(Line::from(""));
+        }
 
         // Title Area
         lines.push(Line::from(Span::styled(
@@ -253,6 +316,27 @@ impl DetailPanel {
             lines.push(Line::from(""));
         }
 
+        // ── Trash action buttons (only in trash mode) ──
+        if state.is_trash {
+            lines.push(Line::from(""));
+            let restore_style = Style::default()
+                .fg(theme::SUCCESS)
+                .add_modifier(Modifier::BOLD);
+            let destroy_style = Style::default()
+                .fg(theme::ERROR)
+                .add_modifier(Modifier::BOLD);
+            lines.push(Line::from(vec![
+                Span::styled(format!("{}[恢复]", pad), restore_style),
+                Span::raw("  "),
+                Span::styled("[永久删除]", destroy_style),
+            ]));
+            lines.push(Line::from(Span::styled(
+                format!("{}r 恢复  D 永久删除", pad),
+                Style::default().fg(theme::TEXT_MUTED),
+            )));
+            lines.push(Line::from(""));
+        }
+
         // Timestamps (hidden on narrow terminals)
         if !narrow {
             lines.push(Line::from(Span::styled(
@@ -279,5 +363,99 @@ impl DetailPanel {
             "\u{2591}".repeat(empty),
             strength.label()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::state::detail_state::*;
+    use ratatui::backend::TestBackend;
+
+    fn make_trash_detail_data() -> DetailViewData {
+        DetailViewData {
+            id: uuid::Uuid::new_v4(),
+            name: "DeletedSite".into(),
+            subtitle: "https://example.com".into(),
+            credential_type: crate::types::credential::CredentialType::Login,
+            is_favorite: false,
+            expires_at: None,
+            expiry_status: ExpiryStatus::None,
+            tags: vec![],
+            notes: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            fields: vec![
+                DetailField {
+                    label: "\u{7528}\u{6237}\u{540D}".into(),
+                    value: FieldValue::Plain("alice".into()),
+                    copyable: true,
+                    toggleable: false,
+                    kind: DetailFieldKind::Username,
+                },
+                DetailField {
+                    label: "\u{5BC6}\u{7801}".into(),
+                    value: FieldValue::Masked,
+                    copyable: true,
+                    toggleable: true,
+                    kind: DetailFieldKind::Password,
+                },
+            ],
+            password_strength: None,
+            deleted_at: Some(chrono::Utc::now() - chrono::Duration::days(5)),
+        }
+    }
+
+    fn render_detail_snapshot(
+        state: &DetailPanelState,
+        width: u16,
+        height: u16,
+        focused: bool,
+        unicode: bool,
+    ) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let panel = DetailPanel;
+                panel.view(frame, frame.area(), state, focused, unicode);
+            })
+            .unwrap();
+        let buf = terminal.backend().buffer().clone();
+        format!("{:?}", buf)
+    }
+
+    #[test]
+    fn render_trash_detail_shows_banner() {
+        let data = make_trash_detail_data();
+        let mut state = DetailPanelState::with_record(data);
+        state.set_trash_context(true, 30);
+        let result = render_detail_snapshot(&state, 60, 20, true, true);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_trash_detail_never_auto_delete() {
+        let data = make_trash_detail_data();
+        let mut state = DetailPanelState::with_record(data);
+        state.set_trash_context(true, 0);
+        let result = render_detail_snapshot(&state, 60, 20, true, true);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_normal_detail_no_trash_banner() {
+        let data = make_trash_detail_data();
+        let state = DetailPanelState::with_record(data);
+        let result = render_detail_snapshot(&state, 60, 20, true, true);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_trash_detail_empty() {
+        let mut state = DetailPanelState::default();
+        state.set_trash_context(true, 30);
+        let result = render_detail_snapshot(&state, 60, 20, true, true);
+        assert!(!result.is_empty());
     }
 }
