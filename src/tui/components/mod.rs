@@ -8,3 +8,4 @@ pub mod spinner;
 pub mod strength_bar;
 pub mod tag_input;
 pub mod text_input;
+pub mod vault_path_dialog;
