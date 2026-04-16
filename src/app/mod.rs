@@ -75,7 +75,8 @@ impl App {
         let size = crossterm::terminal::size().unwrap_or((80, 24));
         let (width, height) = (size.0, size.1);
         self.state.update_size(width, height);
-        self.state.unicode_capable = terminal::WidthTier::from_width(width) != terminal::WidthTier::TooSmall
+        self.state.unicode_capable = terminal::WidthTier::from_width(width)
+            != terminal::WidthTier::TooSmall
             || std::env::var("TERM").unwrap_or_default().contains("utf");
         self.state.shared.animation.level = detect_animation_level();
 

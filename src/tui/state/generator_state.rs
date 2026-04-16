@@ -1,7 +1,7 @@
 //! Password generator UI state for U6.
 
-use crate::crypto::strength::{evaluate_strength, PasswordStrength};
 use crate::crypto::password;
+use crate::crypto::strength::{evaluate_strength, PasswordStrength};
 
 /// Current generation style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,15 +156,11 @@ impl GeneratorState {
                     if cfg.uppercase { 1 } else { 0 },
                 )
             }
-            GenerationStyle::Memorable => {
-                password::generate_memorable_password_with_separator(
-                    self.memorable_config.word_count,
-                    &self.memorable_config.separator,
-                )
-            }
-            GenerationStyle::Pin => {
-                password::generate_pin(self.pin_config.length)
-            }
+            GenerationStyle::Memorable => password::generate_memorable_password_with_separator(
+                self.memorable_config.word_count,
+                &self.memorable_config.separator,
+            ),
+            GenerationStyle::Pin => password::generate_pin(self.pin_config.length),
         };
 
         match result {
@@ -230,7 +226,8 @@ impl GeneratorState {
                 self.random_config.length = self.random_config.length.saturating_sub(1).max(min);
             }
             GenerationStyle::Memorable => {
-                self.memorable_config.word_count = self.memorable_config.word_count.saturating_sub(1).max(min);
+                self.memorable_config.word_count =
+                    self.memorable_config.word_count.saturating_sub(1).max(min);
             }
             GenerationStyle::Pin => {
                 self.pin_config.length = self.pin_config.length.saturating_sub(1).max(min);

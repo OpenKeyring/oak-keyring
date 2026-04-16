@@ -6,9 +6,11 @@ use crossterm::event::{KeyCode, KeyEvent};
 use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
-use crate::commands::{Command, Message};
 use crate::commands::types::Screen;
-use crate::tui::theme::{self, Styles, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY, WARNING};
+use crate::commands::{Command, Message};
+use crate::tui::theme::{
+    self, Styles, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY, WARNING,
+};
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::SecureStr;
 
@@ -21,7 +23,9 @@ pub enum UnlockPhase {
     Idle,
     Verifying,
     Failed,
-    LockedOut { locked_until: Instant },
+    LockedOut {
+        locked_until: Instant,
+    },
     Success,
 }
 
@@ -166,7 +170,9 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         // Lockout countdown
         let lockout_text = match &self.state {
             UnlockPhase::LockedOut { locked_until } => {
-                let remaining = locked_until.saturating_duration_since(Instant::now()).as_secs();
+                let remaining = locked_until
+                    .saturating_duration_since(Instant::now())
+                    .as_secs();
                 Some(
                     Paragraph::new(format!(
                         "{} Too many attempts. Retry in {}s",
@@ -206,13 +212,13 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         // Instead, we split the vertical space around content_area.
 
         let rows = Layout::vertical([
-            Constraint::Length(1),  // brand
-            Constraint::Length(1),  // gap
-            Constraint::Length(3),  // input with borders
-            Constraint::Length(1),  // gap
-            Constraint::Length(1),  // error/lockout/success or verifying
-            Constraint::Length(1),  // gap
-            Constraint::Length(1),  // mode hint
+            Constraint::Length(1), // brand
+            Constraint::Length(1), // gap
+            Constraint::Length(3), // input with borders
+            Constraint::Length(1), // gap
+            Constraint::Length(1), // error/lockout/success or verifying
+            Constraint::Length(1), // gap
+            Constraint::Length(1), // mode hint
         ])
         .split(content_area);
 
@@ -220,13 +226,9 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         frame.render_widget(input_block, rows[2]);
 
         // Render input text inside the bordered area
-        let input_row_inner = Layout::vertical([Constraint::Length(1)])
-            .split(rows[2])[0];
-        let inner_with_padding = Layout::horizontal([
-            Constraint::Length(1),
-            Constraint::Fill(1),
-        ])
-        .split(input_row_inner);
+        let input_row_inner = Layout::vertical([Constraint::Length(1)]).split(rows[2])[0];
+        let inner_with_padding =
+            Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(input_row_inner);
         frame.render_widget(input_text, inner_with_padding[1]);
 
         // Verifying / error / lockout / success row

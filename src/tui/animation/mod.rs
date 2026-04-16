@@ -4,9 +4,9 @@ pub mod transitions;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AnimationLevel {
     #[default]
-    Full,     // True color + 30fps+
-    Reduced,  // Character-level only
-    None,     // Instant transitions
+    Full, // True color + 30fps+
+    Reduced, // Character-level only
+    None,    // Instant transitions
 }
 
 /// Detect animation capability from terminal environment.

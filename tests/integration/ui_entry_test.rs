@@ -96,7 +96,10 @@ fn notification_priority_queue() {
 
     // Enqueue error — should preempt (error has higher priority)
     ns.enqueue(StatusMessage::error("failed".to_string()));
-    let current = ns.current_message.as_ref().expect("should have a current message");
+    let current = ns
+        .current_message
+        .as_ref()
+        .expect("should have a current message");
     assert!(current.is_error());
     assert_eq!(current.text, "failed");
 
@@ -180,6 +183,9 @@ fn progress_bar_calculation() {
 
     bar.current = 50;
     let progress = bar.progress();
-    assert!((progress - 0.5).abs() < f64::EPSILON, "progress should be 0.5");
+    assert!(
+        (progress - 0.5).abs() < f64::EPSILON,
+        "progress should be 0.5"
+    );
     assert_eq!(bar.percentage(), 50);
 }

@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::tui::components::generator_panel;
-use crate::tui::state::generator_state::{GeneratorFocus, GeneratorState, GenerationStyle};
+use crate::tui::state::generator_state::{GenerationStyle, GeneratorFocus, GeneratorState};
 use crate::tui::theme;
 
 /// Render the standalone generator overlay.
@@ -22,7 +22,9 @@ pub fn render_generator(frame: &mut Frame, area: Rect, state: &GeneratorState) {
         Line::from(vec![
             Span::styled(
                 "  密码生成器",
-                Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw("                              "),
             Span::styled("✕", Style::default().fg(theme::TEXT_SECONDARY)),
@@ -40,7 +42,9 @@ pub fn render_generator(frame: &mut Frame, area: Rect, state: &GeneratorState) {
         .border_style(Style::default().fg(theme::BORDER))
         .style(Style::default().bg(Color::Rgb(26, 27, 38)));
 
-    let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
 
     frame.render_widget(Clear, dialog_area);
     frame.render_widget(paragraph, dialog_area);

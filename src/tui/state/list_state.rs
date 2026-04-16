@@ -93,11 +93,7 @@ impl ListPanelState {
     /// Create a new state pre-populated with records. Selects the first record.
     pub fn with_records(records: Vec<TuiRecord>) -> Self {
         let total_count = records.len();
-        let selected_index = if records.is_empty() {
-            None
-        } else {
-            Some(0)
-        };
+        let selected_index = if records.is_empty() { None } else { Some(0) };
         Self {
             records,
             selected_index,
@@ -108,8 +104,7 @@ impl ListPanelState {
 
     /// Get a reference to the currently selected record, if any.
     pub fn selected_record(&self) -> Option<&TuiRecord> {
-        self.selected_index
-            .and_then(|idx| self.records.get(idx))
+        self.selected_index.and_then(|idx| self.records.get(idx))
     }
 
     /// Move selection down by one. Clamps at the last record.
@@ -288,9 +283,9 @@ impl ListPanelState {
             .filter(|record| {
                 let name_lower = record.name.to_lowercase();
                 let subtitle_lower = record.subtitle.to_lowercase();
-                terms.iter().all(|term| {
-                    name_lower.contains(term) || subtitle_lower.contains(term)
-                })
+                terms
+                    .iter()
+                    .all(|term| name_lower.contains(term) || subtitle_lower.contains(term))
             })
             .collect()
     }
@@ -301,8 +296,7 @@ impl ListPanelState {
     /// mode if no records remain selected.
     pub fn cleanup_after_batch(&mut self, removed_ids: &[Uuid]) {
         let removed_set: HashSet<Uuid> = removed_ids.iter().copied().collect();
-        self.records
-            .retain(|r| !removed_set.contains(&r.id));
+        self.records.retain(|r| !removed_set.contains(&r.id));
         self.total_count = self.total_count.saturating_sub(removed_ids.len());
 
         // Fix selection
@@ -356,11 +350,7 @@ pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
 
     if day_diff == 0 {
         // Today: show time HH:MM
-        format!(
-            "{:02}:{:02}",
-            local_dt.hour(),
-            local_dt.minute()
-        )
+        format!("{:02}:{:02}", local_dt.hour(), local_dt.minute())
     } else if day_diff == 1 {
         "昨天".to_string()
     } else if day_diff < 7 {
@@ -369,11 +359,7 @@ pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
         let weeks = day_diff / 7;
         format!("{}周前", weeks)
     } else if local_dt.year() == local_now.year() {
-        format!(
-            "{:02}-{:02}",
-            local_dt.month(),
-            local_dt.day()
-        )
+        format!("{:02}-{:02}", local_dt.month(), local_dt.day())
     } else {
         format!(
             "{}-{:02}-{:02}",
@@ -426,11 +412,7 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    fn make_record_with_type(
-        id: Uuid,
-        name: &str,
-        cred_type: CredentialType,
-    ) -> TuiRecord {
+    fn make_record_with_type(id: Uuid, name: &str, cred_type: CredentialType) -> TuiRecord {
         TuiRecord {
             id,
             credential_type: cred_type,

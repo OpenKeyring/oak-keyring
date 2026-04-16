@@ -43,76 +43,178 @@ fn all_groups() -> [ShortcutGroup; 7] {
         ShortcutGroup {
             label: "导航",
             shortcuts: &[
-                Shortcut { key: "↑/k", desc: "上移" },
-                Shortcut { key: "↓/j", desc: "下移" },
-                Shortcut { key: "Tab", desc: "切换面板" },
-                Shortcut { key: "Enter", desc: "确认" },
-                Shortcut { key: "Esc", desc: "返回/关闭" },
+                Shortcut {
+                    key: "↑/k",
+                    desc: "上移",
+                },
+                Shortcut {
+                    key: "↓/j",
+                    desc: "下移",
+                },
+                Shortcut {
+                    key: "Tab",
+                    desc: "切换面板",
+                },
+                Shortcut {
+                    key: "Enter",
+                    desc: "确认",
+                },
+                Shortcut {
+                    key: "Esc",
+                    desc: "返回/关闭",
+                },
             ],
         },
         // 1 — 操作
         ShortcutGroup {
             label: "操作",
             shortcuts: &[
-                Shortcut { key: "Ctrl+K", desc: "搜索" },
-                Shortcut { key: "n", desc: "新建" },
-                Shortcut { key: "e", desc: "编辑" },
-                Shortcut { key: "d", desc: "删除" },
-                Shortcut { key: "f", desc: "收藏" },
-                Shortcut { key: "s", desc: "排序" },
-                Shortcut { key: "v", desc: "多选模式" },
-                Shortcut { key: "g", desc: "密码生成" },
-                Shortcut { key: "L", desc: "锁定" },
-                Shortcut { key: "q", desc: "退出" },
+                Shortcut {
+                    key: "Ctrl+K",
+                    desc: "搜索",
+                },
+                Shortcut {
+                    key: "n",
+                    desc: "新建",
+                },
+                Shortcut {
+                    key: "e",
+                    desc: "编辑",
+                },
+                Shortcut {
+                    key: "d",
+                    desc: "删除",
+                },
+                Shortcut {
+                    key: "f",
+                    desc: "收藏",
+                },
+                Shortcut {
+                    key: "s",
+                    desc: "排序",
+                },
+                Shortcut {
+                    key: "v",
+                    desc: "多选模式",
+                },
+                Shortcut {
+                    key: "g",
+                    desc: "密码生成",
+                },
+                Shortcut {
+                    key: "L",
+                    desc: "锁定",
+                },
+                Shortcut {
+                    key: "q",
+                    desc: "退出",
+                },
             ],
         },
         // 2 — 密码详情
         ShortcutGroup {
             label: "密码详情",
             shortcuts: &[
-                Shortcut { key: "c", desc: "复制密码" },
-                Shortcut { key: "u", desc: "复制用户名" },
-                Shortcut { key: "p", desc: "显示/隐藏密码" },
-                Shortcut { key: "H", desc: "密码历史" },
+                Shortcut {
+                    key: "c",
+                    desc: "复制密码",
+                },
+                Shortcut {
+                    key: "u",
+                    desc: "复制用户名",
+                },
+                Shortcut {
+                    key: "p",
+                    desc: "显示/隐藏密码",
+                },
+                Shortcut {
+                    key: "H",
+                    desc: "密码历史",
+                },
             ],
         },
         // 3 — 回收站
         ShortcutGroup {
             label: "回收站",
             shortcuts: &[
-                Shortcut { key: "r", desc: "恢复记录" },
-                Shortcut { key: "D", desc: "永久删除" },
-                Shortcut { key: "a", desc: "清空回收站" },
+                Shortcut {
+                    key: "r",
+                    desc: "恢复记录",
+                },
+                Shortcut {
+                    key: "D",
+                    desc: "永久删除",
+                },
+                Shortcut {
+                    key: "a",
+                    desc: "清空回收站",
+                },
             ],
         },
         // 4 — 多选模式(v)
         ShortcutGroup {
             label: "多选模式(v)",
             shortcuts: &[
-                Shortcut { key: "Space", desc: "选中/取消" },
-                Shortcut { key: "j/k", desc: "上下移动" },
-                Shortcut { key: "a", desc: "全选/取消" },
-                Shortcut { key: "d", desc: "批量删除" },
-                Shortcut { key: "t", desc: "批量打标签" },
-                Shortcut { key: "Esc/v", desc: "退出多选" },
+                Shortcut {
+                    key: "Space",
+                    desc: "选中/取消",
+                },
+                Shortcut {
+                    key: "j/k",
+                    desc: "上下移动",
+                },
+                Shortcut {
+                    key: "a",
+                    desc: "全选/取消",
+                },
+                Shortcut {
+                    key: "d",
+                    desc: "批量删除",
+                },
+                Shortcut {
+                    key: "t",
+                    desc: "批量打标签",
+                },
+                Shortcut {
+                    key: "Esc/v",
+                    desc: "退出多选",
+                },
             ],
         },
         // 5 — 标签管理(m)
         ShortcutGroup {
             label: "标签管理(m)",
             shortcuts: &[
-                Shortcut { key: "m", desc: "添加标签" },
-                Shortcut { key: "r", desc: "重命名标签" },
-                Shortcut { key: "d", desc: "删除标签" },
-                Shortcut { key: "s", desc: "保存" },
+                Shortcut {
+                    key: "m",
+                    desc: "添加标签",
+                },
+                Shortcut {
+                    key: "r",
+                    desc: "重命名标签",
+                },
+                Shortcut {
+                    key: "d",
+                    desc: "删除标签",
+                },
+                Shortcut {
+                    key: "s",
+                    desc: "保存",
+                },
             ],
         },
         // 6 — 同步
         ShortcutGroup {
             label: "同步",
             shortcuts: &[
-                Shortcut { key: "Ctrl+R", desc: "拉取" },
-                Shortcut { key: "Ctrl+S", desc: "推送" },
+                Shortcut {
+                    key: "Ctrl+R",
+                    desc: "拉取",
+                },
+                Shortcut {
+                    key: "Ctrl+S",
+                    desc: "推送",
+                },
             ],
         },
     ]
@@ -189,7 +291,11 @@ fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
 // ── Rendering helpers ─────────────────────────────────────────
 
 /// Build the body lines for all visible groups.
-fn render_groups(groups: &[ShortcutGroup], visible: &[usize], content_width: u16) -> Vec<Line<'static>> {
+fn render_groups(
+    groups: &[ShortcutGroup],
+    visible: &[usize],
+    content_width: u16,
+) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // Determine column layout.
@@ -213,10 +319,7 @@ fn render_groups(groups: &[ShortcutGroup], visible: &[usize], content_width: u16
                 None => vec![Span::raw(" ")],
             };
 
-            let sep = Span::styled(
-                "│",
-                Style::default().fg(theme::BORDER),
-            );
+            let sep = Span::styled("│", Style::default().fg(theme::BORDER));
 
             let right_span: Vec<Span<'static>> = match r {
                 Some(line) => line.spans.clone(),
@@ -279,14 +382,8 @@ fn format_line_spans(key: &str, desc: &str) -> Line<'static> {
     let key_padded = format!("{key:width$}", width = key_col_width);
     Line::from(vec![
         Span::raw("  "),
-        Span::styled(
-            key_padded,
-            Style::default().fg(theme::PRIMARY),
-        ),
-        Span::styled(
-            desc.to_string(),
-            Style::default().fg(theme::TEXT),
-        ),
+        Span::styled(key_padded, Style::default().fg(theme::PRIMARY)),
+        Span::styled(desc.to_string(), Style::default().fg(theme::TEXT)),
     ])
 }
 

@@ -190,22 +190,13 @@ impl WordGridState {
             )
         } else if self.words[index].is_empty() {
             // Empty editable: placeholder
-            (
-                "____".to_string(),
-                Style::default().fg(TEXT_MUTED),
-            )
+            ("____".to_string(), Style::default().fg(TEXT_MUTED))
         } else if is_error {
             // Error word
-            (
-                self.words[index].clone(),
-                Style::default().fg(ERROR),
-            )
+            (self.words[index].clone(), Style::default().fg(ERROR))
         } else {
             // Normal filled word
-            (
-                self.words[index].clone(),
-                Style::default().fg(TEXT),
-            )
+            (self.words[index].clone(), Style::default().fg(TEXT))
         };
 
         // Build spans for the cell
@@ -365,25 +356,40 @@ mod tests {
     fn recovery_key_handle_key_typing() {
         let mut state = WordGridState::default();
 
-        let result = state.handle_key(KeyEvent::new(KeyCode::Char('a'), crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Char('a'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_none());
         assert_eq!(state.words[0], "a");
 
-        let result = state.handle_key(KeyEvent::new(KeyCode::Char('b'), crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Char('b'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_none());
         assert_eq!(state.words[0], "ab");
 
         // Space moves to next word
-        let result = state.handle_key(KeyEvent::new(KeyCode::Char(' '), crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Char(' '),
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_none());
         assert_eq!(state.focused_index, 1);
 
         // Backspace on empty word at index 1 does nothing, then typing works
-        let result = state.handle_key(KeyEvent::new(KeyCode::Backspace, crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Backspace,
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_none());
         assert_eq!(state.words[1], "");
 
-        let result = state.handle_key(KeyEvent::new(KeyCode::Char('z'), crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Char('z'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_none());
         assert_eq!(state.words[1], "z");
     }
@@ -394,7 +400,10 @@ mod tests {
 
         // Type 13 chars — only 12 should be kept
         for c in "abcdefghijklm".chars() {
-            state.handle_key(KeyEvent::new(KeyCode::Char(c), crossterm::event::KeyModifiers::NONE));
+            state.handle_key(KeyEvent::new(
+                KeyCode::Char(c),
+                crossterm::event::KeyModifiers::NONE,
+            ));
         }
         assert_eq!(state.words[0].len(), 12);
         assert_eq!(state.words[0], "abcdefghijkl");
@@ -404,7 +413,10 @@ mod tests {
     fn recovery_key_handle_key_enter_not_filled() {
         let mut state = WordGridState::default();
 
-        let result = state.handle_key(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_none());
         // Enter when not all filled advances to next word
         assert_eq!(state.focused_index, 1);
@@ -417,7 +429,10 @@ mod tests {
             word.push_str("abandon");
         }
 
-        let result = state.handle_key(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_some());
         let words = result.unwrap();
         assert_eq!(words.len(), 24);
@@ -441,11 +456,17 @@ mod tests {
     fn recovery_key_non_alphabetic_ignored() {
         let mut state = WordGridState::default();
 
-        let result = state.handle_key(KeyEvent::new(KeyCode::Char('1'), crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Char('1'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_none());
         assert_eq!(state.words[0], "");
 
-        let result = state.handle_key(KeyEvent::new(KeyCode::Char('-'), crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Char('-'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_none());
         assert_eq!(state.words[0], "");
     }
@@ -456,13 +477,22 @@ mod tests {
         state.words[0] = "abc".to_string();
         state.focused_index = 0;
 
-        state.handle_key(KeyEvent::new(KeyCode::Backspace, crossterm::event::KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(
+            KeyCode::Backspace,
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert_eq!(state.words[0], "ab");
 
-        state.handle_key(KeyEvent::new(KeyCode::Backspace, crossterm::event::KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(
+            KeyCode::Backspace,
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert_eq!(state.words[0], "a");
 
-        state.handle_key(KeyEvent::new(KeyCode::Backspace, crossterm::event::KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(
+            KeyCode::Backspace,
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert_eq!(state.words[0], "");
     }
 
@@ -477,21 +507,33 @@ mod tests {
         };
 
         // Index 0 is not editable, typing should be ignored
-        let result = state.handle_key(KeyEvent::new(KeyCode::Char('a'), crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Char('a'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_none());
         assert_eq!(state.words[0], "");
 
         // Backspace on non-editable does nothing
-        let result = state.handle_key(KeyEvent::new(KeyCode::Backspace, crossterm::event::KeyModifiers::NONE));
+        let result = state.handle_key(KeyEvent::new(
+            KeyCode::Backspace,
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert!(result.is_none());
         assert_eq!(state.words[0], "");
 
         // Tab should move to first editable (3)
-        state.handle_key(KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(
+            KeyCode::Tab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert_eq!(state.focused_index, 3);
 
         // Now typing should work
-        state.handle_key(KeyEvent::new(KeyCode::Char('a'), crossterm::event::KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(
+            KeyCode::Char('a'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
         assert_eq!(state.words[3], "a");
     }
 }

@@ -7,10 +7,10 @@
 //! - [`MainScreenState`] — root aggregate of all main-screen sub-states
 
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::{Frame, layout::Rect};
+use ratatui::{layout::Rect, Frame};
 
-use crate::commands::Message;
 use crate::commands::types::{PanelId, RecordFilter, RecordSort, Screen as ScreenEnum};
+use crate::commands::Message;
 use crate::tui::screens::main::MainScreen;
 use crate::tui::state::detail_state::DetailPanelState;
 use crate::tui::state::list_state::ListPanelState;

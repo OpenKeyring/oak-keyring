@@ -144,10 +144,7 @@ impl VaultPathDialog {
                 " \u{26A0} 修改路径后需要重启应用才能生效。",
                 warning,
             )),
-            Line::from(Span::styled(
-                "    现有数据不会自动迁移。",
-                warning,
-            )),
+            Line::from(Span::styled("    现有数据不会自动迁移。", warning)),
             // Separator
             separator_line(content_width),
             // Buttons

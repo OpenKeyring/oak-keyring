@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
 use crate::t;
-use crate::tui::state::config_state::{ConfigTab, ConfigScreenState, PasswordDefaultsForm};
+use crate::tui::state::config_state::{ConfigScreenState, ConfigTab, PasswordDefaultsForm};
 use crate::tui::theme;
 
 pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
@@ -80,15 +80,25 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
         ConfigTab::Sync => {
             super::sync::render(frame, content_area, &state.sync, state.sync_status, focused)
         }
-        ConfigTab::Security => super::security::render(frame, content_area, &state.security, focused),
-        ConfigTab::Password => render_password_defaults(frame, content_area, &state.password, focused),
+        ConfigTab::Security => {
+            super::security::render(frame, content_area, &state.security, focused)
+        }
+        ConfigTab::Password => {
+            render_password_defaults(frame, content_area, &state.password, focused)
+        }
         ConfigTab::About => super::about::render(frame, content_area, &state.about),
     }
 
     // Scrollbar
     let visible_height = content_area.height;
     let total_items = state.active_tab.item_count() as u16 + 1; // +1 for title row
-    render_scrollbar(frame, scrollbar_area, state.scroll_offset, visible_height, total_items);
+    render_scrollbar(
+        frame,
+        scrollbar_area,
+        state.scroll_offset,
+        visible_height,
+        total_items,
+    );
 
     // Footer
     let footer = Paragraph::new(t!("tui.config.footer").to_string())

@@ -4,10 +4,12 @@ use crossterm::event::{KeyCode, KeyEvent};
 use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
-use crate::commands::{Command, Message};
 use crate::commands::types::Screen;
+use crate::commands::{Command, Message};
 use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel};
-use crate::tui::theme::{self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING};
+use crate::tui::theme::{
+    self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING,
+};
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::SecureStr;
 
@@ -151,8 +153,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
             Paragraph::new(new_placeholder)
                 .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
-            Paragraph::new(new_display)
-                .style(ratatui::style::Style::default().fg(TEXT))
+            Paragraph::new(new_display).style(ratatui::style::Style::default().fg(TEXT))
         };
 
         // -- Strength bar --
@@ -167,11 +168,9 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
             );
             let label = format!("Strength: {} {}", s.level.label_zh(), bar_str);
             let color = Self::strength_color(&s.level);
-            Paragraph::new(label)
-                .style(ratatui::style::Style::default().fg(color))
+            Paragraph::new(label).style(ratatui::style::Style::default().fg(color))
         } else {
-            Paragraph::new("Strength: ")
-                .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+            Paragraph::new("Strength: ").style(ratatui::style::Style::default().fg(TEXT_MUTED))
         };
 
         // -- Confirm password field --
@@ -201,8 +200,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
             Paragraph::new(confirm_placeholder)
                 .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
-            Paragraph::new(confirm_display)
-                .style(ratatui::style::Style::default().fg(TEXT))
+            Paragraph::new(confirm_display).style(ratatui::style::Style::default().fg(TEXT))
         };
 
         // -- Match indicator --
@@ -233,16 +231,16 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
 
         // -- Layout rows --
         let rows = Layout::vertical([
-            Constraint::Length(1),  // title
-            Constraint::Length(1),  // gap
-            Constraint::Length(3),  // new password input with borders
-            Constraint::Length(1),  // strength bar
-            Constraint::Length(1),  // gap
-            Constraint::Length(3),  // confirm password input with borders
-            Constraint::Length(1),  // match indicator or gap
-            Constraint::Length(1),  // error or gap
-            Constraint::Length(1),  // gap
-            Constraint::Length(1),  // hint
+            Constraint::Length(1), // title
+            Constraint::Length(1), // gap
+            Constraint::Length(3), // new password input with borders
+            Constraint::Length(1), // strength bar
+            Constraint::Length(1), // gap
+            Constraint::Length(3), // confirm password input with borders
+            Constraint::Length(1), // match indicator or gap
+            Constraint::Length(1), // error or gap
+            Constraint::Length(1), // gap
+            Constraint::Length(1), // hint
         ])
         .split(content_area);
 
@@ -250,13 +248,9 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
 
         // New password field
         frame.render_widget(new_input_block, rows[2]);
-        let new_inner = Layout::vertical([Constraint::Length(1)])
-            .split(rows[2])[0];
-        let new_padded = Layout::horizontal([
-            Constraint::Length(1),
-            Constraint::Fill(1),
-        ])
-        .split(new_inner);
+        let new_inner = Layout::vertical([Constraint::Length(1)]).split(rows[2])[0];
+        let new_padded =
+            Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(new_inner);
         frame.render_widget(new_input_text, new_padded[1]);
 
         // Strength bar
@@ -264,13 +258,9 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
 
         // Confirm password field
         frame.render_widget(confirm_input_block, rows[5]);
-        let confirm_inner = Layout::vertical([Constraint::Length(1)])
-            .split(rows[5])[0];
-        let confirm_padded = Layout::horizontal([
-            Constraint::Length(1),
-            Constraint::Fill(1),
-        ])
-        .split(confirm_inner);
+        let confirm_inner = Layout::vertical([Constraint::Length(1)]).split(rows[5])[0];
+        let confirm_padded =
+            Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(confirm_inner);
         frame.render_widget(confirm_input_text, confirm_padded[1]);
 
         // Match indicator
@@ -369,9 +359,7 @@ impl SetPasswordScreen {
 
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
-            CommandResult::VaultInitialized { .. } => {
-                ScreenResult::NavigateTo(Screen::Main)
-            }
+            CommandResult::VaultInitialized { .. } => ScreenResult::NavigateTo(Screen::Main),
             CommandResult::Error { fallback, .. } => {
                 self.error = Some(fallback);
                 ScreenResult::Continue
@@ -467,11 +455,26 @@ mod tests {
 
     #[test]
     fn strength_color_mapping() {
-        assert_eq!(SetPasswordScreen::strength_color(&StrengthLevel::VeryWeak), ERROR);
-        assert_eq!(SetPasswordScreen::strength_color(&StrengthLevel::Weak), ERROR);
-        assert_eq!(SetPasswordScreen::strength_color(&StrengthLevel::Fair), WARNING);
-        assert_eq!(SetPasswordScreen::strength_color(&StrengthLevel::Strong), PRIMARY);
-        assert_eq!(SetPasswordScreen::strength_color(&StrengthLevel::VeryStrong), SUCCESS);
+        assert_eq!(
+            SetPasswordScreen::strength_color(&StrengthLevel::VeryWeak),
+            ERROR
+        );
+        assert_eq!(
+            SetPasswordScreen::strength_color(&StrengthLevel::Weak),
+            ERROR
+        );
+        assert_eq!(
+            SetPasswordScreen::strength_color(&StrengthLevel::Fair),
+            WARNING
+        );
+        assert_eq!(
+            SetPasswordScreen::strength_color(&StrengthLevel::Strong),
+            PRIMARY
+        );
+        assert_eq!(
+            SetPasswordScreen::strength_color(&StrengthLevel::VeryStrong),
+            SUCCESS
+        );
     }
 
     #[test]

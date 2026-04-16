@@ -7,7 +7,7 @@ use ratatui::{
 
 use crate::tui::components::length_slider;
 use crate::tui::components::strength_bar;
-use crate::tui::state::generator_state::{GeneratorFocus, GeneratorState, GenerationStyle};
+use crate::tui::state::generator_state::{GenerationStyle, GeneratorFocus, GeneratorState};
 use crate::tui::theme;
 
 /// Render the generator panel content (used by both standalone and embedded).
@@ -33,7 +33,13 @@ pub fn render_generator_panel(
         GenerationStyle::Pin => ("长度", state.pin_config.length, 4, 16),
     };
     let slider_focused = state.focus == GeneratorFocus::LengthSlider;
-    lines.push(length_slider::render_length_slider(label, value, min, max, slider_focused));
+    lines.push(length_slider::render_length_slider(
+        label,
+        value,
+        min,
+        max,
+        slider_focused,
+    ));
     lines.push(Line::raw(""));
 
     // Style-specific options
@@ -56,10 +62,7 @@ pub fn render_generator_panel(
     // Preview
     lines.push(Line::from(vec![
         Span::styled("  ", Style::default()),
-        Span::styled(
-            state.preview.clone(),
-            Style::default().fg(theme::TEXT),
-        ),
+        Span::styled(state.preview.clone(), Style::default().fg(theme::TEXT)),
     ]));
 
     // Strength bar
@@ -79,9 +82,15 @@ pub fn render_generator_panel(
     } else {
         Style::default().fg(theme::TEXT_SECONDARY)
     };
-    let action_label = if is_embedded { "使用此密码" } else { "复制到剪贴板" };
+    let action_label = if is_embedded {
+        "使用此密码"
+    } else {
+        "复制到剪贴板"
+    };
     let action_style = if state.focus == GeneratorFocus::ActionButton {
-        Style::default().fg(theme::PRIMARY).add_modifier(Modifier::REVERSED)
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::REVERSED)
     } else {
         Style::default().fg(theme::PRIMARY)
     };
@@ -104,7 +113,10 @@ fn render_style_selector(state: &GeneratorState) -> Line<'static> {
         (GenerationStyle::Pin, "PIN"),
     ];
 
-    let mut spans = vec![Span::styled("  风格 ", Style::default().fg(theme::TEXT_SECONDARY))];
+    let mut spans = vec![Span::styled(
+        "  风格 ",
+        Style::default().fg(theme::TEXT_SECONDARY),
+    )];
     for (i, (style_type, label)) in styles.iter().enumerate() {
         if i > 0 {
             spans.push(Span::raw("  "));
@@ -112,7 +124,9 @@ fn render_style_selector(state: &GeneratorState) -> Line<'static> {
         let is_selected = state.style == *style_type;
         let is_focused = state.focus == GeneratorFocus::StyleSelector && is_selected;
         let s = if is_selected {
-            Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD)
         } else if is_focused {
             Style::default().add_modifier(Modifier::REVERSED)
         } else {
@@ -158,9 +172,15 @@ fn render_memorable_options(state: &GeneratorState) -> Vec<Line<'static>> {
     let capitalize_focused = state.focus == GeneratorFocus::Toggle(0);
     let sep_focused = state.focus == GeneratorFocus::SeparatorInput;
 
-    let check = if state.memorable_config.capitalize { "✓" } else { " " };
+    let check = if state.memorable_config.capitalize {
+        "✓"
+    } else {
+        " "
+    };
     let cap_style = if capitalize_focused {
-        Style::default().fg(theme::SUCCESS).add_modifier(Modifier::REVERSED)
+        Style::default()
+            .fg(theme::SUCCESS)
+            .add_modifier(Modifier::REVERSED)
     } else {
         Style::default().fg(theme::SUCCESS)
     };
@@ -171,18 +191,16 @@ fn render_memorable_options(state: &GeneratorState) -> Vec<Line<'static>> {
         Style::default().fg(theme::BORDER)
     };
 
-    vec![
-        Line::from(vec![
-            Span::raw("  "),
-            Span::styled(format!("[{}] 首字母大写", check), cap_style),
-            Span::raw("    "),
-            Span::styled("分隔符: ", Style::default().fg(theme::TEXT_SECONDARY)),
-            Span::styled(
-                format!("[ {} ]", state.memorable_config.separator),
-                sep_border,
-            ),
-        ]),
-    ]
+    vec![Line::from(vec![
+        Span::raw("  "),
+        Span::styled(format!("[{}] 首字母大写", check), cap_style),
+        Span::raw("    "),
+        Span::styled("分隔符: ", Style::default().fg(theme::TEXT_SECONDARY)),
+        Span::styled(
+            format!("[ {} ]", state.memorable_config.separator),
+            sep_border,
+        ),
+    ])]
 }
 
 fn separator_line(width: u16) -> Line<'static> {
@@ -207,9 +225,9 @@ mod tests {
     fn render_embedded_has_no_style_selector() {
         let state = GeneratorState::new();
         let lines = render_generator_panel(&state, true, 56);
-        let has_style = lines.iter().any(|l| {
-            l.spans.iter().any(|s| s.content.contains("风格"))
-        });
+        let has_style = lines
+            .iter()
+            .any(|l| l.spans.iter().any(|s| s.content.contains("风格")));
         assert!(!has_style);
     }
 
@@ -217,9 +235,9 @@ mod tests {
     fn render_panel_has_preview() {
         let state = GeneratorState::new();
         let lines = render_generator_panel(&state, false, 56);
-        let has_preview = lines.iter().any(|l| {
-            l.spans.iter().any(|s| s.content.contains(&state.preview))
-        });
+        let has_preview = lines
+            .iter()
+            .any(|l| l.spans.iter().any(|s| s.content.contains(&state.preview)));
         assert!(has_preview);
     }
 }

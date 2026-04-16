@@ -5,9 +5,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::commands::{Command, Message};
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen as ScreenEnum;
+use crate::commands::{Command, Message};
 use crate::config::{
     AliyunDriveConfig, AliyunOssConfig, AnimationMode, DropboxConfig, GoogleDriveConfig,
     HealthCheckFrequency, HuaweiObsConfig, OneDriveConfig, ProviderConfig, S3Config, SftpConfig,
@@ -15,8 +15,7 @@ use crate::config::{
 };
 use crate::t;
 use crate::tui::state::config_state::{
-    ConfirmButton, ConfigOverlay, ConfigTab, ConfigScreenState, DropdownField,
-    SyncConnectionStatus,
+    ConfigOverlay, ConfigScreenState, ConfigTab, ConfirmButton, DropdownField, SyncConnectionStatus,
 };
 use crate::tui::theme;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
@@ -168,7 +167,8 @@ impl ConfigScreen {
                 if self.state.overlay.is_none() {
                     let visible_height = self.state.terminal_height.saturating_sub(4);
                     let total_height = self.state.active_tab.item_count() as u16 + 1; // +1 for title
-                    self.state.scroll_page_down(visible_height.max(5), total_height);
+                    self.state
+                        .scroll_page_down(visible_height.max(5), total_height);
                 }
                 ScreenResult::Continue
             }
@@ -247,8 +247,7 @@ impl ConfigScreen {
                     ScreenResult::Continue
                 }
                 2 => {
-                    self.state.password.include_uppercase =
-                        !self.state.password.include_uppercase;
+                    self.state.password.include_uppercase = !self.state.password.include_uppercase;
                     self.state.mark_changed();
                     ScreenResult::Continue
                 }
@@ -395,13 +394,15 @@ impl ConfigScreen {
                         access_key_secret: String::new(),
                         root_path: "/".to_string(),
                     })),
-                    SyncProvider::TencentCos => Some(ProviderConfig::TencentCos(TencentCosConfig {
-                        endpoint: String::new(),
-                        bucket: String::new(),
-                        secret_id: String::new(),
-                        secret_key: String::new(),
-                        root_path: "/".to_string(),
-                    })),
+                    SyncProvider::TencentCos => {
+                        Some(ProviderConfig::TencentCos(TencentCosConfig {
+                            endpoint: String::new(),
+                            bucket: String::new(),
+                            secret_id: String::new(),
+                            secret_key: String::new(),
+                            root_path: "/".to_string(),
+                        }))
+                    }
                     SyncProvider::HuaweiObs => Some(ProviderConfig::HuaweiObs(HuaweiObsConfig {
                         endpoint: String::new(),
                         bucket: String::new(),
@@ -498,9 +499,7 @@ impl ConfigScreen {
                         ConfirmButton::Cancel => ScreenResult::Continue,
                         ConfirmButton::Confirm => {
                             let config = self.state.to_app_config();
-                            let _ = ctx
-                                .command_tx
-                                .try_send(Command::SaveConfig { config });
+                            let _ = ctx.command_tx.try_send(Command::SaveConfig { config });
                             ScreenResult::NavigateTo(ScreenEnum::Main)
                         }
                     }
@@ -518,12 +517,7 @@ impl ConfigScreen {
 
 // ── Overlay Rendering ─────────────────────────────────────────────────────────
 
-fn render_dropdown_overlay(
-    frame: &mut Frame,
-    area: Rect,
-    field: &DropdownField,
-    selected: usize,
-) {
+fn render_dropdown_overlay(frame: &mut Frame, area: Rect, field: &DropdownField, selected: usize) {
     // Clear the area first
     frame.render_widget(Clear, area);
 
@@ -534,7 +528,7 @@ fn render_dropdown_overlay(
     let max_visible = 8usize;
     let visible_count = labels.len().min(max_visible);
     let popup_height = visible_count as u16 + 2; // +2 for border
-    // Calculate popup width based on longest translated label
+                                                 // Calculate popup width based on longest translated label
     let max_label_width = labels.iter().map(|l| l.len()).max().unwrap_or(10).max(10);
     let popup_width = (max_label_width as u16 + 6).min(area.width).max(20);
 
@@ -553,9 +547,7 @@ fn render_dropdown_overlay(
     frame.render_widget(block, popup_area);
 
     // Render option rows
-    let row_heights: Vec<Constraint> = (0..visible_count)
-        .map(|_| Constraint::Length(1))
-        .collect();
+    let row_heights: Vec<Constraint> = (0..visible_count).map(|_| Constraint::Length(1)).collect();
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints(row_heights)
@@ -630,10 +622,7 @@ fn render_unsaved_changes_dialog(frame: &mut Frame, area: Rect, focused_button: 
     };
 
     let buttons = Line::from(vec![
-        Span::styled(
-            format!(" <{}> ", t!("tui.config.cancel_btn")),
-            cancel_style,
-        ),
+        Span::styled(format!(" <{}> ", t!("tui.config.cancel_btn")), cancel_style),
         Span::styled("   ", Style::default()),
         Span::styled(
             format!(" <{}> ", t!("tui.config.save_exit_btn")),
