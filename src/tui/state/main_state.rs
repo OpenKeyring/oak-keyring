@@ -14,6 +14,7 @@ use crate::commands::Message;
 use crate::tui::screens::main::MainScreen;
 use crate::tui::state::detail_state::DetailPanelState;
 use crate::tui::state::list_state::ListPanelState;
+use crate::tui::state::tag_management::TagManagementState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::Tag;
 
@@ -101,6 +102,8 @@ pub struct SidebarState {
     pub tag_scroll_offset: usize,
     /// Whether tag-management mode is active (reorder/delete).
     pub tag_management_mode: bool,
+    /// Tag management mode state (sort order, inline rename).
+    pub tag_management: TagManagementState,
     /// Available tags (populated from data layer).
     pub tags: Vec<Tag>,
     /// Record counts per category.
@@ -115,6 +118,7 @@ impl Default for SidebarState {
             tags_expanded: false,
             tag_scroll_offset: 0,
             tag_management_mode: false,
+            tag_management: TagManagementState::default(),
             tags: Vec::new(),
             category_counts: CategoryCounts::default(),
         };
@@ -241,6 +245,32 @@ impl SidebarState {
                 }
             }
         }
+    }
+
+    /// Enter tag management mode.
+    pub fn enter_tag_management(&mut self) {
+        self.tag_management_mode = true;
+    }
+
+    /// Exit tag management mode. Cancels any inline rename.
+    pub fn exit_tag_management(&mut self) {
+        self.tag_management_mode = false;
+        self.tag_management.cancel_rename();
+    }
+
+    /// Whether tag management mode is active.
+    pub fn is_tag_management(&self) -> bool {
+        self.tag_management_mode
+    }
+
+    /// Get the name of the currently selected tag item, if any.
+    pub fn selected_tag_name(&self) -> Option<&str> {
+        if self.selected_index < self.items.len() {
+            if let SidebarItem::Tag(name) = &self.items[self.selected_index] {
+                return Some(name);
+            }
+        }
+        None
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
