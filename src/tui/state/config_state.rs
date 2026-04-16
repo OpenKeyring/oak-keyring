@@ -571,6 +571,38 @@ impl ConfigScreenState {
     pub fn clear_changes(&mut self) {
         self.has_changes = false;
     }
+
+    /// Page up by half the visible height.
+    pub fn scroll_page_up(&mut self, visible_height: u16) {
+        let delta = (visible_height / 2).max(1);
+        self.scroll_offset = self.scroll_offset.saturating_sub(delta);
+    }
+
+    /// Page down by half the visible height.
+    pub fn scroll_page_down(&mut self, visible_height: u16, total_height: u16) {
+        let delta = (visible_height / 2).max(1);
+        let max_offset = total_height.saturating_sub(visible_height);
+        self.scroll_offset = (self.scroll_offset + delta).min(max_offset);
+    }
+
+    /// Ensure focused item is visible by adjusting scroll_offset.
+    /// Each item is 1 row tall; +1 for the title row in each tab.
+    pub fn ensure_focused_visible(&mut self, focused: usize, visible_height: u16) {
+        let visible_height = visible_height as usize;
+        if visible_height == 0 {
+            return;
+        }
+        // Item row index (accounting for title row at offset 0)
+        let item_row = focused + 1;
+        // If focused item is above the visible window
+        if item_row < self.scroll_offset as usize {
+            self.scroll_offset = item_row as u16;
+        }
+        // If focused item is below the visible window
+        else if item_row >= self.scroll_offset as usize + visible_height {
+            self.scroll_offset = (item_row - visible_height + 1) as u16;
+        }
+    }
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -795,5 +827,57 @@ mod tests {
         assert!(form.include_digits);
         assert!(form.include_uppercase);
         assert!(form.include_special);
+    }
+
+    #[test]
+    fn scroll_page_up_clamps_to_zero() {
+        let mut state = ConfigScreenState::default();
+        state.scroll_offset = 3;
+        state.scroll_page_up(10);
+        assert_eq!(state.scroll_offset, 0);
+    }
+
+    #[test]
+    fn scroll_page_down_clamps_to_max() {
+        let mut state = ConfigScreenState::default();
+        // total_height=20, visible_height=20 => max_offset=0
+        state.scroll_page_down(20, 20);
+        assert_eq!(state.scroll_offset, 0);
+    }
+
+    #[test]
+    fn scroll_page_down_advances() {
+        let mut state = ConfigScreenState::default();
+        // total_height=40, visible_height=20 => max_offset=20
+        // delta = 20/2 = 10
+        state.scroll_page_down(20, 40);
+        assert_eq!(state.scroll_offset, 10);
+    }
+
+    #[test]
+    fn ensure_focused_visible_adjusts_up() {
+        let mut state = ConfigScreenState::default();
+        state.scroll_offset = 10;
+        // focused=5 => item_row=6, which is < scroll_offset(10)
+        state.ensure_focused_visible(5, 10);
+        assert_eq!(state.scroll_offset, 6);
+    }
+
+    #[test]
+    fn ensure_focused_visible_adjusts_down() {
+        let mut state = ConfigScreenState::default();
+        state.scroll_offset = 5;
+        // focused=14 => item_row=15, visible window is [5..15), 15 >= 5+10
+        state.ensure_focused_visible(14, 10);
+        assert_eq!(state.scroll_offset, 6);
+    }
+
+    #[test]
+    fn ensure_focused_visible_no_adjust_needed() {
+        let mut state = ConfigScreenState::default();
+        state.scroll_offset = 5;
+        // focused=7 => item_row=8, visible window is [5..15), 8 is inside
+        state.ensure_focused_visible(7, 10);
+        assert_eq!(state.scroll_offset, 5);
     }
 }

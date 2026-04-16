@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
 use crate::t;
@@ -60,18 +60,35 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
     let header = Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::BG_BAR));
     frame.render_widget(header, chunks[0]);
 
+    // Content area - split into content + scrollbar track
+    let content_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(0),    // Content
+            Constraint::Length(1), // Scrollbar track
+        ])
+        .split(chunks[1]);
+
+    let content_area = content_chunks[0];
+    let scrollbar_area = content_chunks[1];
+
     // Content area - render based on active tab with focused item
     let focused = state.active_tab.clamp_item(state.focused_item);
 
     match state.active_tab {
-        ConfigTab::General => super::general::render(frame, chunks[1], &state.general, focused),
+        ConfigTab::General => super::general::render(frame, content_area, &state.general, focused),
         ConfigTab::Sync => {
-            super::sync::render(frame, chunks[1], &state.sync, state.sync_status, focused)
+            super::sync::render(frame, content_area, &state.sync, state.sync_status, focused)
         }
-        ConfigTab::Security => super::security::render(frame, chunks[1], &state.security, focused),
-        ConfigTab::Password => render_password_defaults(frame, chunks[1], &state.password, focused),
-        ConfigTab::About => super::about::render(frame, chunks[1], &state.about),
+        ConfigTab::Security => super::security::render(frame, content_area, &state.security, focused),
+        ConfigTab::Password => render_password_defaults(frame, content_area, &state.password, focused),
+        ConfigTab::About => super::about::render(frame, content_area, &state.about),
     }
+
+    // Scrollbar
+    let visible_height = content_area.height;
+    let total_items = state.active_tab.item_count() as u16 + 1; // +1 for title row
+    render_scrollbar(frame, scrollbar_area, state.scroll_offset, visible_height, total_items);
 
     // Footer
     let footer = Paragraph::new(t!("tui.config.footer").to_string())
@@ -176,4 +193,45 @@ fn render_password_defaults(
         }),
         chunks[4],
     );
+}
+
+/// Render a simple scrollbar track + thumb in the given area.
+fn render_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    scroll_offset: u16,
+    visible_height: u16,
+    total_height: u16,
+) {
+    if area.width == 0 || area.height == 0 || total_height <= visible_height {
+        return;
+    }
+
+    let max_offset = total_height.saturating_sub(visible_height);
+    if max_offset == 0 {
+        return;
+    }
+
+    // Calculate thumb size proportional to visible/total ratio
+    let thumb_ratio = visible_height as f32 / total_height as f32;
+    let thumb_height = ((visible_height as f32 * thumb_ratio).max(1.0)) as u16;
+
+    // Calculate thumb position based on scroll offset
+    let scroll_ratio = scroll_offset as f32 / max_offset as f32;
+    let max_thumb_y = visible_height.saturating_sub(thumb_height);
+    let thumb_y = area.y + (scroll_ratio * max_thumb_y as f32) as u16;
+
+    // Render track (full height, dim border color)
+    let track = Block::default().style(Style::default().fg(theme::BORDER));
+    frame.render_widget(track, area);
+
+    // Render thumb (positioned, brighter secondary text color)
+    let thumb_area = Rect {
+        x: area.x,
+        y: thumb_y,
+        width: area.width,
+        height: thumb_height.max(1),
+    };
+    let thumb = Block::default().style(Style::default().fg(theme::TEXT_SECONDARY));
+    frame.render_widget(thumb, thumb_area);
 }

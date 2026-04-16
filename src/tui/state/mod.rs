@@ -44,6 +44,8 @@ pub struct SharedState {
     pub loading: loading::LoadingState,
     pub focus: focus::FocusState,
     pub animation: animation::AnimationState,
+    /// Screen-level focus stack for preserving panel focus across screen navigation.
+    pub screen_focus_stack: Vec<crate::commands::types::PanelId>,
 }
 
 /// Per-screen state containers. Only one is active at a time (determined by current_screen).
