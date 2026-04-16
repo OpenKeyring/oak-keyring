@@ -85,6 +85,7 @@ impl MainScreen {
             list_focused,
             unicode,
             state.current_filter.clone(),
+            30, // TODO: read from config general.trash_retention_days
         );
 
         // 3. Detail panel

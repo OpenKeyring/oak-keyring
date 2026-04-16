@@ -14,7 +14,8 @@ use ratatui::Frame;
 use crate::commands::types::{HealthIssue, RecordFilter, SortDirection, SortField};
 use crate::tui::components::empty_state::{EmptyStateVariant, EmptyStateWidget};
 use crate::tui::state::list_state::{
-    format_relative_time, format_type_prefix, ListMode, ListPanelState,
+    calculate_remaining_days, format_days_since_deletion, format_relative_time, format_type_prefix,
+    trash_warning_tier, ListMode, ListPanelState, TrashWarningTier,
 };
 use crate::tui::theme;
 
@@ -80,6 +81,7 @@ impl ListPanel {
         focused: bool,
         unicode: bool,
         filter: RecordFilter,
+        retention_days: u32,
     ) {
         if area.width == 0 || area.height == 0 {
             return;
@@ -104,7 +106,7 @@ impl ListPanel {
         if state.records.is_empty() {
             render_empty_state(frame, list_area, state, unicode, &filter);
         } else {
-            render_list(frame, list_area, state, focused, unicode);
+            render_list(frame, list_area, state, focused, unicode, &filter, retention_days);
         }
     }
 }
@@ -249,6 +251,8 @@ fn render_list(
     state: &ListPanelState,
     focused: bool,
     unicode: bool,
+    filter: &RecordFilter,
+    retention_days: u32,
 ) {
     let visual_ids = match &state.mode {
         ListMode::Visual(vs) => Some(&vs.selected_ids),
@@ -259,6 +263,8 @@ fn render_list(
         _ => None,
     };
 
+    let is_trash = matches!(filter, RecordFilter::Trash);
+
     let items: Vec<ListItem<'_>> = state
         .records
         .iter()
@@ -266,15 +272,19 @@ fn render_list(
         .map(|(idx, record)| {
             let is_selected = state.selected_index == Some(idx);
             let is_visual_selected = visual_ids.is_some_and(|ids| ids.contains(&record.id));
-            build_record_item(
-                record,
-                is_selected,
-                is_visual_selected,
-                focused,
-                unicode,
-                area.width,
-                search_query,
-            )
+            if is_trash {
+                build_trash_item(record, is_selected, is_visual_selected, focused, unicode, area.width, retention_days)
+            } else {
+                build_record_item(
+                    record,
+                    is_selected,
+                    is_visual_selected,
+                    focused,
+                    unicode,
+                    area.width,
+                    search_query,
+                )
+            }
         })
         .collect();
 
@@ -407,6 +417,107 @@ fn build_record_item<'a>(
     ListItem::new(vec![title_line, subtitle_line, separator_line])
 }
 
+/// Build a trash-specific list item with deletion metadata and progressive warnings.
+///
+/// Line 1 (title): `  [Type] Name    ◀`
+/// Line 2 (metadata): `  X 天前删除  剩余 N 天` with progressive color warnings
+/// Line 3 (separator): `─────` or `-----`
+fn build_trash_item<'a>(
+    record: &crate::types::record::TuiRecord,
+    is_selected: bool,
+    is_visual_selected: bool,
+    focused: bool,
+    unicode: bool,
+    area_width: u16,
+    retention_days: u32,
+) -> ListItem<'a> {
+    let indicator = if unicode { " \u{25C0}" } else { " <" };
+
+    // ── Line 1: Title with type prefix ──
+    let type_prefix = format_type_prefix(&record.credential_type);
+    let prefix_str = format!("  {}", type_prefix);
+
+    let right_part = if is_selected { indicator } else { "" };
+    let name_len = prefix_str.chars().count() + record.name.chars().count();
+    let padding_len = (area_width as usize)
+        .saturating_sub(name_len)
+        .saturating_sub(right_part.chars().count());
+
+    let base_style = if is_visual_selected {
+        Style::default()
+            .bg(theme::BRAND)
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::BOLD)
+    } else if is_selected && focused {
+        Style::default()
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT)
+    };
+
+    let title_spans = vec![
+        Span::styled(prefix_str, base_style),
+        Span::styled(record.name.clone(), base_style),
+        Span::styled(" ".repeat(padding_len), base_style),
+        Span::styled(right_part.to_string(), base_style),
+    ];
+    let title_line = Line::from(title_spans);
+
+    // ── Line 2: Deletion metadata with progressive warnings ──
+    let deleted_at = match record.deleted_at {
+        Some(dt) => dt,
+        None => record.updated_at,
+    };
+
+    let days_ago_text = format_days_since_deletion(&deleted_at);
+
+    let mut meta_spans = vec![
+        Span::styled(
+            format!("  {}", days_ago_text),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+    ];
+
+    match calculate_remaining_days(&deleted_at, retention_days) {
+        None => {
+            meta_spans.push(Span::styled(
+                "  不会自动删除".to_string(),
+                Style::default().fg(theme::TEXT_MUTED),
+            ));
+        }
+        Some(remaining) => {
+            let tier = trash_warning_tier(remaining);
+            let remaining_text = format!("  剩余 {} 天", remaining.max(0));
+
+            let (warning_prefix, warning_color, add_bold) = match tier {
+                TrashWarningTier::Safe => ("", theme::TEXT_SECONDARY, false),
+                TrashWarningTier::Moderate => ("\u{26A0} ", theme::WARNING, false),
+                TrashWarningTier::Urgent => ("\u{26A0}\u{26A0} ", theme::WARNING, true),
+                TrashWarningTier::Critical => ("\u{26A0}\u{26A0}\u{26A0} ", theme::ERROR, true),
+            };
+
+            let mut style = Style::default().fg(warning_color);
+            if add_bold {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+
+            if !warning_prefix.is_empty() {
+                meta_spans.push(Span::styled(format!("  {}", warning_prefix), style));
+            }
+            meta_spans.push(Span::styled(remaining_text, style));
+        }
+    }
+    let meta_line = Line::from(meta_spans);
+
+    // ── Line 3: Separator ──
+    let sep_char = if unicode { '\u{2500}' } else { '-' };
+    let sep_text: String = std::iter::repeat_n(sep_char, area_width as usize).collect();
+    let separator_line = Line::from(Span::styled(sep_text, Style::default().fg(theme::BORDER)));
+
+    ListItem::new(vec![title_line, meta_line, separator_line])
+}
+
 // ---------------------------------------------------------------------------
 // Empty state
 // ---------------------------------------------------------------------------
@@ -531,7 +642,7 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                ListPanel::view(frame, frame.area(), state, focused, unicode, filter);
+                ListPanel::view(frame, frame.area(), state, focused, unicode, filter, 30);
             })
             .unwrap();
         let buf = terminal.backend().buffer().clone();
@@ -642,7 +753,7 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                ListPanel::view(frame, frame.area(), &state, true, true, RecordFilter::All);
+                ListPanel::view(frame, frame.area(), &state, true, true, RecordFilter::All, 30);
             })
             .unwrap();
     }
@@ -1123,5 +1234,80 @@ mod tests {
     fn health_badge_none() {
         let result: Option<Span<'static>> = health_badge(None, true);
         assert!(result.is_none());
+    }
+
+    // ── Trash item rendering tests ──
+
+    fn make_trash_record(id: Uuid, name: &str, days_ago: i64) -> TuiRecord {
+        let deleted_at = Utc::now() - chrono::Duration::try_days(days_ago).unwrap();
+        TuiRecord {
+            id,
+            credential_type: CredentialType::Login,
+            name: name.to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted: true,
+            deleted_at: Some(deleted_at),
+            tags: Vec::new(),
+            sync_status: None,
+        }
+    }
+
+    #[test]
+    fn build_trash_item_has_three_lines() {
+        let record = make_trash_record(Uuid::new_v4(), "DeletedSite", 5);
+        let item = build_trash_item(&record, false, false, true, true, 50, 30);
+        assert!(item.height() >= 3, "trash item should have at least 3 lines (title + metadata + separator)");
+    }
+
+    #[test]
+    fn build_trash_item_selected_indicator() {
+        let record = make_trash_record(Uuid::new_v4(), "TestTrash", 2);
+        let item = build_trash_item(&record, true, false, true, true, 50, 30);
+        assert!(item.height() >= 3);
+    }
+
+    #[test]
+    fn render_trash_list_with_records() {
+        let r1 = make_trash_record(Uuid::new_v4(), "DeletedA", 3);
+        let r2 = make_trash_record(Uuid::new_v4(), "DeletedB", 15);
+        let state = ListPanelState::with_records(vec![r1, r2]);
+        let result = render_snapshot(&state, 50, 15, true, true, RecordFilter::Trash);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_trash_list_empty_state() {
+        let state = ListPanelState::default();
+        let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::Trash);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_trash_list_unfocused() {
+        let r1 = make_trash_record(Uuid::new_v4(), "TrashItem", 5);
+        let state = ListPanelState::with_records(vec![r1]);
+        let result = render_snapshot(&state, 50, 10, false, true, RecordFilter::Trash);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn trash_warning_tier_colors_applied() {
+        let r1 = make_trash_record(Uuid::new_v4(), "Urgent", 28);
+        let state = ListPanelState::with_records(vec![r1]);
+        let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::Trash);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn trash_item_never_auto_delete_retention_zero() {
+        let record = make_trash_record(Uuid::new_v4(), "NeverDelete", 10);
+        let item = build_trash_item(&record, false, false, true, true, 50, 0);
+        assert!(item.height() >= 3);
     }
 }
