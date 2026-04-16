@@ -131,25 +131,30 @@ impl Default for ServiceNotificationImpl {
 }
 
 impl ServiceNotification for ServiceNotificationImpl {
-    fn notify_config_change(&self, changed_fields: &[&str]) -> Vec<Result<(), ConfigError>> {
-        // Reload each registered service with the new config.
-        // Only reload services whose service_id matches a changed field prefix,
-        // or reload all if the changed_fields list is empty (meaning full reload).
+    fn notify_config_change(
+        &self,
+        config: &AppConfig,
+        changed_fields: &[&str],
+    ) -> Vec<Result<(), ConfigError>> {
         self.services
             .iter()
+            .filter(|service| {
+                // Empty changed_fields means full reload — notify every service.
+                if changed_fields.is_empty() {
+                    return true;
+                }
+                // Only notify services whose ID appears in the changed_fields list.
+                changed_fields
+                    .iter()
+                    .any(|field| *field == service.service_id())
+            })
             .map(|service| {
                 tracing::debug!(
                     service_id = service.service_id(),
                     changed_fields = ?changed_fields,
                     "Notifying service of config change"
                 );
-                // We need the current config to pass to reload().
-                // Since ServiceNotification doesn't hold a config reference,
-                // each service is expected to obtain the config itself.
-                // For now, return Ok — real integration happens when services
-                // implement ConfigReloadable.
-                let _ = changed_fields;
-                Ok(())
+                service.reload(config)
             })
             .collect()
     }
@@ -168,5 +173,171 @@ impl ServiceNotification for ServiceNotificationImpl {
             "Unregistering service from config notifications"
         );
         self.services.retain(|s| s.service_id() != service_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AppConfig;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// A mock ConfigReloadable service that tracks reload calls.
+    struct MockService {
+        id: String,
+        reload_count: Arc<AtomicUsize>,
+        should_fail: bool,
+    }
+
+    impl MockService {
+        fn new(id: &str) -> Self {
+            Self {
+                id: id.to_string(),
+                reload_count: Arc::new(AtomicUsize::new(0)),
+                should_fail: false,
+            }
+        }
+
+        fn new_failing(id: &str) -> Self {
+            Self {
+                id: id.to_string(),
+                reload_count: Arc::new(AtomicUsize::new(0)),
+                should_fail: true,
+            }
+        }
+
+        fn reload_count(&self) -> usize {
+            self.reload_count.load(Ordering::SeqCst)
+        }
+    }
+
+    impl ConfigReloadable for MockService {
+        fn service_id(&self) -> &str {
+            &self.id
+        }
+
+        fn reload(&self, _config: &AppConfig) -> Result<(), ConfigError> {
+            self.reload_count.fetch_add(1, Ordering::SeqCst);
+            if self.should_fail {
+                Err(ConfigError::Validation("mock failure".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn notify_with_empty_fields_notifies_all_services() {
+        let mut notifier = ServiceNotificationImpl::new();
+        let svc_a = MockService::new("service-a");
+        let svc_a_reload_count = svc_a.reload_count.clone();
+        let svc_b = MockService::new("service-b");
+        let svc_b_reload_count = svc_b.reload_count.clone();
+
+        notifier.register_service(Box::new(svc_a));
+        notifier.register_service(Box::new(svc_b));
+
+        let config = AppConfig::default();
+        let results = notifier.notify_config_change(&config, &[]);
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.is_ok()));
+        assert_eq!(svc_a_reload_count.load(Ordering::SeqCst), 1);
+        assert_eq!(svc_b_reload_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn notify_filters_by_changed_fields() {
+        let mut notifier = ServiceNotificationImpl::new();
+        let svc_a = MockService::new("service-a");
+        let svc_a_reload_count = svc_a.reload_count.clone();
+        let svc_b = MockService::new("service-b");
+        let svc_b_reload_count = svc_b.reload_count.clone();
+
+        notifier.register_service(Box::new(svc_a));
+        notifier.register_service(Box::new(svc_b));
+
+        let config = AppConfig::default();
+        let results = notifier.notify_config_change(&config, &["service-a"]);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].is_ok());
+        assert_eq!(svc_a_reload_count.load(Ordering::SeqCst), 1);
+        assert_eq!(svc_b_reload_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn notify_with_unknown_field_notifies_nothing() {
+        let mut notifier = ServiceNotificationImpl::new();
+        let svc_a = MockService::new("service-a");
+        let svc_a_reload_count = svc_a.reload_count.clone();
+
+        notifier.register_service(Box::new(svc_a));
+
+        let config = AppConfig::default();
+        let results = notifier.notify_config_change(&config, &["nonexistent"]);
+        assert!(results.is_empty());
+        assert_eq!(svc_a_reload_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn notify_returns_errors_from_failing_service() {
+        let mut notifier = ServiceNotificationImpl::new();
+        let svc_ok = MockService::new("svc-ok");
+        let svc_fail = MockService::new_failing("svc-fail");
+
+        notifier.register_service(Box::new(svc_ok));
+        notifier.register_service(Box::new(svc_fail));
+
+        let config = AppConfig::default();
+        let results = notifier.notify_config_change(&config, &[]);
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_ok());
+        assert!(results[1].is_err());
+    }
+
+    #[test]
+    fn unregister_removes_service() {
+        let mut notifier = ServiceNotificationImpl::new();
+        let svc_a = MockService::new("service-a");
+        let svc_a_reload_count = svc_a.reload_count.clone();
+
+        notifier.register_service(Box::new(svc_a));
+        notifier.unregister_service("service-a");
+
+        let config = AppConfig::default();
+        let results = notifier.notify_config_change(&config, &[]);
+        assert!(results.is_empty());
+        assert_eq!(svc_a_reload_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn notify_no_services_returns_empty() {
+        let notifier = ServiceNotificationImpl::new();
+        let config = AppConfig::default();
+        let results = notifier.notify_config_change(&config, &[]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn notify_multiple_fields_matches_multiple_services() {
+        let mut notifier = ServiceNotificationImpl::new();
+        let svc_a = MockService::new("service-a");
+        let svc_a_count = svc_a.reload_count.clone();
+        let svc_b = MockService::new("service-b");
+        let svc_b_count = svc_b.reload_count.clone();
+        let svc_c = MockService::new("service-c");
+        let svc_c_count = svc_c.reload_count.clone();
+
+        notifier.register_service(Box::new(svc_a));
+        notifier.register_service(Box::new(svc_b));
+        notifier.register_service(Box::new(svc_c));
+
+        let config = AppConfig::default();
+        let results = notifier.notify_config_change(&config, &["service-a", "service-c"]);
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.is_ok()));
+        assert_eq!(svc_a_count.load(Ordering::SeqCst), 1);
+        assert_eq!(svc_b_count.load(Ordering::SeqCst), 0);
+        assert_eq!(svc_c_count.load(Ordering::SeqCst), 1);
     }
 }

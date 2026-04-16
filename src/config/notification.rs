@@ -1,24 +1,31 @@
-//! ServiceNotification trait — 服务配置变更通知接口
+//! ServiceNotification trait — service config-change notification interface.
 //!
-//! 实现位于 Plan K (S5 Executor)。
+//! Implementation lives in Plan K (S5 Executor).
 
+use crate::config::AppConfig;
 use crate::config::ConfigError;
 
-/// 服务配置变更通知接口
+/// Service config-change notification interface.
 ///
-/// 定义当配置变更后如何通知各个 Service。
-/// 实现类（Plan K）持有各 Service 的引用并调用其 reload/update 方法。
+/// Defines how services are notified after a configuration change.
+/// The implementation (Plan K) holds references to services and calls their reload methods.
 pub trait ServiceNotification: Send + Sync {
-    /// 通知各 Service 配置已变更
+    /// Notify services that configuration has changed.
     ///
-    /// changed_fields 列出变更的配置字段名，用于 Service 判断是否需要响应。
-    /// 返回每个 Service 的通知结果。
-    fn notify_config_change(&self, changed_fields: &[&str]) -> Vec<Result<(), ConfigError>>;
+    /// `config` is the new configuration to reload into each service.
+    /// `changed_fields` lists the names of changed config fields so services can decide
+    /// whether they need to respond. An empty list means a full reload (notify all).
+    /// Returns one result per notified service.
+    fn notify_config_change(
+        &self,
+        config: &AppConfig,
+        changed_fields: &[&str],
+    ) -> Vec<Result<(), ConfigError>>;
 
-    /// 注册需要接收配置变更通知的 Service
+    /// Register a service to receive config-change notifications.
     fn register_service(&mut self, service: Box<dyn ConfigReloadable>);
 
-    /// 取消注册 Service
+    /// Unregister a service by its ID.
     fn unregister_service(&mut self, service_id: &str);
 }
 
