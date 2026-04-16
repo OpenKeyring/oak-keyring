@@ -45,7 +45,7 @@ pub struct RotationCheckpoint {
 }
 
 /// DEK rotation configuration stored in cloud metadata (spec §4.4).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RotationConfig {
     pub auto_rotate: bool,
     pub rotate_after_days: Option<u32>,

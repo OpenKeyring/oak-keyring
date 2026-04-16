@@ -41,7 +41,7 @@ pub enum AliyunDriveType {
     Resource,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct GoogleDriveConfig {
     pub client_id: String,
     pub client_secret: String,
@@ -50,7 +50,7 @@ pub struct GoogleDriveConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct DropboxConfig {
     pub client_id: String,
     pub client_secret: String,
@@ -59,7 +59,7 @@ pub struct DropboxConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct OneDriveConfig {
     pub client_id: String,
     pub client_secret: String,
@@ -68,7 +68,7 @@ pub struct OneDriveConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct WebDavConfig {
     pub endpoint: String,
     #[serde(default = "default_root")]
@@ -78,7 +78,7 @@ pub struct WebDavConfig {
     pub bearer_token: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SftpConfig {
     pub server: String,
     #[serde(default = "default_root")]
@@ -88,7 +88,7 @@ pub struct SftpConfig {
     pub host_check: SftpHostCheck,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct S3Config {
     pub endpoint: Option<String>,
     pub bucket: String,
@@ -99,7 +99,7 @@ pub struct S3Config {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct AliyunDriveConfig {
     pub client_id: String,
     pub client_secret: String,
@@ -110,7 +110,7 @@ pub struct AliyunDriveConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AliyunOssConfig {
     pub endpoint: String,
     pub bucket: String,
@@ -120,7 +120,7 @@ pub struct AliyunOssConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TencentCosConfig {
     pub endpoint: String,
     pub bucket: String,
@@ -130,7 +130,7 @@ pub struct TencentCosConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HuaweiObsConfig {
     pub endpoint: String,
     pub bucket: String,
@@ -140,7 +140,7 @@ pub struct HuaweiObsConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpyunConfig {
     pub bucket: String,
     pub operator: String,
@@ -149,7 +149,7 @@ pub struct UpyunConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ProviderConfig {
     ICloud,
     GoogleDrive(GoogleDriveConfig),
@@ -169,7 +169,7 @@ fn default_root() -> String {
     "/".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncConfig {
     #[serde(default)]
     pub provider: SyncProvider,
