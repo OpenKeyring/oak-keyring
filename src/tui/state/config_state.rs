@@ -198,8 +198,9 @@ impl DropdownField {
 // ── Config Tab ────────────────────────────────────────────────────────────────
 
 /// Top-level tab in the config screen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConfigTab {
+    #[default]
     General,
     Sync,
     Security,
@@ -248,12 +249,6 @@ impl ConfigTab {
             return 0;
         }
         focused.min(count - 1)
-    }
-}
-
-impl Default for ConfigTab {
-    fn default() -> Self {
-        Self::General
     }
 }
 
@@ -456,7 +451,7 @@ pub enum SyncConnectionStatus {
 // ── Config Screen State ──────────────────────────────────────────────────────
 
 /// Root state for the config screen (U8).
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ConfigScreenState {
     /// Currently active tab.
     pub active_tab: ConfigTab,
@@ -480,24 +475,9 @@ pub struct ConfigScreenState {
     pub sync_status: SyncConnectionStatus,
     /// Active overlay (dropdown or dialog), if any.
     pub overlay: Option<ConfigOverlay>,
-}
-
-impl Default for ConfigScreenState {
-    fn default() -> Self {
-        Self {
-            active_tab: ConfigTab::default(),
-            scroll_offset: 0,
-            focused_item: 0,
-            has_changes: false,
-            general: GeneralConfigForm::default(),
-            sync: SyncConfigForm::default(),
-            security: SecurityConfigForm::default(),
-            password: PasswordDefaultsForm::default(),
-            about: AboutInfo::default(),
-            sync_status: SyncConnectionStatus::default(),
-            overlay: None,
-        }
-    }
+    /// Last known terminal height for scroll calculations.
+    /// Updated from AppState.terminal_size before each update() call.
+    pub terminal_height: u16,
 }
 
 impl ConfigScreenState {

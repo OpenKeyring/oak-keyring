@@ -264,7 +264,10 @@ fn route_to_screen(
         }
         Screen::Unlock => state.screens.unlock.update(msg, ctx),
         Screen::Onboarding => state.screens.onboarding.update(msg, ctx),
-        Screen::Config => state.screens.config.update(msg, ctx),
+        Screen::Config => {
+            state.screens.config.state.terminal_height = state.terminal_size.1;
+            state.screens.config.update(msg, ctx)
+        }
         Screen::ChangeMasterPassword => state.screens.change_master_password.update(msg, ctx),
         // Placeholder screens — ignore messages.
         _ => ScreenResult::Continue,

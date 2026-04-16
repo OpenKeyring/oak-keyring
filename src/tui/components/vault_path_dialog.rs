@@ -124,40 +124,35 @@ impl VaultPathDialog {
         let current_display = truncate_path(&self.current_path, content_width);
         let new_display = truncate_path(&self.new_path, content_width);
 
-        let mut lines = Vec::new();
-
-        // Current path
-        lines.push(label_line("当前路径:", label));
-        lines.push(value_line(&current_display, value));
-        lines.push(Line::raw(""));
-
-        // New path
-        lines.push(label_line("新路径:", label));
-        lines.push(value_line(&new_display, value));
-        lines.push(Line::raw(""));
-
-        // Vault directory contents explanation
-        lines.push(label_line("Vault 目录包含以下文件:", label));
-        lines.push(file_list_line("vault.db", "加密 SQLite 数据库（所有密码数据）", value));
-        lines.push(file_list_line("metadata.json", "Vault 元信息（版本、设备 ID 等）", value));
-        lines.push(file_list_line("config.toml", "客户端配置（同步、快捷键等）", value));
-        lines.push(Line::raw(""));
-
-        // Warning
-        lines.push(Line::from(Span::styled(
-            " \u{26A0} 修改路径后需要重启应用才能生效。",
-            warning,
-        )));
-        lines.push(Line::from(Span::styled(
-            "    现有数据不会自动迁移。",
-            warning,
-        )));
-
-        // Separator
-        lines.push(separator_line(content_width));
-
-        // Buttons
-        lines.push(render_buttons(self.focused_button));
+        let lines = vec![
+            // Current path
+            label_line("当前路径:", label),
+            value_line(&current_display, value),
+            Line::raw(""),
+            // New path
+            label_line("新路径:", label),
+            value_line(&new_display, value),
+            Line::raw(""),
+            // Vault directory contents explanation
+            label_line("Vault 目录包含以下文件:", label),
+            file_list_line("vault.db", "加密 SQLite 数据库（所有密码数据）", value),
+            file_list_line("metadata.json", "Vault 元信息（版本、设备 ID 等）", value),
+            file_list_line("config.toml", "客户端配置（同步、快捷键等）", value),
+            Line::raw(""),
+            // Warning
+            Line::from(Span::styled(
+                " \u{26A0} 修改路径后需要重启应用才能生效。",
+                warning,
+            )),
+            Line::from(Span::styled(
+                "    现有数据不会自动迁移。",
+                warning,
+            )),
+            // Separator
+            separator_line(content_width),
+            // Buttons
+            render_buttons(self.focused_button),
+        ];
 
         lines
     }
