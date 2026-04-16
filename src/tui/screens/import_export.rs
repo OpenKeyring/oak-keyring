@@ -79,20 +79,37 @@ pub enum ExportScopeOption {
 
 // ── Source metadata ─────────────────────────────────────────────────────────
 
-const IMPORT_SOURCES: [(ImportSource, &str, bool); 6] = [
-    (ImportSource::KeePass, "KeePass (.kdbx)", true),
-    (ImportSource::OnePassword1pux, "1Password (.1pux)", false),
+const IMPORT_SOURCES: [(ImportSource, &str, bool, &str); 6] = [
+    (
+        ImportSource::KeePass,
+        "KeePass (.kdbx)",
+        true,
+        "Password / URL / Notes",
+    ),
+    (
+        ImportSource::OnePassword1pux,
+        "1Password (.1pux)",
+        false,
+        "Password / TOTP  \u{26A0} Custom fields",
+    ),
     (
         ImportSource::OnePasswordOpvault,
         "1Password (.opvault)",
         true,
+        "Password / TOTP  \u{26A0} Custom fields",
     ),
-    (ImportSource::Bitwarden, "Bitwarden (.json)", true),
-    (ImportSource::Csv, "CSV", false),
+    (
+        ImportSource::Bitwarden,
+        "Bitwarden (.json)",
+        true,
+        "Password / TOTP / URL  \u{2715} Attachments",
+    ),
+    (ImportSource::Csv, "CSV", false, "Column-mapped fields"),
     (
         ImportSource::OpenKeyringBackup,
         "OpenKeyring Backup (.okb)",
         false,
+        "All data",
     ),
 ];
 
@@ -100,16 +117,16 @@ const IMPORT_SOURCES: [(ImportSource, &str, bool); 6] = [
 fn source_display(source: ImportSource) -> &'static str {
     IMPORT_SOURCES
         .iter()
-        .find(|(s, _, _)| *s == source)
-        .map(|(_, name, _)| *name)
+        .find(|(s, _, _, _)| *s == source)
+        .map(|(_, name, _, _)| *name)
         .unwrap_or("Unknown")
 }
 
 fn source_needs_password(source: ImportSource) -> bool {
     IMPORT_SOURCES
         .iter()
-        .find(|(s, _, _)| *s == source)
-        .map(|(_, _, pw)| *pw)
+        .find(|(s, _, _, _)| *s == source)
+        .map(|(_, _, pw, _)| *pw)
         .unwrap_or(false)
 }
 
@@ -121,11 +138,22 @@ fn default_export_path() -> String {
         .to_string()
 }
 
+// ── Entry point ─────────────────────────────────────────────────────────────
+
+/// Entry point for import screen — determines title and navigation context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImportEntryPoint {
+    #[default]
+    ConfigPage,
+    Onboarding { step: usize },
+}
+
 // ── ImportExportScreen ──────────────────────────────────────────────────────
 
 #[derive(Debug)]
 pub struct ImportExportScreen {
     pub mode: ImportExportMode,
+    pub entry_point: ImportEntryPoint,
 
     // Import state
     pub import_step: ImportStep,
@@ -162,6 +190,7 @@ impl ImportExportScreen {
     pub fn new() -> Self {
         Self {
             mode: ImportExportMode::Import,
+            entry_point: ImportEntryPoint::ConfigPage,
 
             import_step: ImportStep::SourceSelect,
             selected_source_idx: 0,
@@ -843,8 +872,16 @@ impl ImportExportScreen {
 
         let content_area = h_layout[1];
 
-        // Title
-        let title = Paragraph::new("Import Data")
+        // Title — varies by entry point (AC18)
+        let title_text = match self.entry_point {
+            ImportEntryPoint::ConfigPage => "Import Data",
+            ImportEntryPoint::Onboarding { step } => {
+                // Show step context in onboarding flow
+                let _ = step; // used for step number display
+                "Step 1/6 \u{00B7} Select Import Source"
+            }
+        };
+        let title = Paragraph::new(title_text)
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
 
@@ -862,9 +899,12 @@ impl ImportExportScreen {
         let source_items: Vec<ratatui::text::Line> = IMPORT_SOURCES
             .iter()
             .enumerate()
-            .map(|(i, (_, name, needs_pw))| {
-                let suffix = if *needs_pw { " (password)" } else { "" };
-                let label = format!("  {}{}{}", name, suffix, "");
+            .map(|(i, (_, name, needs_pw, scope_hint))| {
+                let prefix = if i == self.selected_source_idx {
+                    " \u{25B6} "
+                } else {
+                    "   "
+                };
                 let style = if i == self.selected_source_idx
                     && self.import_focus == ImportFocus::SourceList
                 {
@@ -874,7 +914,24 @@ impl ImportExportScreen {
                 } else {
                     ratatui::style::Style::default().fg(TEXT_SECONDARY)
                 };
-                ratatui::text::Line::from(ratatui::text::Span::styled(label, style))
+                let name_span = ratatui::text::Span::styled(format!("{}{}", prefix, name), style);
+                let pw_hint = if *needs_pw {
+                    ratatui::text::Span::styled(
+                        " \u{1F511}",
+                        ratatui::style::Style::default().fg(WARNING),
+                    )
+                } else {
+                    ratatui::text::Span::raw("")
+                };
+                let sep = ratatui::text::Span::styled(
+                    "  ",
+                    ratatui::style::Style::default(),
+                );
+                let hint_span = ratatui::text::Span::styled(
+                    *scope_hint,
+                    ratatui::style::Style::default().fg(TEXT_MUTED),
+                );
+                ratatui::text::Line::from(vec![name_span, pw_hint, sep, hint_span])
             })
             .collect();
 
@@ -1398,6 +1455,14 @@ impl ImportExportScreen {
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
 
+        // Format info (AC17: recovery key mention)
+        let format_info = Paragraph::new(format!(
+            "{} Only .okb format. Decryptable via password or Recovery Key",
+            theme::ICON_INFO
+        ))
+        .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
+        .alignment(Alignment::Center);
+
         // Scope selector
         let scope_header =
             Paragraph::new("Export Scope:").style(ratatui::style::Style::default().fg(TEXT));
@@ -1488,7 +1553,10 @@ impl ImportExportScreen {
                             .style(Styles::success_text()),
                     )
                 } else {
-                    None
+                    Some(
+                        Paragraph::new(format!("{} Passwords do not match", theme::ICON_ERROR))
+                            .style(Styles::error_text()),
+                    )
                 }
             } else {
                 None
@@ -1542,6 +1610,7 @@ impl ImportExportScreen {
 
         frame.render_widget(title, rows[0]);
         // gap at rows[1]
+        frame.render_widget(format_info, rows[1]);
         frame.render_widget(scope_header, rows[2]);
         frame.render_widget(scope_list, rows[3]);
 
