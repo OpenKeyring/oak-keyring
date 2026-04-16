@@ -9,7 +9,7 @@ pub enum AnimationMode {
     Off,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GeneralConfig {
     #[serde(default = "default_vault_path")]
     pub vault_path: PathBuf,

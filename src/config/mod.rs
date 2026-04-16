@@ -26,7 +26,7 @@ pub use watcher::ConfigWatcher;
 #[cfg(test)]
 mod config_test;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
     pub general: GeneralConfig,

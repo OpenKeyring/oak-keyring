@@ -8,7 +8,7 @@ pub enum HealthCheckFrequency {
     Weekly,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SecurityConfig {
     #[serde(default = "default_true")]
     pub health_check_enabled: bool,
