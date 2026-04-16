@@ -337,6 +337,22 @@ mod tests {
         assert_eq!(svc_c_count.load(Ordering::SeqCst), 1);
     }
 
+    #[test]
+    fn unregister_nonexistent_id_is_noop() {
+        let mut notifier = ServiceNotificationImpl::new();
+        let svc_a = MockService::new("service-a");
+        let svc_a_count = svc_a.reload_count.clone();
+
+        notifier.register_service(Box::new(svc_a));
+        // Unregister a non-existent service — should not affect registered ones.
+        notifier.unregister_service("nonexistent");
+
+        let config = AppConfig::default();
+        let results = notifier.notify_config_change(&config, &[]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(svc_a_count.load(Ordering::SeqCst), 1);
+    }
+
     // -----------------------------------------------------------------------
     // ConfigManagerImpl tests
     // -----------------------------------------------------------------------
