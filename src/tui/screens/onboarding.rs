@@ -74,6 +74,9 @@ pub struct OnboardingScreen {
     pub verify_inputs: [String; 4],
     pub verify_errors: [bool; 4],
     pub verify_positions: [usize; 4],
+    /// Signals that onboarding is returning from ImportExportScreen.
+    /// When true, skip ImportSource step and go directly to VaultPath.
+    pub returning_from_import: bool,
 }
 
 impl OnboardingScreen {
@@ -349,8 +352,8 @@ impl OnboardingScreen {
     fn handle_import_source_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
             KeyCode::Enter => {
-                self.current_step = OnboardingStep::ImportPreview;
-                ScreenResult::Continue
+                // Navigate to ImportExportScreen with Onboarding entry point (AC18)
+                ScreenResult::NavigateTo(Screen::ImportExport)
             }
             KeyCode::Esc => {
                 self.current_step = OnboardingStep::Welcome;
@@ -449,6 +452,12 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
     }
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {
+        // If returning from ImportExportScreen, resume at VaultPath step
+        if self.returning_from_import {
+            self.returning_from_import = false;
+            self.current_step = OnboardingStep::VaultPath;
+            return;
+        }
         self.current_step = OnboardingStep::Welcome;
         self.selected_path = None;
         self.path_input.clear();
@@ -1315,8 +1324,10 @@ mod tests {
             KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(result, ScreenResult::Continue);
-        assert_eq!(screen.current_step, OnboardingStep::ImportPreview);
+        assert_eq!(
+            result,
+            ScreenResult::NavigateTo(crate::commands::types::Screen::ImportExport)
+        );
     }
 
     #[test]

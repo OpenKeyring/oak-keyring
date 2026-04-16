@@ -255,7 +255,7 @@ impl ConfigTab {
     /// Returns the number of focusable items in this tab.
     pub fn item_count(self) -> usize {
         match self {
-            Self::General => 7, // language, vault_path, auto_lock, clipboard, trash, animation, import_export
+            Self::General => 8, // language, vault_path, auto_lock, clipboard, trash, animation, import, export
             Self::Sync => 4,    // provider, sync_mode, interval, test_button
             Self::Security => 5, // health_check, frequency, master_password, audit, retention
             Self::Password => 4, // length, digits, uppercase, special
@@ -496,6 +496,9 @@ pub struct ConfigScreenState {
     pub sync_status: SyncConnectionStatus,
     /// Active overlay (dropdown or dialog), if any.
     pub overlay: Option<ConfigOverlay>,
+    /// Pending mode for ImportExport screen navigation.
+    /// Set by config screen before navigating, consumed by routing layer.
+    pub pending_import_export_mode: Option<crate::tui::screens::import_export::ImportExportMode>,
     /// Last known terminal height for scroll calculations.
     /// Updated from AppState.terminal_size before each update() call.
     pub terminal_height: u16,
@@ -754,7 +757,7 @@ mod tests {
 
     #[test]
     fn config_tab_item_count() {
-        assert_eq!(ConfigTab::General.item_count(), 7);
+        assert_eq!(ConfigTab::General.item_count(), 8);
         assert_eq!(ConfigTab::Sync.item_count(), 4);
         assert_eq!(ConfigTab::Security.item_count(), 5);
         assert_eq!(ConfigTab::Password.item_count(), 4);
@@ -763,10 +766,10 @@ mod tests {
 
     #[test]
     fn config_tab_clamp_item() {
-        // General has 7 items, clamp to 0..6
+        // General has 8 items, clamp to 0..7
         assert_eq!(ConfigTab::General.clamp_item(0), 0);
-        assert_eq!(ConfigTab::General.clamp_item(6), 6);
-        assert_eq!(ConfigTab::General.clamp_item(100), 6);
+        assert_eq!(ConfigTab::General.clamp_item(7), 7);
+        assert_eq!(ConfigTab::General.clamp_item(100), 7);
 
         // About has 0 items, always returns 0
         assert_eq!(ConfigTab::About.clamp_item(0), 0);

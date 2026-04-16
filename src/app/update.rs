@@ -185,6 +185,24 @@ fn handle_message(app: &mut App, msg: Message) -> Result<LoopControl, Box<dyn st
                         .notification
                         .enqueue(StatusMessage::error(fallback.clone()));
                 }
+                CommandResult::ExportCompleted { record_count, .. } => {
+                    app.state
+                        .shared
+                        .notification
+                        .enqueue(StatusMessage::success(format!(
+                            "Export completed: {} records saved",
+                            record_count
+                        )));
+                }
+                CommandResult::ImportCompleted { imported_count, .. } => {
+                    app.state
+                        .shared
+                        .notification
+                        .enqueue(StatusMessage::success(format!(
+                            "Import completed: {} records imported",
+                            imported_count
+                        )));
+                }
                 _ => {} // Screen-specific results handled below
             }
             // Also route to current screen for screen-specific result handling.
@@ -296,6 +314,19 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
         Screen::ImportExport => {
+            // Consume pending mode from config screen if set
+            if let Some(mode) = state.screens.config.state.pending_import_export_mode.take() {
+                state.screens.import_export.mode = mode;
+                state.screens.import_export.entry_point =
+                    crate::tui::screens::import_export::ImportEntryPoint::ConfigPage;
+            }
+            // Check if navigating from Onboarding Import path (AC18)
+            if matches!(state.current_screen, Screen::Onboarding) {
+                state.screens.import_export.mode =
+                    crate::tui::screens::import_export::ImportExportMode::Import;
+                state.screens.import_export.entry_point =
+                    crate::tui::screens::import_export::ImportEntryPoint::Onboarding { step: 2 };
+            }
             let current_panel = state.shared.focus.focused_panel;
             state.shared.screen_focus_stack.push(current_panel);
             state.screens.import_export.on_mount(ctx)
@@ -319,6 +350,13 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
         Screen::ImportExport => {
+            // Signal onboarding if returning from import (AC18)
+            if matches!(
+                state.screens.import_export.entry_point,
+                crate::tui::screens::import_export::ImportEntryPoint::Onboarding { .. }
+            ) {
+                state.screens.onboarding.returning_from_import = true;
+            }
             if let Some(panel) = state.shared.screen_focus_stack.pop() {
                 state.shared.focus.focused_panel = panel;
             }

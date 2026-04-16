@@ -145,7 +145,9 @@ fn default_export_path() -> String {
 pub enum ImportEntryPoint {
     #[default]
     ConfigPage,
-    Onboarding { step: usize },
+    Onboarding {
+        step: usize,
+    },
 }
 
 // ── ImportExportScreen ──────────────────────────────────────────────────────
@@ -226,6 +228,14 @@ impl ImportExportScreen {
             export_record_count: 0,
 
             error_message: None,
+        }
+    }
+
+    /// Navigate back to the appropriate screen based on entry point.
+    fn go_back(&self) -> ScreenResult {
+        match self.entry_point {
+            ImportEntryPoint::Onboarding { .. } => ScreenResult::NavigateTo(ScreenEnum::Onboarding),
+            _ => ScreenResult::NavigateTo(ScreenEnum::Config),
         }
     }
 
@@ -412,15 +422,14 @@ impl ImportExportScreen {
             ImportStep::Preview => self.handle_import_preview_key(key, ctx),
             ImportStep::Importing => {
                 if key.code == KeyCode::Esc {
-                    // Future: send cancel command
-                    ScreenResult::Continue
+                    self.go_back()
                 } else {
                     ScreenResult::Continue
                 }
             }
             ImportStep::Complete => {
                 if key.code == KeyCode::Enter || key.code == KeyCode::Esc {
-                    ScreenResult::NavigateTo(ScreenEnum::Config)
+                    self.go_back()
                 } else {
                     ScreenResult::Continue
                 }
@@ -436,7 +445,7 @@ impl ImportExportScreen {
         self.error_message = None;
 
         match key.code {
-            KeyCode::Esc => return ScreenResult::NavigateTo(ScreenEnum::Config),
+            KeyCode::Esc => return self.go_back(),
             KeyCode::Tab => {
                 self.import_focus_cycle_next();
             }
@@ -923,10 +932,7 @@ impl ImportExportScreen {
                 } else {
                     ratatui::text::Span::raw("")
                 };
-                let sep = ratatui::text::Span::styled(
-                    "  ",
-                    ratatui::style::Style::default(),
-                );
+                let sep = ratatui::text::Span::styled("  ", ratatui::style::Style::default());
                 let hint_span = ratatui::text::Span::styled(
                     *scope_hint,
                     ratatui::style::Style::default().fg(TEXT_MUTED),
