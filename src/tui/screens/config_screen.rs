@@ -159,16 +159,16 @@ impl ConfigScreen {
             }
             (KeyCode::PageUp, _) => {
                 if self.state.overlay.is_none() {
-                    let visible_height = 20;
-                    self.state.scroll_page_up(visible_height);
+                    let visible_height = self.state.terminal_height.saturating_sub(4);
+                    self.state.scroll_page_up(visible_height.max(5));
                 }
                 ScreenResult::Continue
             }
             (KeyCode::PageDown, _) => {
                 if self.state.overlay.is_none() {
-                    let visible_height = 20;
+                    let visible_height = self.state.terminal_height.saturating_sub(4);
                     let total_height = self.state.active_tab.item_count() as u16 + 1; // +1 for title
-                    self.state.scroll_page_down(visible_height, total_height);
+                    self.state.scroll_page_down(visible_height.max(5), total_height);
                 }
                 ScreenResult::Continue
             }
