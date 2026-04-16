@@ -206,10 +206,6 @@ mod tests {
                 should_fail: true,
             }
         }
-
-        fn reload_count(&self) -> usize {
-            self.reload_count.load(Ordering::SeqCst)
-        }
     }
 
     impl ConfigReloadable for MockService {
