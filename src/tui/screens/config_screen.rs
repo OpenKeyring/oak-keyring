@@ -1,10 +1,21 @@
 use crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::{Frame, layout::Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
 use crate::commands::{Command, Message};
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen as ScreenEnum;
-use crate::tui::state::config_state::{ConfigTab, ConfigScreenState, SyncConnectionStatus};
+use crate::config::{
+    AnimationMode, HealthCheckFrequency, SyncMode, SyncProvider,
+};
+use crate::tui::state::config_state::{
+    ConfirmButton, ConfigOverlay, ConfigTab, ConfigScreenState, DropdownField,
+    SyncConnectionStatus,
+};
+use crate::tui::theme;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 
 mod config;
@@ -38,6 +49,21 @@ impl Screen for ConfigScreen {
 
     fn view(&self, frame: &mut Frame, area: Rect) {
         config::render::render(frame, area, &self.state);
+
+        if let Some(ref overlay) = self.state.overlay {
+            match overlay {
+                ConfigOverlay::Dropdown {
+                    field,
+                    options,
+                    selected,
+                } => {
+                    render_dropdown_overlay(frame, area, field, options, *selected);
+                }
+                ConfigOverlay::UnsavedChanges { focused_button } => {
+                    render_unsaved_changes_dialog(frame, area, *focused_button);
+                }
+            }
+        }
     }
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
@@ -63,7 +89,10 @@ impl ConfigScreen {
                 self.state.clear_changes();
                 ScreenResult::Continue
             }
-            CommandResult::SyncConnectionTested { success, message: _ } => {
+            CommandResult::SyncConnectionTested {
+                success,
+                message: _,
+            } => {
                 self.state.sync_status = if success {
                     SyncConnectionStatus::Connected
                 } else {
@@ -80,10 +109,17 @@ impl ConfigScreen {
         key: crossterm::event::KeyEvent,
         ctx: &mut ScreenContext,
     ) -> ScreenResult {
+        // When overlay is active, delegate to overlay key handler
+        if self.state.overlay.is_some() {
+            return self.handle_overlay_key(key, ctx);
+        }
+
         match (key.code, key.modifiers) {
             (KeyCode::Esc, _) => {
                 if self.state.has_changes {
-                    // TODO: show unsaved changes dialog
+                    self.state.overlay = Some(ConfigOverlay::UnsavedChanges {
+                        focused_button: ConfirmButton::Cancel,
+                    });
                     ScreenResult::Continue
                 } else {
                     ScreenResult::NavigateTo(ScreenEnum::Main)
@@ -118,7 +154,399 @@ impl ConfigScreen {
                 self.state.focus_next(count);
                 ScreenResult::Continue
             }
+            (KeyCode::Enter, _) => self.handle_item_enter(ctx),
             _ => ScreenResult::Continue,
         }
     }
+
+    fn handle_item_enter(&mut self, ctx: &mut ScreenContext) -> ScreenResult {
+        let tab = self.state.active_tab;
+        let item = self.state.active_tab.clamp_item(self.state.focused_item);
+
+        match tab {
+            ConfigTab::General => match item {
+                0 => self.open_dropdown(DropdownField::Language),
+                1 => {
+                    // TODO: VaultPathDialog — complex, deferred to a later task
+                    ScreenResult::Continue
+                }
+                2 => self.open_dropdown(DropdownField::AutoLock),
+                3 => self.open_dropdown(DropdownField::ClipboardClear),
+                4 => self.open_dropdown(DropdownField::TrashRetention),
+                5 => self.open_dropdown(DropdownField::Animation),
+                6 => ScreenResult::NavigateTo(ScreenEnum::ImportExport),
+                _ => ScreenResult::Continue,
+            },
+            ConfigTab::Sync => match item {
+                0 => self.open_dropdown(DropdownField::SyncProvider),
+                1 => self.open_dropdown(DropdownField::SyncMode),
+                2 => {
+                    // Skip interval dropdown when sync mode is Manual
+                    if self.state.sync.sync_mode == SyncMode::Manual {
+                        ScreenResult::Continue
+                    } else {
+                        self.open_dropdown(DropdownField::SyncInterval)
+                    }
+                }
+                3 => {
+                    let _ = ctx.command_tx.try_send(Command::TestSyncConnection {
+                        provider_config: self.state.sync.provider_config.clone(),
+                    });
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            ConfigTab::Security => match item {
+                0 => {
+                    self.state.security.health_check_enabled =
+                        !self.state.security.health_check_enabled;
+                    self.state.mark_changed();
+                    ScreenResult::Continue
+                }
+                1 => self.open_dropdown(DropdownField::HealthFrequency),
+                2 => ScreenResult::NavigateTo(ScreenEnum::ChangeMasterPassword),
+                3 => {
+                    self.state.security.audit_enabled = !self.state.security.audit_enabled;
+                    self.state.mark_changed();
+                    ScreenResult::Continue
+                }
+                4 => self.open_dropdown(DropdownField::AuditRetention),
+                _ => ScreenResult::Continue,
+            },
+            ConfigTab::Password => match item {
+                0 => {
+                    // Length is read-only for now
+                    ScreenResult::Continue
+                }
+                1 => {
+                    self.state.password.include_digits = !self.state.password.include_digits;
+                    self.state.mark_changed();
+                    ScreenResult::Continue
+                }
+                2 => {
+                    self.state.password.include_uppercase =
+                        !self.state.password.include_uppercase;
+                    self.state.mark_changed();
+                    ScreenResult::Continue
+                }
+                3 => {
+                    self.state.password.include_special = !self.state.password.include_special;
+                    self.state.mark_changed();
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            ConfigTab::About => ScreenResult::Continue,
+        }
+    }
+
+    fn open_dropdown(&mut self, field: DropdownField) -> ScreenResult {
+        let options = field.options();
+        let current = self.find_current_index(field);
+        self.state.overlay = Some(ConfigOverlay::Dropdown {
+            field,
+            options,
+            selected: current,
+        });
+        ScreenResult::Continue
+    }
+
+    fn find_current_index(&self, field: DropdownField) -> usize {
+        let options = field.options();
+        let current_value = match field {
+            DropdownField::Language => self.state.general.language.clone(),
+            DropdownField::AutoLock => self.state.general.auto_lock_seconds.to_string(),
+            DropdownField::ClipboardClear => self.state.general.clipboard_clear_seconds.to_string(),
+            DropdownField::TrashRetention => self.state.general.trash_retention_days.to_string(),
+            DropdownField::Animation => match self.state.general.animation {
+                AnimationMode::Auto => "auto".to_string(),
+                AnimationMode::On => "on".to_string(),
+                AnimationMode::Off => "off".to_string(),
+            },
+            DropdownField::SyncProvider => match self.state.sync.provider {
+                SyncProvider::Disabled => "Disabled".to_string(),
+                SyncProvider::ICloud => "ICloud".to_string(),
+                SyncProvider::GoogleDrive => "GoogleDrive".to_string(),
+                SyncProvider::Dropbox => "Dropbox".to_string(),
+                SyncProvider::OneDrive => "OneDrive".to_string(),
+                SyncProvider::WebDav => "WebDav".to_string(),
+                SyncProvider::Sftp => "Sftp".to_string(),
+                SyncProvider::S3 => "S3".to_string(),
+                SyncProvider::AliyunDrive => "AliyunDrive".to_string(),
+                SyncProvider::AliyunOss => "AliyunOss".to_string(),
+                SyncProvider::TencentCos => "TencentCos".to_string(),
+                SyncProvider::HuaweiObs => "HuaweiObs".to_string(),
+                SyncProvider::Upyun => "Upyun".to_string(),
+            },
+            DropdownField::SyncMode => match self.state.sync.sync_mode {
+                SyncMode::Auto => "Auto".to_string(),
+                SyncMode::Manual => "Manual".to_string(),
+            },
+            DropdownField::SyncInterval => self.state.sync.auto_interval_seconds.to_string(),
+            DropdownField::HealthFrequency => match self.state.security.health_check_frequency {
+                HealthCheckFrequency::OnStartup => "OnStartup".to_string(),
+                HealthCheckFrequency::Daily => "Daily".to_string(),
+                HealthCheckFrequency::Weekly => "Weekly".to_string(),
+            },
+            DropdownField::AuditRetention => self.state.security.audit_retention_days.to_string(),
+        };
+
+        options
+            .iter()
+            .position(|opt| *opt == current_value)
+            .unwrap_or(0)
+    }
+
+    fn apply_dropdown_value(&mut self, field: DropdownField, value: &str) {
+        match field {
+            DropdownField::Language => {
+                self.state.general.language = value.to_string();
+            }
+            DropdownField::AutoLock => {
+                self.state.general.auto_lock_seconds = value.parse().unwrap_or(300);
+            }
+            DropdownField::ClipboardClear => {
+                self.state.general.clipboard_clear_seconds = value.parse().unwrap_or(30);
+            }
+            DropdownField::TrashRetention => {
+                self.state.general.trash_retention_days = value.parse().unwrap_or(30);
+            }
+            DropdownField::Animation => {
+                self.state.general.animation = match value {
+                    "on" => AnimationMode::On,
+                    "off" => AnimationMode::Off,
+                    _ => AnimationMode::Auto,
+                };
+            }
+            DropdownField::SyncProvider => {
+                self.state.sync.provider = match value {
+                    "ICloud" => SyncProvider::ICloud,
+                    "GoogleDrive" => SyncProvider::GoogleDrive,
+                    "Dropbox" => SyncProvider::Dropbox,
+                    "OneDrive" => SyncProvider::OneDrive,
+                    "WebDav" => SyncProvider::WebDav,
+                    "Sftp" => SyncProvider::Sftp,
+                    "S3" => SyncProvider::S3,
+                    "AliyunDrive" => SyncProvider::AliyunDrive,
+                    "AliyunOss" => SyncProvider::AliyunOss,
+                    "TencentCos" => SyncProvider::TencentCos,
+                    "HuaweiObs" => SyncProvider::HuaweiObs,
+                    "Upyun" => SyncProvider::Upyun,
+                    _ => SyncProvider::Disabled,
+                };
+            }
+            DropdownField::SyncMode => {
+                self.state.sync.sync_mode = match value {
+                    "Manual" => SyncMode::Manual,
+                    _ => SyncMode::Auto,
+                };
+            }
+            DropdownField::SyncInterval => {
+                self.state.sync.auto_interval_seconds = value.parse().unwrap_or(600);
+            }
+            DropdownField::HealthFrequency => {
+                self.state.security.health_check_frequency = match value {
+                    "Daily" => HealthCheckFrequency::Daily,
+                    "Weekly" => HealthCheckFrequency::Weekly,
+                    _ => HealthCheckFrequency::OnStartup,
+                };
+            }
+            DropdownField::AuditRetention => {
+                self.state.security.audit_retention_days = value.parse().unwrap_or(365);
+            }
+        }
+        self.state.mark_changed();
+    }
+
+    fn handle_overlay_key(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
+        match self.state.overlay {
+            Some(ConfigOverlay::Dropdown {
+                ref mut selected,
+                ref options,
+                ..
+            }) => match key.code {
+                KeyCode::Up => {
+                    if *selected > 0 {
+                        *selected -= 1;
+                    }
+                    ScreenResult::Continue
+                }
+                KeyCode::Down => {
+                    if *selected + 1 < options.len() {
+                        *selected += 1;
+                    }
+                    ScreenResult::Continue
+                }
+                KeyCode::Enter => {
+                    let (field, selected) = match self.state.overlay {
+                        Some(ConfigOverlay::Dropdown {
+                            field,
+                            options: _,
+                            selected,
+                        }) => (field, selected),
+                        _ => unreachable!(),
+                    };
+                    let options = field.options();
+                    let value = options[selected].clone();
+                    self.apply_dropdown_value(field, &value);
+                    self.state.overlay = None;
+                    ScreenResult::Continue
+                }
+                KeyCode::Esc => {
+                    self.state.overlay = None;
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            Some(ConfigOverlay::UnsavedChanges {
+                ref mut focused_button,
+            }) => match key.code {
+                KeyCode::Tab | KeyCode::Left | KeyCode::Right => {
+                    *focused_button = focused_button.toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Enter => {
+                    let button = *focused_button;
+                    self.state.overlay = None;
+                    match button {
+                        ConfirmButton::Cancel => ScreenResult::Continue,
+                        ConfirmButton::Confirm => {
+                            let config = self.state.to_app_config();
+                            let _ = ctx
+                                .command_tx
+                                .try_send(Command::SaveConfig { config });
+                            ScreenResult::NavigateTo(ScreenEnum::Main)
+                        }
+                    }
+                }
+                KeyCode::Esc => {
+                    self.state.overlay = None;
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            None => ScreenResult::Continue,
+        }
+    }
+}
+
+// ── Overlay Rendering ─────────────────────────────────────────────────────────
+
+fn render_dropdown_overlay(
+    frame: &mut Frame,
+    area: Rect,
+    field: &DropdownField,
+    options: &[String],
+    selected: usize,
+) {
+    // Clear the area first
+    frame.render_widget(Clear, area);
+
+    // Popup dimensions
+    let max_visible = 8usize;
+    let visible_count = options.len().min(max_visible);
+    let popup_height = visible_count as u16 + 2; // +2 for border
+    let popup_width = 30u16.min(area.width).max(20);
+
+    // Center the popup
+    let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    let border_style = Style::default().fg(theme::PRIMARY);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" {} ", field.label()))
+        .border_style(border_style);
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    // Render option rows
+    let row_heights: Vec<Constraint> = (0..visible_count)
+        .map(|_| Constraint::Length(1))
+        .collect();
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(row_heights)
+        .split(inner);
+
+    for (i, row_area) in rows.iter().enumerate() {
+        if i >= options.len() {
+            break;
+        }
+        let is_selected = i == selected;
+        let style = if is_selected {
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        } else {
+            Style::default().fg(theme::TEXT)
+        };
+        let prefix = if is_selected { " > " } else { "   " };
+        let text = format!("{}{}", prefix, options[i]);
+        frame.render_widget(Paragraph::new(text).style(style), *row_area);
+    }
+}
+
+fn render_unsaved_changes_dialog(frame: &mut Frame, area: Rect, focused_button: ConfirmButton) {
+    // Clear the area first
+    frame.render_widget(Clear, area);
+
+    let popup_height = 5u16;
+    let popup_width = 40u16.min(area.width);
+
+    // Center the popup
+    let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    let border_style = Style::default().fg(theme::WARNING);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" 未保存的更改 ")
+        .border_style(border_style);
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // Message
+            Constraint::Length(1), // Buttons
+        ])
+        .split(inner);
+
+    // Warning message
+    let msg = Paragraph::new(" 有未保存的更改，是否保存？")
+        .style(Style::default().fg(theme::WARNING));
+    frame.render_widget(msg, chunks[0]);
+
+    // Buttons
+    let cancel_style = if focused_button == ConfirmButton::Cancel {
+        Style::default()
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
+    };
+    let confirm_style = if focused_button == ConfirmButton::Confirm {
+        Style::default()
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::PRIMARY)
+    };
+
+    let buttons = Line::from(vec![
+        Span::styled(" <取消> ", cancel_style),
+        Span::styled("   ", Style::default()),
+        Span::styled(" <保存并退出> ", confirm_style),
+    ]);
+    frame.render_widget(Paragraph::new(buttons), chunks[1]);
 }

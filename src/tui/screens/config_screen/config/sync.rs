@@ -130,16 +130,21 @@ pub fn render(
     row += 1;
 
     // ── Auto interval (focus index 2) ─────────────────────────────────────
+    let interval_style = if form.sync_mode == SyncMode::Manual {
+        Style::default()
+            .fg(theme::TEXT_MUTED)
+            .add_modifier(Modifier::DIM)
+    } else if focused == 2 {
+        focused_style
+    } else {
+        normal_style
+    };
     frame.render_widget(
         Paragraph::new(format!(
             "自动同步间隔        [ {}秒 \u{25bc} ]",
             form.auto_interval_seconds
         ))
-        .style(if focused == 2 {
-            focused_style
-        } else {
-            normal_style
-        }),
+        .style(interval_style),
         chunks[row],
     );
     row += 1;

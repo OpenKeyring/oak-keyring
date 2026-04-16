@@ -7,6 +7,109 @@ use std::path::PathBuf;
 
 use crate::config::*;
 
+// ── Config Overlay ────────────────────────────────────────────────────────────
+
+/// Overlay state for the config screen (dropdowns, dialogs).
+#[derive(Debug, Clone)]
+pub enum ConfigOverlay {
+    /// Dropdown selection overlay.
+    Dropdown {
+        field: DropdownField,
+        options: Vec<String>,
+        selected: usize,
+    },
+    /// Unsaved changes confirmation.
+    UnsavedChanges {
+        focused_button: ConfirmButton,
+    },
+}
+
+/// Buttons in the unsaved-changes confirmation dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmButton {
+    Cancel,
+    Confirm,
+}
+
+impl ConfirmButton {
+    pub fn toggle(self) -> Self {
+        match self {
+            ConfirmButton::Cancel => ConfirmButton::Confirm,
+            ConfirmButton::Confirm => ConfirmButton::Cancel,
+        }
+    }
+}
+
+/// Identifies which config field a dropdown is editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropdownField {
+    // General tab
+    Language,
+    AutoLock,
+    ClipboardClear,
+    TrashRetention,
+    Animation,
+    // Sync tab
+    SyncProvider,
+    SyncMode,
+    SyncInterval,
+    // Security tab
+    HealthFrequency,
+    AuditRetention,
+}
+
+impl DropdownField {
+    /// Available options for this dropdown.
+    pub fn options(self) -> Vec<String> {
+        match self {
+            DropdownField::Language => vec!["auto".into(), "zh-CN".into(), "en".into()],
+            DropdownField::AutoLock => {
+                vec!["60".into(), "300".into(), "600".into(), "1800".into(), "0".into()]
+            }
+            DropdownField::ClipboardClear => {
+                vec!["10".into(), "30".into(), "60".into(), "0".into()]
+            }
+            DropdownField::TrashRetention => {
+                vec!["7".into(), "30".into(), "90".into(), "365".into()]
+            }
+            DropdownField::Animation => vec!["auto".into(), "on".into(), "off".into()],
+            DropdownField::SyncProvider => vec![
+                "Disabled", "ICloud", "GoogleDrive", "Dropbox", "OneDrive", "WebDav", "Sftp", "S3",
+                "AliyunDrive", "AliyunOss", "TencentCos", "HuaweiObs", "Upyun",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+            DropdownField::SyncMode => vec!["Auto".into(), "Manual".into()],
+            DropdownField::SyncInterval => {
+                vec!["60".into(), "300".into(), "600".into(), "1800".into(), "3600".into()]
+            }
+            DropdownField::HealthFrequency => {
+                vec!["OnStartup".into(), "Daily".into(), "Weekly".into()]
+            }
+            DropdownField::AuditRetention => {
+                vec!["30".into(), "90".into(), "180".into(), "365".into()]
+            }
+        }
+    }
+
+    /// Human-readable label for the dropdown.
+    pub fn label(self) -> &'static str {
+        match self {
+            DropdownField::Language => "语言",
+            DropdownField::AutoLock => "自动锁定",
+            DropdownField::ClipboardClear => "剪贴板清除",
+            DropdownField::TrashRetention => "回收站保留",
+            DropdownField::Animation => "动画效果",
+            DropdownField::SyncProvider => "云同步 Provider",
+            DropdownField::SyncMode => "同步方式",
+            DropdownField::SyncInterval => "同步间隔",
+            DropdownField::HealthFrequency => "检查频率",
+            DropdownField::AuditRetention => "审计保留",
+        }
+    }
+}
+
 // ── Config Tab ────────────────────────────────────────────────────────────────
 
 /// Top-level tab in the config screen.
@@ -290,6 +393,8 @@ pub struct ConfigScreenState {
     pub about: AboutInfo,
     /// Sync provider connection status (UI indicator).
     pub sync_status: SyncConnectionStatus,
+    /// Active overlay (dropdown or dialog), if any.
+    pub overlay: Option<ConfigOverlay>,
 }
 
 impl Default for ConfigScreenState {
@@ -305,6 +410,7 @@ impl Default for ConfigScreenState {
             password: PasswordDefaultsForm::default(),
             about: AboutInfo::default(),
             sync_status: SyncConnectionStatus::default(),
+            overlay: None,
         }
     }
 }
