@@ -36,7 +36,7 @@ impl EmptyStateVariant {
     fn title(&self) -> &str {
         match self {
             Self::NoPasswords => "No passwords yet",
-            Self::EmptyTrash => "Trash is empty",
+            Self::EmptyTrash => "回收站为空",
             Self::NoFavorites => "No favorites",
             Self::NoExpired => "No expired passwords",
             Self::NoHealthIssues => "No security issues",
@@ -48,7 +48,7 @@ impl EmptyStateVariant {
     fn description(&self) -> String {
         match self {
             Self::NoPasswords => "Press n to create your first password".into(),
-            Self::EmptyTrash => "Deleted passwords appear here".into(),
+            Self::EmptyTrash => "已删除的密码会出现在这里".into(),
             Self::NoFavorites => "Press f in password detail to favorite".into(),
             Self::NoExpired => "All credentials are valid".into(),
             Self::NoHealthIssues => "All passwords passed security check".into(),
