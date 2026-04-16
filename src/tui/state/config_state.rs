@@ -41,6 +41,26 @@ impl ConfigTab {
             Self::About => 4,
         }
     }
+
+    /// Returns the number of focusable items in this tab.
+    pub fn item_count(self) -> usize {
+        match self {
+            Self::General => 7,  // language, vault_path, auto_lock, clipboard, trash, animation, import_export
+            Self::Sync => 4,     // provider, sync_mode, interval, test_button
+            Self::Security => 5, // health_check, frequency, master_password, audit, retention
+            Self::Password => 4, // length, digits, uppercase, special
+            Self::About => 0,    // read-only, no focusable items
+        }
+    }
+
+    /// Clamp a focused index to valid range for this tab.
+    pub fn clamp_item(self, focused: usize) -> usize {
+        let count = self.item_count();
+        if count == 0 {
+            return 0;
+        }
+        focused.min(count - 1)
+    }
 }
 
 impl Default for ConfigTab {
@@ -506,6 +526,27 @@ mod tests {
         assert_eq!(ConfigTab::Security.index(), 2);
         assert_eq!(ConfigTab::Password.index(), 3);
         assert_eq!(ConfigTab::About.index(), 4);
+    }
+
+    #[test]
+    fn config_tab_item_count() {
+        assert_eq!(ConfigTab::General.item_count(), 7);
+        assert_eq!(ConfigTab::Sync.item_count(), 4);
+        assert_eq!(ConfigTab::Security.item_count(), 5);
+        assert_eq!(ConfigTab::Password.item_count(), 4);
+        assert_eq!(ConfigTab::About.item_count(), 0);
+    }
+
+    #[test]
+    fn config_tab_clamp_item() {
+        // General has 7 items, clamp to 0..6
+        assert_eq!(ConfigTab::General.clamp_item(0), 0);
+        assert_eq!(ConfigTab::General.clamp_item(6), 6);
+        assert_eq!(ConfigTab::General.clamp_item(100), 6);
+
+        // About has 0 items, always returns 0
+        assert_eq!(ConfigTab::About.clamp_item(0), 0);
+        assert_eq!(ConfigTab::About.clamp_item(5), 0);
     }
 
     #[test]
