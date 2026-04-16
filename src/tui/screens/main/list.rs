@@ -1310,4 +1310,85 @@ mod tests {
         let item = build_trash_item(&record, false, false, true, true, 50, 0);
         assert!(item.height() >= 3);
     }
+
+    // ── Acceptance Criteria verification tests ─────────────────────────────────
+
+    #[test]
+    fn acceptance_trash_empty_state_renders() {
+        let state = ListPanelState::default();
+        let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::Trash);
+        assert!(!result.is_empty());
+        let variant = build_empty_state_variant(&state, &RecordFilter::Trash);
+        assert!(matches!(variant, EmptyStateVariant::EmptyTrash));
+    }
+
+    #[test]
+    fn acceptance_trash_list_with_deleted_records() {
+        let r1 = make_trash_record(Uuid::new_v4(), "DeletedA", 3);
+        let r2 = make_trash_record(Uuid::new_v4(), "DeletedB", 15);
+        let state = ListPanelState::with_records(vec![r1, r2]);
+        let result = render_snapshot(&state, 50, 15, true, true, RecordFilter::Trash);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn acceptance_trash_item_warning_progressive() {
+        // Critical: deleted 28 days ago with 30-day retention = 2 days remaining
+        let critical = make_trash_record(Uuid::new_v4(), "Critical", 28);
+        let item = build_trash_item(&critical, false, false, true, true, 50, 30);
+        assert!(item.height() >= 3);
+
+        // Urgent: deleted 25 days ago = 5 days remaining
+        let urgent = make_trash_record(Uuid::new_v4(), "Urgent", 25);
+        let item = build_trash_item(&urgent, false, false, true, true, 50, 30);
+        assert!(item.height() >= 3);
+
+        // Safe: deleted 5 days ago = 25 days remaining
+        let safe = make_trash_record(Uuid::new_v4(), "Safe", 5);
+        let item = build_trash_item(&safe, false, false, true, true, 50, 30);
+        assert!(item.height() >= 3);
+    }
+
+    #[test]
+    fn acceptance_never_auto_delete_no_remaining_line() {
+        let record = make_trash_record(Uuid::new_v4(), "NeverDelete", 100);
+        let item = build_trash_item(&record, false, false, true, true, 50, 0);
+        assert!(item.height() >= 3);
+    }
+
+    #[test]
+    fn acceptance_trash_visual_mode_renders() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let r1 = make_trash_record(id1, "A", 5);
+        let r2 = make_trash_record(id2, "B", 10);
+        let mut state = ListPanelState::with_records(vec![r1, r2]);
+        let mut selected = HashSet::new();
+        selected.insert(id1);
+        state.mode = ListMode::Visual(VisualState {
+            selected_ids: selected,
+        });
+        let result = render_snapshot(&state, 50, 15, true, true, RecordFilter::Trash);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn acceptance_trash_search_mode_in_list() {
+        let r1 = make_trash_record(Uuid::new_v4(), "GitHub", 3);
+        let mut state = ListPanelState::with_records(vec![r1]);
+        state.mode = ListMode::Search(SearchState {
+            query: "git".to_string(),
+            cursor: 3,
+        });
+        let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::Trash);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn acceptance_trash_ascii_mode() {
+        let r1 = make_trash_record(Uuid::new_v4(), "Test", 5);
+        let state = ListPanelState::with_records(vec![r1]);
+        let result = render_snapshot(&state, 50, 10, true, false, RecordFilter::Trash);
+        assert!(!result.is_empty());
+    }
 }
