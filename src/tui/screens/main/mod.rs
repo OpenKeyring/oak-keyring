@@ -90,8 +90,26 @@ impl MainScreen {
 
         // 3. Detail panel
         let detail_focused = focused_panel == PanelId::Detail;
-        self.detail
-            .view(frame, areas.detail, &state.detail, detail_focused, unicode);
+        let visual_selected_names: Vec<String> = if state.list.is_visual() {
+            let selected_ids = state.list.visual_selected_ids();
+            state
+                .list
+                .records
+                .iter()
+                .filter(|r| selected_ids.contains(&r.id))
+                .map(|r| r.name.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.detail.view(
+            frame,
+            areas.detail,
+            &state.detail,
+            detail_focused,
+            unicode,
+            &visual_selected_names,
+        );
 
         // 4. Horizontal separator between content and status bar
         render_horizontal_separator(frame, areas.status_separator, unicode);

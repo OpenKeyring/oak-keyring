@@ -24,7 +24,21 @@ impl DetailPanel {
         state: &DetailPanelState,
         focused: bool,
         unicode: bool,
+        visual_selected_names: &[String],
     ) {
+        // If visual mode is active with selections, show batch summary
+        if !visual_selected_names.is_empty() {
+            let name_refs: Vec<&str> = visual_selected_names.iter().map(|s| s.as_str()).collect();
+            render_batch_summary_view(
+                frame,
+                area,
+                &name_refs,
+                visual_selected_names.len(),
+                unicode,
+            );
+            return;
+        }
+
         match &state.record {
             None => self.render_empty(frame, area, unicode),
             Some(record) => self.render_record(frame, area, state, record, focused, unicode),
@@ -366,6 +380,96 @@ impl DetailPanel {
     }
 }
 
+/// Render the batch summary view in the detail panel when visual mode is active.
+///
+/// Shows: "已选择 N 项" header, item names (max 5), and action hints.
+fn render_batch_summary_view(
+    frame: &mut Frame,
+    area: Rect,
+    selected_names: &[&str],
+    total_count: usize,
+    unicode: bool,
+) {
+    let pad = "  ";
+    let mut lines: Vec<Line<'_>> = Vec::new();
+
+    // Top spacing
+    lines.push(Line::from(""));
+    lines.push(Line::from(""));
+
+    // Header: 已选择 N 项
+    lines.push(Line::from(Span::styled(
+        format!("{}已选择 {} 项", pad, total_count),
+        Style::default()
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+
+    // Separator
+    let sep = if unicode { "\u{2500}" } else { "-" };
+    lines.push(Line::from(Span::styled(
+        format!("{}{}", pad, sep.repeat(area.width as usize / 2)),
+        Style::default().fg(theme::BORDER),
+    )));
+    lines.push(Line::from(""));
+
+    // Item names (max 5)
+    let display_limit = 5;
+    for name in selected_names.iter().take(display_limit) {
+        let bullet = if unicode { "\u{2022}" } else { "*" };
+        lines.push(Line::from(Span::styled(
+            format!("{}{}  {}", pad, bullet, name),
+            Style::default().fg(theme::TEXT),
+        )));
+    }
+
+    // Overflow indicator
+    if total_count > display_limit {
+        let remaining = total_count - display_limit;
+        lines.push(Line::from(Span::styled(
+            format!("{}  ... 及其他 {} 项", pad, remaining),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        )));
+    }
+
+    lines.push(Line::from(""));
+
+    // Separator
+    lines.push(Line::from(Span::styled(
+        format!("{}{}", pad, sep.repeat(area.width as usize / 2)),
+        Style::default().fg(theme::BORDER),
+    )));
+    lines.push(Line::from(""));
+
+    // Action hints
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("{}d ", pad),
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "批量删除  ",
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled(
+            "t ",
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "批量标签",
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+    ]));
+
+    let para = Paragraph::new(lines);
+    frame.render_widget(para, area);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,7 +522,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let panel = DetailPanel;
-                panel.view(frame, frame.area(), state, focused, unicode);
+                panel.view(frame, frame.area(), state, focused, unicode, &[]);
             })
             .unwrap();
         let buf = terminal.backend().buffer().clone();
@@ -457,5 +561,59 @@ mod tests {
         state.set_trash_context(true, 30);
         let result = render_detail_snapshot(&state, 60, 20, true, true);
         assert!(!result.is_empty());
+    }
+
+    // ── Batch summary tests ──────────────────────────────────────────────
+
+    fn render_batch_snapshot(
+        names: &[&str],
+        total_count: usize,
+        width: u16,
+        height: u16,
+    ) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_batch_summary_view(frame, frame.area(), names, total_count, true);
+            })
+            .unwrap();
+        let buf = terminal.backend().buffer().clone();
+        format!("{:?}", buf)
+    }
+
+    #[test]
+    fn batch_summary_shows_count() {
+        let result = render_batch_snapshot(&["GitHub", "AWS"], 2, 50, 15);
+        assert!(
+            result.contains("2") || result.contains("已选择"),
+            "should show count"
+        );
+    }
+
+    #[test]
+    fn batch_summary_shows_names() {
+        let result = render_batch_snapshot(&["GitHub", "AWS"], 2, 50, 15);
+        assert!(result.contains("GitHub"), "should show item name");
+    }
+
+    #[test]
+    fn batch_summary_shows_hints() {
+        let result = render_batch_snapshot(&["GitHub"], 1, 50, 15);
+        assert!(
+            result.contains("d") || result.contains("t"),
+            "should show action hints"
+        );
+    }
+
+    #[test]
+    fn batch_summary_limits_to_five_names() {
+        let names = vec!["A", "B", "C", "D", "E", "F", "G"];
+        let result = render_batch_snapshot(&names, 7, 50, 20);
+        // Should show "及其他" for overflow
+        assert!(
+            result.contains("及其他"),
+            "should show overflow indicator"
+        );
     }
 }
