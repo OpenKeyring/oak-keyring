@@ -9,7 +9,9 @@ use crate::commands::{Command, Message};
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen as ScreenEnum;
 use crate::config::{
-    AnimationMode, HealthCheckFrequency, SyncMode, SyncProvider,
+    AliyunDriveConfig, AliyunOssConfig, AnimationMode, DropboxConfig, GoogleDriveConfig,
+    HealthCheckFrequency, HuaweiObsConfig, OneDriveConfig, ProviderConfig, S3Config, SftpConfig,
+    SyncMode, SyncProvider, TencentCosConfig, UpyunConfig, WebDavConfig,
 };
 use crate::tui::state::config_state::{
     ConfirmButton, ConfigOverlay, ConfigTab, ConfigScreenState, DropdownField,
@@ -189,6 +191,7 @@ impl ConfigScreen {
                     }
                 }
                 3 => {
+                    self.state.sync_status = SyncConnectionStatus::Testing;
                     let _ = ctx.command_tx.try_send(Command::TestSyncConnection {
                         provider_config: self.state.sync.provider_config.clone(),
                     });
@@ -206,6 +209,10 @@ impl ConfigScreen {
                 1 => self.open_dropdown(DropdownField::HealthFrequency),
                 2 => ScreenResult::NavigateTo(ScreenEnum::ChangeMasterPassword),
                 3 => {
+                    // TODO(U8): Audit log navigation — "查看记录" link shares this row with
+                    // the audit toggle. When the UI supports sub-item focus, pressing Enter
+                    // on the "查看记录" link should navigate to Screen::AuditLog.
+                    // For now, Enter on this row toggles the audit switch.
                     self.state.security.audit_enabled = !self.state.security.audit_enabled;
                     self.state.mark_changed();
                     ScreenResult::Continue
@@ -333,6 +340,65 @@ impl ConfigScreen {
                     "HuaweiObs" => SyncProvider::HuaweiObs,
                     "Upyun" => SyncProvider::Upyun,
                     _ => SyncProvider::Disabled,
+                };
+                // Initialize default provider_config for the new provider
+                self.state.sync.provider_config = match self.state.sync.provider {
+                    SyncProvider::Disabled => None,
+                    SyncProvider::ICloud => Some(ProviderConfig::ICloud),
+                    SyncProvider::GoogleDrive => {
+                        Some(ProviderConfig::GoogleDrive(GoogleDriveConfig::default()))
+                    }
+                    SyncProvider::Dropbox => {
+                        Some(ProviderConfig::Dropbox(DropboxConfig::default()))
+                    }
+                    SyncProvider::OneDrive => {
+                        Some(ProviderConfig::OneDrive(OneDriveConfig::default()))
+                    }
+                    SyncProvider::WebDav => Some(ProviderConfig::WebDav(WebDavConfig::default())),
+                    SyncProvider::Sftp => Some(ProviderConfig::Sftp(SftpConfig {
+                        server: String::new(),
+                        root_path: "/".to_string(),
+                        ssh_key_path: String::new(),
+                        host_check: Default::default(),
+                    })),
+                    SyncProvider::S3 => Some(ProviderConfig::S3(S3Config {
+                        endpoint: None,
+                        bucket: String::new(),
+                        region: None,
+                        access_key_id: String::new(),
+                        secret_access_key: String::new(),
+                        root_path: "/".to_string(),
+                    })),
+                    SyncProvider::AliyunDrive => {
+                        Some(ProviderConfig::AliyunDrive(AliyunDriveConfig::default()))
+                    }
+                    SyncProvider::AliyunOss => Some(ProviderConfig::AliyunOss(AliyunOssConfig {
+                        endpoint: String::new(),
+                        bucket: String::new(),
+                        access_key_id: String::new(),
+                        access_key_secret: String::new(),
+                        root_path: "/".to_string(),
+                    })),
+                    SyncProvider::TencentCos => Some(ProviderConfig::TencentCos(TencentCosConfig {
+                        endpoint: String::new(),
+                        bucket: String::new(),
+                        secret_id: String::new(),
+                        secret_key: String::new(),
+                        root_path: "/".to_string(),
+                    })),
+                    SyncProvider::HuaweiObs => Some(ProviderConfig::HuaweiObs(HuaweiObsConfig {
+                        endpoint: String::new(),
+                        bucket: String::new(),
+                        access_key_id: String::new(),
+                        secret_access_key: String::new(),
+                        root_path: "/".to_string(),
+                    })),
+                    SyncProvider::Upyun => Some(ProviderConfig::Upyun(UpyunConfig {
+                        bucket: String::new(),
+                        operator: String::new(),
+                        operator_password: String::new(),
+                        root_path: "/".to_string(),
+                    })),
                 };
             }
             DropdownField::SyncMode => {
