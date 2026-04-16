@@ -24,6 +24,12 @@ pub fn render(frame: &mut Frame, app: &App) {
         Screen::Onboarding => {
             app.state.screens.onboarding.view(frame, area);
         }
+        Screen::Config => {
+            app.state.screens.config.view(frame, area);
+        }
+        Screen::ChangeMasterPassword => {
+            app.state.screens.change_master_password.view(frame, area);
+        }
         // Placeholder for unimplemented screens.
         _ => {
             render_placeholder(frame, area, &format!("{:?}", app.state.current_screen));
