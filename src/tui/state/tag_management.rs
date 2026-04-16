@@ -6,20 +6,15 @@
 //! - [`TagManagementState`] — aggregated management mode state
 
 /// Tag sort order, cycled by pressing `s` in management mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TagSortOrder {
     /// Sort by frequency descending (password count, default).
+    #[default]
     Frequency,
     /// Sort by name alphabetically.
     Alphabetical,
     /// Sort by most recently used.
     RecentlyUsed,
-}
-
-impl Default for TagSortOrder {
-    fn default() -> Self {
-        Self::Frequency
-    }
 }
 
 impl TagSortOrder {
@@ -136,21 +131,12 @@ impl InlineEditState {
 }
 
 /// Aggregated state for tag management mode in the sidebar.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TagManagementState {
     /// Current sort order.
     pub sort_order: TagSortOrder,
     /// Active inline edit, if any.
     pub inline_edit: Option<InlineEditState>,
-}
-
-impl Default for TagManagementState {
-    fn default() -> Self {
-        Self {
-            sort_order: TagSortOrder::default(),
-            inline_edit: None,
-        }
-    }
 }
 
 impl TagManagementState {

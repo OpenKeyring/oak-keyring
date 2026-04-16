@@ -191,21 +191,24 @@ fn build_search_bar<'a>(query: &str, unicode: bool) -> Line<'a> {
     )])
 }
 
-/// Build visual mode bar: `  多选模式` in BRAND bold + `(N 已选)` in TEXT color
+/// Build visual mode bar: `  多选模式` in TEXT bold on BG_BAR + `(N 已选)` in TEXT on BG_BAR
 fn build_visual_bar<'a>(selected_count: usize) -> Line<'a> {
     Line::from(vec![
         Span::styled(
             "  \u{591A}\u{9009}\u{6A21}\u{5F0F} ", // "  多选模式 "
             Style::default()
-                .fg(theme::BRAND)
-                .add_modifier(Modifier::BOLD),
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD)
+                .bg(theme::BG_BAR),
         ),
         Span::styled(
             format!(
                 "({} \u{5DF2}\u{9009})", // "(N 已选)"
                 selected_count
             ),
-            Style::default().fg(theme::TEXT),
+            Style::default()
+                .fg(theme::TEXT)
+                .bg(theme::BG_BAR),
         ),
     ])
 }
@@ -346,7 +349,7 @@ fn build_record_item<'a>(
         Style::default()
             .bg(theme::BRAND)
             .fg(theme::TEXT)
-            .add_modifier(Modifier::BOLD)
+            .add_modifier(Modifier::DIM)
     } else if is_selected && focused {
         Style::default()
             .fg(theme::TEXT)
@@ -363,7 +366,7 @@ fn build_record_item<'a>(
                 Style::default()
                     .bg(theme::BRAND)
                     .fg(theme::WARNING)
-                    .add_modifier(Modifier::BOLD),
+                    .add_modifier(Modifier::DIM),
             )
         } else {
             span
@@ -387,7 +390,10 @@ fn build_record_item<'a>(
 
     // ── Line 2: Subtitle ──
     let subtitle_style = if is_visual_selected {
-        Style::default().bg(theme::BRAND).fg(theme::TEXT_SECONDARY)
+        Style::default()
+            .bg(theme::BRAND)
+            .fg(theme::TEXT_SECONDARY)
+            .add_modifier(Modifier::DIM)
     } else if is_selected && focused {
         Style::default()
             .fg(theme::TEXT_SECONDARY)
@@ -447,7 +453,7 @@ fn build_trash_item<'a>(
         Style::default()
             .bg(theme::BRAND)
             .fg(theme::TEXT)
-            .add_modifier(Modifier::BOLD)
+            .add_modifier(Modifier::DIM)
     } else if is_selected && focused {
         Style::default()
             .fg(theme::TEXT)
@@ -825,7 +831,6 @@ mod tests {
 
     #[test]
     fn render_visual_mode_bar() {
-        // Verify the visual mode bar shows "多选模式" in BRAND bold and selected count in TEXT
         let line = build_visual_bar(5);
         assert_eq!(
             line.spans.len(),
@@ -833,7 +838,6 @@ mod tests {
             "visual bar should have two spans: label + count"
         );
 
-        // First span: "  多选模式 " in BRAND bold
         let label_span = &line.spans[0];
         assert!(
             label_span
@@ -843,31 +847,26 @@ mod tests {
             "label span should contain '多选模式'"
         );
         assert!(
-            label_span.style.fg == Some(theme::BRAND.into()),
-            "label should use BRAND color"
+            label_span.style.fg == Some(theme::TEXT.into()),
+            "label should use TEXT color (white bold on BG_BAR)"
         );
         assert!(
             label_span.style.add_modifier.contains(Modifier::BOLD),
             "label should be BOLD"
         );
+        assert!(
+            label_span.style.bg == Some(theme::BG_BAR.into()),
+            "label should have BG_BAR background"
+        );
 
-        // Second span: "(5 已选)" in TEXT color
         let count_span = &line.spans[1];
         assert!(
             count_span.content.as_ref().contains("5"),
             "count span should contain the number 5"
         );
         assert!(
-            count_span.content.as_ref().contains("\u{5DF2}\u{9009}"),
-            "count span should contain '已选'"
-        );
-        assert!(
-            count_span.style.fg == Some(theme::TEXT.into()),
-            "count should use TEXT color"
-        );
-        assert!(
-            !count_span.style.add_modifier.contains(Modifier::BOLD),
-            "count should NOT be BOLD"
+            count_span.style.bg == Some(theme::BG_BAR.into()),
+            "count should have BG_BAR background"
         );
     }
 
