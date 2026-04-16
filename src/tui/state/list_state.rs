@@ -384,6 +384,82 @@ pub fn format_type_prefix(cred_type: &CredentialType) -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
+// Trash time helpers
+// ---------------------------------------------------------------------------
+
+/// Warning severity tier for trash items based on remaining days before
+/// automatic permanent deletion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrashWarningTier {
+    /// >15 days remaining — no warning color.
+    Safe,
+    /// 15-7 days remaining — single orange warning.
+    Moderate,
+    /// 7-3 days remaining — double orange bold warning.
+    Urgent,
+    /// <3 days remaining — triple red bold warning.
+    Critical,
+}
+
+/// Determine the warning tier based on remaining days.
+pub fn trash_warning_tier(remaining_days: i64) -> TrashWarningTier {
+    if remaining_days > 15 {
+        TrashWarningTier::Safe
+    } else if remaining_days >= 7 {
+        TrashWarningTier::Moderate
+    } else if remaining_days >= 3 {
+        TrashWarningTier::Urgent
+    } else {
+        TrashWarningTier::Critical
+    }
+}
+
+/// Format "X 天前删除" string from the deletion timestamp.
+pub fn format_days_since_deletion(deleted_at: &DateTime<Utc>) -> String {
+    let now = Utc::now();
+    let local_now: chrono::DateTime<Local> = Local.from_utc_datetime(&now.naive_utc());
+    let local_deleted: chrono::DateTime<Local> = Local.from_utc_datetime(&deleted_at.naive_utc());
+
+    let days = (local_now.date_naive() - local_deleted.date_naive()).num_days();
+    format!("{} 天前删除", days.max(0))
+}
+
+/// Format the remaining days string before automatic permanent deletion.
+pub fn format_remaining_days(
+    deleted_at: &DateTime<Utc>,
+    retention_days: u32,
+) -> String {
+    if retention_days == 0 {
+        return "不会自动删除".to_string();
+    }
+
+    let now = Utc::now();
+    let local_now: chrono::DateTime<Local> = Local.from_utc_datetime(&now.naive_utc());
+    let local_deleted: chrono::DateTime<Local> = Local.from_utc_datetime(&deleted_at.naive_utc());
+
+    let days_since = (local_now.date_naive() - local_deleted.date_naive()).num_days();
+    let remaining = (retention_days as i64) - days_since;
+    format!("剩余 {} 天", remaining.max(0))
+}
+
+/// Calculate the number of remaining days before automatic deletion.
+pub fn calculate_remaining_days(
+    deleted_at: &DateTime<Utc>,
+    retention_days: u32,
+) -> Option<i64> {
+    if retention_days == 0 {
+        return None;
+    }
+
+    let now = Utc::now();
+    let local_now: chrono::DateTime<Local> = Local.from_utc_datetime(&now.naive_utc());
+    let local_deleted: chrono::DateTime<Local> = Local.from_utc_datetime(&deleted_at.naive_utc());
+
+    let days_since = (local_now.date_naive() - local_deleted.date_naive()).num_days();
+    Some((retention_days as i64) - days_since)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -707,5 +783,82 @@ mod tests {
         state.selected_index = Some(0);
         state.adjust_scroll();
         assert_eq!(state.scroll_offset, 0);
+    }
+
+    // ── Trash time helper tests ────────────────────────────────────────────
+
+    #[test]
+    fn format_days_since_deletion_today() {
+        let now = Utc::now();
+        let result = format_days_since_deletion(&now);
+        assert_eq!(result, "0 天前删除");
+    }
+
+    #[test]
+    fn format_days_since_deletion_yesterday() {
+        let yesterday = Utc::now() - chrono::Duration::try_days(1).unwrap();
+        let result = format_days_since_deletion(&yesterday);
+        assert_eq!(result, "1 天前删除");
+    }
+
+    #[test]
+    fn format_days_since_deletion_week() {
+        let dt = Utc::now() - chrono::Duration::try_days(7).unwrap();
+        let result = format_days_since_deletion(&dt);
+        assert_eq!(result, "7 天前删除");
+    }
+
+    #[test]
+    fn format_remaining_days_normal() {
+        let deleted_at = Utc::now() - chrono::Duration::try_days(10).unwrap();
+        let retention_days = 30;
+        let result = format_remaining_days(&deleted_at, retention_days);
+        assert!(result.contains("剩余"));
+        assert!(result.contains("天"));
+    }
+
+    #[test]
+    fn format_remaining_days_never_delete() {
+        let deleted_at = Utc::now() - chrono::Duration::try_days(10).unwrap();
+        let result = format_remaining_days(&deleted_at, 0);
+        assert_eq!(result, "不会自动删除");
+    }
+
+    #[test]
+    fn format_remaining_days_expired() {
+        let deleted_at = Utc::now() - chrono::Duration::try_days(31).unwrap();
+        let retention_days = 30;
+        let result = format_remaining_days(&deleted_at, retention_days);
+        assert!(result.contains("剩余"));
+    }
+
+    #[test]
+    fn trash_warning_tier_safe() {
+        let tier = trash_warning_tier(20);
+        assert_eq!(tier, TrashWarningTier::Safe);
+    }
+
+    #[test]
+    fn trash_warning_tier_moderate() {
+        let tier = trash_warning_tier(10);
+        assert_eq!(tier, TrashWarningTier::Moderate);
+    }
+
+    #[test]
+    fn trash_warning_tier_urgent() {
+        let tier = trash_warning_tier(5);
+        assert_eq!(tier, TrashWarningTier::Urgent);
+    }
+
+    #[test]
+    fn trash_warning_tier_critical() {
+        let tier = trash_warning_tier(2);
+        assert_eq!(tier, TrashWarningTier::Critical);
+    }
+
+    #[test]
+    fn trash_warning_tier_zero() {
+        let tier = trash_warning_tier(0);
+        assert_eq!(tier, TrashWarningTier::Critical);
     }
 }
