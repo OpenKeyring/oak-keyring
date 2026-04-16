@@ -1,4 +1,5 @@
 pub mod animation;
+pub mod tag_management;
 pub mod config_state;
 pub mod detail_state;
 pub mod focus;
