@@ -100,7 +100,7 @@ fn handle_message(
         Message::NavigateTo(screen) => {
             let screen = *screen;
             let command_tx = app.command_tx.clone();
-            let ctx = ScreenContext {
+            let mut ctx = ScreenContext {
                 command_tx: &command_tx,
                 config: &app.config,
             };
@@ -108,7 +108,7 @@ fn handle_message(
             route_on_unmount_from_state(&mut app.state);
             app.state.navigate_to(screen);
             // Call on_mount for the new screen.
-            route_on_mount_from_state(&mut app.state, &ctx);
+            route_on_mount_from_state(&mut app.state, &mut ctx);
         }
 
         Message::GoBack => {
@@ -198,11 +198,11 @@ fn handle_message(
                 ScreenResult::NavigateTo(screen) => {
                     route_on_unmount_from_state(&mut app.state);
                     app.state.navigate_to(screen);
-                    let ctx = ScreenContext {
+                    let mut ctx = ScreenContext {
                         command_tx: &app.command_tx,
                         config: &app.config,
                     };
-                    route_on_mount_from_state(&mut app.state, &ctx);
+                    route_on_mount_from_state(&mut app.state, &mut ctx);
                 }
                 ScreenResult::ExitApp => {
                     app.phase = AppPhase::ShuttingDown;
@@ -225,11 +225,11 @@ fn handle_message(
                 ScreenResult::NavigateTo(screen) => {
                     route_on_unmount_from_state(&mut app.state);
                     app.state.navigate_to(screen);
-                    let ctx = ScreenContext {
+                    let mut ctx = ScreenContext {
                         command_tx: &app.command_tx,
                         config: &app.config,
                     };
-                    route_on_mount_from_state(&mut app.state, &ctx);
+                    route_on_mount_from_state(&mut app.state, &mut ctx);
                 }
                 ScreenResult::ExitApp => {
                     app.phase = AppPhase::ShuttingDown;
@@ -263,7 +263,7 @@ fn route_to_screen(
 }
 
 /// Call `on_mount()` on the current screen after navigation.
-fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &ScreenContext<'_>) {
+fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut ScreenContext<'_>) {
     match state.current_screen {
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
         Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
