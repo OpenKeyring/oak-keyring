@@ -6,11 +6,11 @@
 //! - [`TerminalTitleState`] — dynamic terminal window title
 //! - [`MainScreenState`] — root aggregate of all main-screen sub-states
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{layout::Rect, Frame};
 
 use crate::commands::types::{PanelId, RecordFilter, RecordSort, Screen as ScreenEnum};
-use crate::commands::Message;
+use crate::commands::{Command, Message};
 use crate::tui::screens::main::MainScreen;
 use crate::tui::state::detail_state::DetailPanelState;
 use crate::tui::state::list_state::ListPanelState;
@@ -487,6 +487,10 @@ impl MainScreenState {
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
             KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
+            KeyCode::Char('l') => ScreenResult::NavigateTo(ScreenEnum::AuditLog),
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                ScreenResult::Command(Box::new(Command::TriggerSync))
+            }
             _ => ScreenResult::Continue,
         }
     }

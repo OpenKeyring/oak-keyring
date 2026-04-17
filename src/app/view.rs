@@ -36,6 +36,12 @@ pub fn render(frame: &mut Frame, app: &App) {
         Screen::ImportExport => {
             app.state.screens.import_export.view(frame, area);
         }
+        Screen::AuditLog => {
+            app.state.screens.audit_log.view(frame, area);
+        }
+        Screen::SyncConflict => {
+            app.state.screens.sync_conflict.view(frame, area);
+        }
         // Placeholder for unimplemented screens.
         _ => {
             render_placeholder(frame, area, &format!("{:?}", app.state.current_screen));

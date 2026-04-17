@@ -223,6 +223,19 @@ fn handle_message(app: &mut App, msg: Message) -> Result<LoopControl, Box<dyn st
                     };
                     route_on_mount_from_state(&mut app.state, &mut ctx);
                 }
+                ScreenResult::PopScreen => {
+                    route_on_unmount_from_state(&mut app.state);
+                    app.state.go_back();
+                    let command_tx = app.command_tx.clone();
+                    let mut ctx = ScreenContext {
+                        command_tx: &command_tx,
+                        config: &app.config,
+                    };
+                    route_on_mount_from_state(&mut app.state, &mut ctx);
+                }
+                ScreenResult::Command(cmd) => {
+                    let _ = app.command_tx.try_send(*cmd);
+                }
                 ScreenResult::ExitApp => {
                     app.phase = AppPhase::ShuttingDown;
                     app.cancel_token.cancel();
@@ -249,6 +262,19 @@ fn handle_message(app: &mut App, msg: Message) -> Result<LoopControl, Box<dyn st
                         config: &app.config,
                     };
                     route_on_mount_from_state(&mut app.state, &mut ctx);
+                }
+                ScreenResult::PopScreen => {
+                    route_on_unmount_from_state(&mut app.state);
+                    app.state.go_back();
+                    let command_tx = app.command_tx.clone();
+                    let mut ctx = ScreenContext {
+                        command_tx: &command_tx,
+                        config: &app.config,
+                    };
+                    route_on_mount_from_state(&mut app.state, &mut ctx);
+                }
+                ScreenResult::Command(cmd) => {
+                    let _ = app.command_tx.try_send(*cmd);
                 }
                 ScreenResult::ExitApp => {
                     app.phase = AppPhase::ShuttingDown;
@@ -289,6 +315,8 @@ fn route_to_screen(
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.update(msg, ctx),
         Screen::ImportExport => state.screens.import_export.update(msg, ctx),
+        Screen::AuditLog => state.screens.audit_log.update(msg, ctx),
+        Screen::SyncConflict => state.screens.sync_conflict.update(msg, ctx),
         // Placeholder screens — ignore messages.
         _ => ScreenResult::Continue,
     }
@@ -331,6 +359,16 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
             state.shared.screen_focus_stack.push(current_panel);
             state.screens.import_export.on_mount(ctx)
         }
+        Screen::AuditLog => {
+            let current_panel = state.shared.focus.focused_panel;
+            state.shared.screen_focus_stack.push(current_panel);
+            state.screens.audit_log.on_mount(ctx)
+        }
+        Screen::SyncConflict => {
+            let current_panel = state.shared.focus.focused_panel;
+            state.shared.screen_focus_stack.push(current_panel);
+            state.screens.sync_conflict.on_mount(ctx)
+        }
         _ => {}
     }
 }
@@ -361,6 +399,18 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
                 state.shared.focus.focused_panel = panel;
             }
             state.screens.import_export.on_unmount()
+        }
+        Screen::AuditLog => {
+            if let Some(panel) = state.shared.screen_focus_stack.pop() {
+                state.shared.focus.focused_panel = panel;
+            }
+            state.screens.audit_log.on_unmount()
+        }
+        Screen::SyncConflict => {
+            if let Some(panel) = state.shared.screen_focus_stack.pop() {
+                state.shared.focus.focused_panel = panel;
+            }
+            state.screens.sync_conflict.on_unmount()
         }
         _ => {}
     }
