@@ -426,7 +426,7 @@ mod tests {
             ..Default::default()
         };
         let result = screen.handle_tick();
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         // Still locked out — not expired yet
         assert!(matches!(screen.state, UnlockPhase::LockedOut { .. }));
     }
@@ -467,7 +467,7 @@ mod tests {
         let result = screen.handle_command_result(CommandResult::VaultUnlockFailed {
             attempts_remaining: Some(3),
         });
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.failed_attempts, 1);
         assert_eq!(screen.state, UnlockPhase::Failed);
         assert!(screen.error_message.is_some());
@@ -483,7 +483,7 @@ mod tests {
         let result = screen.handle_command_result(CommandResult::VaultUnlockFailed {
             attempts_remaining: None,
         });
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.failed_attempts, 5);
         assert!(matches!(screen.state, UnlockPhase::LockedOut { .. }));
     }

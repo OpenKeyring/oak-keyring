@@ -89,6 +89,47 @@ pub enum Message {
         record_id: Uuid,
     },
 
+    // -- U10 Audit Log ---------------------------------
+    AuditLogLoaded {
+        entries: Vec<crate::types::AuditEntry>,
+        total: usize,
+    },
+
+    // -- U10 Sync UI -----------------------------------
+    SyncTriggered,
+    SyncCompleted {
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    SyncFailed {
+        error: String,
+    },
+    SyncProgress {
+        current: usize,
+        total: usize,
+    },
+
+    // -- U10 Sync Conflict -----------------------------
+    ConflictDetected {
+        count: usize,
+    },
+    ConflictResolved {
+        record_id: Uuid,
+    },
+    AllConflictsResolved {
+        count: usize,
+    },
+
+    // -- U10 DEK Rotation ------------------------------
+    DekRotationStarted,
+    DekRotationProgress {
+        current: usize,
+        total: usize,
+    },
+    DekRotationCompleted,
+    DekRotationFailed {
+        error: String,
+    },
+
     // -- Shutdown ----------------------------------------
     ShutdownRequested {
         force: bool,
@@ -150,6 +191,22 @@ mod exhaustive_tests {
                 Message::DeleteTagFromManagement => {}
                 Message::ImportProgress { .. } => {}
                 Message::NavigateToRecord { .. } => {}
+                // U10 Audit Log
+                Message::AuditLogLoaded { .. } => {}
+                // U10 Sync UI
+                Message::SyncTriggered => {}
+                Message::SyncCompleted { .. } => {}
+                Message::SyncFailed { .. } => {}
+                Message::SyncProgress { .. } => {}
+                // U10 Sync Conflict
+                Message::ConflictDetected { .. } => {}
+                Message::ConflictResolved { .. } => {}
+                Message::AllConflictsResolved { .. } => {}
+                // U10 DEK Rotation
+                Message::DekRotationStarted => {}
+                Message::DekRotationProgress { .. } => {}
+                Message::DekRotationCompleted => {}
+                Message::DekRotationFailed { .. } => {}
                 // Shutdown
                 Message::ShutdownRequested { .. } => {}
             }

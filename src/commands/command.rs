@@ -210,6 +210,10 @@ pub enum Command {
         filter: AuditFilter,
     },
 
+    NavigateToRecord {
+        record_id: Uuid,
+    },
+
     // ── DEK Rotation ─────────────────────────────
     /// Trigger a manual DEK rotation
     TriggerRotation,
@@ -282,6 +286,7 @@ mod exhaustive_tests {
                 Command::TestSyncConnection { .. } => {}
                 // Audit Log
                 Command::LoadAuditLog { .. } => {}
+                Command::NavigateToRecord { .. } => {}
                 // DEK Rotation
                 Command::TriggerRotation => {}
                 Command::CheckRotationTrigger => {}
