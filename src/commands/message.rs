@@ -72,7 +72,10 @@ pub enum Message {
     EnterTagManagement,
     ExitTagManagement,
     RenameTagStart,
-    RenameTagConfirm,
+    RenameTagConfirm {
+        old_name: String,
+        new_name: String,
+    },
     RenameTagCancel,
     CycleTagSort,
     DeleteTagFromManagement,
@@ -141,7 +144,7 @@ mod exhaustive_tests {
                 Message::EnterTagManagement => {}
                 Message::ExitTagManagement => {}
                 Message::RenameTagStart => {}
-                Message::RenameTagConfirm => {}
+                Message::RenameTagConfirm { .. } => {}
                 Message::RenameTagCancel => {}
                 Message::CycleTagSort => {}
                 Message::DeleteTagFromManagement => {}

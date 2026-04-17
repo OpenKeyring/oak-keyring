@@ -189,9 +189,9 @@ impl MainScreen {
                     edit.check_conflict(&existing_tags);
                     if !edit.conflict && !edit.text.trim().is_empty() {
                         let edit_state = state.sidebar.tag_management.take_rename().unwrap();
-                        let _old_name = edit_state.original_name.clone();
-                        let _new_name = edit_state.confirm();
-                        messages.push(Message::RenameTagConfirm);
+                        let old_name = edit_state.original_name.clone();
+                        let new_name = edit_state.confirm();
+                        messages.push(Message::RenameTagConfirm { old_name, new_name });
                     }
                 }
                 KeyCode::Esc => {
