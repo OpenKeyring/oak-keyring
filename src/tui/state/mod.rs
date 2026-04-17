@@ -9,7 +9,9 @@ pub mod list_state;
 pub mod loading;
 pub mod main_state;
 pub mod notification;
+pub mod audit_state;
 pub mod overlay_state;
+pub mod sync_ui_state;
 
 use crate::commands::types::{AppPhase, Screen};
 use crate::tui::screens::change_master_password::ChangeMasterPasswordScreen;
