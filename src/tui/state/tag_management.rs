@@ -123,10 +123,10 @@ impl InlineEditState {
 
     /// Check if the current text conflicts with an existing tag name.
     pub fn check_conflict(&mut self, existing_tags: &[String]) {
-        let trimmed = self.text.trim();
+        let trimmed = self.text.trim().to_lowercase();
         self.conflict = existing_tags
             .iter()
-            .any(|t| t.eq_ignore_ascii_case(trimmed) && *t != self.original_name);
+            .any(|t| t.to_lowercase() == trimmed && *t != self.original_name);
     }
 }
 
