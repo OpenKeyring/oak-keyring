@@ -243,6 +243,9 @@ impl CommandExecutor {
 
             // ── Audit Log ─────────────────────────────────
             Command::LoadAuditLog { filter } => config::handle_load_audit_log(self, filter),
+            Command::NavigateToRecord { record_id } => {
+                record::handle_load_record_detail(self, record_id)
+            }
 
             // ── DEK Rotation ─────────────────────────────
             Command::TriggerRotation => rotation::handle_trigger_rotation(self),

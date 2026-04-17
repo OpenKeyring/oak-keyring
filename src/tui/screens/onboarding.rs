@@ -1052,7 +1052,7 @@ mod tests {
             KeyCode::Char('1'),
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.selected_path, Some(OnboardingPath::CreateNew));
         assert_eq!(screen.current_step, OnboardingStep::VaultPath);
     }
@@ -1064,7 +1064,7 @@ mod tests {
             KeyCode::Char('2'),
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.selected_path, Some(OnboardingPath::Restore));
         assert_eq!(screen.current_step, OnboardingStep::RecoveryInput);
     }
@@ -1076,7 +1076,7 @@ mod tests {
             KeyCode::Char('3'),
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.selected_path, Some(OnboardingPath::Import));
         assert_eq!(screen.current_step, OnboardingStep::ImportSource);
     }
@@ -1088,7 +1088,7 @@ mod tests {
             KeyCode::Esc,
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(result, ScreenResult::ExitApp);
+        assert!(matches!(result, ScreenResult::ExitApp));
     }
 
     #[test]
@@ -1104,7 +1104,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char('/'), crossterm::event::KeyModifiers::NONE),
             &mut dummy_ctx(),
         );
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.path_input, "/");
 
         screen.handle_vault_path_key(
@@ -1132,7 +1132,7 @@ mod tests {
             KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE),
             &mut dummy_ctx(),
         );
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.current_step, OnboardingStep::Welcome);
     }
 
@@ -1290,10 +1290,10 @@ mod tests {
             KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
             &mut dummy_ctx(),
         );
-        assert_eq!(
+        assert!(matches!(
             result,
             ScreenResult::NavigateTo(Screen::SetNewMasterPassword)
-        );
+        ));
     }
 
     #[test]
@@ -1308,7 +1308,7 @@ mod tests {
             KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.current_step, OnboardingStep::SetPassword);
     }
 
@@ -1324,10 +1324,10 @@ mod tests {
             KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(
+        assert!(matches!(
             result,
             ScreenResult::NavigateTo(crate::commands::types::Screen::ImportExport)
-        );
+        ));
     }
 
     #[test]
@@ -1342,7 +1342,7 @@ mod tests {
             KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.current_step, OnboardingStep::VaultPath);
     }
 
@@ -1359,7 +1359,7 @@ mod tests {
             recovery_words: words.clone(),
         });
 
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.current_step, OnboardingStep::RecoveryDisplay);
         assert_eq!(screen.recovery_words, words);
     }
@@ -1374,7 +1374,7 @@ mod tests {
             fallback: "Vault not found".to_string(),
         });
 
-        assert_eq!(result, ScreenResult::Continue);
+        assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.error, Some("Vault not found".to_string()));
     }
 

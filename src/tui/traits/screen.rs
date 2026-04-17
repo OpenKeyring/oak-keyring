@@ -5,10 +5,12 @@ pub struct ScreenContext<'a> {
     pub config: &'a crate::config::AppConfig,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum ScreenResult {
     Continue,
     NavigateTo(crate::commands::types::Screen),
+    PopScreen,
+    Command(Box<crate::commands::Command>),
     ExitApp,
 }
 
