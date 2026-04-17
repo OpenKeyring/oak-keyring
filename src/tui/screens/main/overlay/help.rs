@@ -106,6 +106,10 @@ fn all_groups() -> [ShortcutGroup; 7] {
                     desc: "锁定",
                 },
                 Shortcut {
+                    key: "l",
+                    desc: "审计日志",
+                },
+                Shortcut {
                     key: "q",
                     desc: "退出",
                 },
