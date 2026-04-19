@@ -463,8 +463,9 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.path_input.clear();
         self.error = None;
         self.recovery_confirmed = false;
+        self.recovery_words.zeroize();
         self.recovery_words.clear();
-        self.recovery_grid = WordGridState::default();
+        self.recovery_grid.zeroize();
         self.verify_inputs = std::array::from_fn(|_| String::new());
         self.verify_errors = [false; 4];
         self.verify_positions = [0; 4];
@@ -477,10 +478,12 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.recovery_confirmed = false;
         self.recovery_words.zeroize();
         self.recovery_words.clear();
+        self.recovery_grid.zeroize();
         for input in &mut self.verify_inputs {
             input.zeroize();
             input.clear();
         }
+        self.verify_positions.zeroize();
     }
 }
 
@@ -1402,6 +1405,28 @@ mod tests {
         // Inputs and errors should be reset
         assert!(screen.verify_inputs.iter().all(|s| s.is_empty()));
         assert!(screen.verify_errors.iter().all(|&e| !e));
+    }
+
+    #[test]
+    fn on_unmount_zeroizes_sensitive_data() {
+        use crate::tui::traits::screen::Screen;
+
+        let mut screen = OnboardingScreen::default();
+        screen.path_input = "sensitive/path".to_string();
+        screen.recovery_words = vec!["secret".to_string(); 24];
+        screen.verify_inputs[0] = "secret".to_string();
+        screen.verify_positions = [1, 2, 3, 4];
+        for word in &mut screen.recovery_grid.words {
+            word.push_str("secret");
+        }
+
+        screen.on_unmount();
+
+        assert!(screen.path_input.is_empty());
+        assert!(screen.recovery_words.is_empty());
+        assert!(screen.verify_inputs.iter().all(|s| s.is_empty()));
+        assert!(screen.recovery_grid.words.iter().all(|w| w.is_empty()));
+        assert_eq!(screen.verify_positions, [0, 0, 0, 0]);
     }
 
     /// Helper to create a dummy ScreenContext for tests.
