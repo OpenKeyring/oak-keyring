@@ -8,6 +8,7 @@ use ratatui::layout::Constraint;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Row, Table};
+use zeroize::Zeroize;
 
 use crate::tui::theme::{BORDER, ERROR, PRIMARY, TEXT, TEXT_MUTED, TEXT_SECONDARY};
 
@@ -29,6 +30,20 @@ pub struct WordGridState {
     pub errors: [bool; 24],
     pub focused_index: usize,
     pub mode: WordGridMode,
+}
+
+impl Zeroize for WordGridState {
+    fn zeroize(&mut self) {
+        for word in &mut self.words {
+            word.zeroize();
+            word.clear();
+        }
+        // Review Fix: only zeroize sensitive data ('words').
+        // Non-sensitive fields: reset to defaults instead of using zeroize trait.
+        self.errors = [false; 24];
+        self.focused_index = 0;
+        self.mode = WordGridMode::FullInput;
+    }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -535,5 +550,22 @@ mod tests {
             crossterm::event::KeyModifiers::NONE,
         ));
         assert_eq!(state.words[3], "a");
+    }
+
+    #[test]
+    fn recovery_key_zeroize_resets_state() {
+        let mut state = WordGridState {
+            words: std::array::from_fn(|_| "secret".to_string()),
+            errors: [true; 24],
+            focused_index: 10,
+            mode: WordGridMode::PartialVerify { positions: [1, 2, 3, 4] },
+        };
+
+        state.zeroize();
+
+        assert!(state.words.iter().all(|w| w.is_empty()));
+        assert!(state.errors.iter().all(|&e| !e));
+        assert_eq!(state.focused_index, 0);
+        assert_eq!(state.mode, WordGridMode::FullInput);
     }
 }
