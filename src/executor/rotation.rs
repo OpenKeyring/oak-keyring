@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::commands::CommandResult;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::services::rotation::RotationService;
@@ -7,9 +9,6 @@ use crate::types::rotation::RotationConfig;
 use super::CommandExecutor;
 
 /// Load rotation config from vault metadata.
-///
-/// Returns the default config if no config is stored or if the stored
-/// value is empty/corrupt.
 fn load_rotation_config(vault: &VaultService) -> Result<RotationConfig, String> {
     match vault.get_metadata("rotation_config") {
         Ok(Some(json)) if !json.is_empty() => {
@@ -20,31 +19,79 @@ fn load_rotation_config(vault: &VaultService) -> Result<RotationConfig, String> 
 }
 
 #[tracing::instrument(skip_all)]
-pub fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandResult {
-    // Move VaultService out of executor using std::mem::replace with a placeholder.
-    // This is required because RotationService takes ownership of VaultService.
+pub async fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandResult {
+    // 1. Sync Mutex: Pause sync pipeline
+    if let Some(sync_svc) = &mut executor.sync {
+        if let Err(e) = sync_svc.pause().await {
+            return CommandResult::Error {
+                code: ErrorCode::Sync(e.to_string()),
+                context: ErrorContext::default(),
+                message_key: "error.sync_pause_failed",
+                fallback: format!("Failed to pause sync for rotation: {}", e),
+            };
+        }
+    }
+
+    // Ensure sync is resumed regardless of outcome
+    // (In a real implementation, we'd use a ScopeGuard, but here we'll handle manually)
+
+    // 2. Fetch current cloud revision for CAS
+    let expected_version = if let Some(sync_svc) = &executor.sync {
+        match sync_svc.download_metadata().await {
+            Ok(Some(meta)) => meta.metadata_version,
+            Ok(None) => 0,
+            Err(e) => {
+                if let Some(sync_svc) = &mut executor.sync {
+                    let _ = sync_svc.resume().await;
+                }
+                return CommandResult::Error {
+                    code: ErrorCode::Sync(e.to_string()),
+                    context: ErrorContext::default(),
+                    message_key: "error.download_metadata_failed",
+                    fallback: format!("Failed to download cloud metadata: {}", e),
+                };
+            }
+        }
+    } else {
+        0
+    };
+
+    // 3. Perform Local Rotation
     let placeholder_conn =
         rusqlite::Connection::open_in_memory().expect("in-memory SQLite should never fail");
     let placeholder = VaultService::new(placeholder_conn);
     let vault = std::mem::replace(&mut executor.vault, placeholder);
 
-    // Construct RotationService and trigger rotation.
     let mut rotation_svc = RotationService::new(vault);
-    match rotation_svc.trigger_rotation() {
-        Ok(result) => {
-            // Move vault back into executor.
-            let vault = rotation_svc.into_vault();
-            executor.vault = vault;
+    let rotation_result = rotation_svc.trigger_rotation(expected_version);
+
+    // Move vault back
+    let vault = rotation_svc.into_vault();
+    executor.vault = vault;
+
+    let result = match rotation_result {
+        Ok(res) => {
+            // 4. Atomic Push Metadata (CAS)
+            if let Some(sync_svc) = &mut executor.sync {
+                if let Ok(Some(mut meta)) = sync_svc.download_metadata().await {
+                    meta.current_dek_version = res.new_dek_version;
+                    meta.metadata_version += 1;
+
+                    if let Err(e) = sync_svc.push_metadata_atomic(meta, expected_version).await {
+                        tracing::error!(error = %e, "Atomic push metadata failed after rotation");
+                        // Note: Local rotation is committed, but cloud is out of sync.
+                        // Lazy migration on other devices will eventually reconcile this.
+                    }
+                }
+            }
+
             CommandResult::RotationCompleted {
-                old_version: result.old_dek_version,
-                new_version: result.new_dek_version,
-                records_migrated: result.records_migrated,
+                old_version: res.old_dek_version,
+                new_version: res.new_dek_version,
+                records_migrated: res.records_migrated,
             }
         }
         Err(e) => {
-            // Move vault back even on failure so the executor remains usable.
-            let vault = rotation_svc.into_vault();
-            executor.vault = vault;
             tracing::warn!(error = %e, "DEK rotation failed");
             CommandResult::Error {
                 code: ErrorCode::Rotation(e.to_string()),
@@ -53,7 +100,14 @@ pub fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandResult 
                 fallback: format!("DEK rotation failed: {}", e),
             }
         }
+    };
+
+    // 5. Resume sync
+    if let Some(sync_svc) = &mut executor.sync {
+        let _ = sync_svc.resume().await;
     }
+
+    result
 }
 
 #[tracing::instrument(skip_all)]

@@ -48,7 +48,7 @@ pub async fn handle_unlock_with_recovery_key(
         Ok(()) => {
             // Post-recovery: trigger DEK rotation check (security best practice).
             tracing::info!("Post-recovery: triggering DEK rotation");
-            let rotation_result = super::rotation::handle_trigger_rotation(executor);
+            let rotation_result = super::rotation::handle_trigger_rotation(executor).await;
             if let CommandResult::Error { .. } = &rotation_result {
                 tracing::warn!("Post-recovery DEK rotation failed, vault is still usable");
             }

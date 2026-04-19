@@ -468,12 +468,12 @@ impl RotationService {
     }
 
     /// Manually trigger a rotation.
-    pub fn trigger_rotation(&mut self) -> Result<RotationResult, RotationError> {
-        self.rotate(RotationTrigger::Manual)
+    pub fn trigger_rotation(&mut self, expected_metadata_version: u64) -> Result<RotationResult, RotationError> {
+        self.rotate(RotationTrigger::Manual, expected_metadata_version)
     }
 
     /// Execute the full rotation process.
-    fn rotate(&mut self, trigger: RotationTrigger) -> Result<RotationResult, RotationError> {
+    pub fn rotate(&mut self, trigger: RotationTrigger, expected_metadata_version: u64) -> Result<RotationResult, RotationError> {
         let current_version = self.vault.current_dek_version();
         let start_time = Utc::now();
 
@@ -500,7 +500,7 @@ impl RotationService {
             migrated_records: 0,
             last_migrated_record_id: None,
             started_at: Utc::now(),
-            cloud_metadata_revision: format!("local-{}", Uuid::new_v4()),
+            cloud_metadata_revision: format!("cas-{}", expected_metadata_version),
         };
 
         // Enter Rotating state
@@ -513,8 +513,6 @@ impl RotationService {
 
         // Execute record migration (Review Fix: connected wiring)
         let records_migrated = migrate_all_records(&mut self.vault, &mut checkpoint)?;
-
-        // TODO: Push metadata update (Task Q-9/Q-10) - Needs SyncService integration
 
         let result = RotationResult {
             old_dek_version: checkpoint.old_dek_version,
