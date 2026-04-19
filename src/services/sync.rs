@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use crate::cloud::CloudStorage;
+use crate::cloud::{CloudMetadata, CloudStorage};
 use crate::errors::mapping::sync::SyncError;
 use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::state_machine::SyncStateMachine;
@@ -192,6 +192,44 @@ impl SyncService {
             .await?;
 
         Ok(0)
+    }
+
+    /// Downloads and deserializes cloud metadata.
+    pub async fn download_metadata(&self) -> Result<Option<CloudMetadata>, SyncError> {
+        self.storage.download_metadata().await
+    }
+
+    /// Atomically pushes metadata using CAS.
+    pub async fn push_metadata_atomic(
+        &mut self,
+        metadata: CloudMetadata,
+        expected_version: u64,
+    ) -> Result<(), SyncError> {
+        self.cmd_tx
+            .send(SyncCommand::PushMetadataAtomic {
+                metadata,
+                expected_version,
+            })
+            .await
+            .map_err(|_| SyncError::ProviderError {
+                provider: "sync".to_string(),
+                message: "failed to send PushMetadataAtomic command".to_string(),
+            })?;
+
+        let event = self
+            .wait_for_event(SYNC_TIMEOUT, |event| {
+                matches!(event, SyncEvent::MetadataPushed | SyncEvent::Failed { .. })
+            })
+            .await?;
+
+        match event {
+            SyncEvent::MetadataPushed => Ok(()),
+            SyncEvent::Failed { error, .. } => Err(SyncError::ProviderError {
+                provider: "sync".to_string(),
+                message: error,
+            }),
+            _ => unreachable!(),
+        }
     }
 
     /// Checks cloud storage connectivity.
