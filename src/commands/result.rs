@@ -99,6 +99,7 @@ pub enum CommandResult {
     },
 
     // ── Health Check Results ──────────────────
+    HealthCheckStarted,
     HealthCheckCompleted {
         report: HealthReport,
     },
@@ -242,6 +243,7 @@ mod exhaustive_tests {
                 // Password Generation Results
                 CommandResult::PasswordGenerated { .. } => {}
                 // Health Check Results
+                CommandResult::HealthCheckStarted => {}
                 CommandResult::HealthCheckCompleted { .. } => {}
                 CommandResult::HibpCheckCompleted { .. } => {}
                 // Sync Results

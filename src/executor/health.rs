@@ -1,14 +1,18 @@
 use uuid::Uuid;
 
-use crate::commands::types::FieldSelector;
-use crate::commands::CommandResult;
+use crate::commands::types::{FieldSelector, HealthReport};
+use crate::commands::{CommandResult, Message};
 use crate::errors::{ErrorCode, ErrorContext};
+use crate::services::health::{
+    detect_duplicate_passwords, detect_expired_records, detect_weak_passwords, PasswordEntry,
+};
+use crate::types::credential::CredentialType;
 
 use super::CommandExecutor;
 
 #[tracing::instrument(skip_all)]
 pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult {
-    // Step 1: Fetch all active stored records
+    // Step 1: Fetch all active stored records (fast, local)
     let records = match executor.vault.list_all_stored_records() {
         Ok(r) => r,
         Err(e) => {
@@ -21,24 +25,114 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
         }
     };
 
-    // Step 2: Create a decrypt closure that captures &mut VaultService.
-    // The closure borrows executor.vault mutably (decrypt_field needs &self for
-    // decrypt_field which takes &self). Since executor is already &mut, we can
-    // safely borrow vault through it.
-    let vault = &executor.vault;
-    let decrypt_fn = |id: Uuid| -> Result<crate::types::SecureStr, String> {
-        vault
-            .decrypt_field(id, FieldSelector::Password)
-            .map_err(|e| e.to_string())
-    };
+    // Step 2: Decrypt passwords (relatively fast, local)
+    // We only care about non-deleted Login records for password-based checks.
+    let login_records: Vec<_> = records
+        .iter()
+        .filter(|r| !r.deleted && r.credential_type == CredentialType::Login)
+        .collect();
 
-    // Step 3: Run full health check
-    let report = executor.health.run_full_check(&records, decrypt_fn);
+    let mut entries = Vec::with_capacity(login_records.len());
+    for record in &login_records {
+        match executor.vault.decrypt_field(record.id, FieldSelector::Password) {
+            Ok(password) => entries.push(PasswordEntry {
+                id: record.id,
+                password,
+            }),
+            Err(_) => {
+                // Skip records that fail decryption
+                tracing::debug!(record_id = %record.id, "skipping record: decryption failed");
+            }
+        }
+    }
 
-    // Step 4: Cache the report for future reference
-    executor.health_report = Some(report.clone());
+    // Step 3: Run fast local detections (weak, duplicates, expired)
+    let weak_passwords = detect_weak_passwords(&entries);
+    let duplicate_passwords = detect_duplicate_passwords(&entries);
+    let expired = detect_expired_records(&records);
+    let total_checked = entries.len(); // Fix AC: only count actual decrypted entries
 
-    CommandResult::HealthCheckCompleted { report }
+    // Step 4: Prepare background task for HIBP check (slow, network)
+    let tx = executor.result_tx.clone();
+    let self_tx = executor.internal_tx.clone(); // Self-sender for internal caching
+    let health_service = executor.health.clone();
+    let cancel_token = executor.cancel_token().clone();
+
+    // Spawn the background task for HIBP check and final report assembly
+    tokio::spawn(async move {
+        let mut compromised = Vec::new();
+        let total = entries.len();
+
+        // Security: Use into_iter to ensure each entry (SecureStr) is dropped
+        // and zeroized IMMEDIATELY after its individual check is done.
+        let mut entries_iter = entries.into_iter().enumerate();
+
+        // 100ms rate limit ticker as recommended
+        let mut ticker = tokio::time::interval(std::time::Duration::from_millis(100));
+
+        loop {
+            tokio::select! {
+                biased;
+
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Health check cancelled: clearing remaining memory");
+                    return; // Remaining entries in entries_iter will be dropped/zeroized here
+                }
+                _ = ticker.tick() => {
+                    let (i, entry) = match entries_iter.next() {
+                        Some(val) => val,
+                        None => break, // All done
+                    };
+
+                    // Perform HIBP check via spawn_blocking to avoid blocking runtime
+                    let hs = health_service.clone();
+                    let is_compromised = tokio::task::spawn_blocking(move || {
+                        hs.check_hibp_single(&entry.password)
+                    }).await;
+
+                    match is_compromised {
+                        Ok(Ok(true)) => compromised.push(entry.id),
+                        Ok(Ok(false)) => {}
+                        Ok(Err(e)) => {
+                            tracing::debug!(record_id = %entry.id, error = %e, "HIBP check failed, skipping record");
+                        }
+                        Err(e) => {
+                            tracing::error!(record_id = %entry.id, error = %e, "HIBP task panicked");
+                        }
+                    }
+
+                    // Report progress
+                    if tx.send(Message::HealthCheckProgress {
+                        current: i + 1,
+                        total,
+                    }).await.is_err() {
+                        tracing::warn!("Health check: result channel closed, terminating task");
+                        return; // Security: Exit immediately if UI is gone
+                    }
+                    
+                    // entry is dropped here, triggering zeroize for this specific password
+                }
+            }
+        }
+
+        // Final assembly of the report
+        let report = HealthReport {
+            weak_passwords,
+            duplicate_passwords,
+            compromised,
+            expired,
+            total_checked,
+        };
+
+        // Spec Compliance S5: Send internal signal to Executor to update its cache
+        // This will also trigger the UI message via the Executor's standard execute flow.
+        let _ = self_tx.send(crate::commands::Command::InternalHealthCheckCompleted {
+            report,
+        }).await;
+    });
+
+    // Step 5: Return immediate "Started" result
+    CommandResult::HealthCheckStarted
 }
 
 #[tracing::instrument(skip_all)]

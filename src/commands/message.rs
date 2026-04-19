@@ -130,6 +130,12 @@ pub enum Message {
         error: String,
     },
 
+    // -- Health Check ------------------------------------
+    HealthCheckProgress {
+        current: usize,
+        total: usize,
+    },
+
     // -- Shutdown ----------------------------------------
     ShutdownRequested {
         force: bool,
@@ -207,6 +213,8 @@ mod exhaustive_tests {
                 Message::DekRotationProgress { .. } => {}
                 Message::DekRotationCompleted => {}
                 Message::DekRotationFailed { .. } => {}
+                // Health Check
+                Message::HealthCheckProgress { .. } => {}
                 // Shutdown
                 Message::ShutdownRequested { .. } => {}
             }
