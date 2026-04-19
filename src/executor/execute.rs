@@ -27,8 +27,8 @@ impl CommandExecutor {
         self.post_hook(&result);
 
         // Step 4: Send result
-        if let Err(e) = self.result_tx.send(Message::CommandCompleted(result)).await {
-            tracing::error!(error = %e, "Failed to send command result");
+        if self.result_tx.send(Message::CommandCompleted(result)).await.is_err() {
+            tracing::error!("Failed to send command result: channel closed");
         }
     }
 
@@ -44,6 +44,7 @@ impl CommandExecutor {
                 | Command::UnlockWithRecoveryKey { .. }
                 | Command::InitializeVault { .. }
                 | Command::LoadConfig
+                | Command::InternalHealthCheckCompleted { .. }
         );
 
         if needs_unlock && !self.vault.is_unlocked() {
@@ -60,9 +61,14 @@ impl CommandExecutor {
     /// Post-hook: log errors for observability.
     ///
     /// Records command execution failures as warnings in the structured log.
-    fn post_hook(&self, result: &CommandResult) {
+    fn post_hook(&mut self, result: &CommandResult) {
         if let CommandResult::Error { code, fallback, .. } = result {
             tracing::warn!(error_code = ?code, message = %fallback, "Command execution failed");
+        }
+
+        // Spec S5: Update cached health report on completion
+        if let CommandResult::HealthCheckCompleted { report } = result {
+            self.health_report = Some(report.clone());
         }
     }
 
@@ -81,7 +87,13 @@ impl CommandExecutor {
             Command::UnlockWithRecoveryKey { words } => {
                 vault::handle_unlock_with_recovery_key(self, words).await
             }
-            Command::LockVault => vault::handle_lock(self),
+            Command::LockVault => {
+                // Security: Cancel all background tasks holding decrypted data
+                self.cancel_token.cancel();
+                // Replace with a fresh token for the next unlock session
+                self.cancel_token = tokio_util::sync::CancellationToken::new();
+                vault::handle_lock(self)
+            }
             Command::VerifyMasterPassword { password } => {
                 vault::handle_verify_master_password(self, password)
             }
@@ -250,6 +262,10 @@ impl CommandExecutor {
             // ── DEK Rotation ─────────────────────────────
             Command::TriggerRotation => rotation::handle_trigger_rotation(self),
             Command::CheckRotationTrigger => rotation::handle_check_rotation_trigger(self),
+            // ── Internal ─────────────────────────────────
+            Command::InternalHealthCheckCompleted { report } => {
+                CommandResult::HealthCheckCompleted { report }
+            }
         }
     }
 }

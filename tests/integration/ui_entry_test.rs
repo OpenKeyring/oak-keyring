@@ -17,7 +17,8 @@ use oak_keyring::tui::state::notification::{NotificationState, StatusMessage};
 
 #[test]
 fn app_starts_at_unlock_screen() {
-    let app = App::new(AppConfig::default()).expect("App::new should succeed");
+    let vault_dir = tempfile::tempdir().unwrap();
+    let app = App::new(AppConfig::default(), vault_dir.path().to_path_buf()).expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Unlock);
 }
 

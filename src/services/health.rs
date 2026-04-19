@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
@@ -14,14 +15,14 @@ use crate::types::sensitive::SecureStr;
 
 /// Result of decrypting a single record's password for health checking.
 /// Holds the record ID and decrypted password briefly for analysis.
-struct PasswordEntry {
-    id: Uuid,
-    password: SecureStr,
+pub struct PasswordEntry {
+    pub id: Uuid,
+    pub password: SecureStr,
 }
 
 /// Detect weak passwords among decrypted password entries.
 /// Returns UUIDs of records whose password strength is VeryWeak or Weak.
-fn detect_weak_passwords(entries: &[PasswordEntry]) -> Vec<Uuid> {
+pub fn detect_weak_passwords(entries: &[PasswordEntry]) -> Vec<Uuid> {
     entries
         .iter()
         .filter(|entry| {
@@ -38,7 +39,7 @@ fn detect_weak_passwords(entries: &[PasswordEntry]) -> Vec<Uuid> {
 /// Detect duplicate passwords using SHA-256 hash grouping.
 /// Returns groups of record IDs that share the same password.
 /// Only groups with 2+ members are returned.
-fn detect_duplicate_passwords(entries: &[PasswordEntry]) -> Vec<Vec<Uuid>> {
+pub fn detect_duplicate_passwords(entries: &[PasswordEntry]) -> Vec<Vec<Uuid>> {
     let mut hash_groups: HashMap<[u8; 32], Vec<Uuid>> = HashMap::new();
 
     for entry in entries {
@@ -127,7 +128,7 @@ fn check_hibp_batch(entries: &[PasswordEntry], agent: &ureq::Agent) -> Vec<Uuid>
 
 /// Detect expired records based on `expires_at` field.
 /// No decryption needed — works directly on StoredRecord.
-fn detect_expired_records(records: &[StoredRecord]) -> Vec<Uuid> {
+pub fn detect_expired_records(records: &[StoredRecord]) -> Vec<Uuid> {
     let now = Utc::now();
     records
         .iter()
@@ -162,9 +163,10 @@ pub fn should_run(config: &SecurityConfig, last_check: Option<DateTime<Utc>>) ->
 ///
 /// Provides full health checks (weak + duplicate + HIBP + expired),
 /// single-record HIBP checks, and execution timing control.
+#[derive(Clone)]
 pub struct HealthService {
     /// HTTP agent for HIBP API calls. None = offline mode.
-    http_agent: Option<ureq::Agent>,
+    http_agent: Option<Arc<ureq::Agent>>,
 }
 
 impl Default for HealthService {
@@ -178,7 +180,11 @@ impl HealthService {
     /// Attempts to initialize an HTTP agent for HIBP checks.
     /// If agent creation fails, operates in offline mode (local checks only).
     pub fn new() -> Self {
-        let http_agent = Some(ureq::Agent::new_with_defaults());
+        let config = ureq::config::Config::builder()
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
+            .timeout_connect(Some(std::time::Duration::from_secs(5)))
+            .build();
+        let http_agent = Some(Arc::new(ureq::Agent::new_with_config(config)));
         Self { http_agent }
     }
 
