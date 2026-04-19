@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::commands::types::{FieldSelector, HealthReport};
-use crate::commands::{Command, CommandResult, Message};
+use crate::commands::{CommandResult, Message};
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::services::health::{
     detect_duplicate_passwords, detect_expired_records, detect_weak_passwords, PasswordEntry,
@@ -102,10 +102,10 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
                     }
 
                     // Report progress
-                    if let Err(_) = tx.send(Message::HealthCheckProgress {
+                    if tx.send(Message::HealthCheckProgress {
                         current: i + 1,
                         total,
-                    }).await {
+                    }).await.is_err() {
                         tracing::warn!("Health check: result channel closed, terminating task");
                         return; // Security: Exit immediately if UI is gone
                     }
@@ -125,14 +125,10 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
         };
 
         // Spec Compliance S5: Send internal signal to Executor to update its cache
+        // This will also trigger the UI message via the Executor's standard execute flow.
         let _ = self_tx.send(crate::commands::Command::InternalHealthCheckCompleted {
-            report: report.clone(),
+            report,
         }).await;
-
-        // Notify UI of completion
-        let _ = tx.send(Message::CommandCompleted(
-            CommandResult::HealthCheckCompleted { report }
-        )).await;
     });
 
     // Step 5: Return immediate "Started" result
