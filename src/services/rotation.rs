@@ -438,20 +438,22 @@ impl RotationService {
     /// Resume rotation from an existing checkpoint.
     /// Called automatically on vault unlock if checkpoint is detected.
     pub fn resume_rotation(&mut self) -> Result<RotationResult, RotationError> {
-        let checkpoint = load_checkpoint(&self.vault)?
+        let mut checkpoint = load_checkpoint(&self.vault)?
             .ok_or_else(|| RotationError::Internal("no checkpoint to resume".into()))?;
 
+        let start_time = Utc::now();
         self.state = RotationState::Rotating {
             checkpoint: checkpoint.clone(),
         };
 
-        // TODO: Execute migration from checkpoint (Task Q-7)
+        // Execute migration from checkpoint (Review Fix: connected wiring)
+        let records_migrated = migrate_all_records(&mut self.vault, &mut checkpoint)?;
 
         let result = RotationResult {
             old_dek_version: checkpoint.old_dek_version,
             new_dek_version: checkpoint.new_dek_version,
-            records_migrated: checkpoint.migrated_records,
-            duration_secs: 0,
+            records_migrated,
+            duration_secs: Utc::now().signed_duration_since(start_time).num_seconds() as u64,
             trigger: checkpoint.trigger,
         };
 
@@ -473,6 +475,7 @@ impl RotationService {
     /// Execute the full rotation process.
     fn rotate(&mut self, trigger: RotationTrigger) -> Result<RotationResult, RotationError> {
         let current_version = self.vault.current_dek_version();
+        let start_time = Utc::now();
 
         // Check MAX_DEK_VERSION
         if current_version >= RotationConstants::MAX_DEK_VERSION {
@@ -489,7 +492,7 @@ impl RotationService {
         };
 
         // Create checkpoint
-        let checkpoint = RotationCheckpoint {
+        let mut checkpoint = RotationCheckpoint {
             trigger,
             old_dek_version: current_version,
             new_dek_version: current_version + 1,
@@ -508,14 +511,16 @@ impl RotationService {
         // Save checkpoint for crash recovery
         save_checkpoint(&mut self.vault, &checkpoint)?;
 
-        // TODO: Execute record migration (Task Q-7)
-        // TODO: Push metadata update (Task Q-9/Q-10)
+        // Execute record migration (Review Fix: connected wiring)
+        let records_migrated = migrate_all_records(&mut self.vault, &mut checkpoint)?;
+
+        // TODO: Push metadata update (Task Q-9/Q-10) - Needs SyncService integration
 
         let result = RotationResult {
             old_dek_version: checkpoint.old_dek_version,
             new_dek_version: checkpoint.new_dek_version,
-            records_migrated: 0,
-            duration_secs: 0,
+            records_migrated,
+            duration_secs: Utc::now().signed_duration_since(start_time).num_seconds() as u64,
             trigger,
         };
 
