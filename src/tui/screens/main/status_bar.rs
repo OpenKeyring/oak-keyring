@@ -148,6 +148,37 @@ impl StatusBarPanel {
 
         all_spans.push(Span::styled(SEPARATOR, sep_style));
         all_spans.push(Span::styled(VERSION, version_style));
+
+        // Health Check Progress
+        if let Some((current, total)) = state.health_check_progress {
+            if total > 0 {
+                let percent = (current as f32 / total as f32 * 100.0) as usize;
+                let bar_width: usize = 10;
+                let filled = (percent as f32 / 100.0 * bar_width as f32) as usize;
+                let empty = bar_width.saturating_sub(filled);
+                let (fill_char, empty_char) = if unicode {
+                    ("\u{2588}", "\u{2591}") // █, ░
+                } else {
+                    ("#", "-")
+                };
+                let progress_bar = format!(
+                    " {}{} {}%",
+                    fill_char.repeat(filled),
+                    empty_char.repeat(empty),
+                    percent
+                );
+                all_spans.push(Span::styled(SEPARATOR, sep_style));
+                all_spans.push(Span::styled(
+                    "\u{1F6E1} HIBP: ",
+                    Style::default().fg(theme::BRAND).bg(bar_bg),
+                ));
+                all_spans.push(Span::styled(
+                    progress_bar,
+                    Style::default().fg(theme::PRIMARY).bg(bar_bg),
+                ));
+            }
+        }
+
         all_spans.push(Span::styled(SEPARATOR, sep_style));
         all_spans.push(Span::styled(sync_text, sync_style));
 
