@@ -346,6 +346,8 @@ pub struct StatusBarState {
     pub temp_message_timer: Option<u32>,
     /// Total record count.
     pub record_count: usize,
+    /// Progress of an ongoing health check (current, total).
+    pub health_check_progress: Option<(usize, usize)>,
 }
 
 // ── Terminal Title ───────────────────────────────────────────────────────────
@@ -465,6 +467,26 @@ impl Screen for MainScreenState {
     fn update(&mut self, msg: Message, _ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key),
+            Message::HealthCheckProgress { current, total } => {
+                self.status_bar.health_check_progress = Some((current, total));
+                ScreenResult::Continue
+            }
+            Message::CommandCompleted(result) => {
+                use crate::commands::result::CommandResult;
+                match result {
+                    CommandResult::HealthCheckStarted => {
+                        self.status_bar.health_check_progress = Some((0, 0));
+                        ScreenResult::Continue
+                    }
+                    CommandResult::HealthCheckCompleted { .. } => {
+                        self.status_bar.health_check_progress = None;
+                        // The detail panel will re-render with the new report
+                        // automatically because the entire frame is redrawn.
+                        ScreenResult::Continue
+                    }
+                    _ => ScreenResult::Continue,
+                }
+            }
             _ => ScreenResult::Continue,
         }
     }

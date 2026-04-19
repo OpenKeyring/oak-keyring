@@ -29,11 +29,12 @@ pub struct App {
     pub config: AppConfig,
     pub state: AppState,
     pub phase: AppPhase,
+    /// Path to the vault data directory.
+    pub vault_dir: std::path::PathBuf,
     /// UI -> Executor: send commands from screens to the executor.
     pub command_tx: mpsc::Sender<Command>,
-    /// Receiver half of the command channel (used by executor in later tasks).
-    #[allow(dead_code)]
-    command_rx: mpsc::Receiver<Command>,
+    /// Receiver half of the command channel, taken once in run().
+    command_rx: Option<mpsc::Receiver<Command>>,
     /// Executor → UI: receive results from the executor.
     result_tx: mpsc::Sender<Message>,
     result_rx: mpsc::Receiver<Message>,
@@ -42,7 +43,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(config: AppConfig) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(config: AppConfig, vault_dir: std::path::PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_SIZE);
         let (result_tx, result_rx) = mpsc::channel(RESULT_CHANNEL_SIZE);
         let cancel_token = CancellationToken::new();
@@ -51,18 +52,34 @@ impl App {
             config,
             state: AppState::default(),
             phase: AppPhase::Initializing,
+            vault_dir,
             command_tx,
-            command_rx,
+            command_rx: Some(command_rx),
             result_tx,
             result_rx,
             cancel_token,
         })
     }
 
-    pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Build a tokio runtime for async tasks (signal handler, executor later).
-        let rt = tokio::runtime::Runtime::new()?;
+    pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Build a tokio runtime for async tasks (signal handler, executor).
+        let rt = tokio::runtime::Runtime::new().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
         let _guard = rt.enter();
+
+        // Instantiate and spawn the CommandExecutor.
+        // It consumes command_rx and sends results back via result_tx.
+        if let Some(command_rx) = self.command_rx.take() {
+            let executor = crate::executor::CommandExecutor::new(
+                self.config.clone(),
+                self.vault_dir.clone(),
+                self.result_tx.clone(),
+                self.cancel_token.clone(),
+            )?;
+
+            tokio::spawn(async move {
+                executor.run(command_rx).await;
+            });
+        }
 
         // Terminal setup.
         enable_raw_mode()?;

@@ -25,7 +25,7 @@ const TICK_RATE: Duration = Duration::from_millis(50);
 pub fn run(
     app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Spawn signal handler.
     let _signal_handler = SignalHandler::spawn(app.result_tx.clone());
 
@@ -80,7 +80,7 @@ enum LoopControl {
 }
 
 /// Dispatch a single Message. Returns Exit if the app should shut down.
-fn handle_message(app: &mut App, msg: Message) -> Result<LoopControl, Box<dyn std::error::Error>> {
+fn handle_message(app: &mut App, msg: Message) -> Result<LoopControl, Box<dyn std::error::Error + Send + Sync>> {
     match &msg {
         // -- Shutdown handling (direct) ----
         Message::ShutdownRequested { force } => {

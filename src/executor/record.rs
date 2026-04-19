@@ -141,7 +141,13 @@ pub fn handle_load_record_list(
     sort: RecordSort,
 ) -> CommandResult {
     match executor.vault.list_records(&filter, &sort) {
-        Ok(records) => {
+        Ok(mut records) => {
+            // Spec Compliance: Populate has_weak_password from cached health_report
+            if let Some(report) = &executor.health_report {
+                for record in &mut records {
+                    record.has_weak_password = report.weak_passwords.contains(&record.id);
+                }
+            }
             let total = records.len();
             CommandResult::RecordListLoaded { records, total }
         }

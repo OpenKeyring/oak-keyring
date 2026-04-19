@@ -48,11 +48,16 @@ pub struct CommandExecutor {
     /// Application configuration.
     config: AppConfig,
     /// Path to the vault directory (contains vault.db, config.toml, etc.).
-    vault_dir: PathBuf,
+    pub(super) vault_dir: PathBuf,
     /// Cached health report, updated after health check runs.
-    health_report: Option<HealthReport>,
+    pub(super) health_report: Option<HealthReport>,
     /// Channel for sending messages (results) back to the UI layer.
-    result_tx: mpsc::Sender<Message>,
+    pub(super) result_tx: mpsc::Sender<Message>,
+    /// Internal channel for background tasks to talk back to the executor.
+    /// This prevents closure issues on the main command_rx.
+    pub(super) internal_tx: mpsc::Sender<Command>,
+    /// Internal receiver (temporary storage until run() is called).
+    internal_rx: Option<mpsc::Receiver<Command>>,
     /// Cancellation token for graceful shutdown and operation cancellation.
     cancel_token: CancellationToken,
 }
@@ -97,6 +102,9 @@ impl CommandExecutor {
         // Sync is not yet wired up; will be integrated in Task 22.
         let sync = None;
 
+        // Create internal signaling channel
+        let (internal_tx, internal_rx) = mpsc::channel(64);
+
         info!("CommandExecutor initialized successfully");
 
         Ok(Self {
@@ -109,6 +117,8 @@ impl CommandExecutor {
             vault_dir,
             health_report: None,
             result_tx,
+            internal_tx,
+            internal_rx: Some(internal_rx),
             cancel_token,
         })
     }
@@ -131,6 +141,7 @@ impl CommandExecutor {
     pub async fn run(mut self, mut command_rx: mpsc::Receiver<Command>) {
         info!("CommandExecutor started");
 
+        let mut internal_rx = self.internal_rx.take().expect("internal_rx must be set");
         let mut timers = timer::ExecutorTimers::new(&self.config);
 
         loop {
@@ -153,7 +164,7 @@ impl CommandExecutor {
                     break;
                 }
 
-                // Priority 2: Command processing
+                // Priority 2: Command processing (external)
                 cmd = command_rx.recv() => {
                     match cmd {
                         Some(command) => {
@@ -167,19 +178,27 @@ impl CommandExecutor {
                     }
                 }
 
-                // Priority 3: Auto-sync timer
+                // Priority 3: Internal command processing (background tasks)
+                cmd = internal_rx.recv() => {
+                    if let Some(command) = cmd {
+                        self.execute(command).await;
+                        // No need to reset auto-lock for internal commands
+                    }
+                }
+
+                // Priority 4: Auto-sync timer
                 _ = timer::tick_opt(sync_interval), if sync_active => {
                     info!("Auto-sync timer triggered");
                     self.execute(Command::TriggerSync).await;
                 }
 
-                // Priority 4: Auto-lock timer
+                // Priority 5: Auto-lock timer
                 _ = timer::tick_opt(auto_lock_interval), if auto_lock_active => {
                     info!("Auto-lock timer triggered");
                     self.execute(Command::LockVault).await;
                 }
 
-                // Priority 5: Clipboard clear timer
+                // Priority 6: Clipboard clear timer
                 _ = timer::tick_opt(clipboard_clear_interval) => {
                     info!("Clipboard clear timer triggered");
                     let _ = self.clipboard.clear();
