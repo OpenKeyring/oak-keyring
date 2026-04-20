@@ -13,7 +13,7 @@ fn detail_panel_empty() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, false, true);
+            panel.view(frame, frame.area(), &state, false, true, &[]);
         })
         .unwrap();
 
@@ -75,13 +75,14 @@ fn detail_login_record() {
             },
         ],
         password_strength: Some(PasswordStrength::Strong),
+        deleted_at: None,
     };
     let state = DetailPanelState::with_record(data);
     let panel = DetailPanel;
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true);
+            panel.view(frame, frame.area(), &state, true, true, &[]);
         })
         .unwrap();
 
@@ -129,13 +130,14 @@ fn detail_api_record() {
             },
         ],
         password_strength: None,
+        deleted_at: None,
     };
     let state = DetailPanelState::with_record(data);
     let panel = DetailPanel;
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true);
+            panel.view(frame, frame.area(), &state, true, true, &[]);
         })
         .unwrap();
 
@@ -190,13 +192,14 @@ fn detail_ssh_record() {
             },
         ],
         password_strength: None,
+        deleted_at: None,
     };
     let state = DetailPanelState::with_record(data);
     let panel = DetailPanel;
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true);
+            panel.view(frame, frame.area(), &state, true, true, &[]);
         })
         .unwrap();
 
@@ -245,6 +248,7 @@ fn detail_with_health_compromised() {
             },
         ],
         password_strength: Some(PasswordStrength::VeryWeak),
+        deleted_at: None,
     };
     let mut state = DetailPanelState::with_record(data);
     state.health_issue = Some(HealthIssue::Compromised);
@@ -252,7 +256,7 @@ fn detail_with_health_compromised() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true);
+            panel.view(frame, frame.area(), &state, true, true, &[]);
         })
         .unwrap();
 
@@ -301,6 +305,7 @@ fn detail_with_health_duplicate() {
             },
         ],
         password_strength: None,
+        deleted_at: None,
     };
     let mut state = DetailPanelState::with_record(data);
     state.health_issue = Some(HealthIssue::Duplicate { group_size: 3 });
@@ -308,7 +313,7 @@ fn detail_with_health_duplicate() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true);
+            panel.view(frame, frame.area(), &state, true, true, &[]);
         })
         .unwrap();
 
@@ -370,13 +375,14 @@ fn detail_narrow_width() {
             },
         ],
         password_strength: Some(PasswordStrength::Strong),
+        deleted_at: None,
     };
     let state = DetailPanelState::with_record(data);
     let panel = DetailPanel;
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true);
+            panel.view(frame, frame.area(), &state, true, true, &[]);
         })
         .unwrap();
 
