@@ -195,8 +195,35 @@ impl SyncService {
     }
 
     /// Downloads and deserializes cloud metadata.
-    pub async fn download_metadata(&self) -> Result<Option<CloudMetadata>, SyncError> {
-        self.storage.download_metadata().await
+    ///
+    /// Routes through SyncTask channel so the state machine is aware of
+    /// metadata reads (consistent with push_metadata_atomic).
+    pub async fn download_metadata(&mut self) -> Result<Option<CloudMetadata>, SyncError> {
+        self.cmd_tx
+            .send(SyncCommand::DownloadMetadata)
+            .await
+            .map_err(|_| SyncError::ProviderError {
+                provider: "sync".to_string(),
+                message: "failed to send DownloadMetadata command".to_string(),
+            })?;
+
+        let event = self
+            .wait_for_event(SYNC_TIMEOUT, |event| {
+                matches!(
+                    event,
+                    SyncEvent::MetadataDownloaded(_) | SyncEvent::Failed { .. }
+                )
+            })
+            .await?;
+
+        match event {
+            SyncEvent::MetadataDownloaded(meta) => Ok(meta),
+            SyncEvent::Failed { error, .. } => Err(SyncError::ProviderError {
+                provider: "sync".to_string(),
+                message: error,
+            }),
+            _ => unreachable!(),
+        }
     }
 
     /// Atomically pushes metadata using CAS.

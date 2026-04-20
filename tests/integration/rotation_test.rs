@@ -11,14 +11,13 @@
 //! | AC7 | SYNC_PAUSE_TIMEOUT constant is 30 seconds      | acceptance_sync_pause_timeout_constant_is_30_seconds
 //! | AC8 | cloud version newer -> skip rotation           | acceptance_should_skip_when_cloud_is_newer
 //! | AC9 | grace period boundary at 24h                   | acceptance_grace_period_boundary
-//! | AC10| sync mutex stub executes rotation              | acceptance_sync_mutex_stub_executes_rotation
-//! | AC11| RotationService starts Idle                    | acceptance_rotation_service_starts_idle
-//! | AC12| rotation config defaults (auto_rotate=true, 90d, 1000r) | acceptance_rotation_config_defaults
+//! | AC10| RotationService starts Idle                    | acceptance_rotation_service_starts_idle
+//! | AC11| rotation config defaults (auto_rotate=true, 90d, 1000r) | acceptance_rotation_config_defaults
 
 use oak_keyring::db::schema::{initialize_metadata, initialize_schema};
 use oak_keyring::errors::mapping::rotation::RotationError;
 use oak_keyring::services::rotation::{
-    check_trigger, is_past_grace_period, rotate_with_sync_mutex,
+    check_trigger, is_past_grace_period,
     should_skip_rotation_due_to_cloud_version, RotationService,
 };
 use oak_keyring::services::vault::VaultService;
@@ -194,17 +193,7 @@ fn acceptance_grace_period_boundary() {
 }
 
 // ---------------------------------------------------------------------------
-// AC10: sync mutex stub executes rotation
-// ---------------------------------------------------------------------------
-
-#[test]
-fn acceptance_sync_mutex_stub_executes_rotation() {
-    let result: Result<u32, RotationError> = rotate_with_sync_mutex(|| Ok(42));
-    assert_eq!(result.unwrap(), 42);
-}
-
-// ---------------------------------------------------------------------------
-// AC11: RotationService starts Idle
+// AC10: RotationService starts Idle
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -218,7 +207,7 @@ fn acceptance_rotation_service_starts_idle() {
 }
 
 // ---------------------------------------------------------------------------
-// AC12: rotation config defaults (auto_rotate=true, 90d, 1000r)
+// AC11: rotation config defaults (auto_rotate=true, 90d, 1000r)
 // ---------------------------------------------------------------------------
 
 #[test]

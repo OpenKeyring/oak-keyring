@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::commands::CommandResult;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::services::rotation::RotationService;
@@ -32,11 +30,8 @@ pub async fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandR
         }
     }
 
-    // Ensure sync is resumed regardless of outcome
-    // (In a real implementation, we'd use a ScopeGuard, but here we'll handle manually)
-
     // 2. Fetch current cloud revision for CAS
-    let expected_version = if let Some(sync_svc) = &executor.sync {
+    let expected_version = if let Some(sync_svc) = &mut executor.sync {
         match sync_svc.download_metadata().await {
             Ok(Some(meta)) => meta.metadata_version,
             Ok(None) => 0,
@@ -73,14 +68,37 @@ pub async fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandR
         Ok(res) => {
             // 4. Atomic Push Metadata (CAS)
             if let Some(sync_svc) = &mut executor.sync {
-                if let Ok(Some(mut meta)) = sync_svc.download_metadata().await {
-                    meta.current_dek_version = res.new_dek_version;
-                    meta.metadata_version += 1;
+                match sync_svc.download_metadata().await {
+                    Ok(Some(mut meta)) => {
+                        meta.current_dek_version = res.new_dek_version;
+                        meta.metadata_version += 1;
 
-                    if let Err(e) = sync_svc.push_metadata_atomic(meta, expected_version).await {
-                        tracing::error!(error = %e, "Atomic push metadata failed after rotation");
-                        // Note: Local rotation is committed, but cloud is out of sync.
-                        // Lazy migration on other devices will eventually reconcile this.
+                        if let Err(e) = sync_svc.push_metadata_atomic(meta, expected_version).await {
+                            // CAS push failed — local rotation committed but cloud is out of sync.
+                            // Resume sync before returning error so the pipeline is not stuck paused.
+                            if let Some(sync_svc) = &mut executor.sync {
+                                let _ = sync_svc.resume().await;
+                            }
+                            return CommandResult::Error {
+                                code: ErrorCode::Sync(format!(
+                                    "local rotation succeeded (v{} -> v{}) but cloud metadata push failed: {}",
+                                    res.old_dek_version, res.new_dek_version, e
+                                )),
+                                context: ErrorContext::default(),
+                                message_key: "error.rotation_cas_push_failed",
+                                fallback: format!(
+                                    "DEK rotation succeeded locally but cloud sync failed: {}. \
+                                     Local data is safe. Cloud will reconcile on next sync.",
+                                    e
+                                ),
+                            };
+                        }
+                    }
+                    Ok(None) => {
+                        // No cloud metadata exists — not an error for offline-first design
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to download metadata for CAS push");
                     }
                 }
             }
@@ -98,6 +116,141 @@ pub async fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandR
                 context: ErrorContext::default(),
                 message_key: "error.rotation_failed",
                 fallback: format!("DEK rotation failed: {}", e),
+            }
+        }
+    };
+
+    // 5. Resume sync
+    if let Some(sync_svc) = &mut executor.sync {
+        let _ = sync_svc.resume().await;
+    }
+
+    result
+}
+
+/// Resume an interrupted DEK rotation (crash recovery).
+///
+/// Follows the same sync mutex protocol as `handle_trigger_rotation`:
+/// pause sync → fetch CAS version → resume rotation → atomic push → resume sync.
+#[tracing::instrument(skip_all)]
+pub async fn handle_resume_rotation(executor: &mut CommandExecutor) -> CommandResult {
+    // Check if there's actually a pending checkpoint
+    {
+        let placeholder_conn =
+            rusqlite::Connection::open_in_memory().expect("in-memory SQLite should never fail");
+        let placeholder = VaultService::new(placeholder_conn);
+        let vault = std::mem::replace(&mut executor.vault, placeholder);
+
+        let rotation_svc = RotationService::new(vault);
+        let has_checkpoint = match rotation_svc.has_pending_checkpoint() {
+            Ok(true) => true,
+            _ => false,
+        };
+
+        let vault = rotation_svc.into_vault();
+        executor.vault = vault;
+
+        if !has_checkpoint {
+            return CommandResult::RotationTriggerChecked {
+                should_rotate: false,
+                reason: Some("no_pending_checkpoint".to_string()),
+            };
+        }
+    }
+
+    // 1. Sync Mutex: Pause sync pipeline
+    if let Some(sync_svc) = &mut executor.sync {
+        if let Err(e) = sync_svc.pause().await {
+            return CommandResult::Error {
+                code: ErrorCode::Sync(e.to_string()),
+                context: ErrorContext::default(),
+                message_key: "error.sync_pause_failed",
+                fallback: format!("Failed to pause sync for rotation resume: {}", e),
+            };
+        }
+    }
+
+    // 2. Fetch current cloud revision for CAS
+    let expected_version = if let Some(sync_svc) = &mut executor.sync {
+        match sync_svc.download_metadata().await {
+            Ok(Some(meta)) => meta.metadata_version,
+            Ok(None) => 0,
+            Err(e) => {
+                if let Some(sync_svc) = &mut executor.sync {
+                    let _ = sync_svc.resume().await;
+                }
+                return CommandResult::Error {
+                    code: ErrorCode::Sync(e.to_string()),
+                    context: ErrorContext::default(),
+                    message_key: "error.download_metadata_failed",
+                    fallback: format!("Failed to download cloud metadata for resume: {}", e),
+                };
+            }
+        }
+    } else {
+        0
+    };
+
+    // 3. Resume rotation from checkpoint
+    let placeholder_conn =
+        rusqlite::Connection::open_in_memory().expect("in-memory SQLite should never fail");
+    let placeholder = VaultService::new(placeholder_conn);
+    let vault = std::mem::replace(&mut executor.vault, placeholder);
+
+    let mut rotation_svc = RotationService::new(vault);
+    let rotation_result = rotation_svc.resume_rotation();
+
+    let vault = rotation_svc.into_vault();
+    executor.vault = vault;
+
+    let result = match rotation_result {
+        Ok(res) => {
+            // 4. Atomic Push Metadata (CAS)
+            if let Some(sync_svc) = &mut executor.sync {
+                match sync_svc.download_metadata().await {
+                    Ok(Some(mut meta)) => {
+                        meta.current_dek_version = res.new_dek_version;
+                        meta.metadata_version += 1;
+
+                        if let Err(e) = sync_svc.push_metadata_atomic(meta, expected_version).await {
+                            if let Some(sync_svc) = &mut executor.sync {
+                                let _ = sync_svc.resume().await;
+                            }
+                            return CommandResult::Error {
+                                code: ErrorCode::Sync(format!(
+                                    "rotation resume succeeded (v{} -> v{}) but cloud metadata push failed: {}",
+                                    res.old_dek_version, res.new_dek_version, e
+                                )),
+                                context: ErrorContext::default(),
+                                message_key: "error.rotation_cas_push_failed",
+                                fallback: format!(
+                                    "DEK rotation resumed successfully locally but cloud sync failed: {}. \
+                                     Local data is safe. Cloud will reconcile on next sync.",
+                                    e
+                                ),
+                            };
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to download metadata for CAS push during resume");
+                    }
+                }
+            }
+
+            CommandResult::RotationCompleted {
+                old_version: res.old_dek_version,
+                new_version: res.new_dek_version,
+                records_migrated: res.records_migrated,
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "DEK rotation resume failed");
+            CommandResult::Error {
+                code: ErrorCode::Rotation(e.to_string()),
+                context: ErrorContext::default(),
+                message_key: "error.rotation_resume_failed",
+                fallback: format!("DEK rotation resume failed: {}", e),
             }
         }
     };
