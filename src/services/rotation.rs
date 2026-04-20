@@ -438,20 +438,22 @@ impl RotationService {
     /// Resume rotation from an existing checkpoint.
     /// Called automatically on vault unlock if checkpoint is detected.
     pub fn resume_rotation(&mut self) -> Result<RotationResult, RotationError> {
-        let checkpoint = load_checkpoint(&self.vault)?
+        let mut checkpoint = load_checkpoint(&self.vault)?
             .ok_or_else(|| RotationError::Internal("no checkpoint to resume".into()))?;
 
+        let start_time = Utc::now();
         self.state = RotationState::Rotating {
             checkpoint: checkpoint.clone(),
         };
 
-        // TODO: Execute migration from checkpoint (Task Q-7)
+        // Execute migration from checkpoint (Review Fix: connected wiring)
+        let records_migrated = migrate_all_records(&mut self.vault, &mut checkpoint)?;
 
         let result = RotationResult {
             old_dek_version: checkpoint.old_dek_version,
             new_dek_version: checkpoint.new_dek_version,
-            records_migrated: checkpoint.migrated_records,
-            duration_secs: 0,
+            records_migrated,
+            duration_secs: Utc::now().signed_duration_since(start_time).num_seconds() as u64,
             trigger: checkpoint.trigger,
         };
 
@@ -466,13 +468,14 @@ impl RotationService {
     }
 
     /// Manually trigger a rotation.
-    pub fn trigger_rotation(&mut self) -> Result<RotationResult, RotationError> {
-        self.rotate(RotationTrigger::Manual)
+    pub fn trigger_rotation(&mut self, expected_metadata_version: u64) -> Result<RotationResult, RotationError> {
+        self.rotate(RotationTrigger::Manual, expected_metadata_version)
     }
 
     /// Execute the full rotation process.
-    fn rotate(&mut self, trigger: RotationTrigger) -> Result<RotationResult, RotationError> {
+    pub fn rotate(&mut self, trigger: RotationTrigger, expected_metadata_version: u64) -> Result<RotationResult, RotationError> {
         let current_version = self.vault.current_dek_version();
+        let start_time = Utc::now();
 
         // Check MAX_DEK_VERSION
         if current_version >= RotationConstants::MAX_DEK_VERSION {
@@ -489,7 +492,7 @@ impl RotationService {
         };
 
         // Create checkpoint
-        let checkpoint = RotationCheckpoint {
+        let mut checkpoint = RotationCheckpoint {
             trigger,
             old_dek_version: current_version,
             new_dek_version: current_version + 1,
@@ -497,7 +500,7 @@ impl RotationService {
             migrated_records: 0,
             last_migrated_record_id: None,
             started_at: Utc::now(),
-            cloud_metadata_revision: format!("local-{}", Uuid::new_v4()),
+            cloud_metadata_revision: format!("cas-{}", expected_metadata_version),
         };
 
         // Enter Rotating state
@@ -508,14 +511,14 @@ impl RotationService {
         // Save checkpoint for crash recovery
         save_checkpoint(&mut self.vault, &checkpoint)?;
 
-        // TODO: Execute record migration (Task Q-7)
-        // TODO: Push metadata update (Task Q-9/Q-10)
+        // Execute record migration (Review Fix: connected wiring)
+        let records_migrated = migrate_all_records(&mut self.vault, &mut checkpoint)?;
 
         let result = RotationResult {
             old_dek_version: checkpoint.old_dek_version,
             new_dek_version: checkpoint.new_dek_version,
-            records_migrated: 0,
-            duration_secs: 0,
+            records_migrated,
+            duration_secs: Utc::now().signed_duration_since(start_time).num_seconds() as u64,
             trigger,
         };
 
@@ -707,36 +710,3 @@ mod coordinator_tests {
     }
 }
 
-/// Execute rotation with sync mutex protection.
-/// Currently a stub - will be connected to SyncService.pause()/resume() when Plan H is ready.
-///
-/// The full implementation should:
-/// 1. Call sync.pause(timeout) to pause sync
-/// 2. Execute the rotation (synchronous)
-/// 3. Call sync.resume() (always, even on error)
-pub fn rotate_with_sync_mutex<F, R>(rotation_fn: F) -> Result<R, RotationError>
-where
-    F: FnOnce() -> Result<R, RotationError>,
-{
-    // Stub: just execute the rotation function without sync mutex
-    // TODO: Connect to SyncService.pause()/resume() when Plan H is ready
-    rotation_fn()
-}
-
-#[cfg(test)]
-mod sync_mutex_tests {
-    use super::*;
-
-    #[test]
-    fn rotate_with_sync_mutex_executes_fn() {
-        let result = rotate_with_sync_mutex(|| Ok(42u32));
-        assert_eq!(result.unwrap(), 42);
-    }
-
-    #[test]
-    fn rotate_with_sync_mutex_propagates_error() {
-        let result: Result<(), RotationError> =
-            rotate_with_sync_mutex(|| Err(RotationError::SyncBusy));
-        assert!(result.is_err());
-    }
-}

@@ -100,6 +100,45 @@ impl CloudStorage {
         }
     }
 
+    /// Uploads metadata only if the remote metadata_version matches the expected one.
+    /// This provides CAS (Compare-And-Swap) behavior for multi-device coordination.
+    /// Uploads metadata only if the remote metadata_version matches the expected one.
+    /// This provides CAS (Compare-And-Swap) behavior for multi-device coordination.
+    ///
+    /// Note: The read-check-write sequence is not atomic over the wire. Between the
+    /// version check and the upload, another device could push metadata. This is an
+    /// inherent limitation of cloud object storage without conditional write support.
+    pub async fn push_metadata_atomic(
+        &self,
+        metadata: &CloudMetadata,
+        expected_version: u64,
+    ) -> Result<(), SyncError> {
+        // 1. Download current metadata to check version
+        match self.download_metadata().await? {
+            Some(remote) => {
+                if remote.metadata_version != expected_version {
+                    return Err(SyncError::LockAcquireFailed {
+                        reason: format!(
+                            "metadata version mismatch: expected {}, found {}",
+                            expected_version, remote.metadata_version
+                        ),
+                    });
+                }
+            }
+            None => {
+                // If it doesn't exist, we can only push if we expected version 0 or it's a fresh push
+                if expected_version != 0 {
+                    return Err(SyncError::RecordNotFound {
+                        record_id: METADATA_FILENAME.to_string(),
+                    });
+                }
+            }
+        }
+
+        // 2. Perform the upload
+        self.upload_metadata(metadata).await
+    }
+
     /// Uploads a record with atomic write (temp + rename).
     pub async fn upload_record(
         &self,
@@ -669,5 +708,72 @@ mod tests {
     #[tokio::test]
     async fn test_extract_record_id_empty_id() {
         assert_eq!(extract_record_id("records/.json"), None);
+    }
+
+    // ── push_metadata_atomic tests ───────────────────────────────────
+
+    #[tokio::test]
+    async fn test_push_metadata_atomic_succeeds_when_version_matches() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = test_storage_fs(&temp_dir);
+        let mut metadata = create_test_metadata();
+
+        // Initial upload — metadata_version starts at 1
+        storage.upload_metadata(&metadata).await.unwrap();
+        let expected_version = metadata.metadata_version;
+
+        // CAS push with matching version should succeed
+        metadata.metadata_version += 1;
+        storage
+            .push_metadata_atomic(&metadata, expected_version)
+            .await
+            .unwrap();
+
+        // Verify the push took effect
+        let downloaded = storage.download_metadata().await.unwrap().unwrap();
+        assert_eq!(downloaded.metadata_version, expected_version + 1);
+    }
+
+    #[tokio::test]
+    async fn test_push_metadata_atomic_fails_on_version_mismatch() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = test_storage_fs(&temp_dir);
+        let metadata = create_test_metadata();
+
+        storage.upload_metadata(&metadata).await.unwrap();
+
+        // CAS push with wrong version should fail
+        let result = storage.push_metadata_atomic(&metadata, 999).await;
+        assert!(result.is_err(), "CAS push with wrong version should fail");
+    }
+
+    #[tokio::test]
+    async fn test_push_metadata_atomic_succeeds_when_no_remote_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = test_storage_fs(&temp_dir);
+        let metadata = create_test_metadata();
+
+        // No remote metadata — push with expected_version=0 should succeed
+        storage
+            .push_metadata_atomic(&metadata, 0)
+            .await
+            .unwrap();
+
+        let downloaded = storage.download_metadata().await.unwrap().unwrap();
+        assert_eq!(downloaded.metadata_version, metadata.metadata_version);
+    }
+
+    #[tokio::test]
+    async fn test_push_metadata_atomic_fails_when_no_remote_and_nonzero_version() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = test_storage_fs(&temp_dir);
+        let metadata = create_test_metadata();
+
+        // No remote metadata but expected_version=5 should fail
+        let result = storage.push_metadata_atomic(&metadata, 5).await;
+        assert!(
+            result.is_err(),
+            "CAS push with nonzero version but no remote should fail"
+        );
     }
 }

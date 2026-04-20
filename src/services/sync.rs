@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use crate::cloud::CloudStorage;
+use crate::cloud::{CloudMetadata, CloudStorage};
 use crate::errors::mapping::sync::SyncError;
 use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::state_machine::SyncStateMachine;
@@ -192,6 +192,71 @@ impl SyncService {
             .await?;
 
         Ok(0)
+    }
+
+    /// Downloads and deserializes cloud metadata.
+    ///
+    /// Routes through SyncTask channel so the state machine is aware of
+    /// metadata reads (consistent with push_metadata_atomic).
+    pub async fn download_metadata(&mut self) -> Result<Option<CloudMetadata>, SyncError> {
+        self.cmd_tx
+            .send(SyncCommand::DownloadMetadata)
+            .await
+            .map_err(|_| SyncError::ProviderError {
+                provider: "sync".to_string(),
+                message: "failed to send DownloadMetadata command".to_string(),
+            })?;
+
+        let event = self
+            .wait_for_event(SYNC_TIMEOUT, |event| {
+                matches!(
+                    event,
+                    SyncEvent::MetadataDownloaded(_) | SyncEvent::Failed { .. }
+                )
+            })
+            .await?;
+
+        match event {
+            SyncEvent::MetadataDownloaded(meta) => Ok(meta),
+            SyncEvent::Failed { error, .. } => Err(SyncError::ProviderError {
+                provider: "sync".to_string(),
+                message: error,
+            }),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Atomically pushes metadata using CAS.
+    pub async fn push_metadata_atomic(
+        &mut self,
+        metadata: CloudMetadata,
+        expected_version: u64,
+    ) -> Result<(), SyncError> {
+        self.cmd_tx
+            .send(SyncCommand::PushMetadataAtomic {
+                metadata,
+                expected_version,
+            })
+            .await
+            .map_err(|_| SyncError::ProviderError {
+                provider: "sync".to_string(),
+                message: "failed to send PushMetadataAtomic command".to_string(),
+            })?;
+
+        let event = self
+            .wait_for_event(SYNC_TIMEOUT, |event| {
+                matches!(event, SyncEvent::MetadataPushed | SyncEvent::Failed { .. })
+            })
+            .await?;
+
+        match event {
+            SyncEvent::MetadataPushed => Ok(()),
+            SyncEvent::Failed { error, .. } => Err(SyncError::ProviderError {
+                provider: "sync".to_string(),
+                message: error,
+            }),
+            _ => unreachable!(),
+        }
     }
 
     /// Checks cloud storage connectivity.
