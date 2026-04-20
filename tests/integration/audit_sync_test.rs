@@ -3,8 +3,8 @@
 //! Covers: AuditLogScreen navigation/filtering, SyncConflictScreen resolution,
 //! SyncIndicator rendering, debounce logic, and SyncQueueState deferral.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use chrono::Utc;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use uuid::Uuid;
 
 use oak_keyring::commands::types::ConflictResolution;
@@ -13,12 +13,10 @@ use oak_keyring::config::AppConfig;
 use oak_keyring::tui::screens::audit_log::AuditLogScreen;
 use oak_keyring::tui::screens::sync_conflict::SyncConflictScreen;
 use oak_keyring::tui::screens::Screen;
-use oak_keyring::tui::state::audit_state::{
-    AuditFocus, AuditLogScreenState, AuditOperationFilter,
-};
+use oak_keyring::tui::state::audit_state::{AuditFocus, AuditLogScreenState, AuditOperationFilter};
 use oak_keyring::tui::state::sync_ui_state::{
-    ConflictDisplay, ConflictField, ConflictSide,
-    SyncDisplayStatus, SyncIndicatorState, SyncProgress, SyncQueueState,
+    ConflictDisplay, ConflictField, ConflictSide, SyncDisplayStatus, SyncIndicatorState,
+    SyncProgress, SyncQueueState,
 };
 use oak_keyring::tui::traits::screen::{ScreenContext, ScreenResult};
 use oak_keyring::types::{AuditEntry, AuditOperation};
@@ -566,12 +564,12 @@ fn test_sync_indicator_animation_frames() {
 
 #[test]
 fn test_sync_indicator_all_status_icons() {
-    assert_eq!(SyncDisplayStatus::Synced.icon(), "\u{2713}");       // checkmark
-    assert_eq!(SyncDisplayStatus::Syncing.icon(), "\u{27F3}");      // clockwise arrow
-    assert_eq!(SyncDisplayStatus::Failed.icon(), "\u{2717}");       // cross mark
+    assert_eq!(SyncDisplayStatus::Synced.icon(), "\u{2713}"); // checkmark
+    assert_eq!(SyncDisplayStatus::Syncing.icon(), "\u{27F3}"); // clockwise arrow
+    assert_eq!(SyncDisplayStatus::Failed.icon(), "\u{2717}"); // cross mark
     assert_eq!(SyncDisplayStatus::NotConfigured.icon(), "\u{2014}"); // em dash
-    assert_eq!(SyncDisplayStatus::Offline.icon(), "\u{25D0}");      // circle with left half
-    assert_eq!(SyncDisplayStatus::Rotating.icon(), "\u{27F2}");     // anticlockwise arrow
+    assert_eq!(SyncDisplayStatus::Offline.icon(), "\u{25D0}"); // circle with left half
+    assert_eq!(SyncDisplayStatus::Rotating.icon(), "\u{27F2}"); // anticlockwise arrow
 }
 
 // ── 19. test_sync_indicator_detail_text ────────────────────────────────────────
@@ -599,7 +597,10 @@ fn test_sync_indicator_detail_text() {
     // Syncing with progress
     let state = SyncIndicatorState {
         status: SyncDisplayStatus::Syncing,
-        progress: Some(SyncProgress { current: 3, total: 10 }),
+        progress: Some(SyncProgress {
+            current: 3,
+            total: 10,
+        }),
         ..Default::default()
     };
     assert_eq!(state.progress.as_ref().unwrap().current, 3);
@@ -628,7 +629,10 @@ fn test_sync_indicator_detail_text() {
     // Rotating with progress
     let state = SyncIndicatorState {
         status: SyncDisplayStatus::Rotating,
-        progress: Some(SyncProgress { current: 50, total: 100 }),
+        progress: Some(SyncProgress {
+            current: 50,
+            total: 100,
+        }),
         ..Default::default()
     };
     assert_eq!(state.progress.as_ref().unwrap().current, 50);

@@ -80,7 +80,10 @@ enum LoopControl {
 }
 
 /// Dispatch a single Message. Returns Exit if the app should shut down.
-fn handle_message(app: &mut App, msg: Message) -> Result<LoopControl, Box<dyn std::error::Error + Send + Sync>> {
+fn handle_message(
+    app: &mut App,
+    msg: Message,
+) -> Result<LoopControl, Box<dyn std::error::Error + Send + Sync>> {
     match &msg {
         // -- Shutdown handling (direct) ----
         Message::ShutdownRequested { force } => {

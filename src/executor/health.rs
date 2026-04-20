@@ -34,7 +34,10 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
 
     let mut entries = Vec::with_capacity(login_records.len());
     for record in &login_records {
-        match executor.vault.decrypt_field(record.id, FieldSelector::Password) {
+        match executor
+            .vault
+            .decrypt_field(record.id, FieldSelector::Password)
+        {
             Ok(password) => entries.push(PasswordEntry {
                 id: record.id,
                 password,
@@ -109,7 +112,7 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
                         tracing::warn!("Health check: result channel closed, terminating task");
                         return; // Security: Exit immediately if UI is gone
                     }
-                    
+
                     // entry is dropped here, triggering zeroize for this specific password
                 }
             }
@@ -126,9 +129,9 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
 
         // Spec Compliance S5: Send internal signal to Executor to update its cache
         // This will also trigger the UI message via the Executor's standard execute flow.
-        let _ = self_tx.send(crate::commands::Command::InternalHealthCheckCompleted {
-            report,
-        }).await;
+        let _ = self_tx
+            .send(crate::commands::Command::InternalHealthCheckCompleted { report })
+            .await;
     });
 
     // Step 5: Return immediate "Started" result

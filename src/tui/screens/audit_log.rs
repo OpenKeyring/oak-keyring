@@ -181,7 +181,9 @@ impl AuditLogScreen {
     /// Dispatch a LoadAuditLog command with the current filter state.
     fn reload(&self, ctx: &mut ScreenContext) {
         let cmd_filter = self.build_cmd_filter();
-        let _ = ctx.command_tx.try_send(Command::LoadAuditLog { filter: cmd_filter });
+        let _ = ctx
+            .command_tx
+            .try_send(Command::LoadAuditLog { filter: cmd_filter });
     }
 
     // ── Key handling ─────────────────────────────────────────────────────
@@ -385,7 +387,10 @@ impl AuditLogScreen {
         let line = Line::from(vec![
             Span::styled(
                 title_text,
-                Style::default().bg(BG_BAR).fg(TEXT).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .bg(BG_BAR)
+                    .fg(TEXT)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:>width$}", count_text, width = area.width as usize - 24),
@@ -422,8 +427,7 @@ impl AuditLogScreen {
             .borders(Borders::ALL)
             .border_style(op_border)
             .title(" 类型 ");
-        let op_text = Paragraph::new(format!(" {}", op_name))
-            .style(Style::default().fg(TEXT));
+        let op_text = Paragraph::new(format!(" {}", op_name)).style(Style::default().fg(TEXT));
         frame.render_widget(op_block, columns[0]);
         let inner = Layout::default()
             .direction(Direction::Vertical)
@@ -447,8 +451,7 @@ impl AuditLogScreen {
             .borders(Borders::ALL)
             .border_style(time_border)
             .title(" 时间 ");
-        let time_text = Paragraph::new(format!(" {}", time_name))
-            .style(Style::default().fg(TEXT));
+        let time_text = Paragraph::new(format!(" {}", time_name)).style(Style::default().fg(TEXT));
         frame.render_widget(time_block, columns[1]);
         let inner = Layout::default()
             .direction(Direction::Vertical)
@@ -512,20 +515,14 @@ impl AuditLogScreen {
                 let op_name = operation_display_name(&entry.operation);
                 let op_color = operation_color(&entry.operation);
                 let timestamp = format_timestamp(&entry.occurred_at);
-                let record_name = entry
-                    .record_name
-                    .as_deref()
-                    .unwrap_or("(无记录名)");
+                let record_name = entry.record_name.as_deref().unwrap_or("(无记录名)");
 
                 let mut spans = vec![
                     Span::styled(
                         format!(" {} ", timestamp),
                         Style::default().fg(TEXT_SECONDARY),
                     ),
-                    Span::styled(
-                        format!("[{:6}]", op_name),
-                        Style::default().fg(op_color),
-                    ),
+                    Span::styled(format!("[{:6}]", op_name), Style::default().fg(op_color)),
                     Span::styled(
                         format!(" {}", record_name),
                         if is_selected {
@@ -583,10 +580,7 @@ impl AuditLogScreen {
         };
 
         let line = Line::from(vec![
-            Span::styled(
-                format!(" {} ", icon),
-                Style::default().fg(theme::WARNING),
-            ),
+            Span::styled(format!(" {} ", icon), Style::default().fg(theme::WARNING)),
             Span::styled(message, Style::default().fg(TEXT_MUTED)),
         ]);
 
@@ -630,10 +624,7 @@ impl AuditLogScreen {
         // Also show the hint message if any
         let line = if let Some(ref msg) = self.state.hint_message {
             Line::from(vec![
-                Span::styled(
-                    format!(" {} ", hint_text),
-                    Style::default().fg(TEXT_MUTED),
-                ),
+                Span::styled(format!(" {} ", hint_text), Style::default().fg(TEXT_MUTED)),
                 Span::styled(
                     format!("  {} {}", theme::ICON_INFO, msg),
                     Style::default().fg(theme::INFO),
@@ -766,7 +757,6 @@ impl AuditLogScreen {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn new_screen_has_sensible_defaults() {

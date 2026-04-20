@@ -468,12 +468,19 @@ impl RotationService {
     }
 
     /// Manually trigger a rotation.
-    pub fn trigger_rotation(&mut self, expected_metadata_version: u64) -> Result<RotationResult, RotationError> {
+    pub fn trigger_rotation(
+        &mut self,
+        expected_metadata_version: u64,
+    ) -> Result<RotationResult, RotationError> {
         self.rotate(RotationTrigger::Manual, expected_metadata_version)
     }
 
     /// Execute the full rotation process.
-    pub fn rotate(&mut self, trigger: RotationTrigger, expected_metadata_version: u64) -> Result<RotationResult, RotationError> {
+    pub fn rotate(
+        &mut self,
+        trigger: RotationTrigger,
+        expected_metadata_version: u64,
+    ) -> Result<RotationResult, RotationError> {
         let current_version = self.vault.current_dek_version();
         let start_time = Utc::now();
 
@@ -709,4 +716,3 @@ mod coordinator_tests {
         assert!(!should_skip_rotation_due_to_cloud_version(1, 1));
     }
 }
-

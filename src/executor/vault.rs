@@ -50,8 +50,7 @@ pub async fn handle_unlock_with_recovery_key(
             // Prefer resume_rotation if a checkpoint exists (crash recovery),
             // otherwise trigger a fresh rotation (security best practice).
             tracing::info!("Post-recovery: checking for interrupted rotation");
-            let rotation_result =
-                super::rotation::handle_resume_rotation(executor).await;
+            let rotation_result = super::rotation::handle_resume_rotation(executor).await;
             if let CommandResult::RotationTriggerChecked { .. } = &rotation_result {
                 // No pending checkpoint — trigger fresh rotation
                 tracing::info!("No pending checkpoint, triggering fresh DEK rotation");

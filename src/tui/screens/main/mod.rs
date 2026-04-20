@@ -11,7 +11,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::commands::types::{ConfirmButton, ConfirmDialogState, ConfirmVariant, Overlay, BatchTagPanelState, PanelId, RecordFilter};
+use crate::commands::types::{
+    BatchTagPanelState, ConfirmButton, ConfirmDialogState, ConfirmVariant, Overlay, PanelId,
+    RecordFilter,
+};
 use crate::commands::Message;
 use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, PANEL_SEPARATOR};
 use crate::tui::screens::main::sidebar::SidebarPanel;
@@ -166,21 +169,43 @@ impl MainScreen {
         let mut overlay = None;
 
         // If inline rename is active, route all keys to it first
-        if state.sidebar.is_tag_management()
-            && state.sidebar.tag_management.is_renaming()
-        {
+        if state.sidebar.is_tag_management() && state.sidebar.tag_management.is_renaming() {
             match key.code {
                 KeyCode::Char(c) => {
-                    state.sidebar.tag_management.inline_edit.as_mut().unwrap().insert_char(c);
+                    state
+                        .sidebar
+                        .tag_management
+                        .inline_edit
+                        .as_mut()
+                        .unwrap()
+                        .insert_char(c);
                 }
                 KeyCode::Backspace => {
-                    state.sidebar.tag_management.inline_edit.as_mut().unwrap().backspace();
+                    state
+                        .sidebar
+                        .tag_management
+                        .inline_edit
+                        .as_mut()
+                        .unwrap()
+                        .backspace();
                 }
                 KeyCode::Left => {
-                    state.sidebar.tag_management.inline_edit.as_mut().unwrap().cursor_left();
+                    state
+                        .sidebar
+                        .tag_management
+                        .inline_edit
+                        .as_mut()
+                        .unwrap()
+                        .cursor_left();
                 }
                 KeyCode::Right => {
-                    state.sidebar.tag_management.inline_edit.as_mut().unwrap().cursor_right();
+                    state
+                        .sidebar
+                        .tag_management
+                        .inline_edit
+                        .as_mut()
+                        .unwrap()
+                        .cursor_right();
                 }
                 KeyCode::Enter => {
                     let existing_tags: Vec<String> =
@@ -204,190 +229,186 @@ impl MainScreen {
         }
 
         match focused_panel {
-            PanelId::List => {
-                match key.code {
-                    KeyCode::Char('v') => {
-                        if state.list.is_visual() {
-                            state.list.exit_visual();
-                            messages.push(Message::ExitVisualMode);
-                        } else if !state.list.is_searching() {
-                            state.list.enter_visual();
-                            messages.push(Message::EnterVisualMode);
-                        }
+            PanelId::List => match key.code {
+                KeyCode::Char('v') => {
+                    if state.list.is_visual() {
+                        state.list.exit_visual();
+                        messages.push(Message::ExitVisualMode);
+                    } else if !state.list.is_searching() {
+                        state.list.enter_visual();
+                        messages.push(Message::EnterVisualMode);
                     }
-                    KeyCode::Char(' ') if state.list.is_visual() => {
-                        state.list.toggle_select_current();
-                        messages.push(Message::ToggleSelectRecord {
-                            id: state.list.selected_record().map(|r| r.id).unwrap_or_default(),
-                        });
+                }
+                KeyCode::Char(' ') if state.list.is_visual() => {
+                    state.list.toggle_select_current();
+                    messages.push(Message::ToggleSelectRecord {
+                        id: state
+                            .list
+                            .selected_record()
+                            .map(|r| r.id)
+                            .unwrap_or_default(),
+                    });
+                }
+                KeyCode::Char('a') if state.list.is_visual() => {
+                    if state.list.visual_selected_ids().len() == state.list.records.len() {
+                        state.list.deselect_all();
+                        messages.push(Message::DeselectAll);
+                    } else {
+                        state.list.select_all();
+                        messages.push(Message::SelectAll);
                     }
-                    KeyCode::Char('a') if state.list.is_visual() => {
-                        if state.list.visual_selected_ids().len() == state.list.records.len() {
-                            state.list.deselect_all();
-                            messages.push(Message::DeselectAll);
-                        } else {
-                            state.list.select_all();
-                            messages.push(Message::SelectAll);
-                        }
-                    }
-                    KeyCode::Char('d') if state.list.is_visual() => {
-                        let ids = state.list.visual_selected_ids();
-                        if !ids.is_empty() {
-                            let names: Vec<String> = state
-                                .list
-                                .records
-                                .iter()
-                                .filter(|r| ids.contains(&r.id))
-                                .map(|r| r.name.clone())
-                                .collect();
-                            overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
-                                variant: ConfirmVariant::BatchSoftDelete {
-                                    record_ids: ids,
-                                    record_names: names,
-                                },
-                                focused_button: ConfirmButton::Confirm,
-                            }));
-                        }
-                    }
-                    KeyCode::Char('t') if state.list.is_visual() => {
-                        let ids = state.list.visual_selected_ids();
-                        if !ids.is_empty() {
-                            let current_tag = match &state.current_filter {
-                                RecordFilter::Tag(name) => name.clone(),
-                                _ => String::new(),
-                            };
-                            overlay = Some(Overlay::BatchTagPanel(BatchTagPanelState {
+                }
+                KeyCode::Char('d') if state.list.is_visual() => {
+                    let ids = state.list.visual_selected_ids();
+                    if !ids.is_empty() {
+                        let names: Vec<String> = state
+                            .list
+                            .records
+                            .iter()
+                            .filter(|r| ids.contains(&r.id))
+                            .map(|r| r.name.clone())
+                            .collect();
+                        overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
+                            variant: ConfirmVariant::BatchSoftDelete {
                                 record_ids: ids,
-                                current_tag,
-                            }));
-                        }
+                                record_names: names,
+                            },
+                            focused_button: ConfirmButton::Confirm,
+                        }));
                     }
-                    KeyCode::Char('j') | KeyCode::Down if state.list.is_visual() => {
-                        state.list.move_down();
+                }
+                KeyCode::Char('t') if state.list.is_visual() => {
+                    let ids = state.list.visual_selected_ids();
+                    if !ids.is_empty() {
+                        let current_tag = match &state.current_filter {
+                            RecordFilter::Tag(name) => name.clone(),
+                            _ => String::new(),
+                        };
+                        overlay = Some(Overlay::BatchTagPanel(BatchTagPanelState {
+                            record_ids: ids,
+                            current_tag,
+                        }));
                     }
-                    KeyCode::Char('k') | KeyCode::Up if state.list.is_visual() => {
-                        state.list.move_up();
-                    }
-                    KeyCode::Esc if state.list.is_visual() => {
+                }
+                KeyCode::Char('j') | KeyCode::Down if state.list.is_visual() => {
+                    state.list.move_down();
+                }
+                KeyCode::Char('k') | KeyCode::Up if state.list.is_visual() => {
+                    state.list.move_up();
+                }
+                KeyCode::Esc if state.list.is_visual() => {
+                    state.list.exit_visual();
+                    messages.push(Message::ExitVisualMode);
+                }
+                KeyCode::Char('s') if !state.list.is_visual() => {
+                    state.list.toggle_sort_direction();
+                }
+                _ => {}
+            },
+            PanelId::Sidebar => match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    state.sidebar.move_down();
+                    if state.list.is_visual() {
                         state.list.exit_visual();
                         messages.push(Message::ExitVisualMode);
                     }
-                    KeyCode::Char('s') if !state.list.is_visual() => {
-                        state.list.toggle_sort_direction();
-                    }
-                    _ => {}
+                    let filter = state.sidebar.current_filter();
+                    state.current_filter = filter;
                 }
-            }
-            PanelId::Sidebar => {
-                match key.code {
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        state.sidebar.move_down();
-                        if state.list.is_visual() {
-                            state.list.exit_visual();
-                            messages.push(Message::ExitVisualMode);
-                        }
-                        let filter = state.sidebar.current_filter();
-                        state.current_filter = filter;
+                KeyCode::Char('k') | KeyCode::Up => {
+                    state.sidebar.move_up();
+                    if state.list.is_visual() {
+                        state.list.exit_visual();
+                        messages.push(Message::ExitVisualMode);
                     }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        state.sidebar.move_up();
-                        if state.list.is_visual() {
-                            state.list.exit_visual();
-                            messages.push(Message::ExitVisualMode);
-                        }
-                        let filter = state.sidebar.current_filter();
-                        state.current_filter = filter;
+                    let filter = state.sidebar.current_filter();
+                    state.current_filter = filter;
+                }
+                KeyCode::Enter => {
+                    if matches!(
+                        state.sidebar.items.get(state.sidebar.selected_index),
+                        Some(SidebarItem::TagHeader)
+                    ) {
+                        state.sidebar.toggle_tags();
                     }
-                    KeyCode::Enter => {
-                        if matches!(
-                            state.sidebar.items.get(state.sidebar.selected_index),
-                            Some(SidebarItem::TagHeader)
-                        ) {
-                            state.sidebar.toggle_tags();
-                        }
-                    }
-                    KeyCode::Char('m') => {
-                        let is_on_tag = state.sidebar.selected_tag_name().is_some();
-                        if state.sidebar.is_tag_management() {
-                            state.sidebar.exit_tag_management();
-                            messages.push(Message::ExitTagManagement);
-                        } else if is_on_tag && state.sidebar.tags_expanded {
-                            state.sidebar.enter_tag_management();
-                            messages.push(Message::EnterTagManagement);
-                        }
-                    }
-                    KeyCode::Char('r') if state.sidebar.is_tag_management() => {
-                        if let Some(name) = state.sidebar.selected_tag_name().map(|s| s.to_string()) {
-                            state.sidebar.tag_management.start_rename(&name);
-                            messages.push(Message::RenameTagStart);
-                        }
-                    }
-                    KeyCode::Char('d') if state.sidebar.is_tag_management() => {
-                        if let Some(name) = state.sidebar.selected_tag_name().map(|s| s.to_string()) {
-                            let affected_count = state.list.records.iter().filter(|r| r.tags.contains(&name)).count();
-                            overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
-                                variant: ConfirmVariant::TagDelete {
-                                    tag_name: name.clone(),
-                                    affected_count,
-                                },
-                                focused_button: ConfirmButton::Cancel,
-                            }));
-                            messages.push(Message::DeleteTagFromManagement);
-                        }
-                    }
-                    KeyCode::Char('s') if state.sidebar.is_tag_management() => {
-                        state.sidebar.tag_management.sort_order.cycle();
-                        sort_sidebar_tags(&mut state.sidebar);
-                        messages.push(Message::CycleTagSort);
-                    }
-                    KeyCode::Esc if state.sidebar.is_tag_management() => {
+                }
+                KeyCode::Char('m') => {
+                    let is_on_tag = state.sidebar.selected_tag_name().is_some();
+                    if state.sidebar.is_tag_management() {
                         state.sidebar.exit_tag_management();
                         messages.push(Message::ExitTagManagement);
+                    } else if is_on_tag && state.sidebar.tags_expanded {
+                        state.sidebar.enter_tag_management();
+                        messages.push(Message::EnterTagManagement);
                     }
-                    _ => {}
                 }
-            }
-            PanelId::Detail => {
-                match key.code {
-                    KeyCode::Esc if state.list.is_visual() => {
-                        state.list.exit_visual();
-                        messages.push(Message::ExitVisualMode);
+                KeyCode::Char('r') if state.sidebar.is_tag_management() => {
+                    if let Some(name) = state.sidebar.selected_tag_name().map(|s| s.to_string()) {
+                        state.sidebar.tag_management.start_rename(&name);
+                        messages.push(Message::RenameTagStart);
                     }
-                    _ => {}
                 }
-            }
+                KeyCode::Char('d') if state.sidebar.is_tag_management() => {
+                    if let Some(name) = state.sidebar.selected_tag_name().map(|s| s.to_string()) {
+                        let affected_count = state
+                            .list
+                            .records
+                            .iter()
+                            .filter(|r| r.tags.contains(&name))
+                            .count();
+                        overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
+                            variant: ConfirmVariant::TagDelete {
+                                tag_name: name.clone(),
+                                affected_count,
+                            },
+                            focused_button: ConfirmButton::Cancel,
+                        }));
+                        messages.push(Message::DeleteTagFromManagement);
+                    }
+                }
+                KeyCode::Char('s') if state.sidebar.is_tag_management() => {
+                    state.sidebar.tag_management.sort_order.cycle();
+                    sort_sidebar_tags(&mut state.sidebar);
+                    messages.push(Message::CycleTagSort);
+                }
+                KeyCode::Esc if state.sidebar.is_tag_management() => {
+                    state.sidebar.exit_tag_management();
+                    messages.push(Message::ExitTagManagement);
+                }
+                _ => {}
+            },
+            PanelId::Detail => match key.code {
+                KeyCode::Esc if state.list.is_visual() => {
+                    state.list.exit_visual();
+                    messages.push(Message::ExitVisualMode);
+                }
+                _ => {}
+            },
         }
 
         MainKeyResult { messages, overlay }
     }
 
     /// Handle post-batch-delete cleanup.
-    pub fn handle_batch_delete_result(
-        state: &mut MainScreenState,
-        deleted_count: usize,
-    ) {
+    pub fn handle_batch_delete_result(state: &mut MainScreenState, deleted_count: usize) {
         let removed_ids: Vec<uuid::Uuid> = state.list.visual_selected_ids();
         state.list.cleanup_after_batch(&removed_ids);
 
         // Set temporary status bar message
-        state.status_bar.status_message = Some(
-            crate::tui::state::main_state::StatusMessage::Temporary {
+        state.status_bar.status_message =
+            Some(crate::tui::state::main_state::StatusMessage::Temporary {
                 text: format!(
                     "\u{2713} \u{5DF2}\u{5220}\u{9664} {} \u{6761}\u{5BC6}\u{7801}",
                     deleted_count
                 ),
                 ttl: 100,
-            },
-        );
+            });
         state.status_bar.temp_message_timer = Some(100);
     }
 
     /// Handle post-tag-delete cleanup.
     /// If the user was viewing the deleted tag, auto-switch to "All".
-    pub fn handle_tag_delete_result(
-        state: &mut MainScreenState,
-        deleted_tag_name: &str,
-    ) {
+    pub fn handle_tag_delete_result(state: &mut MainScreenState, deleted_tag_name: &str) {
         // Remove tag from sidebar
         state.sidebar.tags.retain(|t| t.name != deleted_tag_name);
         state.sidebar.rebuild();
@@ -401,24 +422,19 @@ impl MainScreen {
         }
 
         // Status bar message
-        state.status_bar.status_message = Some(
-            crate::tui::state::main_state::StatusMessage::Temporary {
+        state.status_bar.status_message =
+            Some(crate::tui::state::main_state::StatusMessage::Temporary {
                 text: format!(
                     "\u{2713} \u{5DF2}\u{5220}\u{9664}\u{6807}\u{7B7E} \"{}\"",
                     deleted_tag_name
                 ),
                 ttl: 100,
-            },
-        );
+            });
         state.status_bar.temp_message_timer = Some(100);
     }
 
     /// Handle tag rename result.
-    pub fn handle_tag_rename_result(
-        state: &mut MainScreenState,
-        old_name: &str,
-        new_name: &str,
-    ) {
+    pub fn handle_tag_rename_result(state: &mut MainScreenState, old_name: &str, new_name: &str) {
         // Update tag in sidebar
         for tag in &mut state.sidebar.tags {
             if tag.name == old_name {
@@ -435,15 +451,14 @@ impl MainScreen {
         }
 
         // Status bar message
-        state.status_bar.status_message = Some(
-            crate::tui::state::main_state::StatusMessage::Temporary {
+        state.status_bar.status_message =
+            Some(crate::tui::state::main_state::StatusMessage::Temporary {
                 text: format!(
                     "\u{2713} \u{5DF2}\u{91CD}\u{547D}\u{540D} \"{}\" \u{2192} \"{}\"",
                     old_name, new_name
                 ),
                 ttl: 100,
-            },
-        );
+            });
         state.status_bar.temp_message_timer = Some(100);
     }
 }
@@ -524,13 +539,13 @@ mod tests {
     fn v_enters_visual_mode() {
         let mut state = MainScreenState::default();
         let screen = MainScreen::new();
-        let result = screen.handle_key_event(
-            make_key(KeyCode::Char('v')),
-            &mut state,
-            PanelId::List,
-        );
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('v')), &mut state, PanelId::List);
         assert!(state.list.is_visual());
-        assert!(result.messages.iter().any(|m| matches!(m, Message::EnterVisualMode)));
+        assert!(result
+            .messages
+            .iter()
+            .any(|m| matches!(m, Message::EnterVisualMode)));
     }
 
     #[test]
@@ -538,13 +553,13 @@ mod tests {
         let mut state = MainScreenState::default();
         state.list.enter_visual();
         let screen = MainScreen::new();
-        let result = screen.handle_key_event(
-            make_key(KeyCode::Char('v')),
-            &mut state,
-            PanelId::List,
-        );
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('v')), &mut state, PanelId::List);
         assert!(!state.list.is_visual());
-        assert!(result.messages.iter().any(|m| matches!(m, Message::ExitVisualMode)));
+        assert!(result
+            .messages
+            .iter()
+            .any(|m| matches!(m, Message::ExitVisualMode)));
     }
 
     #[test]
@@ -552,11 +567,7 @@ mod tests {
         let mut state = MainScreenState::default();
         state.list.enter_visual();
         let screen = MainScreen::new();
-        let result = screen.handle_key_event(
-            make_key(KeyCode::Esc),
-            &mut state,
-            PanelId::List,
-        );
+        let result = screen.handle_key_event(make_key(KeyCode::Esc), &mut state, PanelId::List);
         assert!(!state.list.is_visual());
     }
 
@@ -568,11 +579,7 @@ mod tests {
         state.list.enter_visual();
 
         let screen = MainScreen::new();
-        screen.handle_key_event(
-            make_key(KeyCode::Char(' ')),
-            &mut state,
-            PanelId::List,
-        );
+        screen.handle_key_event(make_key(KeyCode::Char(' ')), &mut state, PanelId::List);
         assert_eq!(state.list.visual_selected_ids().len(), 1);
     }
 
@@ -586,11 +593,7 @@ mod tests {
         state.list.enter_visual();
 
         let screen = MainScreen::new();
-        screen.handle_key_event(
-            make_key(KeyCode::Char('a')),
-            &mut state,
-            PanelId::List,
-        );
+        screen.handle_key_event(make_key(KeyCode::Char('a')), &mut state, PanelId::List);
         assert_eq!(state.list.visual_selected_ids().len(), 3);
     }
 
@@ -598,17 +601,21 @@ mod tests {
     fn m_enters_tag_management_on_tag() {
         let mut state = MainScreenState::default();
         state.sidebar.tags_expanded = true;
-        state.sidebar.tags = vec![Tag { id: 1, name: "work".into() }];
+        state.sidebar.tags = vec![Tag {
+            id: 1,
+            name: "work".into(),
+        }];
         state.sidebar.rebuild();
-        let tag_idx = state.sidebar.items.iter().position(|i| matches!(i, SidebarItem::Tag(_))).unwrap();
+        let tag_idx = state
+            .sidebar
+            .items
+            .iter()
+            .position(|i| matches!(i, SidebarItem::Tag(_)))
+            .unwrap();
         state.sidebar.selected_index = tag_idx;
 
         let screen = MainScreen::new();
-        screen.handle_key_event(
-            make_key(KeyCode::Char('m')),
-            &mut state,
-            PanelId::Sidebar,
-        );
+        screen.handle_key_event(make_key(KeyCode::Char('m')), &mut state, PanelId::Sidebar);
         assert!(state.sidebar.is_tag_management());
     }
 
@@ -617,11 +624,7 @@ mod tests {
         let mut state = MainScreenState::default();
         state.sidebar.tag_management_mode = true;
         let screen = MainScreen::new();
-        screen.handle_key_event(
-            make_key(KeyCode::Char('m')),
-            &mut state,
-            PanelId::Sidebar,
-        );
+        screen.handle_key_event(make_key(KeyCode::Char('m')), &mut state, PanelId::Sidebar);
         assert!(!state.sidebar.is_tag_management());
     }
 
@@ -630,11 +633,7 @@ mod tests {
         let mut state = MainScreenState::default();
         state.list.enter_visual();
         let screen = MainScreen::new();
-        screen.handle_key_event(
-            make_key(KeyCode::Down),
-            &mut state,
-            PanelId::Sidebar,
-        );
+        screen.handle_key_event(make_key(KeyCode::Down), &mut state, PanelId::Sidebar);
         assert!(!state.list.is_visual());
     }
 }

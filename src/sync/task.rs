@@ -326,7 +326,10 @@ impl SyncTask {
     async fn handle_download_metadata(&mut self) {
         match self.storage.download_metadata().await {
             Ok(meta) => {
-                let _ = self.event_tx.send(SyncEvent::MetadataDownloaded(meta)).await;
+                let _ = self
+                    .event_tx
+                    .send(SyncEvent::MetadataDownloaded(meta))
+                    .await;
             }
             Err(e) => {
                 let _ = self
@@ -346,7 +349,11 @@ impl SyncTask {
     /// during DEK rotation while sync is paused (executor pauses sync,
     /// rotates locally, then uses this to push updated metadata atomically).
     /// Adding a paused-guard here would break the rotation protocol.
-    async fn handle_push_metadata_atomic(&mut self, metadata: CloudMetadata, expected_version: u64) {
+    async fn handle_push_metadata_atomic(
+        &mut self,
+        metadata: CloudMetadata,
+        expected_version: u64,
+    ) {
         match self
             .storage
             .push_metadata_atomic(&metadata, expected_version)
