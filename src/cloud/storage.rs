@@ -102,6 +102,12 @@ impl CloudStorage {
 
     /// Uploads metadata only if the remote metadata_version matches the expected one.
     /// This provides CAS (Compare-And-Swap) behavior for multi-device coordination.
+    /// Uploads metadata only if the remote metadata_version matches the expected one.
+    /// This provides CAS (Compare-And-Swap) behavior for multi-device coordination.
+    ///
+    /// Note: The read-check-write sequence is not atomic over the wire. Between the
+    /// version check and the upload, another device could push metadata. This is an
+    /// inherent limitation of cloud object storage without conditional write support.
     pub async fn push_metadata_atomic(
         &self,
         metadata: &CloudMetadata,

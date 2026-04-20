@@ -54,8 +54,9 @@ async fn resolve_cas_conflict(
             }
         }
         Ok(None) => {
-            tracing::warn!("CAS conflict but no cloud metadata exists for alignment check");
-            Ok(0)
+            let msg = "CAS conflict but cloud metadata vanished — transient inconsistency";
+            tracing::warn!("{}", msg);
+            Err(msg.to_string())
         }
         Err(e) => {
             let msg = format!(
@@ -573,8 +574,8 @@ mod tests {
         let (_dir, mut sync) = create_sync_service();
 
         let result = resolve_cas_conflict(&mut sync, 1, 5).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("vanished"));
     }
 
     // -----------------------------------------------------------------------
