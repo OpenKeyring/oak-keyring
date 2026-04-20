@@ -38,6 +38,8 @@ pub enum SyncCommand {
         metadata: CloudMetadata,
         expected_version: u64,
     },
+    /// Download metadata (routed through channel for state machine awareness).
+    DownloadMetadata,
     /// Initiate graceful shutdown.
     Shutdown,
 }
@@ -57,6 +59,8 @@ pub enum SyncEvent {
     StateChanged { from: SyncState, to: SyncState },
     /// Metadata was atomically pushed.
     MetadataPushed,
+    /// Metadata was downloaded.
+    MetadataDownloaded(Option<CloudMetadata>),
     /// Shutdown is complete.
     ShutdownComplete,
     /// Sync was paused.
@@ -165,6 +169,9 @@ impl SyncTask {
                             expected_version,
                         }) => {
                             self.handle_push_metadata_atomic(metadata, expected_version).await;
+                        }
+                        Some(SyncCommand::DownloadMetadata) => {
+                            self.handle_download_metadata().await;
                         }
                         Some(SyncCommand::Shutdown) => {
                             self.handle_shutdown().await;
@@ -311,7 +318,34 @@ impl SyncTask {
         let _ = self.event_tx.try_send(SyncEvent::Resumed);
     }
 
+    /// Handles DownloadMetadata command.
+    ///
+    /// Intentionally does NOT check `self.paused` — this handler is called
+    /// during DEK rotation while sync is paused, to fetch the current
+    /// metadata version for CAS validation.
+    async fn handle_download_metadata(&mut self) {
+        match self.storage.download_metadata().await {
+            Ok(meta) => {
+                let _ = self.event_tx.send(SyncEvent::MetadataDownloaded(meta)).await;
+            }
+            Err(e) => {
+                let _ = self
+                    .event_tx
+                    .send(SyncEvent::Failed {
+                        error: e.to_string(),
+                        state: self.state_machine.current_state().clone(),
+                    })
+                    .await;
+            }
+        }
+    }
+
     /// Handles PushMetadataAtomic command.
+    ///
+    /// Intentionally does NOT check `self.paused` — this handler is called
+    /// during DEK rotation while sync is paused (executor pauses sync,
+    /// rotates locally, then uses this to push updated metadata atomically).
+    /// Adding a paused-guard here would break the rotation protocol.
     async fn handle_push_metadata_atomic(&mut self, metadata: CloudMetadata, expected_version: u64) {
         match self
             .storage
