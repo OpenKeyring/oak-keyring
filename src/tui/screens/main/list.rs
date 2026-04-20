@@ -106,7 +106,15 @@ impl ListPanel {
         if state.records.is_empty() {
             render_empty_state(frame, list_area, state, unicode, &filter);
         } else {
-            render_list(frame, list_area, state, focused, unicode, &filter, retention_days);
+            render_list(
+                frame,
+                list_area,
+                state,
+                focused,
+                unicode,
+                &filter,
+                retention_days,
+            );
         }
     }
 }
@@ -206,9 +214,7 @@ fn build_visual_bar<'a>(selected_count: usize) -> Line<'a> {
                 "({} \u{5DF2}\u{9009})", // "(N 已选)"
                 selected_count
             ),
-            Style::default()
-                .fg(theme::TEXT)
-                .bg(theme::BG_BAR),
+            Style::default().fg(theme::TEXT).bg(theme::BG_BAR),
         ),
     ])
 }
@@ -276,7 +282,15 @@ fn render_list(
             let is_selected = state.selected_index == Some(idx);
             let is_visual_selected = visual_ids.is_some_and(|ids| ids.contains(&record.id));
             if is_trash {
-                build_trash_item(record, is_selected, is_visual_selected, focused, unicode, area.width, retention_days)
+                build_trash_item(
+                    record,
+                    is_selected,
+                    is_visual_selected,
+                    focused,
+                    unicode,
+                    area.width,
+                    retention_days,
+                )
             } else {
                 build_record_item(
                     record,
@@ -478,12 +492,10 @@ fn build_trash_item<'a>(
 
     let days_ago_text = format_days_since_deletion(&deleted_at);
 
-    let mut meta_spans = vec![
-        Span::styled(
-            format!("  {}", days_ago_text),
-            Style::default().fg(theme::TEXT_SECONDARY),
-        ),
-    ];
+    let mut meta_spans = vec![Span::styled(
+        format!("  {}", days_ago_text),
+        Style::default().fg(theme::TEXT_SECONDARY),
+    )];
 
     match calculate_remaining_days(&deleted_at, retention_days) {
         None => {
@@ -759,7 +771,15 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                ListPanel::view(frame, frame.area(), &state, true, true, RecordFilter::All, 30);
+                ListPanel::view(
+                    frame,
+                    frame.area(),
+                    &state,
+                    true,
+                    true,
+                    RecordFilter::All,
+                    30,
+                );
             })
             .unwrap();
     }
@@ -1261,7 +1281,10 @@ mod tests {
     fn build_trash_item_has_three_lines() {
         let record = make_trash_record(Uuid::new_v4(), "DeletedSite", 5);
         let item = build_trash_item(&record, false, false, true, true, 50, 30);
-        assert!(item.height() >= 3, "trash item should have at least 3 lines (title + metadata + separator)");
+        assert!(
+            item.height() >= 3,
+            "trash item should have at least 3 lines (title + metadata + separator)"
+        );
     }
 
     #[test]

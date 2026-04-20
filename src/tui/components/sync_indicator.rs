@@ -230,7 +230,10 @@ mod tests {
     fn indicator_detail_text_syncing_with_progress() {
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::Syncing,
-            progress: Some(SyncProgress { current: 3, total: 10 }),
+            progress: Some(SyncProgress {
+                current: 3,
+                total: 10,
+            }),
             ..Default::default()
         };
         let indicator = SyncIndicator::new(&state);
@@ -294,7 +297,10 @@ mod tests {
     fn indicator_detail_text_rotating_with_progress() {
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::Rotating,
-            progress: Some(SyncProgress { current: 50, total: 100 }),
+            progress: Some(SyncProgress {
+                current: 50,
+                total: 100,
+            }),
             ..Default::default()
         };
         let indicator = SyncIndicator::new(&state);

@@ -135,15 +135,13 @@ impl StatusBarPanel {
                 VISUAL_INDICATOR_ASCII
             };
             all_spans.push(Span::styled(SEPARATOR, sep_style));
-            all_spans.push(
-                Span::styled(
-                    format!(" {} ", indicator),
-                    Style::default()
-                        .fg(theme::TEXT)
-                        .add_modifier(Modifier::BOLD)
-                        .bg(theme::BG_BAR),
-                ),
-            );
+            all_spans.push(Span::styled(
+                format!(" {} ", indicator),
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD)
+                    .bg(theme::BG_BAR),
+            ));
         }
 
         all_spans.push(Span::styled(SEPARATOR, sep_style));

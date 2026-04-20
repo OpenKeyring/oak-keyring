@@ -166,10 +166,7 @@ fn build_list_item<'a>(
 
                 ListItem::new(Line::from(vec![
                     Span::styled(display, Style::default().fg(theme::TEXT)),
-                    Span::styled(
-                        " ".repeat(padding_width),
-                        Style::default().fg(theme::TEXT),
-                    ),
+                    Span::styled(" ".repeat(padding_width), Style::default().fg(theme::TEXT)),
                     Span::styled(
                         format!(" {}", edit_icon),
                         Style::default().fg(theme::PRIMARY),
@@ -289,9 +286,7 @@ fn render_inline_rename(
     let edit_line = Line::from(vec![
         Span::styled(
             text_before_cursor.to_string(),
-            Style::default()
-                .fg(theme::TEXT)
-                .bg(theme::BG_SURFACE),
+            Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE),
         ),
         Span::styled(
             cursor_char.to_string(),
@@ -302,9 +297,7 @@ fn render_inline_rename(
         ),
         Span::styled(
             text_after_cursor.to_string(),
-            Style::default()
-                .fg(theme::TEXT)
-                .bg(theme::BG_SURFACE),
+            Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE),
         ),
     ]);
 
@@ -320,7 +313,8 @@ fn render_inline_rename(
             let error_line = Line::from(Span::styled(
                 format!(
                     "  {} \u{6807}\u{7B7E}\"{}\"\u{5DF2}\u{5B58}\u{5728}",
-                    error_icon, edit.text.trim()
+                    error_icon,
+                    edit.text.trim()
                 ),
                 Style::default().fg(theme::ERROR),
             ));

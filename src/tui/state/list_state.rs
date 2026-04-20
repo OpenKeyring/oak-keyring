@@ -425,10 +425,7 @@ pub fn format_days_since_deletion(deleted_at: &DateTime<Utc>) -> String {
 }
 
 /// Format the remaining days string before automatic permanent deletion.
-pub fn format_remaining_days(
-    deleted_at: &DateTime<Utc>,
-    retention_days: u32,
-) -> String {
+pub fn format_remaining_days(deleted_at: &DateTime<Utc>, retention_days: u32) -> String {
     if retention_days == 0 {
         return "不会自动删除".to_string();
     }
@@ -443,10 +440,7 @@ pub fn format_remaining_days(
 }
 
 /// Calculate the number of remaining days before automatic deletion.
-pub fn calculate_remaining_days(
-    deleted_at: &DateTime<Utc>,
-    retention_days: u32,
-) -> Option<i64> {
+pub fn calculate_remaining_days(deleted_at: &DateTime<Utc>, retention_days: u32) -> Option<i64> {
     if retention_days == 0 {
         return None;
     }

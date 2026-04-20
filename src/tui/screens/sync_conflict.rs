@@ -10,8 +10,8 @@ use ratatui::text::Span;
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap};
 use ratatui::Frame;
 
-use crate::commands::{Command, Message};
 use crate::commands::types::ConflictResolution;
+use crate::commands::{Command, Message};
 use crate::tui::state::sync_ui_state::*;
 use crate::tui::theme::{self, BG_BAR, TEXT, TEXT_MUTED, TEXT_SECONDARY};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
@@ -248,7 +248,11 @@ impl SyncConflictScreen {
                 } else {
                     field.value.clone()
                 };
-                let diff_marker = if field.differs { " \u{2190} 差异" } else { "" };
+                let diff_marker = if field.differs {
+                    " \u{2190} 差异"
+                } else {
+                    ""
+                };
                 let value_style = if field.differs {
                     Style::default().fg(Color::Black).bg(Color::Yellow)
                 } else {
@@ -260,7 +264,10 @@ impl SyncConflictScreen {
                         &field.label,
                         Style::default().fg(TEXT_SECONDARY),
                     )),
-                    Cell::from(Span::styled(format!("{}{}", value, diff_marker), value_style)),
+                    Cell::from(Span::styled(
+                        format!("{}{}", value, diff_marker),
+                        value_style,
+                    )),
                 ])
             })
             .collect();
@@ -549,8 +556,8 @@ mod tests {
         screen.state.current_index = 0;
 
         // On the last conflict, advancing should trigger PopScreen
-        let should_pop = screen.state.current_index
-            >= screen.state.conflicts.len().saturating_sub(1);
+        let should_pop =
+            screen.state.current_index >= screen.state.conflicts.len().saturating_sub(1);
         assert!(should_pop);
     }
 

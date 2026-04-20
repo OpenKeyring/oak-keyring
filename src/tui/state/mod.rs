@@ -1,5 +1,5 @@
 pub mod animation;
-pub mod tag_management;
+pub mod audit_state;
 pub mod config_state;
 pub mod detail_state;
 pub mod focus;
@@ -9,9 +9,9 @@ pub mod list_state;
 pub mod loading;
 pub mod main_state;
 pub mod notification;
-pub mod audit_state;
 pub mod overlay_state;
 pub mod sync_ui_state;
+pub mod tag_management;
 
 use crate::commands::types::{AppPhase, Screen};
 use crate::tui::screens::audit_log::AuditLogScreen;

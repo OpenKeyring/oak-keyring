@@ -558,7 +558,9 @@ mod tests {
             words: std::array::from_fn(|_| "secret".to_string()),
             errors: [true; 24],
             focused_index: 10,
-            mode: WordGridMode::PartialVerify { positions: [1, 2, 3, 4] },
+            mode: WordGridMode::PartialVerify {
+                positions: [1, 2, 3, 4],
+            },
         };
 
         state.zeroize();

@@ -754,10 +754,7 @@ mod tests {
         let metadata = create_test_metadata();
 
         // No remote metadata — push with expected_version=0 should succeed
-        storage
-            .push_metadata_atomic(&metadata, 0)
-            .await
-            .unwrap();
+        storage.push_metadata_atomic(&metadata, 0).await.unwrap();
 
         let downloaded = storage.download_metadata().await.unwrap().unwrap();
         assert_eq!(downloaded.metadata_version, metadata.metadata_version);

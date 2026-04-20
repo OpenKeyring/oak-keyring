@@ -43,7 +43,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(config: AppConfig, vault_dir: std::path::PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(
+        config: AppConfig,
+        vault_dir: std::path::PathBuf,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_SIZE);
         let (result_tx, result_rx) = mpsc::channel(RESULT_CHANNEL_SIZE);
         let cancel_token = CancellationToken::new();
@@ -63,7 +66,8 @@ impl App {
 
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Build a tokio runtime for async tasks (signal handler, executor).
-        let rt = tokio::runtime::Runtime::new().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
         let _guard = rt.enter();
 
         // Instantiate and spawn the CommandExecutor.

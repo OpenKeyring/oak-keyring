@@ -113,27 +113,27 @@ impl DetailPanel {
                 Some(remaining) => {
                     let tier = trash_warning_tier(remaining);
                     let (dot_color, remaining_text) = match tier {
-                        TrashWarningTier::Safe => {
-                            (theme::TEXT_SECONDARY, format!(" · 剩余 {} 天", remaining.max(0)))
-                        }
+                        TrashWarningTier::Safe => (
+                            theme::TEXT_SECONDARY,
+                            format!(" · 剩余 {} 天", remaining.max(0)),
+                        ),
                         TrashWarningTier::Moderate => {
                             (theme::WARNING, format!(" · 剩余 {} 天", remaining.max(0)))
                         }
-                        TrashWarningTier::Urgent => {
-                            (theme::WARNING, format!(" \u{26A0} 剩余 {} 天", remaining.max(0)))
-                        }
-                        TrashWarningTier::Critical => {
-                            (theme::ERROR, format!(" \u{26A0} 剩余 {} 天", remaining.max(0)))
-                        }
+                        TrashWarningTier::Urgent => (
+                            theme::WARNING,
+                            format!(" \u{26A0} 剩余 {} 天", remaining.max(0)),
+                        ),
+                        TrashWarningTier::Critical => (
+                            theme::ERROR,
+                            format!(" \u{26A0} 剩余 {} 天", remaining.max(0)),
+                        ),
                     };
                     banner_spans.push(Span::styled(
                         info_prefix,
                         Style::default().fg(theme::TEXT_SECONDARY),
                     ));
-                    banner_spans.push(Span::styled(
-                        remaining_text,
-                        Style::default().fg(dot_color),
-                    ));
+                    banner_spans.push(Span::styled(remaining_text, Style::default().fg(dot_color)));
                 }
             }
 
@@ -450,20 +450,14 @@ fn render_batch_summary_view(
                 .fg(theme::PRIMARY)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            "批量删除  ",
-            Style::default().fg(theme::TEXT_SECONDARY),
-        ),
+        Span::styled("批量删除  ", Style::default().fg(theme::TEXT_SECONDARY)),
         Span::styled(
             "t ",
             Style::default()
                 .fg(theme::PRIMARY)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            "批量标签",
-            Style::default().fg(theme::TEXT_SECONDARY),
-        ),
+        Span::styled("批量标签", Style::default().fg(theme::TEXT_SECONDARY)),
     ]));
 
     let para = Paragraph::new(lines);
@@ -611,9 +605,6 @@ mod tests {
         let names = vec!["A", "B", "C", "D", "E", "F", "G"];
         let result = render_batch_snapshot(&names, 7, 50, 20);
         // Should show "及其他" for overflow
-        assert!(
-            result.contains("及其他"),
-            "should show overflow indicator"
-        );
+        assert!(result.contains("及其他"), "should show overflow indicator");
     }
 }

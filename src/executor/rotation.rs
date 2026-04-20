@@ -158,7 +158,10 @@ where
                                         "CAS conflict during {} v{} -> v{}: {}. \
                                          Cloud DEK version: {}. Local records are aligned \
                                          and will sync on next cycle.",
-                                        label, res.old_dek_version, res.new_dek_version, cas_err,
+                                        label,
+                                        res.old_dek_version,
+                                        res.new_dek_version,
+                                        cas_err,
                                         cloud_dek
                                     )),
                                     context: ErrorContext::default(),
@@ -175,7 +178,10 @@ where
                                     code: ErrorCode::Sync(format!(
                                         "CAS conflict during {} v{} -> v{}: {}. \
                                          Alignment check failed: {}",
-                                        label, res.old_dek_version, res.new_dek_version, cas_err,
+                                        label,
+                                        res.old_dek_version,
+                                        res.new_dek_version,
+                                        cas_err,
                                         align_err
                                     )),
                                     context: ErrorContext::default(),
@@ -230,9 +236,12 @@ where
 
 #[tracing::instrument(skip_all)]
 pub async fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandResult {
-    execute_rotation_protocol(executor, "rotation", "error.rotation_failed", |svc, version| {
-        svc.trigger_rotation(version)
-    })
+    execute_rotation_protocol(
+        executor,
+        "rotation",
+        "error.rotation_failed",
+        |svc, version| svc.trigger_rotation(version),
+    )
     .await
 }
 

@@ -27,7 +27,12 @@ impl CommandExecutor {
         self.post_hook(&result);
 
         // Step 4: Send result
-        if self.result_tx.send(Message::CommandCompleted(result)).await.is_err() {
+        if self
+            .result_tx
+            .send(Message::CommandCompleted(result))
+            .await
+            .is_err()
+        {
             tracing::error!("Failed to send command result: channel closed");
         }
     }

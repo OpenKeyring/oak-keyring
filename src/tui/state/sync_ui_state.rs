@@ -172,7 +172,10 @@ mod tests {
 
     #[test]
     fn sync_display_status_default() {
-        assert_eq!(SyncDisplayStatus::default(), SyncDisplayStatus::NotConfigured);
+        assert_eq!(
+            SyncDisplayStatus::default(),
+            SyncDisplayStatus::NotConfigured
+        );
     }
 
     #[test]
