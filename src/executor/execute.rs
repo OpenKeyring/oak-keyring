@@ -260,7 +260,7 @@ impl CommandExecutor {
             }
 
             // ── DEK Rotation ─────────────────────────────
-            Command::TriggerRotation => rotation::handle_trigger_rotation(self),
+            Command::TriggerRotation => rotation::handle_trigger_rotation(self).await,
             Command::CheckRotationTrigger => rotation::handle_check_rotation_trigger(self),
             // ── Internal ─────────────────────────────────
             Command::InternalHealthCheckCompleted { report } => {

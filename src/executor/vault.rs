@@ -46,11 +46,21 @@ pub async fn handle_unlock_with_recovery_key(
 
     match executor.vault.unlock_with_mnemonic(&passkey) {
         Ok(()) => {
-            // Post-recovery: trigger DEK rotation check (security best practice).
-            tracing::info!("Post-recovery: triggering DEK rotation");
-            let rotation_result = super::rotation::handle_trigger_rotation(executor);
-            if let CommandResult::Error { .. } = &rotation_result {
-                tracing::warn!("Post-recovery DEK rotation failed, vault is still usable");
+            // Post-recovery: resume interrupted rotation or trigger new one.
+            // Prefer resume_rotation if a checkpoint exists (crash recovery),
+            // otherwise trigger a fresh rotation (security best practice).
+            tracing::info!("Post-recovery: checking for interrupted rotation");
+            let rotation_result =
+                super::rotation::handle_resume_rotation(executor).await;
+            if let CommandResult::RotationTriggerChecked { .. } = &rotation_result {
+                // No pending checkpoint — trigger fresh rotation
+                tracing::info!("No pending checkpoint, triggering fresh DEK rotation");
+                let fresh_result = super::rotation::handle_trigger_rotation(executor).await;
+                if let CommandResult::Error { .. } = &fresh_result {
+                    tracing::warn!("Post-recovery DEK rotation failed, vault is still usable");
+                }
+            } else if let CommandResult::Error { .. } = &rotation_result {
+                tracing::warn!("Post-recovery rotation resume failed, vault is still usable");
             }
             CommandResult::RecoveryKeyUnlocked
         }
