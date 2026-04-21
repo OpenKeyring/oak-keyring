@@ -16,8 +16,9 @@ use crate::types::SecureStr;
 // ── Enums ───────────────────────────────────────────────────────────────────
 
 /// Which password field is currently focused.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PasswordField {
+    #[default]
     New,
     Confirm,
 }
@@ -42,6 +43,12 @@ pub struct SetPasswordScreen {
     pub strength: Option<PasswordStrength>,
     pub error: Option<String>,
     pub password_visible: bool,
+}
+
+impl Default for SetPasswordScreen {
+    fn default() -> Self {
+        Self::new(SetPasswordContext::OnboardingCreate)
+    }
 }
 
 impl SetPasswordScreen {
@@ -324,7 +331,7 @@ impl SetPasswordScreen {
                 let _ = ctx.command_tx.try_send(cmd);
                 ScreenResult::Continue
             }
-            KeyCode::Esc => ScreenResult::Continue,
+            KeyCode::Esc => ScreenResult::PopScreen,
             KeyCode::Backspace => {
                 match self.focused {
                     PasswordField::New => {
