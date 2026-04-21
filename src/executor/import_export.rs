@@ -8,7 +8,7 @@ use crate::commands::CommandResult;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::services::import_export::duplicate::ExistingRecordKey;
 use crate::services::import_export::export::ExportRecord;
-use crate::types::record::CreateRecordParams;
+use crate::types::record::{CreateRecordParams, DecryptedRecord};
 use crate::types::{CredentialType, EncryptedPayload, SecureStr};
 
 use super::CommandExecutor;
@@ -185,7 +185,7 @@ pub fn handle_execute_export(
         direction: SortDirection::Asc,
     };
 
-    let result_path = match executor.import_export.execute_export(
+    let (result_path, record_count) = match executor.import_export.execute_export(
         session_id,
         || {
             let records = executor
@@ -193,28 +193,21 @@ pub fn handle_execute_export(
                 .list_records(&filter, &sort)
                 .map_err(|e| e.to_string())?;
 
-            // Convert TuiRecord to ExportRecord.
-            let export_records: Vec<ExportRecord> = records
-                .iter()
-                .map(|r| ExportRecord {
-                    id: r.id.to_string(),
-                    credential_type: r.credential_type.to_db_str().to_string(),
-                    name: r.name.clone(),
-                    username: None, // TuiRecord does not expose field-level data
-                    password: None, // Requires decryption which is handled by VaultService
-                    url: None,
-                    notes: None,
-                    tags: Some(r.tags.clone()),
-                    is_favorite: Some(r.is_favorite),
-                    expires_at: r.expires_at.map(|t| t.to_rfc3339()),
-                })
-                .collect();
+            // Decrypt each record fully to populate export fields.
+            let mut export_records = Vec::with_capacity(records.len());
+            for r in &records {
+                let decrypted = executor
+                    .vault
+                    .get_decrypted_record(r.id)
+                    .map_err(|e| e.to_string())?;
+                export_records.push(decrypted_record_to_export(&decrypted));
+            }
 
             Ok(export_records)
         },
         &executor.vault_dir.to_string_lossy(),
     ) {
-        Ok(path) => path,
+        Ok(result) => result,
         Err(e) => {
             return CommandResult::Error {
                 code: ErrorCode::ImportExport(e.to_string()),
@@ -225,20 +218,16 @@ pub fn handle_execute_export(
         }
     };
 
-    // Retrieve record count from the session.
-    // Since execute_export already completed, we use the output path to determine count.
-    // The ImportExportService updates the session internally.
-    // For now, use 0 as placeholder — the session has the actual count but is not
-    // directly accessible here. The UI can display the path.
     // Audit log for successful export.
     if let Err(e) = executor.vault.write_audit_entry(
         crate::types::AuditOperation::VaultExport,
         None,
         None,
         Some(format!(
-            "scope={}, path={}",
+            "scope={}, path={}, count={}",
             scope_desc,
-            result_path.display()
+            result_path.display(),
+            record_count
         )),
     ) {
         tracing::warn!(error = %e, "Failed to write export audit log");
@@ -246,13 +235,92 @@ pub fn handle_execute_export(
 
     CommandResult::ExportCompleted {
         path: result_path,
-        record_count: 0,
+        record_count,
     }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Map a fully decrypted record to the flat export format.
+///
+/// Field mapping follows the same convention as `VaultService::decrypt_field`:
+/// - Login: username→username, password→password, url→url, notes→notes
+/// - Api: app_id→username, secret_key→password, url→url, notes→notes
+/// - Ssh: public_key→username, private_key→password, notes→notes
+fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
+    match record {
+        DecryptedRecord::Login {
+            id,
+            is_favorite,
+            expires_at,
+            tags,
+            name,
+            username,
+            password,
+            url,
+            notes,
+            ..
+        } => ExportRecord {
+            id: id.to_string(),
+            credential_type: CredentialType::Login.to_db_str().to_string(),
+            name: name.clone(),
+            username: Some(username.clone()),
+            password: Some(password.get().clone()),
+            url: url.clone(),
+            notes: notes.clone(),
+            tags: Some(tags.clone()),
+            is_favorite: Some(*is_favorite),
+            expires_at: expires_at.map(|t| t.to_rfc3339()),
+        },
+        DecryptedRecord::Api {
+            id,
+            is_favorite,
+            expires_at,
+            tags,
+            name,
+            app_id,
+            secret_key,
+            url,
+            notes,
+            ..
+        } => ExportRecord {
+            id: id.to_string(),
+            credential_type: CredentialType::Api.to_db_str().to_string(),
+            name: name.clone(),
+            username: Some(app_id.clone()),
+            password: Some(secret_key.get().clone()),
+            url: url.clone(),
+            notes: notes.clone(),
+            tags: Some(tags.clone()),
+            is_favorite: Some(*is_favorite),
+            expires_at: expires_at.map(|t| t.to_rfc3339()),
+        },
+        DecryptedRecord::Ssh {
+            id,
+            is_favorite,
+            expires_at,
+            tags,
+            name,
+            public_key,
+            private_key,
+            notes,
+            ..
+        } => ExportRecord {
+            id: id.to_string(),
+            credential_type: CredentialType::Ssh.to_db_str().to_string(),
+            name: name.clone(),
+            username: Some(public_key.clone()),
+            password: private_key.as_ref().map(|pk| pk.get().clone()),
+            url: None,
+            notes: notes.clone(),
+            tags: Some(tags.clone()),
+            is_favorite: Some(*is_favorite),
+            expires_at: expires_at.map(|t| t.to_rfc3339()),
+        },
+    }
+}
 
 /// Convert a HashMap of fields into an EncryptedPayload for the given credential type.
 ///
@@ -284,5 +352,136 @@ fn fields_to_payload(
             passphrase: fields.get("passphrase").cloned().map(SecureStr::new),
             notes: fields.get("notes").cloned(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::sensitive::SecureStr;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    fn uuid() -> Uuid {
+        Uuid::new_v4()
+    }
+
+    #[test]
+    fn login_fields_populated_in_export() {
+        let id = uuid();
+        let record = DecryptedRecord::Login {
+            id,
+            is_favorite: true,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec!["work".to_string()],
+            name: "GitHub".to_string(),
+            username: "alice".to_string(),
+            password: SecureStr::new("s3cret!".to_string()),
+            url: Some("https://github.com".to_string()),
+            notes: Some("personal account".to_string()),
+        };
+
+        let export = decrypted_record_to_export(&record);
+
+        assert_eq!(export.id, id.to_string());
+        assert_eq!(export.credential_type, "login");
+        assert_eq!(export.name, "GitHub");
+        assert_eq!(export.username.as_deref(), Some("alice"));
+        assert_eq!(export.password.as_deref(), Some("s3cret!"));
+        assert_eq!(export.url.as_deref(), Some("https://github.com"));
+        assert_eq!(export.notes.as_deref(), Some("personal account"));
+        assert_eq!(export.tags, Some(vec!["work".to_string()]));
+        assert_eq!(export.is_favorite, Some(true));
+    }
+
+    #[test]
+    fn api_fields_mapped_to_export() {
+        let id = uuid();
+        let record = DecryptedRecord::Api {
+            id,
+            is_favorite: false,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+            name: "AWS".to_string(),
+            app_id: "AKIA123".to_string(),
+            secret_key: SecureStr::new("secret456".to_string()),
+            url: None,
+            notes: None,
+        };
+
+        let export = decrypted_record_to_export(&record);
+
+        assert_eq!(export.credential_type, "api");
+        assert_eq!(export.username.as_deref(), Some("AKIA123"));
+        assert_eq!(export.password.as_deref(), Some("secret456"));
+        assert!(export.url.is_none());
+        assert!(export.notes.is_none());
+    }
+
+    #[test]
+    fn ssh_fields_mapped_to_export() {
+        let id = uuid();
+        let record = DecryptedRecord::Ssh {
+            id,
+            is_favorite: false,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+            name: "Server".to_string(),
+            public_key: "ssh-rsa AAA...".to_string(),
+            private_key: Some(SecureStr::new("-----BEGIN RSA...".to_string())),
+            passphrase: None,
+            notes: Some("production".to_string()),
+        };
+
+        let export = decrypted_record_to_export(&record);
+
+        assert_eq!(export.credential_type, "ssh");
+        assert_eq!(export.username.as_deref(), Some("ssh-rsa AAA..."));
+        assert_eq!(
+            export.password.as_deref(),
+            Some("-----BEGIN RSA...")
+        );
+        assert!(export.url.is_none());
+        assert_eq!(export.notes.as_deref(), Some("production"));
+    }
+
+    #[test]
+    fn ssh_without_private_key_exports_none_password() {
+        let id = uuid();
+        let record = DecryptedRecord::Ssh {
+            id,
+            is_favorite: false,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+            name: "PubOnly".to_string(),
+            public_key: "ssh-ed25519 AAA".to_string(),
+            private_key: None,
+            passphrase: None,
+            notes: None,
+        };
+
+        let export = decrypted_record_to_export(&record);
+
+        assert!(export.password.is_none());
     }
 }
