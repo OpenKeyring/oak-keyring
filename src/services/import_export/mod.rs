@@ -407,7 +407,7 @@ impl ImportExportService {
         session_id: Uuid,
         record_collector: F,
         vault_id: &str,
-    ) -> Result<PathBuf, ImportExportError>
+    ) -> Result<(PathBuf, usize), ImportExportError>
     where
         F: FnOnce() -> Result<Vec<self::export::ExportRecord>, String>,
     {
@@ -484,7 +484,7 @@ impl ImportExportService {
             session.completed_at = Some(Utc::now());
         }
 
-        Ok(output_path)
+        Ok((output_path, record_count))
     }
 
     /// Cancel an export session.
@@ -1068,11 +1068,12 @@ mod tests {
             .expect("create session");
 
         let records = sample_export_records();
-        let result_path = service
+        let (result_path, count) = service
             .execute_export(id, || Ok(records), "550e8400-e29b-41d4-a716-446655440000")
             .expect("execute export");
 
         assert_eq!(result_path, output_path);
+        assert_eq!(count, 1, "record count should be 1");
         assert!(output_path.exists(), "output file should exist");
         assert_eq!(
             service.export_session_status(id),
