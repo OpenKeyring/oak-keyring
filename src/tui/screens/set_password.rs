@@ -505,4 +505,132 @@ mod tests {
         let s3 = SetPasswordScreen::new(SetPasswordContext::OnboardingRestore);
         assert_eq!(s3.context, SetPasswordContext::OnboardingRestore);
     }
+
+    // ── Key behavior tests (Issue #8 regression) ──────────────────────────────
+
+    fn dummy_ctx() -> ScreenContext<'static> {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        static mut TX: Option<tokio::sync::mpsc::Sender<Command>> = None;
+
+        ONCE.call_once(|| {
+            let (tx, _rx) = tokio::sync::mpsc::channel(16);
+            unsafe { TX = Some(tx) };
+        });
+
+        let tx = unsafe { TX.as_ref().unwrap() };
+        static DUMMY_CONFIG: std::sync::OnceLock<crate::config::AppConfig> =
+            std::sync::OnceLock::new();
+        let config = DUMMY_CONFIG.get_or_init(crate::config::AppConfig::default);
+
+        ScreenContext { command_tx: tx, config }
+    }
+
+    #[test]
+    fn esc_returns_pop_screen() {
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut ctx = dummy_ctx();
+        let result = screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        assert!(
+            matches!(result, ScreenResult::PopScreen),
+            "Esc should return PopScreen for back-navigation"
+        );
+    }
+
+    #[test]
+    fn enter_rejects_short_password() {
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut ctx = dummy_ctx();
+        // Type a 5-character password
+        for ch in "short".chars() {
+            screen.update(
+                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                &mut ctx,
+            );
+        }
+        // Tab to confirm and type same short password
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        for ch in "short".chars() {
+            screen.update(
+                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                &mut ctx,
+            );
+        }
+        let result = screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(
+            screen.error.as_deref(),
+            Some("Password must be at least 8 characters")
+        );
+    }
+
+    #[test]
+    fn enter_rejects_mismatched_passwords() {
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut ctx = dummy_ctx();
+        // Type password in new field
+        for ch in "longpassword".chars() {
+            screen.update(
+                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                &mut ctx,
+            );
+        }
+        // Tab and type different password in confirm
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        for ch in "differentpass".chars() {
+            screen.update(
+                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                &mut ctx,
+            );
+        }
+        let result = screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(
+            screen.error.as_deref(),
+            Some("Passwords do not match")
+        );
+    }
+
+    #[test]
+    fn vault_initialized_navigates_to_main() {
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let result = screen.handle_command_result(CommandResult::VaultInitialized {
+            recovery_words: vec![],
+        });
+        assert!(matches!(result, ScreenResult::NavigateTo(Screen::Main)));
+    }
+
+    #[test]
+    fn command_error_sets_error_message() {
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let result = screen.handle_command_result(CommandResult::Error {
+            code: crate::errors::ErrorCode::Crypto("test".to_string()),
+            context: crate::errors::ErrorContext::new(),
+            message_key: "vault.init_failed",
+            fallback: "Failed to initialize vault".to_string(),
+        });
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.error.as_deref(), Some("Failed to initialize vault"));
+    }
+
+    #[test]
+    fn default_impl_uses_onboarding_create_context() {
+        let screen = SetPasswordScreen::default();
+        assert_eq!(screen.context, SetPasswordContext::OnboardingCreate);
+        assert!(screen.new_password.is_empty());
+    }
 }
