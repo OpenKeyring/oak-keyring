@@ -19,6 +19,7 @@ use crate::tui::screens::change_master_password::ChangeMasterPasswordScreen;
 use crate::tui::screens::config_screen::ConfigScreen;
 use crate::tui::screens::import_export::ImportExportScreen;
 use crate::tui::screens::onboarding::OnboardingScreen;
+use crate::tui::screens::set_password::SetPasswordScreen;
 use crate::tui::screens::sync_conflict::SyncConflictScreen;
 use crate::tui::screens::unlock::UnlockScreen;
 use main_state::MainScreenState;
@@ -62,6 +63,7 @@ pub struct ScreenStates {
     pub main: MainScreenState,
     pub config: ConfigScreen,
     pub change_master_password: ChangeMasterPasswordScreen,
+    pub set_new_master_password: SetPasswordScreen,
     pub import_export: ImportExportScreen,
     pub audit_log: AuditLogScreen,
     pub sync_conflict: SyncConflictScreen,
