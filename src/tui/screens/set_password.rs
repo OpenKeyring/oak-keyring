@@ -43,6 +43,7 @@ pub struct SetPasswordScreen {
     pub strength: Option<PasswordStrength>,
     pub error: Option<String>,
     pub password_visible: bool,
+    pub vault_path: Option<std::path::PathBuf>,
 }
 
 impl Default for SetPasswordScreen {
@@ -61,7 +62,13 @@ impl SetPasswordScreen {
             strength: None,
             error: None,
             password_visible: false,
+            vault_path: None,
         }
+    }
+
+    pub fn with_vault_path(mut self, path: std::path::PathBuf) -> Self {
+        self.vault_path = Some(path);
+        self
     }
 
     /// Re-evaluate password strength from the new password field.
@@ -320,10 +327,10 @@ impl SetPasswordScreen {
                 let password = std::mem::take(&mut self.new_password);
                 self.confirm_password.zeroize();
                 self.confirm_password.clear();
-                let vault_path = dirs::data_local_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-                    .join("open-keyring")
-                    .join("vault.db");
+                let vault_path = self
+                    .vault_path
+                    .clone()
+                    .unwrap_or_else(|| ctx.config.general.vault_path.join("vault.db"));
                 let cmd = Command::InitializeVault {
                     vault_path,
                     master_password: SecureStr::new(password),
@@ -393,6 +400,7 @@ mod tests {
         assert!(screen.strength.is_none());
         assert!(screen.error.is_none());
         assert!(!screen.password_visible);
+        assert!(screen.vault_path.is_none());
     }
 
     #[test]
@@ -632,5 +640,55 @@ mod tests {
         let screen = SetPasswordScreen::default();
         assert_eq!(screen.context, SetPasswordContext::OnboardingCreate);
         assert!(screen.new_password.is_empty());
+    }
+
+    #[test]
+    fn with_vault_path_sets_path() {
+        let custom = std::path::PathBuf::from("/tmp/custom/vault.db");
+        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate)
+            .with_vault_path(custom.clone());
+        assert_eq!(screen.vault_path.as_deref(), Some(custom.as_path()));
+    }
+
+    #[test]
+    fn enter_uses_custom_vault_path_when_set() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(16);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = ScreenContext { command_tx: &tx, config: &config };
+
+        let custom_path = std::path::PathBuf::from("/tmp/my-custom/vault.db");
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate)
+            .with_vault_path(custom_path.clone());
+
+        // Type matching 8+ char passwords
+        for ch in "longpassword".chars() {
+            screen.update(
+                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                &mut ctx,
+            );
+        }
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        for ch in "longpassword".chars() {
+            screen.update(
+                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                &mut ctx,
+            );
+        }
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+
+        // Verify the command was sent with the custom path
+        let cmd = rx.try_recv().expect("Command should be sent");
+        match cmd {
+            Command::InitializeVault { vault_path, .. } => {
+                assert_eq!(vault_path, custom_path, "Should use custom vault_path, not hardcoded");
+            }
+            _ => panic!("Expected InitializeVault command"),
+        }
     }
 }

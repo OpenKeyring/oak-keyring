@@ -361,8 +361,17 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                     }
                 }
             };
-            state.screens.set_new_master_password =
+            let vault_path = if !state.screens.onboarding.path_input.is_empty() {
+                Some(std::path::PathBuf::from(&state.screens.onboarding.path_input))
+            } else {
+                None
+            };
+            let screen =
                 crate::tui::screens::set_password::SetPasswordScreen::new(context);
+            state.screens.set_new_master_password = match vault_path {
+                Some(p) => screen.with_vault_path(p),
+                None => screen,
+            };
             state.screens.set_new_master_password.on_mount(ctx)
         }
         Screen::ImportExport => {
