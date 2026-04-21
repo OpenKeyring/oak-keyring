@@ -317,6 +317,7 @@ fn route_to_screen(
             state.screens.config.update(msg, ctx)
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.update(msg, ctx),
+        Screen::SetNewMasterPassword => state.screens.set_new_master_password.update(msg, ctx),
         Screen::ImportExport => state.screens.import_export.update(msg, ctx),
         Screen::AuditLog => state.screens.audit_log.update(msg, ctx),
         Screen::SyncConflict => state.screens.sync_conflict.update(msg, ctx),
@@ -344,6 +345,26 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
             state.screens.config.on_mount(ctx)
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
+        Screen::SetNewMasterPassword => {
+            let context = match state.screen_stack.last() {
+                Some(Screen::Unlock) => {
+                    crate::tui::screens::set_password::SetPasswordContext::PostRecovery
+                }
+                _ => {
+                    match state.screens.onboarding.selected_path {
+                        Some(crate::tui::screens::onboarding::OnboardingPath::Restore) => {
+                            crate::tui::screens::set_password::SetPasswordContext::OnboardingRestore
+                        }
+                        _ => {
+                            crate::tui::screens::set_password::SetPasswordContext::OnboardingCreate
+                        }
+                    }
+                }
+            };
+            state.screens.set_new_master_password =
+                crate::tui::screens::set_password::SetPasswordScreen::new(context);
+            state.screens.set_new_master_password.on_mount(ctx)
+        }
         Screen::ImportExport => {
             // Consume pending mode from config screen if set
             if let Some(mode) = state.screens.config.state.pending_import_export_mode.take() {
@@ -390,6 +411,7 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
             state.screens.config.on_unmount()
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
+        Screen::SetNewMasterPassword => state.screens.set_new_master_password.on_unmount(),
         Screen::ImportExport => {
             // Signal onboarding if returning from import (AC18)
             if matches!(
