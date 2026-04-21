@@ -33,6 +33,9 @@ pub fn render(frame: &mut Frame, app: &App) {
         Screen::ChangeMasterPassword => {
             app.state.screens.change_master_password.view(frame, area);
         }
+        Screen::SetNewMasterPassword => {
+            app.state.screens.set_new_master_password.view(frame, area);
+        }
         Screen::ImportExport => {
             app.state.screens.import_export.view(frame, area);
         }
