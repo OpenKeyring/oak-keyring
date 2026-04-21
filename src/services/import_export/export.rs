@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::crypto::argon2;
 use crate::crypto::xchacha20;
@@ -125,6 +126,12 @@ pub fn encrypt_and_write_okb(
     // 4. Encrypt JSON with XChaCha20-Poly1305.
     let (ciphertext, nonce) =
         xchacha20::encrypt(&json_bytes, &dek_arr).map_err(ImportExportError::EncryptionFailed)?;
+
+    // Zeroize plaintext JSON bytes now that encryption is complete.
+    let mut json_bytes = json_bytes;
+    json_bytes.zeroize();
+    let mut dek_arr = dek_arr;
+    dek_arr.zeroize();
 
     // 5. Build binary buffer: version (LE) + salt + nonce + ciphertext.
     let mut buf = Vec::with_capacity(4 + SALT_LEN + NONCE_LEN + ciphertext.len());
