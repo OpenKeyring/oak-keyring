@@ -214,7 +214,7 @@ impl CommandExecutor {
 
             // ── Health Check ──────────────────────────────
             Command::RunHealthCheck => health::handle_run_health_check(self),
-            Command::CheckHibp { record_id } => health::handle_check_hibp(self, record_id),
+            Command::CheckHibp { record_id } => health::handle_check_hibp(self, record_id).await,
 
             // ── Sync Operations ──────────────────────────
             Command::TriggerSync => sync::handle_trigger_sync(self).await,

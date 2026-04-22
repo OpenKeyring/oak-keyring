@@ -139,7 +139,7 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
 }
 
 #[tracing::instrument(skip_all)]
-pub fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) -> CommandResult {
+pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) -> CommandResult {
     // Step 1: Decrypt the record's password
     let password = match executor
         .vault
@@ -156,22 +156,29 @@ pub fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) -> Com
         }
     };
 
-    // Step 2: Check against HIBP
-    let compromised = match executor.health.check_hibp_single(&password) {
-        Ok(c) => c,
-        Err(e) => {
-            return CommandResult::Error {
-                code: ErrorCode::Health(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.hibp_check_failed",
-                fallback: format!("HIBP check failed: {}", e),
-            }
-        }
-    };
-    // password (SecureStr) is dropped here, zeroized automatically
+    // Step 2: Check against HIBP via spawn_blocking to avoid blocking the async runtime
+    let health_service = executor.health.clone();
+    let compromised = tokio::task::spawn_blocking(move || {
+        health_service.check_hibp_single(&password)
+    })
+    .await;
 
-    CommandResult::HibpCheckCompleted {
-        record_id,
-        compromised,
+    match compromised {
+        Ok(Ok(c)) => CommandResult::HibpCheckCompleted {
+            record_id,
+            compromised: c,
+        },
+        Ok(Err(e)) => CommandResult::Error {
+            code: ErrorCode::Health(e.to_string()),
+            context: ErrorContext::default(),
+            message_key: "error.hibp_check_failed",
+            fallback: format!("HIBP check failed: {}", e),
+        },
+        Err(e) => CommandResult::Error {
+            code: ErrorCode::Health(e.to_string()),
+            context: ErrorContext::default(),
+            message_key: "error.hibp_check_failed",
+            fallback: format!("HIBP check task panicked: {}", e),
+        },
     }
 }
