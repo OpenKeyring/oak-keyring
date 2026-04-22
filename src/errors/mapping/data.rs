@@ -13,7 +13,7 @@ impl ServiceError for DbError {
 
     fn error_level(&self) -> ErrorLevel {
         match self {
-            DbError::Sqlite(_) => ErrorLevel::Fatal,
+            DbError::Sqlite(_) => ErrorLevel::Error,
             DbError::Data(_) => ErrorLevel::Error,
             DbError::Uuid(_) => ErrorLevel::Error,
         }
@@ -31,10 +31,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sqlite_error_maps_to_fatal() {
+    fn sqlite_error_maps_to_error_level() {
         let err = DbError::Sqlite(rusqlite::Error::InvalidColumnIndex(99));
         assert!(matches!(err.error_code(), ErrorCode::Db(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.error_level(), ErrorLevel::Error);
     }
 
     #[test]
@@ -56,7 +56,7 @@ mod tests {
         let sqlite_err = rusqlite::Error::InvalidColumnIndex(42);
         let err: DbError = sqlite_err.into();
         assert!(matches!(err, DbError::Sqlite(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.error_level(), ErrorLevel::Error);
     }
 
     #[test]
@@ -64,7 +64,7 @@ mod tests {
         let err = DbError::Sqlite(rusqlite::Error::InvalidColumnIndex(1));
         let boxed: crate::errors::ServiceErrorBox = err.into();
         assert!(matches!(boxed.error_code(), ErrorCode::Db(_)));
-        assert_eq!(boxed.error_level(), ErrorLevel::Fatal);
+        assert_eq!(boxed.error_level(), ErrorLevel::Error);
     }
 
     #[test]
