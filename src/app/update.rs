@@ -382,7 +382,7 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                     crate::tui::screens::import_export::ImportEntryPoint::ConfigPage;
             }
             // Check if navigating from Onboarding Import path (AC18)
-            if matches!(state.current_screen, Screen::Onboarding) {
+            if matches!(state.screen_stack.last(), Some(Screen::Onboarding)) {
                 state.screens.import_export.mode =
                     crate::tui::screens::import_export::ImportExportMode::Import;
                 state.screens.import_export.entry_point =
