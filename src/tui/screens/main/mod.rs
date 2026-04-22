@@ -325,11 +325,21 @@ impl MainScreen {
                     state.current_filter = filter;
                 }
                 KeyCode::Enter => {
-                    if matches!(
-                        state.sidebar.items.get(state.sidebar.selected_index),
-                        Some(SidebarItem::TagHeader)
-                    ) {
-                        state.sidebar.toggle_tags();
+                    match state.sidebar.items.get(state.sidebar.selected_index) {
+                        Some(SidebarItem::TagHeader) => {
+                            state.sidebar.toggle_tags();
+                        }
+                        Some(SidebarItem::Generator) => {
+                            messages.push(Message::NavigateTo(
+                                crate::commands::types::Screen::PasswordGenerator,
+                            ));
+                        }
+                        Some(SidebarItem::Config) => {
+                            messages.push(Message::NavigateTo(
+                                crate::commands::types::Screen::Config,
+                            ));
+                        }
+                        _ => {}
                     }
                 }
                 KeyCode::Char('m') => {

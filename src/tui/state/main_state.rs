@@ -511,9 +511,22 @@ impl Screen for MainScreenState {
 
 impl MainScreenState {
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
+        // Check sidebar Enter for Generator/Config navigation first
+        if self.focused_panel == PanelId::Sidebar && key.code == KeyCode::Enter {
+            match self.sidebar.items.get(self.sidebar.selected_index) {
+                Some(SidebarItem::Generator) => {
+                    return ScreenResult::NavigateTo(ScreenEnum::PasswordGenerator);
+                }
+                Some(SidebarItem::Config) => {
+                    return ScreenResult::NavigateTo(ScreenEnum::Config);
+                }
+                _ => {}
+            }
+        }
         match key.code {
             KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
             KeyCode::Char('l') => ScreenResult::NavigateTo(ScreenEnum::AuditLog),
+            KeyCode::Char('p') => ScreenResult::NavigateTo(ScreenEnum::PasswordGenerator),
             KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ScreenResult::Command(Box::new(Command::TriggerSync))
             }
