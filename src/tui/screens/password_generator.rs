@@ -33,19 +33,20 @@ impl PasswordGeneratorScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
-        self.hint_message = None;
-
         match key.code {
             KeyCode::Tab => {
+                self.hint_message = None;
                 self.state.focus_next();
                 ScreenResult::Continue
             }
             KeyCode::BackTab => {
+                self.hint_message = None;
                 self.state.focus_prev();
                 ScreenResult::Continue
             }
             KeyCode::Esc => ScreenResult::PopScreen,
             KeyCode::Char('r') => {
+                self.hint_message = None;
                 self.state.regenerate();
                 ScreenResult::Continue
             }
@@ -57,12 +58,13 @@ impl PasswordGeneratorScreen {
     fn handle_enter(&mut self, ctx: &mut ScreenContext) -> ScreenResult {
         match self.state.focus {
             GeneratorFocus::ActionButton => {
-                let pw = self.state.preview.clone();
+                let pw = std::mem::take(&mut self.state.preview);
                 if !pw.is_empty() {
                     use crate::types::sensitive::SecureStr;
                     let _ = ctx.command_tx.try_send(Command::CopyRawToClipboard {
                         value: SecureStr::new(pw),
                     });
+                    self.state.regenerate();
                     self.hint_message = Some("已复制到剪贴板".to_string());
                 }
                 ScreenResult::Continue
@@ -79,6 +81,7 @@ impl PasswordGeneratorScreen {
         match self.state.focus {
             GeneratorFocus::StyleSelector => match key {
                 KeyCode::Left => {
+                    self.hint_message = None;
                     match self.state.style {
                         GenerationStyle::Random => {}
                         GenerationStyle::Memorable => {
@@ -91,6 +94,7 @@ impl PasswordGeneratorScreen {
                     ScreenResult::Continue
                 }
                 KeyCode::Right => {
+                    self.hint_message = None;
                     match self.state.style {
                         GenerationStyle::Random => {
                             self.state.set_style(GenerationStyle::Memorable)
@@ -106,16 +110,19 @@ impl PasswordGeneratorScreen {
             },
             GeneratorFocus::LengthSlider => match key {
                 KeyCode::Left | KeyCode::Char('-') => {
+                    self.hint_message = None;
                     self.state.decrement_length();
                     ScreenResult::Continue
                 }
                 KeyCode::Right | KeyCode::Char('+') => {
+                    self.hint_message = None;
                     self.state.increment_length();
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
             },
             GeneratorFocus::Toggle(idx) => {
+                self.hint_message = None;
                 if self.state.style == GenerationStyle::Random {
                     self.state.toggle_char_type(idx);
                 } else if self.state.style == GenerationStyle::Memorable && idx == 0 {
@@ -127,11 +134,13 @@ impl PasswordGeneratorScreen {
             }
             GeneratorFocus::SeparatorInput => match key {
                 KeyCode::Char(c) => {
+                    self.hint_message = None;
                     self.state.memorable_config.separator = c.to_string();
                     self.state.regenerate();
                     ScreenResult::Continue
                 }
                 KeyCode::Backspace => {
+                    self.hint_message = None;
                     self.state.memorable_config.separator = "-".to_string();
                     self.state.regenerate();
                     ScreenResult::Continue
@@ -175,7 +184,7 @@ impl PasswordGeneratorScreen {
 
     fn render_help_bar(&self, frame: &mut Frame, area: Rect) {
         let hints = [
-            "\u{2190}\u{2192}",
+            theme::ICON_ARROW_LR,
             "调整",
             "Tab",
             "切换焦点",
@@ -183,12 +192,14 @@ impl PasswordGeneratorScreen {
             "重新生成",
             "Enter",
             "复制",
+            "p",
+            "生成器",
             "Esc",
             "返回",
         ];
         let hint_text = hints.chunks(2).fold(String::new(), |mut acc, pair| {
             if !acc.is_empty() {
-                acc.push_str("  \u{2502}  ");
+                acc.push_str(&format!("  {}  ", theme::ICON_PIPE));
             }
             acc.push_str(&format!("{} {}", pair[0], pair[1]));
             acc
@@ -499,6 +510,64 @@ mod tests {
             &mut ctx,
         );
         assert!(rx.try_recv().is_err());
+        assert!(screen.hint_message.is_none());
+    }
+
+    #[test]
+    fn enter_on_action_regenerates_preview_after_take() {
+        let mut screen = PasswordGeneratorScreen::new();
+        screen.state.focus = GeneratorFocus::ActionButton;
+        let (tx, _) = tokio::sync::mpsc::channel(1);
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &Default::default(),
+        };
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        // After copy, preview is regenerated (non-empty)
+        assert!(!screen.state.preview.is_empty());
+    }
+
+    #[test]
+    fn hint_persists_across_arrow_keypress() {
+        let mut screen = PasswordGeneratorScreen::new();
+        screen.state.focus = GeneratorFocus::ActionButton;
+        let (tx, _) = tokio::sync::mpsc::channel(1);
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &Default::default(),
+        };
+        // Copy to set hint
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        assert!(screen.hint_message.is_some());
+        // Arrow key does not clear hint (not a state-changing action)
+        screen.state.focus = GeneratorFocus::StyleSelector;
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        assert!(screen.hint_message.is_some());
+    }
+
+    #[test]
+    fn hint_cleared_on_style_change() {
+        let mut screen = PasswordGeneratorScreen::new();
+        screen.hint_message = Some("test hint".to_string());
+        screen.state.focus = GeneratorFocus::StyleSelector;
+        let mut ctx = ScreenContext {
+            command_tx: &tokio::sync::mpsc::channel(1).0,
+            config: &Default::default(),
+        };
+        // Right arrow changes style → clears hint
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Right, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
         assert!(screen.hint_message.is_none());
     }
 }
