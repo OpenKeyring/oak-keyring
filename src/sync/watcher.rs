@@ -87,7 +87,9 @@ impl SyncWatcher {
         let mut watcher = RecommendedWatcher::new(
             move |result: Result<notify::Event, notify::Error>| {
                 if let Ok(event) = result {
+                    tracing::trace!(?event.kind, paths = ?event.paths, "received fs event");
                     if let Some(watch_event) = process_notify_event(event) {
+                        tracing::debug!(?watch_event, "processed watch event");
                         // Ignore send errors - the debounce task may have been dropped
                         let _ = event_tx_for_watcher.blocking_send(watch_event);
                     }
@@ -149,6 +151,7 @@ async fn debounce_loop(
                 }
                 _ = tokio::time::sleep(interval) => {
                     // Debounce expired, send command
+                    tracing::debug!("debounce expired, sending PullOnly");
                     let _ = cmd_tx.send(SyncCommand::PullOnly).await;
                     break;
                 }
@@ -220,15 +223,18 @@ mod tests {
         // Create records directory
         fs::create_dir_all(temp_dir.path().join("records")).unwrap();
 
-        let watcher =
+        let _watcher =
             SyncWatcher::new(temp_dir.path(), cmd_tx, Duration::from_millis(100)).unwrap();
+
+        // Give the FSEventStream runloop time to start processing events
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Create a JSON file in records directory
         fs::write(temp_dir.path().join("records").join("test.json"), "{}").unwrap();
 
         // Wait for debounce and verify PullOnly was sent
-        let cmd = timeout(Duration::from_secs(2), cmd_rx.recv()).await;
-        assert!(matches!(cmd, Ok(Some(SyncCommand::PullOnly))));
+        let cmd = timeout(Duration::from_secs(5), cmd_rx.recv()).await;
+        assert!(matches!(cmd, Ok(Some(SyncCommand::PullOnly))), "expected PullOnly, got {cmd:?}");
     }
 
     #[tokio::test]
@@ -241,15 +247,18 @@ mod tests {
         let file_path = temp_dir.path().join("records").join("test.json");
         fs::write(&file_path, "{}").unwrap();
 
-        let watcher =
+        let _watcher =
             SyncWatcher::new(temp_dir.path(), cmd_tx, Duration::from_millis(100)).unwrap();
+
+        // Give the FSEventStream runloop time to start processing events
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Modify the file
         fs::write(&file_path, r#"{"updated": true}"#).unwrap();
 
         // Wait for debounce and verify PullOnly was sent
-        let cmd = timeout(Duration::from_secs(2), cmd_rx.recv()).await;
-        assert!(matches!(cmd, Ok(Some(SyncCommand::PullOnly))));
+        let cmd = timeout(Duration::from_secs(5), cmd_rx.recv()).await;
+        assert!(matches!(cmd, Ok(Some(SyncCommand::PullOnly))), "expected PullOnly, got {cmd:?}");
     }
 
     #[tokio::test]
@@ -260,8 +269,11 @@ mod tests {
         // Create records directory
         fs::create_dir_all(temp_dir.path().join("records")).unwrap();
 
-        let watcher =
+        let _watcher =
             SyncWatcher::new(temp_dir.path(), cmd_tx, Duration::from_millis(200)).unwrap();
+
+        // Give the FSEventStream runloop time to start processing events
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Create multiple files rapidly
         for i in 0..3 {
@@ -276,11 +288,11 @@ mod tests {
         }
 
         // Only one PullOnly should be sent after debounce
-        let cmd = timeout(Duration::from_secs(2), cmd_rx.recv()).await;
-        assert!(matches!(cmd, Ok(Some(SyncCommand::PullOnly))));
+        let cmd = timeout(Duration::from_secs(5), cmd_rx.recv()).await;
+        assert!(matches!(cmd, Ok(Some(SyncCommand::PullOnly))), "expected PullOnly, got {cmd:?}");
 
         // No more commands should arrive (give a small window)
-        let extra_cmd = timeout(Duration::from_millis(100), cmd_rx.recv()).await;
+        let extra_cmd = timeout(Duration::from_millis(200), cmd_rx.recv()).await;
         assert!(extra_cmd.is_err() || extra_cmd.unwrap().is_none());
     }
 
@@ -292,7 +304,7 @@ mod tests {
         // Create records directory
         fs::create_dir_all(temp_dir.path().join("records")).unwrap();
 
-        let watcher =
+        let _watcher =
             SyncWatcher::new(temp_dir.path(), cmd_tx, Duration::from_millis(100)).unwrap();
 
         // Create a non-JSON file
