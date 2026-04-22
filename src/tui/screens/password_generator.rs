@@ -71,18 +71,7 @@ impl PasswordGeneratorScreen {
                 self.state.regenerate();
                 ScreenResult::Continue
             }
-            _ => {
-                // Default action on Enter: copy
-                let pw = self.state.preview.clone();
-                if !pw.is_empty() {
-                    use crate::types::sensitive::SecureStr;
-                    let _ = ctx.command_tx.try_send(Command::CopyRawToClipboard {
-                        value: SecureStr::new(pw),
-                    });
-                    self.hint_message = Some("已复制到剪贴板".to_string());
-                }
-                ScreenResult::Continue
-            }
+            _ => ScreenResult::Continue,
         }
     }
 
@@ -459,5 +448,57 @@ mod tests {
         assert!(!screen.state.preview.is_empty());
         screen.on_unmount();
         assert!(screen.state.preview.is_empty());
+    }
+
+    #[test]
+    fn enter_on_style_selector_does_not_copy() {
+        let mut screen = PasswordGeneratorScreen::new();
+        screen.state.focus = GeneratorFocus::StyleSelector;
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &Default::default(),
+        };
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        // No command dispatched, no hint message
+        assert!(rx.try_recv().is_err());
+        assert!(screen.hint_message.is_none());
+    }
+
+    #[test]
+    fn enter_on_length_slider_does_not_copy() {
+        let mut screen = PasswordGeneratorScreen::new();
+        screen.state.focus = GeneratorFocus::LengthSlider;
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &Default::default(),
+        };
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        assert!(rx.try_recv().is_err());
+        assert!(screen.hint_message.is_none());
+    }
+
+    #[test]
+    fn enter_on_toggle_does_not_copy() {
+        let mut screen = PasswordGeneratorScreen::new();
+        screen.state.focus = GeneratorFocus::Toggle(0);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &Default::default(),
+        };
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            &mut ctx,
+        );
+        assert!(rx.try_recv().is_err());
+        assert!(screen.hint_message.is_none());
     }
 }
