@@ -430,6 +430,8 @@ pub struct MainScreenState {
     pub focused_panel: PanelId,
     /// Whether the terminal supports unicode characters (synced from AppState.unicode_capable).
     pub unicode_capable: bool,
+    /// Trash retention days from config (0 = never auto-delete).
+    pub trash_retention_days: u32,
 }
 
 impl Default for MainScreenState {
@@ -445,6 +447,7 @@ impl Default for MainScreenState {
             pre_lock_snapshot: None,
             focused_panel: PanelId::Sidebar,
             unicode_capable: true,
+            trash_retention_days: 30,
         }
     }
 }
@@ -496,8 +499,9 @@ impl Screen for MainScreenState {
         renderer.view(frame, area, self, self.focused_panel, self.unicode_capable);
     }
 
-    fn on_mount(&mut self, _ctx: &mut ScreenContext) {
-        // No-op: mount sync handled by router calling sync_from_app().
+    fn on_mount(&mut self, ctx: &mut ScreenContext) {
+        self.trash_retention_days = ctx.config.general.trash_retention_days;
+        self.detail.trash_retention_days = ctx.config.general.trash_retention_days;
     }
 
     fn on_unmount(&mut self) {
@@ -790,5 +794,57 @@ mod tests {
         state.list.enter_visual();
         assert!(state.list.is_visual());
         assert!(!state.list.is_searching());
+    }
+
+    #[test]
+    fn trash_retention_days_default_is_30() {
+        let state = MainScreenState::default();
+        assert_eq!(state.trash_retention_days, 30);
+        assert_eq!(state.detail.trash_retention_days, 30);
+    }
+
+    #[test]
+    fn on_mount_reads_trash_retention_from_config() {
+        use crate::config::AppConfig;
+        use crate::tui::traits::screen::{Screen, ScreenContext};
+        use tokio::sync::mpsc;
+
+        let mut config = AppConfig::default();
+        config.general.trash_retention_days = 60;
+        let (tx, _rx) = mpsc::channel(1);
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+
+        let mut state = MainScreenState::default();
+        assert_eq!(state.trash_retention_days, 30);
+        assert_eq!(state.detail.trash_retention_days, 30);
+
+        state.on_mount(&mut ctx);
+
+        assert_eq!(state.trash_retention_days, 60);
+        assert_eq!(state.detail.trash_retention_days, 60);
+    }
+
+    #[test]
+    fn on_mount_reads_zero_retention_from_config() {
+        use crate::config::AppConfig;
+        use crate::tui::traits::screen::{Screen, ScreenContext};
+        use tokio::sync::mpsc;
+
+        let mut config = AppConfig::default();
+        config.general.trash_retention_days = 0;
+        let (tx, _rx) = mpsc::channel(1);
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+
+        let mut state = MainScreenState::default();
+        state.on_mount(&mut ctx);
+
+        assert_eq!(state.trash_retention_days, 0);
+        assert_eq!(state.detail.trash_retention_days, 0);
     }
 }
