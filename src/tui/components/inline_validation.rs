@@ -19,18 +19,20 @@ pub struct InlineValidation;
 
 impl InlineValidation {
     /// Render validation message below a form field.
-    pub fn view(frame: &mut Frame, area: Rect, kind: &ValidationKind) {
+    pub fn view(frame: &mut Frame, area: Rect, kind: &ValidationKind, unicode: bool) {
         let (icon, text, style) = match kind {
             ValidationKind::Valid(msg) => (
-                "\u{2713}",
+                if unicode { "\u{2713}" } else { theme::ascii::ICON_SUCCESS },
                 msg.as_str(),
                 Style::default().fg(theme::SUCCESS),
             ),
-            ValidationKind::Invalid(msg) => {
-                ("\u{2715}", msg.as_str(), Style::default().fg(theme::ERROR))
-            }
+            ValidationKind::Invalid(msg) => (
+                if unicode { "\u{2715}" } else { theme::ascii::ICON_ERROR },
+                msg.as_str(),
+                Style::default().fg(theme::ERROR),
+            ),
             ValidationKind::Warning(msg) => (
-                "\u{26A0}",
+                if unicode { "\u{26A0}" } else { theme::ascii::ICON_WARNING },
                 msg.as_str(),
                 Style::default().fg(theme::WARNING),
             ),
@@ -40,5 +42,63 @@ impl InlineValidation {
             Span::styled(text.to_string(), style),
         ]);
         frame.render_widget(Paragraph::new(line), area);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn cell_content(kind: &ValidationKind, unicode: bool) -> String {
+        let backend = TestBackend::new(40, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                InlineValidation::view(f, Rect::new(0, 0, 40, 3), kind, unicode);
+            })
+            .unwrap();
+        let buf = terminal.backend().buffer().clone();
+        format!("{:?}", buf)
+    }
+
+    #[test]
+    fn valid_unicode_shows_checkmark() {
+        let out = cell_content(&ValidationKind::Valid("ok".into()), true);
+        assert!(out.contains('\u{2713}'), "should contain ✓");
+    }
+
+    #[test]
+    fn valid_ascii_shows_plus() {
+        let out = cell_content(&ValidationKind::Valid("ok".into()), false);
+        assert!(out.contains('+'), "should contain ASCII +");
+        assert!(!out.contains('\u{2713}'), "should not contain ✓");
+    }
+
+    #[test]
+    fn invalid_unicode_shows_cross() {
+        let out = cell_content(&ValidationKind::Invalid("bad".into()), true);
+        assert!(out.contains('\u{2715}'), "should contain ✕");
+    }
+
+    #[test]
+    fn invalid_ascii_shows_x() {
+        let out = cell_content(&ValidationKind::Invalid("bad".into()), false);
+        assert!(out.contains('x'), "should contain ASCII x");
+        assert!(!out.contains('\u{2715}'), "should not contain ✕");
+    }
+
+    #[test]
+    fn warning_unicode_shows_warn_sign() {
+        let out = cell_content(&ValidationKind::Warning("meh".into()), true);
+        assert!(out.contains('\u{26A0}'), "should contain ⚠");
+    }
+
+    #[test]
+    fn warning_ascii_shows_exclamation() {
+        let out = cell_content(&ValidationKind::Warning("meh".into()), false);
+        assert!(out.contains('!'), "should contain ASCII !");
+        assert!(!out.contains('\u{26A0}'), "should not contain ⚠");
     }
 }
