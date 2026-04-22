@@ -321,6 +321,7 @@ fn route_to_screen(
         Screen::ImportExport => state.screens.import_export.update(msg, ctx),
         Screen::AuditLog => state.screens.audit_log.update(msg, ctx),
         Screen::SyncConflict => state.screens.sync_conflict.update(msg, ctx),
+        Screen::PasswordGenerator => state.screens.password_generator.update(msg, ctx),
         // Placeholder screens — ignore messages.
         _ => ScreenResult::Continue,
     }
@@ -402,6 +403,11 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
             state.shared.screen_focus_stack.push(current_panel);
             state.screens.sync_conflict.on_mount(ctx)
         }
+        Screen::PasswordGenerator => {
+            let current_panel = state.shared.focus.focused_panel;
+            state.shared.screen_focus_stack.push(current_panel);
+            state.screens.password_generator.on_mount(ctx)
+        }
         _ => {}
     }
 }
@@ -445,6 +451,12 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
                 state.shared.focus.focused_panel = panel;
             }
             state.screens.sync_conflict.on_unmount()
+        }
+        Screen::PasswordGenerator => {
+            if let Some(panel) = state.shared.screen_focus_stack.pop() {
+                state.shared.focus.focused_panel = panel;
+            }
+            state.screens.password_generator.on_unmount()
         }
         _ => {}
     }

@@ -45,6 +45,9 @@ pub fn render(frame: &mut Frame, app: &App) {
         Screen::SyncConflict => {
             app.state.screens.sync_conflict.view(frame, area);
         }
+        Screen::PasswordGenerator => {
+            app.state.screens.password_generator.view(frame, area);
+        }
         // Placeholder for unimplemented screens.
         _ => {
             render_placeholder(frame, area, &format!("{:?}", app.state.current_screen));

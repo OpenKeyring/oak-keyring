@@ -70,6 +70,7 @@ pub enum Screen {
     SyncConflict,
     ChangeMasterPassword,
     SetNewMasterPassword,
+    PasswordGenerator,
 }
 
 /// Three-panel layout focus target

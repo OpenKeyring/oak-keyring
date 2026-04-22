@@ -19,6 +19,7 @@ use crate::tui::screens::change_master_password::ChangeMasterPasswordScreen;
 use crate::tui::screens::config_screen::ConfigScreen;
 use crate::tui::screens::import_export::ImportExportScreen;
 use crate::tui::screens::onboarding::OnboardingScreen;
+use crate::tui::screens::password_generator::PasswordGeneratorScreen;
 use crate::tui::screens::set_password::SetPasswordScreen;
 use crate::tui::screens::sync_conflict::SyncConflictScreen;
 use crate::tui::screens::unlock::UnlockScreen;
@@ -67,6 +68,7 @@ pub struct ScreenStates {
     pub import_export: ImportExportScreen,
     pub audit_log: AuditLogScreen,
     pub sync_conflict: SyncConflictScreen,
+    pub password_generator: PasswordGeneratorScreen,
 }
 
 impl Default for AppState {
