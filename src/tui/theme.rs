@@ -33,6 +33,8 @@ pub const ICON_STAR: &str = "\u{2605}";
 pub const ICON_FOLDER: &str = "\u{1F4C1}";
 pub const ICON_TRASH: &str = "\u{1F5D1}";
 pub const ICON_CHECK: &str = "\u{2611}";
+pub const ICON_ARROW_LR: &str = "\u{2190}\u{2192}"; // ←→
+pub const ICON_PIPE: &str = "\u{2502}"; // │
 
 /// ASCII fallbacks for terminals without Unicode support.
 pub mod ascii {
@@ -46,6 +48,8 @@ pub mod ascii {
     pub const ICON_FOLDER: &str = "[DIR]";
     pub const ICON_TRASH: &str = "[DEL]";
     pub const ICON_CHECK: &str = "[x]";
+    pub const ICON_ARROW_LR: &str = "<->";
+    pub const ICON_PIPE: &str = "|";
 }
 
 /// Reusable style presets for common UI elements.
