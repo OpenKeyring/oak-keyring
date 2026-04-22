@@ -3,12 +3,13 @@
 //! These structs implement the D3 config traits for use by the S5 executor layer.
 
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
 use crate::config::{
     AppConfig, ConfigError, ConfigManager, ConfigReloadable, ConfigWatcher, ServiceNotification,
 };
+use crate::services::clipboard::ClipboardService;
 
 // ---------------------------------------------------------------------------
 // ConfigManagerImpl
@@ -127,6 +128,40 @@ impl ServiceNotificationImpl {
 impl Default for ServiceNotificationImpl {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ClipboardConfigAdapter
+// ---------------------------------------------------------------------------
+
+/// Adapter that bridges `ClipboardService` into the `ConfigReloadable` notification system.
+///
+/// Holds a shared reference (`Arc`) to the clipboard service and delegates
+/// `reload()` calls to `set_clear_timeout()`.
+pub struct ClipboardConfigAdapter {
+    inner: Arc<ClipboardService>,
+}
+
+impl ClipboardConfigAdapter {
+    pub fn new(clipboard: Arc<ClipboardService>) -> Self {
+        Self { inner: clipboard }
+    }
+}
+
+impl ConfigReloadable for ClipboardConfigAdapter {
+    fn service_id(&self) -> &str {
+        "clipboard"
+    }
+
+    fn reload(&self, config: &AppConfig) -> Result<(), ConfigError> {
+        self.inner
+            .set_clear_timeout(config.general.clipboard_clear_seconds);
+        tracing::info!(
+            timeout = config.general.clipboard_clear_seconds,
+            "ClipboardService reloaded via config notification"
+        );
+        Ok(())
     }
 }
 
@@ -742,5 +777,71 @@ mod tests {
         let via_new = ConfigWatcherImpl::new();
         let via_default = ConfigWatcherImpl::default();
         assert_eq!(via_new.last_mtime, via_default.last_mtime);
+    }
+
+    // -----------------------------------------------------------------------
+    // ClipboardConfigAdapter tests
+    // -----------------------------------------------------------------------
+
+    use crate::services::clipboard::MockBackend;
+
+    #[test]
+    fn clipboard_adapter_service_id() {
+        let clipboard = Arc::new(ClipboardService::with_backend(
+            Box::new(MockBackend::new()),
+            30,
+        ));
+        let adapter = ClipboardConfigAdapter::new(clipboard);
+        assert_eq!(adapter.service_id(), "clipboard");
+    }
+
+    #[test]
+    fn clipboard_adapter_reload_updates_timeout() {
+        let clipboard = Arc::new(ClipboardService::with_backend(
+            Box::new(MockBackend::new()),
+            30,
+        ));
+        let adapter = ClipboardConfigAdapter::new(Arc::clone(&clipboard));
+
+        let mut config = AppConfig::default();
+        config.general.clipboard_clear_seconds = 120;
+        adapter.reload(&config).unwrap();
+
+        assert_eq!(clipboard.clear_timeout(), 120);
+    }
+
+    #[test]
+    fn clipboard_adapter_integrated_with_notifier() {
+        let clipboard = Arc::new(ClipboardService::with_backend(
+            Box::new(MockBackend::new()),
+            30,
+        ));
+
+        let mut notifier = ServiceNotificationImpl::new();
+        notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(&clipboard))));
+
+        let mut config = AppConfig::default();
+        config.general.clipboard_clear_seconds = 60;
+
+        let results = notifier.notify_config_change(&config, &["clipboard"]);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].is_ok());
+        assert_eq!(clipboard.clear_timeout(), 60);
+    }
+
+    #[test]
+    fn clipboard_adapter_not_notified_for_other_fields() {
+        let clipboard = Arc::new(ClipboardService::with_backend(
+            Box::new(MockBackend::new()),
+            30,
+        ));
+
+        let mut notifier = ServiceNotificationImpl::new();
+        notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(&clipboard))));
+
+        let config = AppConfig::default();
+        let results = notifier.notify_config_change(&config, &["sync"]);
+        assert!(results.is_empty());
+        assert_eq!(clipboard.clear_timeout(), 30); // unchanged
     }
 }
