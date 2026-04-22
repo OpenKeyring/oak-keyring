@@ -22,17 +22,17 @@ impl InlineValidation {
     pub fn view(frame: &mut Frame, area: Rect, kind: &ValidationKind, unicode: bool) {
         let (icon, text, style) = match kind {
             ValidationKind::Valid(msg) => (
-                if unicode { "\u{2713}" } else { theme::ascii::ICON_SUCCESS },
+                if unicode { theme::ICON_SUCCESS } else { theme::ascii::ICON_SUCCESS },
                 msg.as_str(),
                 Style::default().fg(theme::SUCCESS),
             ),
             ValidationKind::Invalid(msg) => (
-                if unicode { "\u{2715}" } else { theme::ascii::ICON_ERROR },
+                if unicode { theme::ICON_ERROR } else { theme::ascii::ICON_ERROR },
                 msg.as_str(),
                 Style::default().fg(theme::ERROR),
             ),
             ValidationKind::Warning(msg) => (
-                if unicode { "\u{26A0}" } else { theme::ascii::ICON_WARNING },
+                if unicode { theme::ICON_WARNING } else { theme::ascii::ICON_WARNING },
                 msg.as_str(),
                 Style::default().fg(theme::WARNING),
             ),
