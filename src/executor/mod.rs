@@ -12,6 +12,7 @@ pub mod timer;
 pub mod vault;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -25,6 +26,9 @@ use crate::services::clipboard::ClipboardService;
 use crate::services::health::HealthService;
 use crate::services::import_export::ImportExportService;
 use crate::services::vault::VaultService;
+
+use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
+use crate::config::notification::ServiceNotification;
 
 /// Command executor that bridges the UI layer to service layer.
 ///
@@ -41,12 +45,14 @@ pub struct CommandExecutor {
     health: HealthService,
     /// S4: Clipboard service — system clipboard with auto-clear.
     #[allow(dead_code)]
-    clipboard: ClipboardService,
+    clipboard: Arc<ClipboardService>,
     /// S6: Import/Export service — file parsing and vault export.
     #[allow(dead_code)]
     import_export: ImportExportService,
     /// Application configuration.
     config: AppConfig,
+    /// Notifier that dispatches config changes to registered services.
+    config_notifier: ServiceNotificationImpl,
     /// Path to the vault directory (contains vault.db, config.toml, etc.).
     pub(super) vault_dir: PathBuf,
     /// Cached health report, updated after health check runs.
@@ -97,7 +103,11 @@ impl CommandExecutor {
         // Clipboard may fail in headless/CI environments — propagate the error
         // so callers can decide how to handle it.
         let clipboard_clear_seconds = config.general.clipboard_clear_seconds;
-        let clipboard = ClipboardService::new_safe(clipboard_clear_seconds)?;
+        let clipboard = Arc::new(ClipboardService::new_safe(clipboard_clear_seconds)?);
+
+        // Register clipboard service for config-change notifications.
+        let mut config_notifier = ServiceNotificationImpl::new();
+        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(&clipboard))));
 
         // Sync is not yet wired up; will be integrated in Task 22.
         let sync = None;
@@ -114,6 +124,7 @@ impl CommandExecutor {
             clipboard,
             import_export,
             config,
+            config_notifier,
             vault_dir,
             health_report: None,
             result_tx,
