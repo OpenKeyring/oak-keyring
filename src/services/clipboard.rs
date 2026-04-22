@@ -1,4 +1,5 @@
-use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
@@ -175,7 +176,7 @@ impl ClipboardBackend for MockBackend {
 /// Plaintext zeroize is the caller's (S5 Executor) responsibility via `SecureStr::drop`.
 pub struct ClipboardService {
     backend: Arc<dyn ClipboardBackend>,
-    clear_timeout: u64,
+    clear_timeout: AtomicU64,
     active_timer: Mutex<Option<AbortHandle>>,
     last_hash: Mutex<Option<String>>,
 }
@@ -184,7 +185,7 @@ impl ClipboardService {
     pub fn with_backend(backend: Box<dyn ClipboardBackend>, clear_timeout: u64) -> Self {
         Self {
             backend: Arc::from(backend),
-            clear_timeout,
+            clear_timeout: AtomicU64::new(clear_timeout),
             active_timer: Mutex::new(None),
             last_hash: Mutex::new(None),
         }
@@ -228,16 +229,17 @@ impl ClipboardService {
         }
 
         self.backend.set_text(text)?;
+        let timeout = self.clear_timeout.load(Ordering::Relaxed);
         info!(
-            timeout_secs = self.clear_timeout,
+            timeout_secs = timeout,
             "Copied to clipboard with tracking"
         );
 
-        if self.clear_timeout > 0 {
+        if timeout > 0 {
             self.start_clear_timer();
         }
 
-        Ok(self.clear_timeout)
+        Ok(timeout)
     }
 
     /// Force clear clipboard regardless of content.
@@ -318,11 +320,11 @@ impl ClipboardService {
     }
 
     pub fn clear_timeout(&self) -> u64 {
-        self.clear_timeout
+        self.clear_timeout.load(Ordering::Relaxed)
     }
 
-    pub fn set_clear_timeout(&mut self, seconds: u64) {
-        self.clear_timeout = seconds;
+    pub fn set_clear_timeout(&self, seconds: u64) {
+        self.clear_timeout.store(seconds, Ordering::Relaxed);
     }
 
     #[allow(dead_code)]
@@ -332,7 +334,7 @@ impl ClipboardService {
 
     fn start_clear_timer(&self) {
         let backend = Arc::clone(&self.backend);
-        let timeout = self.clear_timeout;
+        let timeout = self.clear_timeout.load(Ordering::Relaxed);
         let expected_hash = self.last_hash.lock().ok().and_then(|h| h.clone());
 
         let handle = tokio::spawn(async move {

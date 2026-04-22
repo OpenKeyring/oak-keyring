@@ -331,6 +331,8 @@ mod tests {
     use crate::config::AppConfig;
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
     use crate::db::schema::{initialize_metadata, initialize_schema};
+    use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
+    use crate::config::notification::ServiceNotification;
     use crate::services::clipboard::{ClipboardService, MockBackend};
     use crate::services::health::HealthService;
     use crate::services::import_export::ImportExportService;
@@ -339,6 +341,7 @@ mod tests {
     use crate::types::rotation::{RotationCheckpoint, RotationTrigger};
     use rusqlite::Connection;
     use std::path::PathBuf;
+    use std::sync::Arc;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
@@ -361,7 +364,9 @@ mod tests {
         let vault = setup_vault_unlocked();
         let (result_tx, _) = mpsc::channel(64);
         let (internal_tx, internal_rx) = mpsc::channel(64);
-        let clipboard = ClipboardService::with_backend(Box::new(MockBackend::new()), 30);
+        let clipboard = Arc::new(ClipboardService::with_backend(Box::new(MockBackend::new()), 30));
+        let mut config_notifier = ServiceNotificationImpl::new();
+        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(&clipboard))));
 
         CommandExecutor {
             vault,
@@ -370,6 +375,7 @@ mod tests {
             clipboard,
             import_export: ImportExportService::new(),
             config: AppConfig::default(),
+            config_notifier,
             vault_dir: PathBuf::from(":memory:"),
             health_report: None,
             result_tx,
