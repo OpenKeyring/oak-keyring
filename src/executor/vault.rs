@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::commands::CommandResult;
+use crate::config::ConfigManager;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::SecureStr;
@@ -126,7 +127,7 @@ pub async fn handle_initialize_vault(
     master_password: SecureStr,
 ) -> CommandResult {
     // Step 1: Generate recovery key (24-word BIP39 mnemonic)
-    let language = resolve_mnemonic_language(&executor.config.general.language);
+    let language = resolve_mnemonic_language(&executor.config_manager.get_config().general.language);
     let passkey = match Passkey::generate(24, language) {
         Ok(pk) => pk,
         Err(e) => {

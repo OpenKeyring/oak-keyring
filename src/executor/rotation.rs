@@ -329,6 +329,7 @@ mod tests {
     use super::*;
     use crate::cloud::CloudMetadata;
     use crate::config::AppConfig;
+    use crate::executor::config_impl::{ConfigManagerImpl, ServiceNotificationImpl};
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
     use crate::db::schema::{initialize_metadata, initialize_schema};
     use crate::services::clipboard::{ClipboardService, MockBackend};
@@ -369,7 +370,8 @@ mod tests {
             health: HealthService::new(),
             clipboard,
             import_export: ImportExportService::new(),
-            config: AppConfig::default(),
+            config_manager: ConfigManagerImpl::new(AppConfig::default()),
+            service_notifier: ServiceNotificationImpl::new(),
             vault_dir: PathBuf::from(":memory:"),
             health_report: None,
             result_tx,

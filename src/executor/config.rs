@@ -1,7 +1,7 @@
 use crate::commands::types::AuditFilter;
 use crate::commands::CommandResult;
 use crate::config::sync::ProviderConfig;
-use crate::config::AppConfig;
+use crate::config::{AppConfig, ConfigManager, ServiceNotification};
 use crate::errors::{ErrorCode, ErrorContext};
 
 use super::CommandExecutor;
@@ -9,20 +9,23 @@ use super::CommandExecutor;
 #[tracing::instrument(skip_all)]
 pub fn handle_load_config(executor: &mut CommandExecutor) -> CommandResult {
     CommandResult::ConfigLoaded {
-        config: executor.config.clone(),
+        config: executor.config_manager.get_config(),
     }
 }
 
 #[tracing::instrument(skip_all)]
 pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> CommandResult {
-    let changed = detect_changed_fields(&executor.config, &config);
+    let current = executor.config_manager.get_config();
+    let changed = detect_changed_fields(&current, &config);
 
-    match config.save(&executor.vault_dir) {
+    match executor.config_manager.save(&config, &executor.vault_dir) {
         Ok(()) => {
             apply_config_changes(executor, &changed, &config);
-            executor.config = config;
 
             if !changed.is_empty() {
+                let _ = executor
+                    .service_notifier
+                    .notify_config_change(&config, &changed.iter().map(|s| *s).collect::<Vec<_>>());
                 tracing::info!(changed_fields = ?changed, "Config saved and changes applied");
             }
 

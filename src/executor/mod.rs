@@ -21,6 +21,8 @@ use crate::commands::types::HealthReport;
 use crate::commands::{Command, Message};
 use crate::config::AppConfig;
 use crate::db::schema::init_db;
+use crate::executor::config_impl::{ConfigManagerImpl, ConfigWatcherImpl, ServiceNotificationImpl};
+use crate::config::{ConfigManager, ConfigWatcher, ServiceNotification};
 use crate::services::clipboard::ClipboardService;
 use crate::services::health::HealthService;
 use crate::services::import_export::ImportExportService;
@@ -45,8 +47,10 @@ pub struct CommandExecutor {
     /// S6: Import/Export service — file parsing and vault export.
     #[allow(dead_code)]
     import_export: ImportExportService,
-    /// Application configuration.
-    config: AppConfig,
+    /// Configuration manager — thread-safe config holder with persistence.
+    config_manager: ConfigManagerImpl,
+    /// Service notification registry for config change broadcasts.
+    service_notifier: ServiceNotificationImpl,
     /// Path to the vault directory (contains vault.db, config.toml, etc.).
     pub(super) vault_dir: PathBuf,
     /// Cached health report, updated after health check runs.
@@ -102,6 +106,10 @@ impl CommandExecutor {
         // Sync is not yet wired up; will be integrated in Task 22.
         let sync = None;
 
+        // Config management and service notification.
+        let config_manager = ConfigManagerImpl::new(config);
+        let service_notifier = ServiceNotificationImpl::new();
+
         // Create internal signaling channel
         let (internal_tx, internal_rx) = mpsc::channel(64);
 
@@ -113,7 +121,8 @@ impl CommandExecutor {
             health,
             clipboard,
             import_export,
-            config,
+            config_manager,
+            service_notifier,
             vault_dir,
             health_report: None,
             result_tx,
@@ -142,7 +151,8 @@ impl CommandExecutor {
         info!("CommandExecutor started");
 
         let mut internal_rx = self.internal_rx.take().expect("internal_rx must be set");
-        let mut timers = timer::ExecutorTimers::new(&self.config);
+        let mut config_watcher = ConfigWatcherImpl::new();
+        let mut timers = timer::ExecutorTimers::new(&self.config_manager.get_config());
 
         loop {
             // Destructure into individual fields so tokio::select! can take
@@ -170,6 +180,16 @@ impl CommandExecutor {
                         Some(command) => {
                             self.execute(command).await;
                             timers.reset_auto_lock();
+
+                            // Detect external config changes (e.g. config.toml edited by hand)
+                            if config_watcher.needs_reload(&self.vault_dir) {
+                                if let Ok(new_config) = self.config_manager.reload(&self.vault_dir) {
+                                    config_watcher.update_mtime(&self.vault_dir);
+                                    timers = timer::ExecutorTimers::new(&new_config);
+                                    self.service_notifier.notify_config_change(&new_config, &[]);
+                                    info!("External config change detected — reloaded and applied");
+                                }
+                            }
                         }
                         None => {
                             info!("Command channel closed, executor shutting down");
