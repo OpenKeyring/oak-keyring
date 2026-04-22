@@ -16,3 +16,16 @@ Thumbs.db
 
 # Test artifacts
 *.snap.new
+
+# Sensitive files (password manager — never commit secrets)
+.env
+.env.local
+config.yaml
+ok_config.yaml
+*.db
+*.sqlite
+*.sqlite3
+passwords.db
+keys/
+device.id
+sync-backups/
