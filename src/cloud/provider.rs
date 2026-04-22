@@ -389,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn test_factory_aliyun_drive_not_supported() {
+    fn test_factory_aliyun_drive_with_valid_config() {
         let config = SyncConfig {
             provider: SyncProvider::AliyunDrive,
             sync_mode: SyncMode::Auto,
@@ -404,14 +404,54 @@ mod tests {
         };
 
         let result = create_cloud_storage(&config);
-        assert!(result.is_err());
+        assert!(result.is_ok(), "AliyunDrive should now be supported");
 
-        match result.unwrap_err() {
-            SyncError::ProviderNotSupported { provider } => {
-                assert_eq!(provider, "aliyun_drive");
-            }
-            other => panic!("expected ProviderNotSupported, got {:?}", other),
-        }
+        let storage = result.unwrap();
+        drop(storage);
+    }
+
+    #[test]
+    fn test_factory_google_drive_with_valid_config() {
+        let config = SyncConfig {
+            provider: SyncProvider::GoogleDrive,
+            sync_mode: SyncMode::Auto,
+            auto_interval_seconds: 600,
+            provider_config: Some(ProviderConfig::GoogleDrive(GoogleDriveConfig {
+                client_id: "test_client".to_string(),
+                client_secret: "test_secret".to_string(),
+                refresh_token: "test_token".to_string(),
+                root_path: "/".to_string(),
+            })),
+        };
+
+        let result = create_cloud_storage(&config);
+        assert!(result.is_ok(), "GoogleDrive should now be supported");
+
+        let storage = result.unwrap();
+        drop(storage);
+    }
+
+    #[test]
+    fn test_factory_onedrive_with_valid_config() {
+        use crate::config::sync::OneDriveConfig;
+
+        let config = SyncConfig {
+            provider: SyncProvider::OneDrive,
+            sync_mode: SyncMode::Auto,
+            auto_interval_seconds: 600,
+            provider_config: Some(ProviderConfig::OneDrive(OneDriveConfig {
+                client_id: "test_client".to_string(),
+                client_secret: "test_secret".to_string(),
+                refresh_token: "test_token".to_string(),
+                root_path: "/".to_string(),
+            })),
+        };
+
+        let result = create_cloud_storage(&config);
+        assert!(result.is_ok(), "OneDrive should now be supported");
+
+        let storage = result.unwrap();
+        drop(storage);
     }
 
     #[test]
