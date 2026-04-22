@@ -7,14 +7,17 @@ impl ServiceError for CryptoError {
         ErrorCode::Crypto(self.to_string())
     }
 
+    // CryptoError variants are opaque unit types — they carry no structured data.
+    // Context (record_id, record_name) should be attached by the service layer
+    // when wrapping CryptoError into a higher-level error type.
     fn error_context(&self) -> Option<crate::errors::ErrorContext> {
         None
     }
 
     fn error_level(&self) -> ErrorLevel {
         match self {
+            CryptoError::EncryptionFailed => ErrorLevel::Fatal,
             CryptoError::DecryptionFailed => ErrorLevel::Error,
-            CryptoError::EncryptionFailed => ErrorLevel::Error,
             CryptoError::InvalidKey => ErrorLevel::Error,
             CryptoError::InvalidNonce => ErrorLevel::Error,
             CryptoError::DerivationFailed => ErrorLevel::Error,
@@ -44,10 +47,10 @@ mod tests {
     }
 
     #[test]
-    fn encryption_failed_error_code_is_crypto() {
+    fn encryption_failed_is_fatal() {
         let err = CryptoError::EncryptionFailed;
         assert!(matches!(err.error_code(), ErrorCode::Crypto(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.error_level(), ErrorLevel::Fatal);
     }
 
     #[test]
@@ -72,17 +75,17 @@ mod tests {
     }
 
     #[test]
-    fn all_variants_have_error_level() {
-        let variants = [
+    fn only_encryption_failed_is_fatal() {
+        let non_fatal = [
             CryptoError::DecryptionFailed,
-            CryptoError::EncryptionFailed,
             CryptoError::InvalidKey,
             CryptoError::InvalidNonce,
             CryptoError::DerivationFailed,
         ];
-        for v in &variants {
+        for v in &non_fatal {
             assert_eq!(v.error_level(), ErrorLevel::Error);
         }
+        assert_eq!(CryptoError::EncryptionFailed.error_level(), ErrorLevel::Fatal);
     }
 
     #[test]
@@ -91,6 +94,14 @@ mod tests {
         let boxed: crate::errors::ServiceErrorBox = err.into();
         assert!(matches!(boxed.error_code(), ErrorCode::Crypto(_)));
         assert_eq!(boxed.error_level(), ErrorLevel::Error);
+    }
+
+    #[test]
+    fn encryption_failed_converts_to_fatal_service_error() {
+        let err = CryptoError::EncryptionFailed;
+        let boxed: crate::errors::ServiceErrorBox = err.into();
+        assert!(matches!(boxed.error_code(), ErrorCode::Crypto(_)));
+        assert_eq!(boxed.error_level(), ErrorLevel::Fatal);
     }
 
     #[test]
