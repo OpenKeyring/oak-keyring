@@ -1,18 +1,5 @@
 # oak-keyring
 
-A privacy-first, local-first password manager with cross-platform synchronization.
-
-## Features
-
-- 🔐 **Privacy-First**: All encryption happens locally, zero-knowledge architecture
-- 🌍 **Cross-Platform**: macOS, Linux, Windows support
-- 📡 **Local-First**: SQLite database stored locally, cloud sync is optional backup
-- 🔑 **Strong Crypto**: Argon2id key derivation, ChaCha20Poly1305 encryption
-- 📋 **Clipboard Integration**: Secure clipboard with auto-clear
-- 🔄 **Cloud Sync**: iCloud Drive, WebDAV, SFTP, S3/Aliyun OSS/Tencent COS/Huawei OBS, Dropbox (partial)
-- ⌨️ **Keyboard Shortcuts**: Built-in shortcuts with contextual help overlay
-- 🖥️ **TUI Mode**: Interactive terminal interface with status bar
-
 ## Binary Target
 
 - `ok` — 主 TUI 密码管理器 (`src/main.rs`)
