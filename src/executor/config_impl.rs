@@ -818,7 +818,9 @@ mod tests {
         ));
 
         let mut notifier = ServiceNotificationImpl::new();
-        notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(&clipboard))));
+        notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
+            &clipboard,
+        ))));
 
         let mut config = AppConfig::default();
         config.general.clipboard_clear_seconds = 60;
@@ -837,7 +839,9 @@ mod tests {
         ));
 
         let mut notifier = ServiceNotificationImpl::new();
-        notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(&clipboard))));
+        notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
+            &clipboard,
+        ))));
 
         let config = AppConfig::default();
         let results = notifier.notify_config_change(&config, &["sync"]);

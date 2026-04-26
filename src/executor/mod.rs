@@ -27,8 +27,8 @@ use crate::services::health::HealthService;
 use crate::services::import_export::ImportExportService;
 use crate::services::vault::VaultService;
 
-use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
 use crate::config::notification::ServiceNotification;
+use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
 
 /// Command executor that bridges the UI layer to service layer.
 ///
@@ -107,7 +107,9 @@ impl CommandExecutor {
 
         // Register clipboard service for config-change notifications.
         let mut config_notifier = ServiceNotificationImpl::new();
-        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(&clipboard))));
+        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
+            &clipboard,
+        ))));
 
         // Sync is not yet wired up; will be integrated in Task 22.
         let sync = None;

@@ -13,9 +13,7 @@ use ratatui::Frame;
 
 use crate::commands::{Command, Message};
 use crate::tui::components::generator_panel;
-use crate::tui::state::generator_state::{
-    GenerationStyle, GeneratorFocus, GeneratorState,
-};
+use crate::tui::state::generator_state::{GenerationStyle, GeneratorFocus, GeneratorState};
 use crate::tui::theme;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 
@@ -84,24 +82,16 @@ impl PasswordGeneratorScreen {
                     self.hint_message = None;
                     match self.state.style {
                         GenerationStyle::Random => {}
-                        GenerationStyle::Memorable => {
-                            self.state.set_style(GenerationStyle::Random)
-                        }
-                        GenerationStyle::Pin => {
-                            self.state.set_style(GenerationStyle::Memorable)
-                        }
+                        GenerationStyle::Memorable => self.state.set_style(GenerationStyle::Random),
+                        GenerationStyle::Pin => self.state.set_style(GenerationStyle::Memorable),
                     }
                     ScreenResult::Continue
                 }
                 KeyCode::Right => {
                     self.hint_message = None;
                     match self.state.style {
-                        GenerationStyle::Random => {
-                            self.state.set_style(GenerationStyle::Memorable)
-                        }
-                        GenerationStyle::Memorable => {
-                            self.state.set_style(GenerationStyle::Pin)
-                        }
+                        GenerationStyle::Random => self.state.set_style(GenerationStyle::Memorable),
+                        GenerationStyle::Memorable => self.state.set_style(GenerationStyle::Pin),
                         GenerationStyle::Pin => {}
                     }
                     ScreenResult::Continue
@@ -153,10 +143,7 @@ impl PasswordGeneratorScreen {
 
     fn render_title_bar(&self, frame: &mut Frame, area: Rect) {
         let title = " 密码生成器";
-        let hint = self
-            .hint_message
-            .as_deref()
-            .unwrap_or("");
+        let hint = self.hint_message.as_deref().unwrap_or("");
         let line = Line::from(vec![
             Span::styled(
                 title,
@@ -171,9 +158,7 @@ impl PasswordGeneratorScreen {
                     hint,
                     width = area.width as usize - title.len()
                 ),
-                Style::default()
-                    .bg(theme::BG_BAR)
-                    .fg(theme::INFO),
+                Style::default().bg(theme::BG_BAR).fg(theme::INFO),
             ),
         ]);
         frame.render_widget(
@@ -256,9 +241,7 @@ impl Screen for PasswordGeneratorScreen {
         // Generator content panel
         let content_area = chunks[1];
         let width = content_area.width;
-        let panel_lines = generator_panel::render_generator_panel(
-            &self.state, false, width,
-        );
+        let panel_lines = generator_panel::render_generator_panel(&self.state, false, width);
         let paragraph = Paragraph::new(panel_lines);
         frame.render_widget(paragraph, content_area);
 
@@ -309,7 +292,10 @@ mod tests {
             config: &Default::default(),
         };
         let result = screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::PopScreen));
@@ -325,7 +311,10 @@ mod tests {
         };
         // Press 'r' — should regenerate
         let result = screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Char('r'), crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Char('r'),
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
@@ -344,7 +333,10 @@ mod tests {
             config: &Default::default(),
         };
         let result = screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Right, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Right,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
@@ -352,14 +344,20 @@ mod tests {
 
         // Right: Memorable -> Pin
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Right, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Right,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert_eq!(screen.state.style, GenerationStyle::Pin);
 
         // Left: Pin -> Memorable
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Left, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Left,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert_eq!(screen.state.style, GenerationStyle::Memorable);
@@ -375,13 +373,19 @@ mod tests {
             config: &Default::default(),
         };
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Left, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Left,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert_eq!(screen.state.random_config.length, 19);
 
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Right, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Right,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert_eq!(screen.state.random_config.length, 20);
@@ -397,7 +401,10 @@ mod tests {
             config: &Default::default(),
         };
         let result = screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
@@ -415,7 +422,10 @@ mod tests {
             config: &Default::default(),
         };
         let result = screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
@@ -432,7 +442,10 @@ mod tests {
         };
         let was_upper = screen.state.random_config.uppercase;
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Char(' '), crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Char(' '),
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert_eq!(screen.state.random_config.uppercase, !was_upper);
@@ -446,7 +459,10 @@ mod tests {
             config: &Default::default(),
         };
         let result = screen.update(
-            Message::CommandCompleted(crate::commands::result::CommandResult::CopiedToClipboard { field: crate::commands::types::FieldSelector::Password, clear_after_seconds: 0 }),
+            Message::CommandCompleted(crate::commands::result::CommandResult::CopiedToClipboard {
+                field: crate::commands::types::FieldSelector::Password,
+                clear_after_seconds: 0,
+            }),
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
@@ -471,7 +487,10 @@ mod tests {
             config: &Default::default(),
         };
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         // No command dispatched, no hint message
@@ -489,7 +508,10 @@ mod tests {
             config: &Default::default(),
         };
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(rx.try_recv().is_err());
@@ -506,7 +528,10 @@ mod tests {
             config: &Default::default(),
         };
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(rx.try_recv().is_err());
@@ -523,7 +548,10 @@ mod tests {
             config: &Default::default(),
         };
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         // After copy, preview is regenerated (non-empty)
@@ -541,14 +569,20 @@ mod tests {
         };
         // Copy to set hint
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(screen.hint_message.is_some());
         // Arrow key does not clear hint (not a state-changing action)
         screen.state.focus = GeneratorFocus::StyleSelector;
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Down,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(screen.hint_message.is_some());
@@ -565,7 +599,10 @@ mod tests {
         };
         // Right arrow changes style → clears hint
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Right, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Right,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(screen.hint_message.is_none());
