@@ -4,8 +4,10 @@ use ratatui::Terminal;
 
 use oak_keyring::commands::Message;
 use oak_keyring::config::AppConfig;
-use oak_keyring::tui::screens::set_password::{PasswordField, SetPasswordContext, SetPasswordScreen};
-use oak_keyring::tui::traits::screen::{ScreenContext, Screen as ScreenTrait};
+use oak_keyring::tui::screens::set_password::{
+    PasswordField, SetPasswordContext, SetPasswordScreen,
+};
+use oak_keyring::tui::traits::screen::{Screen as ScreenTrait, ScreenContext};
 
 fn render_screen(screen: &SetPasswordScreen, width: u16, height: u16) -> TestBackend {
     let backend = TestBackend::new(width, height);
@@ -31,14 +33,13 @@ fn dummy_ctx() -> ScreenContext<'static> {
     static DUMMY_CONFIG: std::sync::OnceLock<AppConfig> = std::sync::OnceLock::new();
     let config = DUMMY_CONFIG.get_or_init(AppConfig::default);
 
-    ScreenContext { command_tx: tx, config }
+    ScreenContext {
+        command_tx: tx,
+        config,
+    }
 }
 
-fn type_into_field(
-    screen: &mut SetPasswordScreen,
-    text: &str,
-    ctx: &mut ScreenContext<'_>,
-) {
+fn type_into_field(screen: &mut SetPasswordScreen, text: &str, ctx: &mut ScreenContext<'_>) {
     for ch in text.chars() {
         screen.update(
             Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),

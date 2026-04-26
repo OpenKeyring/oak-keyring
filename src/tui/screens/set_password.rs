@@ -530,7 +530,10 @@ mod tests {
             std::sync::OnceLock::new();
         let config = DUMMY_CONFIG.get_or_init(crate::config::AppConfig::default);
 
-        ScreenContext { command_tx: tx, config }
+        ScreenContext {
+            command_tx: tx,
+            config,
+        }
     }
 
     #[test]
@@ -538,7 +541,10 @@ mod tests {
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
         let mut ctx = dummy_ctx();
         let result = screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(
@@ -554,23 +560,35 @@ mod tests {
         // Type a 5-character password
         for ch in "short".chars() {
             screen.update(
-                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                Message::KeyEvent(KeyEvent::new(
+                    KeyCode::Char(ch),
+                    crossterm::event::KeyModifiers::NONE,
+                )),
                 &mut ctx,
             );
         }
         // Tab to confirm and type same short password
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Tab,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         for ch in "short".chars() {
             screen.update(
-                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                Message::KeyEvent(KeyEvent::new(
+                    KeyCode::Char(ch),
+                    crossterm::event::KeyModifiers::NONE,
+                )),
                 &mut ctx,
             );
         }
         let result = screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
@@ -587,30 +605,39 @@ mod tests {
         // Type password in new field
         for ch in "longpassword".chars() {
             screen.update(
-                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                Message::KeyEvent(KeyEvent::new(
+                    KeyCode::Char(ch),
+                    crossterm::event::KeyModifiers::NONE,
+                )),
                 &mut ctx,
             );
         }
         // Tab and type different password in confirm
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Tab,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         for ch in "differentpass".chars() {
             screen.update(
-                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                Message::KeyEvent(KeyEvent::new(
+                    KeyCode::Char(ch),
+                    crossterm::event::KeyModifiers::NONE,
+                )),
                 &mut ctx,
             );
         }
         let result = screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(
-            screen.error.as_deref(),
-            Some("Passwords do not match")
-        );
+        assert_eq!(screen.error.as_deref(), Some("Passwords do not match"));
     }
 
     #[test]
@@ -654,7 +681,10 @@ mod tests {
     fn enter_uses_custom_vault_path_when_set() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(16);
         let config = crate::config::AppConfig::default();
-        let mut ctx = ScreenContext { command_tx: &tx, config: &config };
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
 
         let custom_path = std::path::PathBuf::from("/tmp/my-custom/vault.db");
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate)
@@ -663,22 +693,34 @@ mod tests {
         // Type matching 8+ char passwords
         for ch in "longpassword".chars() {
             screen.update(
-                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                Message::KeyEvent(KeyEvent::new(
+                    KeyCode::Char(ch),
+                    crossterm::event::KeyModifiers::NONE,
+                )),
                 &mut ctx,
             );
         }
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Tab,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
         for ch in "longpassword".chars() {
             screen.update(
-                Message::KeyEvent(KeyEvent::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE)),
+                Message::KeyEvent(KeyEvent::new(
+                    KeyCode::Char(ch),
+                    crossterm::event::KeyModifiers::NONE,
+                )),
                 &mut ctx,
             );
         }
         screen.update(
-            Message::KeyEvent(KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)),
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             &mut ctx,
         );
 
@@ -686,7 +728,10 @@ mod tests {
         let cmd = rx.try_recv().expect("Command should be sent");
         match cmd {
             Command::InitializeVault { vault_path, .. } => {
-                assert_eq!(vault_path, custom_path, "Should use custom vault_path, not hardcoded");
+                assert_eq!(
+                    vault_path, custom_path,
+                    "Should use custom vault_path, not hardcoded"
+                );
             }
             _ => panic!("Expected InitializeVault command"),
         }

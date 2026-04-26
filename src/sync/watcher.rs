@@ -234,7 +234,10 @@ mod tests {
 
         // Wait for debounce and verify PullOnly was sent
         let cmd = timeout(Duration::from_secs(5), cmd_rx.recv()).await;
-        assert!(matches!(cmd, Ok(Some(SyncCommand::PullOnly))), "expected PullOnly, got {cmd:?}");
+        assert!(
+            matches!(cmd, Ok(Some(SyncCommand::PullOnly))),
+            "expected PullOnly, got {cmd:?}"
+        );
     }
 
     #[tokio::test]
@@ -258,7 +261,10 @@ mod tests {
 
         // Wait for debounce and verify PullOnly was sent
         let cmd = timeout(Duration::from_secs(5), cmd_rx.recv()).await;
-        assert!(matches!(cmd, Ok(Some(SyncCommand::PullOnly))), "expected PullOnly, got {cmd:?}");
+        assert!(
+            matches!(cmd, Ok(Some(SyncCommand::PullOnly))),
+            "expected PullOnly, got {cmd:?}"
+        );
     }
 
     #[tokio::test]
@@ -289,7 +295,10 @@ mod tests {
 
         // Only one PullOnly should be sent after debounce
         let cmd = timeout(Duration::from_secs(5), cmd_rx.recv()).await;
-        assert!(matches!(cmd, Ok(Some(SyncCommand::PullOnly))), "expected PullOnly, got {cmd:?}");
+        assert!(
+            matches!(cmd, Ok(Some(SyncCommand::PullOnly))),
+            "expected PullOnly, got {cmd:?}"
+        );
 
         // No more commands should arrive (give a small window)
         let extra_cmd = timeout(Duration::from_millis(200), cmd_rx.recv()).await;

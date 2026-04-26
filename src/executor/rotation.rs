@@ -328,11 +328,11 @@ pub fn handle_check_rotation_trigger(executor: &mut CommandExecutor) -> CommandR
 mod tests {
     use super::*;
     use crate::cloud::CloudMetadata;
+    use crate::config::notification::ServiceNotification;
     use crate::config::AppConfig;
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
     use crate::db::schema::{initialize_metadata, initialize_schema};
     use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
-    use crate::config::notification::ServiceNotification;
     use crate::services::clipboard::{ClipboardService, MockBackend};
     use crate::services::health::HealthService;
     use crate::services::import_export::ImportExportService;
@@ -364,9 +364,14 @@ mod tests {
         let vault = setup_vault_unlocked();
         let (result_tx, _) = mpsc::channel(64);
         let (internal_tx, internal_rx) = mpsc::channel(64);
-        let clipboard = Arc::new(ClipboardService::with_backend(Box::new(MockBackend::new()), 30));
+        let clipboard = Arc::new(ClipboardService::with_backend(
+            Box::new(MockBackend::new()),
+            30,
+        ));
         let mut config_notifier = ServiceNotificationImpl::new();
-        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(&clipboard))));
+        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
+            &clipboard,
+        ))));
 
         CommandExecutor {
             vault,

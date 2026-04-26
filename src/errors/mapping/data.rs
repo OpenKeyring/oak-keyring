@@ -35,18 +35,26 @@ fn data_error_context(err: &DataError) -> Option<ErrorContext> {
         DataError::MissingField(field) | DataError::EmptyField(field) => {
             Some(ErrorContext::new().with("field_name", field))
         }
-        DataError::InvalidCredentialType(t) => {
-            Some(ErrorContext::new().with("field_name", "credential_type").with("value", t))
-        }
-        DataError::InvalidAuditOperation(op) => {
-            Some(ErrorContext::new().with("field_name", "audit_operation").with("value", op))
-        }
-        DataError::InvalidSyncStatus(v) => {
-            Some(ErrorContext::new().with("field_name", "sync_status").with("value", &v.to_string()))
-        }
-        DataError::InvalidUuid(s) => {
-            Some(ErrorContext::new().with("field_name", "uuid").with("value", s))
-        }
+        DataError::InvalidCredentialType(t) => Some(
+            ErrorContext::new()
+                .with("field_name", "credential_type")
+                .with("value", t),
+        ),
+        DataError::InvalidAuditOperation(op) => Some(
+            ErrorContext::new()
+                .with("field_name", "audit_operation")
+                .with("value", op),
+        ),
+        DataError::InvalidSyncStatus(v) => Some(
+            ErrorContext::new()
+                .with("field_name", "sync_status")
+                .with("value", &v.to_string()),
+        ),
+        DataError::InvalidUuid(s) => Some(
+            ErrorContext::new()
+                .with("field_name", "uuid")
+                .with("value", s),
+        ),
     }
 }
 

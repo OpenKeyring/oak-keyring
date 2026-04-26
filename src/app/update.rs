@@ -351,24 +351,21 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                 Some(Screen::Unlock) => {
                     crate::tui::screens::set_password::SetPasswordContext::PostRecovery
                 }
-                _ => {
-                    match state.screens.onboarding.selected_path {
-                        Some(crate::tui::screens::onboarding::OnboardingPath::Restore) => {
-                            crate::tui::screens::set_password::SetPasswordContext::OnboardingRestore
-                        }
-                        _ => {
-                            crate::tui::screens::set_password::SetPasswordContext::OnboardingCreate
-                        }
+                _ => match state.screens.onboarding.selected_path {
+                    Some(crate::tui::screens::onboarding::OnboardingPath::Restore) => {
+                        crate::tui::screens::set_password::SetPasswordContext::OnboardingRestore
                     }
-                }
+                    _ => crate::tui::screens::set_password::SetPasswordContext::OnboardingCreate,
+                },
             };
             let vault_path = if !state.screens.onboarding.path_input.is_empty() {
-                Some(std::path::PathBuf::from(&state.screens.onboarding.path_input))
+                Some(std::path::PathBuf::from(
+                    &state.screens.onboarding.path_input,
+                ))
             } else {
                 None
             };
-            let screen =
-                crate::tui::screens::set_password::SetPasswordScreen::new(context);
+            let screen = crate::tui::screens::set_password::SetPasswordScreen::new(context);
             state.screens.set_new_master_password = match vault_path {
                 Some(p) => screen.with_vault_path(p),
                 None => screen,

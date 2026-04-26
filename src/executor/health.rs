@@ -158,10 +158,8 @@ pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) 
 
     // Step 2: Check against HIBP via spawn_blocking to avoid blocking the async runtime
     let health_service = executor.health.clone();
-    let compromised = tokio::task::spawn_blocking(move || {
-        health_service.check_hibp_single(&password)
-    })
-    .await;
+    let compromised =
+        tokio::task::spawn_blocking(move || health_service.check_hibp_single(&password)).await;
 
     match compromised {
         Ok(Ok(c)) => CommandResult::HibpCheckCompleted {

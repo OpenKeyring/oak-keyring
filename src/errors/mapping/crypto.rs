@@ -85,7 +85,10 @@ mod tests {
         for v in &non_fatal {
             assert_eq!(v.error_level(), ErrorLevel::Error);
         }
-        assert_eq!(CryptoError::EncryptionFailed.error_level(), ErrorLevel::Fatal);
+        assert_eq!(
+            CryptoError::EncryptionFailed.error_level(),
+            ErrorLevel::Fatal
+        );
     }
 
     #[test]

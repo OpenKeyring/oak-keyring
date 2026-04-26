@@ -1,7 +1,7 @@
 use crate::commands::types::AuditFilter;
 use crate::commands::CommandResult;
-use crate::config::sync::ProviderConfig;
 use crate::config::notification::ServiceNotification;
+use crate::config::sync::ProviderConfig;
 use crate::config::AppConfig;
 use crate::errors::{ErrorCode, ErrorContext};
 

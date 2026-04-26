@@ -452,10 +452,7 @@ mod tests {
 
         assert_eq!(export.credential_type, "ssh");
         assert_eq!(export.username.as_deref(), Some("ssh-rsa AAA..."));
-        assert_eq!(
-            export.password.as_deref(),
-            Some("-----BEGIN RSA...")
-        );
+        assert_eq!(export.password.as_deref(), Some("-----BEGIN RSA..."));
         assert!(export.url.is_none());
         assert_eq!(export.notes.as_deref(), Some("production"));
     }

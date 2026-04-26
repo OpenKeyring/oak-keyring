@@ -230,10 +230,7 @@ impl ClipboardService {
 
         self.backend.set_text(text)?;
         let timeout = self.clear_timeout.load(Ordering::Relaxed);
-        info!(
-            timeout_secs = timeout,
-            "Copied to clipboard with tracking"
-        );
+        info!(timeout_secs = timeout, "Copied to clipboard with tracking");
 
         if timeout > 0 {
             self.start_clear_timer();
