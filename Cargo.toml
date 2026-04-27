@@ -75,8 +75,11 @@ chrono = { version = "0.4", features = ["serde"] }
 # Cancellation
 tokio-util = { version = "0.7", features = ["rt"] }
 
+# OAuth2 / URL parsing
+url = "2"
+
 # Sync
-opendal = { version = "0.55", features = ["services-memory", "services-fs", "services-webdav", "services-s3", "services-sftp", "services-gcs", "services-dropbox", "services-azblob", "services-oss"] }
+opendal = { version = "0.55", features = ["services-memory", "services-fs", "services-webdav", "services-s3", "services-sftp", "services-gcs", "services-dropbox", "services-azblob", "services-oss", "services-gdrive"] }
 notify = "7"
 
 [dev-dependencies]
