@@ -7,6 +7,18 @@ use std::path::PathBuf;
 
 use crate::config::*;
 
+/// Google Drive OAuth2 authorization status.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum GDriveAuthStatus {
+    #[default]
+    NotAuthorized,
+    Authorizing,
+    Authorized,
+    Failed {
+        reason: String,
+    },
+}
+
 // ── Config Overlay ────────────────────────────────────────────────────────────
 
 /// Overlay state for the config screen (dropdowns, dialogs).
@@ -256,7 +268,7 @@ impl ConfigTab {
     pub fn item_count(self) -> usize {
         match self {
             Self::General => 8, // language, vault_path, auto_lock, clipboard, trash, animation, import, export
-            Self::Sync => 4,    // provider, sync_mode, interval, test_button
+            Self::Sync => 5,    // provider, sync_mode, interval, auth_button, test_button
             Self::Security => 5, // health_check, frequency, master_password, audit, retention
             Self::Password => 4, // length, digits, uppercase, special
             Self::About => 0,   // read-only, no focusable items
@@ -502,6 +514,8 @@ pub struct ConfigScreenState {
     /// Last known terminal height for scroll calculations.
     /// Updated from AppState.terminal_size before each update() call.
     pub terminal_height: u16,
+    /// Google Drive OAuth2 authorization status.
+    pub gdrive_auth_status: GDriveAuthStatus,
 }
 
 impl ConfigScreenState {
@@ -758,7 +772,7 @@ mod tests {
     #[test]
     fn config_tab_item_count() {
         assert_eq!(ConfigTab::General.item_count(), 8);
-        assert_eq!(ConfigTab::Sync.item_count(), 4);
+        assert_eq!(ConfigTab::Sync.item_count(), 5);
         assert_eq!(ConfigTab::Security.item_count(), 5);
         assert_eq!(ConfigTab::Password.item_count(), 4);
         assert_eq!(ConfigTab::About.item_count(), 0);

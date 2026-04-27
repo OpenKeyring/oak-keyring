@@ -220,7 +220,7 @@ fn provider_field_count(pc: &Option<ProviderConfig>) -> u16 {
     match pc {
         None => 0,                         // Disabled or not configured yet
         Some(ProviderConfig::ICloud) => 1, // just a hint line
-        Some(ProviderConfig::GoogleDrive(_)) => 4,
+        Some(ProviderConfig::GoogleDrive(_)) => 2,
         Some(ProviderConfig::Dropbox(_)) => 4,
         Some(ProviderConfig::OneDrive(_)) => 4,
         Some(ProviderConfig::WebDav(_)) => 5,
@@ -252,12 +252,6 @@ fn render_provider_fields(
             render_label_value(chunks, fi, frame, &hint, "", LABEL);
         }
         Some(ProviderConfig::GoogleDrive(cfg)) => {
-            let l = t!("tui.config.field_client_id");
-            render_field(chunks, fi, frame, &l, &cfg.client_id, false);
-            let l = t!("tui.config.field_client_secret");
-            render_field(chunks, fi, frame, &l, &cfg.client_secret, true);
-            let l = t!("tui.config.field_refresh_token");
-            render_field(chunks, fi, frame, &l, &cfg.refresh_token, true);
             let l = t!("tui.config.field_work_dir");
             render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }

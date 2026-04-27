@@ -102,6 +102,30 @@ impl ConfigScreen {
                 };
                 ScreenResult::Continue
             }
+            CommandResult::OAuth2Authorized {
+                provider,
+                access_token,
+                refresh_token,
+            } => {
+                if provider == "google_drive" {
+                    self.state.gdrive_auth_status =
+                        crate::tui::state::config_state::GDriveAuthStatus::Authorized;
+                    if let Some(ProviderConfig::GoogleDrive(ref mut cfg)) =
+                        self.state.sync.provider_config
+                    {
+                        cfg.access_token = access_token;
+                        if let Some(rt) = refresh_token {
+                            cfg.refresh_token = rt;
+                        }
+                    }
+                }
+                ScreenResult::Continue
+            }
+            CommandResult::OAuth2Failed { provider: _, error } => {
+                self.state.gdrive_auth_status =
+                    crate::tui::state::config_state::GDriveAuthStatus::Failed { reason: error };
+                ScreenResult::Continue
+            }
             _ => ScreenResult::Continue,
         }
     }
@@ -204,26 +228,47 @@ impl ConfigScreen {
                 }
                 _ => ScreenResult::Continue,
             },
-            ConfigTab::Sync => match item {
-                0 => self.open_dropdown(DropdownField::SyncProvider),
-                1 => self.open_dropdown(DropdownField::SyncMode),
-                2 => {
-                    // Skip interval dropdown when sync mode is Manual
-                    if self.state.sync.sync_mode == SyncMode::Manual {
-                        ScreenResult::Continue
-                    } else {
-                        self.open_dropdown(DropdownField::SyncInterval)
+            ConfigTab::Sync => {
+                let is_gdrive = self.state.sync.provider == SyncProvider::GoogleDrive;
+                match item {
+                    0 => self.open_dropdown(DropdownField::SyncProvider),
+                    1 => self.open_dropdown(DropdownField::SyncMode),
+                    2 => {
+                        if self.state.sync.sync_mode == SyncMode::Manual {
+                            ScreenResult::Continue
+                        } else {
+                            self.open_dropdown(DropdownField::SyncInterval)
+                        }
                     }
+                    3 => {
+                        if is_gdrive {
+                            use crate::tui::state::config_state::GDriveAuthStatus;
+                            if self.state.gdrive_auth_status != GDriveAuthStatus::Authorizing {
+                                let _ =
+                                    ctx.command_tx.try_send(Command::OAuth2AuthorizeGoogleDrive);
+                                self.state.gdrive_auth_status = GDriveAuthStatus::Authorizing;
+                            }
+                            ScreenResult::Continue
+                        } else {
+                            self.state.sync_status = SyncConnectionStatus::Testing;
+                            let _ = ctx.command_tx.try_send(Command::TestSyncConnection {
+                                provider_config: self.state.sync.provider_config.clone(),
+                            });
+                            ScreenResult::Continue
+                        }
+                    }
+                    4 => {
+                        if is_gdrive {
+                            self.state.sync_status = SyncConnectionStatus::Testing;
+                            let _ = ctx.command_tx.try_send(Command::TestSyncConnection {
+                                provider_config: self.state.sync.provider_config.clone(),
+                            });
+                        }
+                        ScreenResult::Continue
+                    }
+                    _ => ScreenResult::Continue,
                 }
-                3 => {
-                    self.state.sync_status = SyncConnectionStatus::Testing;
-                    let _ = ctx.command_tx.try_send(Command::TestSyncConnection {
-                        provider_config: self.state.sync.provider_config.clone(),
-                    });
-                    ScreenResult::Continue
-                }
-                _ => ScreenResult::Continue,
-            },
+            }
             ConfigTab::Security => match item {
                 0 => {
                     self.state.security.health_check_enabled =

@@ -66,6 +66,8 @@ pub struct CommandExecutor {
     internal_rx: Option<mpsc::Receiver<Command>>,
     /// Cancellation token for graceful shutdown and operation cancellation.
     cancel_token: CancellationToken,
+    /// OAuth2 token store for Google Drive authorization.
+    oauth2_token_store: Arc<tokio::sync::Mutex<Option<crate::cloud::oauth2::TokenStore>>>,
 }
 
 impl CommandExecutor {
@@ -133,6 +135,7 @@ impl CommandExecutor {
             internal_tx,
             internal_rx: Some(internal_rx),
             cancel_token,
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
 

@@ -174,6 +174,19 @@ pub enum CommandResult {
         message: String,
     },
 
+    /// OAuth2 authorization completed successfully.
+    OAuth2Authorized {
+        provider: String,
+        access_token: String,
+        refresh_token: Option<String>,
+    },
+
+    /// OAuth2 authorization failed.
+    OAuth2Failed {
+        provider: String,
+        error: String,
+    },
+
     // ── Errors (structured) ──────────────────
     /// Operational error: single record failure, decrypt failure, version conflict, etc.
     /// UI display: inline error (retry button) or StatusBar 5s temporary notification
@@ -271,6 +284,8 @@ mod exhaustive_tests {
                 CommandResult::ConfigLoaded { .. } => {}
                 CommandResult::ConfigSaved => {}
                 CommandResult::SyncConnectionTested { .. } => {}
+                CommandResult::OAuth2Authorized { .. } => {}
+                CommandResult::OAuth2Failed { .. } => {}
                 // Errors
                 CommandResult::Error { .. } => {}
                 CommandResult::FatalError { .. } => {}
