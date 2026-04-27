@@ -205,6 +205,9 @@ pub enum Command {
         provider_config: Option<crate::config::sync::ProviderConfig>,
     },
 
+    /// Start OAuth2 authorization flow for Google Drive.
+    OAuth2AuthorizeGoogleDrive,
+
     // ── Audit Log ─────────────────────────────────
     LoadAuditLog {
         filter: AuditFilter,
@@ -291,6 +294,7 @@ mod exhaustive_tests {
                 Command::LoadConfig => {}
                 Command::SaveConfig { .. } => {}
                 Command::TestSyncConnection { .. } => {}
+                Command::OAuth2AuthorizeGoogleDrive => {}
                 // Audit Log
                 Command::LoadAuditLog { .. } => {}
                 Command::NavigateToRecord { .. } => {}

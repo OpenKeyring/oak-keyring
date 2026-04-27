@@ -259,10 +259,7 @@ pub async fn handle_resume_rotation(executor: &mut CommandExecutor) -> CommandRe
         let vault = std::mem::replace(&mut executor.vault, placeholder);
 
         let rotation_svc = RotationService::new(vault);
-        let has_checkpoint = match rotation_svc.has_pending_checkpoint() {
-            Ok(true) => true,
-            _ => false,
-        };
+        let has_checkpoint = matches!(rotation_svc.has_pending_checkpoint(), Ok(true));
 
         let vault = rotation_svc.into_vault();
         executor.vault = vault;
@@ -387,6 +384,7 @@ mod tests {
             internal_tx,
             internal_rx: Some(internal_rx),
             cancel_token: CancellationToken::new(),
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 

@@ -149,6 +149,61 @@ pub async fn handle_test_sync_connection(
 }
 
 #[tracing::instrument(skip_all)]
+pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor) -> CommandResult {
+    use crate::cloud::oauth2::{OAuth2Engine, TokenStore};
+    use crate::cloud::providers::GoogleDriveProvider;
+
+    let token_store = {
+        let mut ts_guard = executor.oauth2_token_store.lock().await;
+        if ts_guard.is_none() {
+            let base_path = dirs::config_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("open-keyring")
+                .join("tokens");
+            *ts_guard = Some(TokenStore::new(base_path));
+        }
+        ts_guard.clone().unwrap()
+    };
+
+    let provider = GoogleDriveProvider::new();
+    let cancel = executor.cancel_token().clone();
+    let result_tx = executor.result_tx.clone();
+
+    tokio::spawn(async move {
+        match OAuth2Engine::authorize(&provider, &token_store, cancel).await {
+            Ok(token) => {
+                let _ = result_tx
+                    .send(crate::commands::Message::CommandCompleted(
+                        CommandResult::OAuth2Authorized {
+                            provider: "google_drive".to_string(),
+                            access_token: token.access_token.clone(),
+                            refresh_token: token.refresh_token.clone(),
+                        },
+                    ))
+                    .await;
+            }
+            Err(e) => {
+                let _ = result_tx
+                    .send(crate::commands::Message::CommandCompleted(
+                        CommandResult::OAuth2Failed {
+                            provider: "google_drive".to_string(),
+                            error: e.to_string(),
+                        },
+                    ))
+                    .await;
+            }
+        }
+    });
+
+    // Fire-and-forget: result comes back via the spawned task
+    CommandResult::OAuth2Authorized {
+        provider: "google_drive".to_string(),
+        access_token: String::new(),
+        refresh_token: None,
+    }
+}
+
+#[tracing::instrument(skip_all)]
 pub fn handle_load_audit_log(executor: &mut CommandExecutor, filter: AuditFilter) -> CommandResult {
     match executor.vault.query_audit_log(&filter) {
         Ok((entries, total)) => CommandResult::AuditLogLoaded { entries, total },
@@ -205,6 +260,7 @@ mod tests {
             internal_tx,
             internal_rx: Some(internal_rx),
             cancel_token: CancellationToken::new(),
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 

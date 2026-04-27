@@ -258,6 +258,10 @@ impl CommandExecutor {
                 config::handle_test_sync_connection(self, provider_config).await
             }
 
+            Command::OAuth2AuthorizeGoogleDrive => {
+                config::handle_oauth2_authorize_google_drive(self).await
+            }
+
             // ── Audit Log ─────────────────────────────────
             Command::LoadAuditLog { filter } => config::handle_load_audit_log(self, filter),
             Command::NavigateToRecord { record_id } => {
