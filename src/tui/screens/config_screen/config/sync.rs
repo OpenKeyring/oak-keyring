@@ -5,7 +5,7 @@ use ratatui::Frame;
 
 use crate::config::{AliyunDriveType, ProviderConfig, SftpHostCheck, SyncMode, SyncProvider};
 use crate::t;
-use crate::tui::state::config_state::{SyncConfigForm, SyncConnectionStatus};
+use crate::tui::state::config_state::{GDriveAuthStatus, SyncConfigForm, SyncConnectionStatus};
 use crate::tui::theme;
 
 // ── Color palette (for provider-specific field area, not focusable) ────────
@@ -40,6 +40,7 @@ pub fn render(
     area: Rect,
     form: &SyncConfigForm,
     status: SyncConnectionStatus,
+    gdrive_auth_status: GDriveAuthStatus,
     focused: usize,
 ) {
     let dim_style = Style::default().fg(theme::TEXT_SECONDARY).bold();
@@ -174,7 +175,13 @@ pub fn render(
             .split(field_area);
 
         let mut fi = 0u16;
-        render_provider_fields(&form.provider_config, &field_chunks, &mut fi, frame);
+        render_provider_fields(
+            &form.provider_config,
+            gdrive_auth_status,
+            &field_chunks,
+            &mut fi,
+            frame,
+        );
         row += 1;
     }
 
@@ -220,7 +227,7 @@ fn provider_field_count(pc: &Option<ProviderConfig>) -> u16 {
     match pc {
         None => 0,                         // Disabled or not configured yet
         Some(ProviderConfig::ICloud) => 1, // just a hint line
-        Some(ProviderConfig::GoogleDrive(_)) => 2,
+        Some(ProviderConfig::GoogleDrive(_)) => 3,
         Some(ProviderConfig::Dropbox(_)) => 4,
         Some(ProviderConfig::OneDrive(_)) => 4,
         Some(ProviderConfig::WebDav(_)) => 5,
@@ -238,6 +245,7 @@ fn provider_field_count(pc: &Option<ProviderConfig>) -> u16 {
 
 fn render_provider_fields(
     pc: &Option<ProviderConfig>,
+    gdrive_auth_status: GDriveAuthStatus,
     chunks: &[Rect],
     fi: &mut u16,
     frame: &mut Frame,
@@ -252,6 +260,25 @@ fn render_provider_fields(
             render_label_value(chunks, fi, frame, &hint, "", LABEL);
         }
         Some(ProviderConfig::GoogleDrive(cfg)) => {
+            let status_text = match &gdrive_auth_status {
+                GDriveAuthStatus::NotAuthorized => {
+                    t!("tui.config.gdrive_not_authorized").to_string()
+                }
+                GDriveAuthStatus::Authorizing => t!("tui.config.gdrive_authorizing").to_string(),
+                GDriveAuthStatus::Authorized => t!("tui.config.gdrive_authorized").to_string(),
+                GDriveAuthStatus::Failed { ref reason } => {
+                    format!("{}: {}", t!("tui.config.gdrive_auth_failed"), reason)
+                }
+            };
+            render_label_value(chunks, fi, frame, "授权状态", &status_text, LABEL);
+
+            let button_text = match &gdrive_auth_status {
+                GDriveAuthStatus::NotAuthorized | GDriveAuthStatus::Failed { .. } => "[ 开始授权 ]",
+                GDriveAuthStatus::Authorizing => "[ 授权中... ]",
+                GDriveAuthStatus::Authorized => "[ 已授权 ]",
+            };
+            render_label_value(chunks, fi, frame, "操作", button_text, LABEL);
+
             let l = t!("tui.config.field_work_dir");
             render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }

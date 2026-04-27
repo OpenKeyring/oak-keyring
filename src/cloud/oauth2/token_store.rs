@@ -62,6 +62,22 @@ impl TokenStore {
             message: format!("failed to write token to {}: {}", path.display(), e),
         })?;
 
+        // Restrict token file permissions to owner-only (0o600)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(&path) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o600);
+                if let Err(e) = std::fs::set_permissions(&path, perms) {
+                    tracing::warn!(
+                        path = %path.display(),
+                        "failed to set token file permissions: {e}"
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 

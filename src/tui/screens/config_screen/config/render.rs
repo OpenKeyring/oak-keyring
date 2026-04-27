@@ -77,9 +77,14 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
 
     match state.active_tab {
         ConfigTab::General => super::general::render(frame, content_area, &state.general, focused),
-        ConfigTab::Sync => {
-            super::sync::render(frame, content_area, &state.sync, state.sync_status, focused)
-        }
+        ConfigTab::Sync => super::sync::render(
+            frame,
+            content_area,
+            &state.sync,
+            state.sync_status,
+            state.gdrive_auth_status.clone(),
+            focused,
+        ),
         ConfigTab::Security => {
             super::security::render(frame, content_area, &state.security, focused)
         }

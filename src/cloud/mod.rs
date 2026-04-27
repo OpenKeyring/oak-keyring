@@ -1,6 +1,8 @@
 pub mod adapters;
 pub mod metadata;
+pub mod oauth2;
 pub mod provider;
+pub mod providers;
 pub mod record;
 pub mod schema;
 pub mod storage;
