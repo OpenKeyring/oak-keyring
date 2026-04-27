@@ -642,13 +642,14 @@ mod tests {
     }
 
     #[test]
-    fn oauth2_validate_missing_client_id() {
+    fn oauth2_validate_missing_refresh_token() {
         let adapter = GoogleDriveAdapter::new();
         let config = ProviderConfig::GoogleDrive(GoogleDriveConfig {
-            client_id: "".to_string(),
-            client_secret: "secret".to_string(),
-            refresh_token: "token".to_string(),
+            access_token: String::new(),
+            refresh_token: String::new(),
             root_path: "/".to_string(),
+            client_id: String::new(),
+            client_secret: String::new(),
         });
 
         let result = adapter.validate_config(&config);
@@ -656,11 +657,26 @@ mod tests {
 
         match result.unwrap_err() {
             SyncError::ConfigValidationFailed { field, reason } => {
-                assert_eq!(field, "client_id");
-                assert!(reason.contains("empty"));
+                assert_eq!(field, "refresh_token");
+                assert!(reason.contains("refresh_token"));
             }
             other => panic!("expected ConfigValidationFailed, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn oauth2_validate_with_valid_config() {
+        let adapter = GoogleDriveAdapter::new();
+        let config = ProviderConfig::GoogleDrive(GoogleDriveConfig {
+            access_token: "test_access_token".to_string(),
+            refresh_token: "test_refresh_token".to_string(),
+            root_path: "/".to_string(),
+            client_id: String::new(),
+            client_secret: String::new(),
+        });
+
+        let result = adapter.validate_config(&config);
+        assert!(result.is_ok());
     }
 
     #[test]

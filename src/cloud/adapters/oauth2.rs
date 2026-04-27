@@ -16,9 +16,28 @@ impl GoogleDriveAdapter {
 impl ProviderAdapter for GoogleDriveAdapter {
     fn create_operator(&self, config: &ProviderConfig) -> Result<Operator, SyncError> {
         match config {
-            ProviderConfig::GoogleDrive(_) => Err(SyncError::ProviderNotSupported {
-                provider: "google_drive".to_string(),
-            }),
+            ProviderConfig::GoogleDrive(drive_config) => {
+                let mut builder = opendal::services::Gdrive::default();
+
+                if !drive_config.access_token.is_empty() {
+                    builder = builder.access_token(&drive_config.access_token);
+                }
+                if !drive_config.refresh_token.is_empty() {
+                    builder = builder.refresh_token(&drive_config.refresh_token);
+                }
+                if !drive_config.root_path.is_empty() {
+                    builder = builder.root(&drive_config.root_path);
+                }
+
+                let operator = Operator::new(builder)
+                    .map_err(|e| SyncError::ProviderError {
+                        provider: "google_drive".to_string(),
+                        message: format!("failed to create operator: {}", e),
+                    })?
+                    .finish();
+
+                Ok(operator)
+            }
             _ => Err(SyncError::ProviderError {
                 provider: "google_drive".to_string(),
                 message: "expected GoogleDrive config".to_string(),
@@ -29,16 +48,10 @@ impl ProviderAdapter for GoogleDriveAdapter {
     fn validate_config(&self, config: &ProviderConfig) -> Result<(), SyncError> {
         match config {
             ProviderConfig::GoogleDrive(drive_config) => {
-                if drive_config.client_id.trim().is_empty() {
+                if drive_config.refresh_token.trim().is_empty() {
                     return Err(SyncError::ConfigValidationFailed {
-                        field: "client_id".to_string(),
-                        reason: "client_id cannot be empty".to_string(),
-                    });
-                }
-                if drive_config.client_secret.trim().is_empty() {
-                    return Err(SyncError::ConfigValidationFailed {
-                        field: "client_secret".to_string(),
-                        reason: "client_secret cannot be empty".to_string(),
+                        field: "refresh_token".to_string(),
+                        reason: "refresh_token 不能为空，请先完成授权".to_string(),
                     });
                 }
                 Ok(())
@@ -51,6 +64,7 @@ impl ProviderAdapter for GoogleDriveAdapter {
     }
 
     fn refresh_auth(&self, _operator: &mut Operator) -> Result<(), SyncError> {
+        // opendal handles token refresh internally
         Ok(())
     }
 }

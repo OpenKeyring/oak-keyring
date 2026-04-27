@@ -43,11 +43,19 @@ pub enum AliyunDriveType {
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct GoogleDriveConfig {
-    pub client_id: String,
-    pub client_secret: String,
+    #[serde(default)]
+    pub access_token: String,
+    #[serde(default)]
     pub refresh_token: String,
     #[serde(default = "default_root")]
     pub root_path: String,
+    // Deprecated: old manual credential fields, no longer used
+    #[serde(default)]
+    #[deprecated(since = "0.2.0", note = "credentials are now built-in")]
+    pub client_id: String,
+    #[serde(default)]
+    #[deprecated(since = "0.2.0", note = "credentials are now built-in")]
+    pub client_secret: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
