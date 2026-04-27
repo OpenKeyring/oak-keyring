@@ -4,7 +4,8 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::crypto::strength::{evaluate_strength, PasswordStrength};
-use crate::types::credential::CredentialType;
+use crate::types::credential::{CredentialType, EncryptedPayload};
+use crate::types::sensitive::SecureStr;
 
 /// Form mode: create new record or edit existing.
 #[derive(Debug, Clone)]
@@ -269,6 +270,61 @@ impl FormState {
             )
         })
     }
+
+    /// Compute the selected expiry datetime.
+    pub fn expiry_datetime(&self) -> Option<chrono::DateTime<Utc>> {
+        if self.fields.expires_at == ExpiryOption::Custom {
+            let date = self.fields.custom_date.as_ref()?;
+            let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
+            let naive = parsed.and_hms_opt(0, 0, 0)?;
+            Some(chrono::DateTime::<Utc>::from_naive_utc_and_offset(
+                naive, Utc,
+            ))
+        } else {
+            self.fields.expires_at.to_datetime()
+        }
+    }
+
+    /// Build `EncryptedPayload` from form fields.
+    ///
+    /// Sensitive fields (`password`, `secret_key`, `private_key`, `passphrase`)
+    /// are **moved** out of `FormFields` into `SecureStr`, leaving `None` behind.
+    /// This ensures the plaintext `String` does not persist in form state.
+    pub fn build_payload(&mut self) -> EncryptedPayload {
+        match self.credential_type {
+            CredentialType::Login => EncryptedPayload::Login {
+                name: std::mem::take(&mut self.fields.name),
+                username: self.fields.username.take().unwrap_or_default(),
+                password: SecureStr::new(self.fields.password.take().unwrap_or_default()),
+                url: Some(std::mem::take(&mut self.fields.url)),
+                notes: Some(std::mem::take(&mut self.fields.notes)),
+            },
+            CredentialType::Api => EncryptedPayload::Api {
+                name: std::mem::take(&mut self.fields.name),
+                app_id: self.fields.app_id.take().unwrap_or_default(),
+                secret_key: SecureStr::new(self.fields.secret_key.take().unwrap_or_default()),
+                url: Some(std::mem::take(&mut self.fields.url)),
+                notes: Some(std::mem::take(&mut self.fields.notes)),
+            },
+            CredentialType::Ssh => EncryptedPayload::Ssh {
+                name: std::mem::take(&mut self.fields.name),
+                public_key: self.fields.public_key.take().unwrap_or_default(),
+                private_key: self.fields.private_key.take().map(SecureStr::new),
+                passphrase: self.fields.passphrase.take().map(SecureStr::new),
+                notes: Some(std::mem::take(&mut self.fields.notes)),
+            },
+        }
+    }
+
+    /// Clear sensitive fields. Called on screen unmount to ensure
+    /// plaintext secrets don't persist in memory after the form is dismissed.
+    pub fn clear_sensitive_fields(&mut self) {
+        self.fields.password = None;
+        self.fields.secret_key = None;
+        self.fields.private_key = None;
+        self.fields.passphrase = None;
+        self.fields.strength = None;
+    }
 }
 
 #[cfg(test)]
@@ -354,5 +410,51 @@ mod tests {
         state.fields.password = Some("abcd1234ABCD!@ababcd1234".into());
         state.fields.update_strength();
         assert!(!state.is_password_weak());
+    }
+
+    #[test]
+    fn build_login_payload_moves_sensitive_password() {
+        let mut state = FormState::new_create();
+        state.fields.name = "Example".into();
+        state.fields.url = "https://example.com".into();
+        state.fields.username = Some("alice".into());
+        state.fields.password = Some("secret".into());
+        state.fields.notes = "notes".into();
+
+        let payload = state.build_payload();
+
+        match payload {
+            EncryptedPayload::Login {
+                name,
+                username,
+                password,
+                url,
+                notes,
+            } => {
+                assert_eq!(name, "Example");
+                assert_eq!(username, "alice");
+                assert_eq!(password.get(), "secret");
+                assert_eq!(url.as_deref(), Some("https://example.com"));
+                assert_eq!(notes.as_deref(), Some("notes"));
+            }
+            _ => panic!("expected login payload"),
+        }
+        assert!(state.fields.password.is_none());
+    }
+
+    #[test]
+    fn clear_sensitive_fields_removes_plaintext_secrets() {
+        let mut state = FormState::new_edit(Uuid::new_v4(), CredentialType::Ssh);
+        state.fields.password = Some("password".into());
+        state.fields.secret_key = Some("secret".into());
+        state.fields.private_key = Some("private".into());
+        state.fields.passphrase = Some("passphrase".into());
+
+        state.clear_sensitive_fields();
+
+        assert!(state.fields.password.is_none());
+        assert!(state.fields.secret_key.is_none());
+        assert!(state.fields.private_key.is_none());
+        assert!(state.fields.passphrase.is_none());
     }
 }
