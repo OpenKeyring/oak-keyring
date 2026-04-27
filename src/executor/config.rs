@@ -195,12 +195,9 @@ pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor
         }
     });
 
-    // Fire-and-forget: result comes back via the spawned task
-    CommandResult::OAuth2Authorized {
-        provider: "google_drive".to_string(),
-        access_token: String::new(),
-        refresh_token: None,
-    }
+    // Fire-and-forget: the actual result comes back via the spawned task.
+    // Return a neutral result so the UI doesn't prematurely set Authorized state.
+    CommandResult::ConfigSaved
 }
 
 #[tracing::instrument(skip_all)]
