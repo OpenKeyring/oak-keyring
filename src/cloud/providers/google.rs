@@ -56,6 +56,6 @@ impl OAuth2Provider for GoogleDriveProvider {
         "https://oauth2.googleapis.com/token"
     }
     fn scopes(&self) -> &[&str] {
-        &["https://www.googleapis.com/auth/drive.appdata"]
+        &["https://www.googleapis.com/auth/drive.file"]
     }
 }
