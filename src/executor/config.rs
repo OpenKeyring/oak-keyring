@@ -56,6 +56,7 @@ fn detect_changed_fields(old: &AppConfig, new: &AppConfig) -> Vec<&'static str> 
     }
     if old.sync.provider != new.sync.provider
         || old.sync.auto_interval_seconds != new.sync.auto_interval_seconds
+        || old.sync.provider_config != new.sync.provider_config
     {
         changed.push("sync");
     }
