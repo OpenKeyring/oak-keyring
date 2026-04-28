@@ -3,6 +3,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
+use chrono::{DateTime, Utc};
+
 use crate::config::{AliyunDriveType, ProviderConfig, SftpHostCheck, SyncMode, SyncProvider};
 use crate::t;
 use crate::tui::state::config_state::{GDriveAuthStatus, SyncConfigForm, SyncConnectionStatus};
@@ -41,6 +43,7 @@ pub fn render(
     form: &SyncConfigForm,
     status: SyncConnectionStatus,
     gdrive_auth_status: GDriveAuthStatus,
+    last_sync: Option<DateTime<Utc>>,
     focused: usize,
 ) {
     let dim_style = Style::default().fg(theme::TEXT_SECONDARY).bold();
@@ -51,7 +54,7 @@ pub fn render(
         .bg(theme::BG_SURFACE);
 
     // Count provider-specific field rows so we can size the layout dynamically.
-    let field_count = provider_field_count(&form.provider_config);
+    let field_count = provider_field_count(&form.provider_config, &gdrive_auth_status);
 
     // Build constraints: title, provider, mode, interval, divider, N fields, button+status
     let mut constraints: Vec<Constraint> = Vec::with_capacity(6 + field_count as usize);
@@ -178,6 +181,7 @@ pub fn render(
         render_provider_fields(
             &form.provider_config,
             gdrive_auth_status,
+            last_sync,
             &field_chunks,
             &mut fi,
             frame,
@@ -223,11 +227,17 @@ pub fn render(
 
 // ── Field count per provider ───────────────────────────────────────────────
 
-fn provider_field_count(pc: &Option<ProviderConfig>) -> u16 {
+fn provider_field_count(pc: &Option<ProviderConfig>, gdrive_auth_status: &GDriveAuthStatus) -> u16 {
     match pc {
         None => 0,                         // Disabled or not configured yet
         Some(ProviderConfig::ICloud) => 1, // just a hint line
-        Some(ProviderConfig::GoogleDrive(_)) => 3,
+        Some(ProviderConfig::GoogleDrive(_)) => {
+            if matches!(gdrive_auth_status, GDriveAuthStatus::Authorized) {
+                4 // auth status, last sync, auth action, root_path
+            } else {
+                3 // auth status, auth action, root_path
+            }
+        }
         Some(ProviderConfig::Dropbox(_)) => 4,
         Some(ProviderConfig::OneDrive(_)) => 4,
         Some(ProviderConfig::WebDav(_)) => 5,
@@ -246,6 +256,7 @@ fn provider_field_count(pc: &Option<ProviderConfig>) -> u16 {
 fn render_provider_fields(
     pc: &Option<ProviderConfig>,
     gdrive_auth_status: GDriveAuthStatus,
+    last_sync: Option<DateTime<Utc>>,
     chunks: &[Rect],
     fi: &mut u16,
     frame: &mut Frame,
@@ -271,6 +282,14 @@ fn render_provider_fields(
                 }
             };
             render_label_value(chunks, fi, frame, "授权状态", &status_text, LABEL);
+
+            // Show last sync time only when authorized
+            if matches!(gdrive_auth_status, GDriveAuthStatus::Authorized) {
+                let last_sync_text = last_sync
+                    .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
+                    .unwrap_or_else(|| "从未同步".to_string());
+                render_label_value(chunks, fi, frame, "上次同步", &last_sync_text, LABEL);
+            }
 
             let button_text = match &gdrive_auth_status {
                 GDriveAuthStatus::NotAuthorized | GDriveAuthStatus::Failed { .. } => "[ 开始授权 ]",
