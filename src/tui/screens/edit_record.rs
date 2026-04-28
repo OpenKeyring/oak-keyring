@@ -595,3 +595,95 @@ impl Screen for EditRecordScreen {
         self.form.clear_sensitive_fields();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::result::CommandResult;
+    use crate::types::tag::Tag;
+
+    use tokio::sync::mpsc;
+
+    fn make_screen() -> EditRecordScreen {
+        EditRecordScreen::default()
+    }
+
+    struct TestEnv {
+        config: crate::config::AppConfig,
+    }
+
+    impl TestEnv {
+        fn new() -> Self {
+            Self {
+                config: crate::config::AppConfig::default(),
+            }
+        }
+
+        fn make_ctx<'a>(&'a self, tx: &'a mpsc::Sender<Command>) -> ScreenContext<'a> {
+            ScreenContext {
+                command_tx: tx,
+                config: &self.config,
+            }
+        }
+    }
+
+    #[test]
+    fn on_mount_with_record_id_sends_load_record_and_tags() {
+        let (tx, mut rx) = mpsc::channel(2);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.record_id = Some(uuid::Uuid::new_v4());
+        screen.on_mount(&mut ctx);
+        let cmds: Vec<_> = (0..2).filter_map(|_| rx.try_recv().ok()).collect();
+        assert_eq!(cmds.len(), 2);
+        assert!(cmds
+            .iter()
+            .any(|c| matches!(c, Command::LoadRecordForEdit { .. })));
+        assert!(cmds.iter().any(|c| matches!(c, Command::LoadTags)));
+    }
+
+    #[test]
+    fn on_mount_without_record_id_only_sends_load_tags() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.on_mount(&mut ctx);
+        let cmd = rx.try_recv().unwrap();
+        assert!(matches!(cmd, Command::LoadTags));
+    }
+
+    #[test]
+    fn update_record_updated_pops_screen() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::RecordUpdated {
+                id: uuid::Uuid::new_v4(),
+            }),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::PopScreen));
+    }
+
+    #[test]
+    fn update_tags_loaded_populates_all_tags() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        let tags = vec![Tag {
+            id: 1,
+            name: "work".into(),
+        }];
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::TagsLoaded { tags }),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.all_tags.len(), 1);
+    }
+}
