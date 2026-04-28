@@ -117,7 +117,7 @@ pub(crate) struct TagRow {
 impl TagRow {
     // Used by integration tests; TagRow rows are read via inline closures in
     // queries.rs, so the service layer does not call this directly.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(TagRow {
             id: row.get("id")?,
@@ -187,7 +187,6 @@ impl AuditLogRow {
 ///
 /// Not yet consumed by the service layer — will be used when the sync pipeline
 /// reads/writes local sync state.
-#[allow(dead_code)]
 pub(crate) struct SyncStateRow {
     pub(crate) record_id: String,
     pub(crate) cloud_updated_at: Option<i64>,
@@ -197,7 +196,6 @@ pub(crate) struct SyncStateRow {
 }
 
 impl SyncStateRow {
-    #[allow(dead_code)]
     pub(crate) fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(SyncStateRow {
             record_id: row.get("record_id")?,
@@ -208,7 +206,7 @@ impl SyncStateRow {
         })
     }
 
-    #[allow(dead_code, clippy::wrong_self_convention)]
+    #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_sync_state(self) -> Result<SyncState, DataError> {
         let record_id =
             Uuid::parse_str(&self.record_id).map_err(|_| DataError::InvalidUuid(self.record_id))?;
