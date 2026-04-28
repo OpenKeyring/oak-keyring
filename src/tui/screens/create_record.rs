@@ -505,3 +505,123 @@ impl Screen for CreateRecordScreen {
         self.form.clear_sensitive_fields();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::result::CommandResult;
+    use crate::types::tag::Tag;
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use tokio::sync::mpsc;
+
+    fn make_screen() -> CreateRecordScreen {
+        CreateRecordScreen::new()
+    }
+
+    struct TestEnv {
+        config: crate::config::AppConfig,
+    }
+
+    impl TestEnv {
+        fn new() -> Self {
+            Self {
+                config: crate::config::AppConfig::default(),
+            }
+        }
+
+        fn make_ctx<'a>(&'a self, tx: &'a mpsc::Sender<Command>) -> ScreenContext<'a> {
+            ScreenContext {
+                command_tx: tx,
+                config: &self.config,
+            }
+        }
+    }
+
+    #[test]
+    fn on_mount_sends_load_tags() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.on_mount(&mut ctx);
+        let cmd = rx.try_recv().unwrap();
+        assert!(matches!(cmd, Command::LoadTags));
+    }
+
+    #[test]
+    fn update_tags_loaded_populates_all_tags() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        let tags = vec![
+            Tag {
+                id: 1,
+                name: "work".into(),
+            },
+            Tag {
+                id: 2,
+                name: "personal".into(),
+            },
+        ];
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::TagsLoaded { tags }),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.all_tags.len(), 2);
+    }
+
+    #[test]
+    fn update_record_created_pops_screen() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::RecordCreated {
+                id: uuid::Uuid::new_v4(),
+            }),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::PopScreen));
+    }
+
+    #[test]
+    fn esc_without_changes_navigates_to_main() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.has_changes = false;
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(
+            result,
+            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+        ));
+    }
+
+    #[test]
+    fn esc_with_changes_shows_unsaved_dialog() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.has_changes = true;
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.form.show_unsaved_dialog);
+    }
+}
