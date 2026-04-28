@@ -530,6 +530,15 @@ impl MainScreenState {
             KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ScreenResult::Command(Box::new(Command::TriggerSync))
             }
+            KeyCode::Char('n') => ScreenResult::NavigateTo(ScreenEnum::CreateRecord),
+            KeyCode::Char('e') => {
+                if self.focused_panel == PanelId::Detail {
+                    if let Some(record) = self.detail.record.as_ref() {
+                        return ScreenResult::NavigateTo(ScreenEnum::EditRecord { id: record.id });
+                    }
+                }
+                ScreenResult::Continue
+            }
             _ => ScreenResult::Continue,
         }
     }
