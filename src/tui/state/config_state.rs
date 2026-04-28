@@ -783,7 +783,7 @@ mod tests {
     #[test]
     fn load_from_config_enabled_sync_status() {
         let mut config = AppConfig::default();
-        config.sync.provider = SyncProvider::S3;
+        config.sync.provider = SyncProvider::GoogleDrive;
         let mut state = ConfigScreenState::default();
         state.load_from_config(&config);
         assert_eq!(state.sync_status, SyncConnectionStatus::Disconnected);
