@@ -625,7 +625,10 @@ impl VaultService {
     /// Returns a map from record ID (hyphenated string) to the number of
     /// audit entries referencing that record. Records with no audit entries
     /// are absent from the map (callers treat missing as 0).
-    fn get_access_frequencies(&self, record_ids: &[String]) -> std::collections::HashMap<String, i64> {
+    fn get_access_frequencies(
+        &self,
+        record_ids: &[String],
+    ) -> std::collections::HashMap<String, i64> {
         let mut map = std::collections::HashMap::with_capacity(record_ids.len());
         for id in record_ids {
             let count: i64 = self

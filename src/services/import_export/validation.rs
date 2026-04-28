@@ -434,24 +434,22 @@ fn evaluate_rule(rule: &ValidationRule, key: &str, value: &str) -> FieldValidati
                 FieldValidation::Pass
             }
         }
-        ValidationRuleType::Pattern(pattern) => {
-            match regex::Regex::new(pattern) {
-                Ok(re) => {
-                    if re.is_match(value) {
-                        FieldValidation::Pass
-                    } else {
-                        FieldValidation::Fail {
-                            field: key.into(),
-                            message: rule.error_message.clone(),
-                        }
+        ValidationRuleType::Pattern(pattern) => match regex::Regex::new(pattern) {
+            Ok(re) => {
+                if re.is_match(value) {
+                    FieldValidation::Pass
+                } else {
+                    FieldValidation::Fail {
+                        field: key.into(),
+                        message: rule.error_message.clone(),
                     }
                 }
-                Err(_) => FieldValidation::Fail {
-                    field: key.into(),
-                    message: format!("invalid regex pattern: {}", pattern),
-                },
             }
-        }
+            Err(_) => FieldValidation::Fail {
+                field: key.into(),
+                message: format!("invalid regex pattern: {}", pattern),
+            },
+        },
         ValidationRuleType::Format => {
             let valid = value.is_empty()
                 || (value.contains('@') && value.contains('.')) // email heuristic
@@ -685,7 +683,9 @@ mod tests {
 
         let results = validate_item(&fields, &rules);
         assert_eq!(results.len(), 1);
-        assert!(matches!(&results[0], FieldValidation::Fail { field, .. } if field == "expires_at"));
+        assert!(
+            matches!(&results[0], FieldValidation::Fail { field, .. } if field == "expires_at")
+        );
     }
 
     // -- Per-format rule counts and required fields --

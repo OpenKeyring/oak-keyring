@@ -900,4 +900,19 @@ mod tests {
         state.ensure_focused_visible(7, 10);
         assert_eq!(state.scroll_offset, 5);
     }
+
+    #[test]
+    fn sync_provider_dropdown_shows_only_visible_providers() {
+        let options = DropdownField::SyncProvider.options();
+        assert_eq!(options.len(), 2);
+        assert_eq!(options[0], "Disabled");
+        assert_eq!(options[1], "GoogleDrive");
+    }
+
+    #[test]
+    fn sync_provider_display_labels_matches_options_count() {
+        let options = DropdownField::SyncProvider.options();
+        let labels = DropdownField::SyncProvider.display_labels();
+        assert_eq!(options.len(), labels.len());
+    }
 }
