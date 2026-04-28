@@ -142,7 +142,7 @@ pub async fn handle_test_sync_connection(
     // If caller provides a provider_config, test it without modifying executor.sync.
     if let Some(pc) = provider_config {
         let test_config = SyncConfig {
-            provider: executor.config.sync.provider.clone(),
+            provider: executor.config.sync.provider,
             ..executor.config.sync.clone()
         };
         // Override just the provider_config for testing.
