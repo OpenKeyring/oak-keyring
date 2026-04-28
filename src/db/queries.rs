@@ -1,10 +1,6 @@
-// TODO: Remove `#![allow(dead_code)]` once the services layer (Plan F/S1) is wired up,
-//       and all query functions are used. For now, queries are not yet consumed by any call site.
-//
 // TODO(#S1): Revisit `pub` visibility on all query functions before v1.0 release.
 //       Currently `pub` to allow integration tests in `tests/integration/` to access them.
 //       Consider `pub(crate)` + test via a test module inside the crate, or `#[cfg(test)]` gates.
-#![allow(dead_code)]
 
 use chrono::Utc;
 use rusqlite::Connection;
