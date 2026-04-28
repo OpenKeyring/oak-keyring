@@ -17,7 +17,6 @@ use crate::tui::state::list_state::ListPanelState;
 use crate::tui::state::tag_management::TagManagementState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::Tag;
-use uuid::Uuid;
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -534,14 +533,8 @@ impl MainScreenState {
             KeyCode::Char('n') => ScreenResult::NavigateTo(ScreenEnum::CreateRecord),
             KeyCode::Char('e') => {
                 if self.focused_panel == PanelId::Detail {
-                    let detail_id = self
-                        .detail
-                        .record
-                        .as_ref()
-                        .map(|r| r.id)
-                        .unwrap_or_else(Uuid::nil);
-                    if !detail_id.is_nil() {
-                        return ScreenResult::NavigateTo(ScreenEnum::EditRecord { id: detail_id });
+                    if let Some(record) = self.detail.record.as_ref() {
+                        return ScreenResult::NavigateTo(ScreenEnum::EditRecord { id: record.id });
                     }
                 }
                 ScreenResult::Continue
