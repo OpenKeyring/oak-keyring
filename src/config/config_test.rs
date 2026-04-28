@@ -303,6 +303,7 @@ ICloud = {}
     }
 
     #[test]
+    #[allow(deprecated)]
     fn provider_config_google_drive_roundtrip() {
         let toml_str = r#"
 [sync]
@@ -317,8 +318,12 @@ root_path = "/keyring"
         let config = AppConfig::from_toml(toml_str).unwrap();
         match &config.sync.provider_config {
             Some(ProviderConfig::GoogleDrive(c)) => {
+                // client_id is deprecated but still deserializable
                 assert_eq!(c.client_id, "id");
                 assert_eq!(c.root_path, "/keyring");
+                // refresh_token is #[serde(skip)] -- ignored during deserialization
+                assert!(c.refresh_token.is_empty());
+                assert!(c.access_token.is_empty());
             }
             other => panic!("expected GoogleDrive, got {:?}", other),
         }
