@@ -15,6 +15,7 @@ use crate::types::record::{
     CreateRecordParams, DecryptedRecord, StoredRecord, TuiRecord, UpdateRecordParams,
 };
 use crate::types::sensitive::SecureStr;
+use crate::types::sync::SyncStatus;
 
 impl VaultService {
     /// Create a new vault record with encryption, tags, and audit logging.
@@ -431,13 +432,13 @@ impl VaultService {
     /// - `Expired` — active records where `expires_at < now`
     /// - `Trash` — soft-deleted records
     /// - `Tag(name)` — active records with the specified tag
-    /// - `Search(query)` — delegates to search module (placeholder: returns empty)
-    /// - `HealthIssues` — placeholder, returns empty (S3 implements)
+    /// - `Search(query)` — delegates to search module for filtering
+    /// - `HealthIssues` — returns all active records; executor filters using health_report
     ///
     /// # Sort behavior
     /// - `Name` — sorted at application layer after decryption
     /// - `CreatedAt` / `UpdatedAt` — sorted at application layer on timestamps
-    /// - `UsageFrequency` — no-op (not yet implemented)
+    /// - `UsageFrequency` — sorted by audit_log access count (descending by default)
     ///
     /// # Errors
     /// - `VaultError::NotUnlocked` if the vault is locked.
@@ -462,6 +463,7 @@ impl VaultService {
                 let stored_records =
                     queries::list_active_records(&self.conn).map_err(db_error_to_vault)?;
 
+                let sync_map = self.load_sync_status_map();
                 let mut tui_records: Vec<TuiRecord> = Vec::with_capacity(stored_records.len());
                 for stored in &stored_records {
                     let aad = format!("record:{}", stored.id);
@@ -500,25 +502,30 @@ impl VaultService {
                         deleted: stored.deleted,
                         deleted_at: stored.deleted_at,
                         tags: stored.tags.clone(),
-                        sync_status: None,
+                        sync_status: sync_map.get(&stored.id.to_string()).copied(),
                     });
                 }
 
                 let mut filtered = search::search_records(&tui_records, query);
-                apply_sort(&mut filtered, sort);
+                let freq_map = if matches!(sort.field, SortField::UsageFrequency) {
+                    let ids: Vec<String> = filtered.iter().map(|r| r.id.to_string()).collect();
+                    Some(self.get_access_frequencies(&ids))
+                } else {
+                    None
+                };
+                apply_sort(&mut filtered, sort, freq_map.as_ref());
                 return Ok(filtered);
             }
-            RecordFilter::HealthIssues => {
-                // Placeholder: S3 implements health-based filtering
-                return Ok(vec![]);
-            }
             _ => {
-                // All, Favorites, Expired, Tag — start from active records
+                // All, Favorites, Expired, HealthIssues, Tag — start from active records.
+                // HealthIssues returns all active records here; the executor enriches
+                // them with health data and filters at its level.
                 queries::list_active_records(&self.conn).map_err(db_error_to_vault)?
             }
         };
 
         let now = Utc::now();
+        let sync_map = self.load_sync_status_map();
 
         // Decrypt and build TuiRecords, applying application-layer filters
         let mut tui_records: Vec<TuiRecord> = Vec::with_capacity(stored_records.len());
@@ -574,18 +581,24 @@ impl VaultService {
                 is_favorite: stored.is_favorite,
                 is_expired,
                 expires_at: stored.expires_at,
-                has_weak_password: false, // S3 implements
+                has_weak_password: false, // populated by executor from health_report
                 created_at: stored.created_at,
                 updated_at: stored.updated_at,
                 deleted: stored.deleted,
                 deleted_at: stored.deleted_at,
                 tags: stored.tags.clone(),
-                sync_status: None,
+                sync_status: sync_map.get(&stored.id.to_string()).copied(),
             });
         }
 
         // Application-layer sort
-        apply_sort(&mut tui_records, sort);
+        let freq_map = if matches!(sort.field, SortField::UsageFrequency) {
+            let ids: Vec<String> = tui_records.iter().map(|r| r.id.to_string()).collect();
+            Some(self.get_access_frequencies(&ids))
+        } else {
+            None
+        };
+        apply_sort(&mut tui_records, sort, freq_map.as_ref());
 
         Ok(tui_records)
     }
@@ -596,6 +609,62 @@ impl VaultService {
     /// which needs the full encrypted record for batch analysis.
     pub fn list_all_stored_records(&self) -> Result<Vec<StoredRecord>, VaultError> {
         queries::list_active_records(&self.conn).map_err(db_error_to_vault)
+    }
+
+    /// Load all sync statuses from the `sync_state` table in a single query.
+    ///
+    /// Returns a map from record ID (as hyphenated string) to its `SyncStatus`.
+    /// If the `sync_state` table is empty (sync never used), the map will be empty,
+    /// which is the correct default — callers get `None` for all records.
+    fn load_sync_status_map(&self) -> std::collections::HashMap<String, SyncStatus> {
+        let mut map = std::collections::HashMap::new();
+        let mut stmt = match self
+            .conn
+            .prepare("SELECT record_id, sync_status FROM sync_state")
+        {
+            Ok(s) => s,
+            Err(_) => return map,
+        };
+        let rows = match stmt.query_map([], |row| {
+            let record_id: String = row.get(0)?;
+            let status: i32 = row.get(1)?;
+            Ok((record_id, status))
+        }) {
+            Ok(r) => r,
+            Err(_) => return map,
+        };
+        for row in rows.flatten() {
+            let (record_id, status) = row;
+            let sync_status = match status {
+                0 => SyncStatus::Pending,
+                1 => SyncStatus::Synced,
+                2 => SyncStatus::Conflict,
+                _ => continue,
+            };
+            map.insert(record_id, sync_status);
+        }
+        map
+    }
+
+    /// Query the `audit_log` table for access counts per record.
+    ///
+    /// Returns a map from record ID (hyphenated string) to the number of
+    /// audit entries referencing that record. Records with no audit entries
+    /// are absent from the map (callers treat missing as 0).
+    fn get_access_frequencies(&self, record_ids: &[String]) -> std::collections::HashMap<String, i64> {
+        let mut map = std::collections::HashMap::with_capacity(record_ids.len());
+        for id in record_ids {
+            let count: i64 = self
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM audit_log WHERE record_id = ?1",
+                    rusqlite::params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            map.insert(id.clone(), count);
+        }
+        map
     }
 
     /// List all records that need DEK migration (dek_version < target).
@@ -798,7 +867,15 @@ fn extract_field(
 }
 
 /// Apply the requested sort order to a list of TuiRecords.
-fn apply_sort(records: &mut [TuiRecord], sort: &RecordSort) {
+///
+/// When `freq_map` is `Some`, it maps record ID strings to their access count
+/// (from `audit_log`). This is required for `SortField::UsageFrequency` to
+/// produce meaningful order; without it, UsageFrequency falls back to equal ordering.
+fn apply_sort(
+    records: &mut [TuiRecord],
+    sort: &RecordSort,
+    freq_map: Option<&std::collections::HashMap<String, i64>>,
+) {
     let direction_multiplier: i32 = match sort.direction {
         SortDirection::Asc => 1,
         SortDirection::Desc => -1,
@@ -809,7 +886,17 @@ fn apply_sort(records: &mut [TuiRecord], sort: &RecordSort) {
             SortField::Name => a.name.cmp(&b.name),
             SortField::CreatedAt => a.created_at.cmp(&b.created_at),
             SortField::UpdatedAt => a.updated_at.cmp(&b.updated_at),
-            SortField::UsageFrequency => std::cmp::Ordering::Equal, // No-op
+            SortField::UsageFrequency => {
+                let freq_a = freq_map
+                    .and_then(|m| m.get(&a.id.to_string()))
+                    .copied()
+                    .unwrap_or(0);
+                let freq_b = freq_map
+                    .and_then(|m| m.get(&b.id.to_string()))
+                    .copied()
+                    .unwrap_or(0);
+                freq_a.cmp(&freq_b)
+            }
         };
         if direction_multiplier == -1 {
             cmp.reverse()
@@ -2574,14 +2661,15 @@ mod tests {
         assert_eq!(result.unwrap().len(), 2, "empty search returns all records");
     }
 
-    // --- list_records: HealthIssues returns empty (placeholder) ---
+    // --- list_records: HealthIssues returns all active records (executor filters) ---
 
     #[test]
-    fn list_records_health_issues_returns_empty_placeholder() {
+    fn list_records_health_issues_returns_all_active_records() {
         let mut svc = setup_service();
         unlock_service(&mut svc);
 
-        create_named_record(&mut svc, "Alpha");
+        let _id_a = create_named_record(&mut svc, "Alpha");
+        let _id_b = create_named_record(&mut svc, "Bravo");
 
         let result = svc.list_records(
             &RecordFilter::HealthIssues,
@@ -2592,9 +2680,12 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(
-            result.unwrap().is_empty(),
-            "HealthIssues placeholder returns empty"
+        // Vault service returns all active records; executor-level filtering
+        // uses the health_report to narrow down to actual health issues.
+        assert_eq!(
+            result.unwrap().len(),
+            2,
+            "HealthIssues should return all active records at vault service level"
         );
     }
 

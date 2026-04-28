@@ -56,6 +56,7 @@ fn detect_changed_fields(old: &AppConfig, new: &AppConfig) -> Vec<&'static str> 
     }
     if old.sync.provider != new.sync.provider
         || old.sync.auto_interval_seconds != new.sync.auto_interval_seconds
+        || old.sync.provider_config != new.sync.provider_config
     {
         changed.push("sync");
     }
@@ -110,9 +111,17 @@ fn apply_config_changes(executor: &mut CommandExecutor, changed: &[&str], new_co
                 tracing::info!("Auto-lock config changed — timer will rebuild on next tick");
             }
             "sync" => {
-                tracing::info!(
-                    "Sync config changed — SyncService rebuild deferred to next startup"
-                );
+                use crate::cloud::provider::create_cloud_storage;
+                match create_cloud_storage(&new_config.sync) {
+                    Ok(storage) => {
+                        executor.sync = Some(crate::services::sync::SyncService::new(storage));
+                        tracing::info!("SyncService rebuilt with updated config");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "SyncService rebuild failed — sync disabled");
+                        executor.sync = None;
+                    }
+                }
             }
             "general.vault_path" => {
                 tracing::warn!("vault_path changed — requires application restart");
@@ -125,8 +134,39 @@ fn apply_config_changes(executor: &mut CommandExecutor, changed: &[&str], new_co
 #[tracing::instrument(skip_all)]
 pub async fn handle_test_sync_connection(
     executor: &mut CommandExecutor,
-    _provider_config: Option<ProviderConfig>,
+    provider_config: Option<ProviderConfig>,
 ) -> CommandResult {
+    use crate::cloud::provider::create_cloud_storage;
+    use crate::config::sync::SyncConfig;
+
+    // If caller provides a provider_config, test it without modifying executor.sync.
+    if let Some(pc) = provider_config {
+        let test_config = SyncConfig {
+            provider: executor.config.sync.provider,
+            ..executor.config.sync.clone()
+        };
+        // Override just the provider_config for testing.
+        let mut test_sync = test_config;
+        test_sync.provider_config = Some(pc);
+
+        return match create_cloud_storage(&test_sync) {
+            Ok(storage) => {
+                match crate::services::sync::SyncService::new(storage).test_connection().await {
+                    Ok((success, message)) => CommandResult::SyncConnectionTested { success, message },
+                    Err(e) => CommandResult::SyncConnectionTested {
+                        success: false,
+                        message: e.to_string(),
+                    },
+                }
+            }
+            Err(e) => CommandResult::SyncConnectionTested {
+                success: false,
+                message: e.to_string(),
+            },
+        };
+    }
+
+    // No provider_config — use existing SyncService.
     let sync = match executor.sync.as_ref() {
         Some(s) => s,
         None => {

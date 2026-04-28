@@ -41,21 +41,42 @@ pub enum AliyunDriveType {
     Resource,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GoogleDriveConfig {
-    #[serde(default)]
+    /// OAuth2 access token -- runtime only, NOT persisted to config.toml.
+    #[serde(skip)]
     pub access_token: String,
-    #[serde(default)]
+    /// OAuth2 refresh token -- runtime only, NOT persisted to config.toml.
+    #[serde(skip)]
     pub refresh_token: String,
-    #[serde(default = "default_root")]
+    /// Root directory in Google Drive for sync data.
+    #[serde(default = "default_gdrive_root")]
     pub root_path: String,
-    // Deprecated: old manual credential fields, no longer used
+    /// Deprecated -- credentials are now built-in via build.rs.
+    #[deprecated(since = "0.2.0")]
     #[serde(default)]
-    #[deprecated(since = "0.2.0", note = "credentials are now built-in")]
     pub client_id: String,
+    /// Deprecated -- credentials are now built-in via build.rs.
+    #[deprecated(since = "0.2.0")]
     #[serde(default)]
-    #[deprecated(since = "0.2.0", note = "credentials are now built-in")]
     pub client_secret: String,
+}
+
+fn default_gdrive_root() -> String {
+    ".oak-keyring/".to_string()
+}
+
+impl Default for GoogleDriveConfig {
+    #[allow(deprecated)]
+    fn default() -> Self {
+        Self {
+            access_token: String::new(),
+            refresh_token: String::new(),
+            root_path: default_gdrive_root(),
+            client_id: String::new(),
+            client_secret: String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -201,5 +222,35 @@ impl Default for SyncConfig {
             auto_interval_seconds: 600,
             provider_config: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(deprecated)]
+    fn gdrive_config_tokens_not_serialized() {
+        let cfg = GoogleDriveConfig {
+            access_token: "secret_access".to_string(),
+            refresh_token: "secret_refresh".to_string(),
+            root_path: default_gdrive_root(),
+            client_id: String::new(),
+            client_secret: String::new(),
+        };
+        let toml_str = toml::to_string(&cfg).unwrap();
+        assert!(!toml_str.contains("secret_access"));
+        assert!(!toml_str.contains("secret_refresh"));
+        assert!(toml_str.contains(".oak-keyring/"));
+    }
+
+    #[test]
+    fn gdrive_config_deserialize_without_tokens() {
+        let toml_str = "root_path = \".oak-keyring/\"\n";
+        let cfg: GoogleDriveConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.access_token.is_empty());
+        assert!(cfg.refresh_token.is_empty());
+        assert_eq!(cfg.root_path, ".oak-keyring/");
     }
 }
