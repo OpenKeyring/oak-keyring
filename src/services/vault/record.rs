@@ -896,9 +896,7 @@ fn apply_sort(
                     .and_then(|m| m.get(&b.id.to_string()))
                     .copied()
                     .unwrap_or(0);
-                // Default direction: descending — most used first.
-                // Ascending reverses this.
-                freq_b.cmp(&freq_a)
+                freq_a.cmp(&freq_b)
             }
         };
         if direction_multiplier == -1 {
