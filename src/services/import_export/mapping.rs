@@ -494,9 +494,21 @@ fn apply_transform(value: &str, transform: &FieldTransform) -> String {
         FieldTransform::Trim => value.trim().to_string(),
         FieldTransform::Lowercase => value.to_lowercase(),
         FieldTransform::Uppercase => value.to_uppercase(),
-        FieldTransform::DateTimeFormat(_fmt) => {
-            // TODO: parse with chrono and reformat — pass through for now
-            value.to_string()
+        FieldTransform::DateTimeFormat(fmt) => {
+            let parsed = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S")
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S"));
+            match parsed {
+                Ok(dt) => dt.format(fmt).to_string(),
+                Err(_) => {
+                    // Try Unix timestamp
+                    if let Ok(ts) = value.parse::<i64>() {
+                        if let Some(dt) = chrono::DateTime::from_timestamp(ts, 0) {
+                            return dt.format(fmt).to_string();
+                        }
+                    }
+                    value.to_string() // Pass through on parse failure
+                }
+            }
         }
         FieldTransform::Base64Decode => {
             use base64::Engine;
