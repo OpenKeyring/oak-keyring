@@ -73,19 +73,3 @@ fn render_too_small(frame: &mut Frame, area: ratatui::layout::Rect) {
         );
     frame.render_widget(paragraph, area);
 }
-
-fn render_placeholder(frame: &mut Frame, area: ratatui::layout::Rect, screen_name: &str) {
-    use ratatui::layout::Alignment;
-    use ratatui::widgets::{Block, Borders, Paragraph};
-
-    let text = format!("Screen: {} (not yet implemented)", screen_name);
-    let paragraph = Paragraph::new(text)
-        .style(theme::Styles::dim_text())
-        .alignment(Alignment::Center)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(theme::Styles::unfocused_border()),
-        );
-    frame.render_widget(paragraph, area);
-}
