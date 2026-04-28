@@ -633,16 +633,15 @@ impl VaultService {
             Ok(r) => r,
             Err(_) => return map,
         };
-        for row in rows {
-            if let Ok((record_id, status)) = row {
-                let sync_status = match status {
-                    0 => SyncStatus::Pending,
-                    1 => SyncStatus::Synced,
-                    2 => SyncStatus::Conflict,
-                    _ => continue,
-                };
-                map.insert(record_id, sync_status);
-            }
+        for row in rows.flatten() {
+            let (record_id, status) = row;
+            let sync_status = match status {
+                0 => SyncStatus::Pending,
+                1 => SyncStatus::Synced,
+                2 => SyncStatus::Conflict,
+                _ => continue,
+            };
+            map.insert(record_id, sync_status);
         }
         map
     }
