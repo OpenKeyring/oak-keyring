@@ -23,13 +23,10 @@ pub struct VaultService {
 
 impl VaultService {
     pub fn new(conn: Connection) -> Self {
-        let device_id = conn
-            .query_row(
-                "SELECT value FROM metadata WHERE key = 'device_id'",
-                [],
-                |r| r.get::<_, String>(0),
-            )
-            .unwrap_or_else(|_| Uuid::new_v4().to_string());
+        let device_id = queries::get_metadata(&conn, "device_id")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
         Self {
             conn,
             crypto: CryptoManager::new(),
