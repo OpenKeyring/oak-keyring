@@ -110,9 +110,17 @@ fn apply_config_changes(executor: &mut CommandExecutor, changed: &[&str], new_co
                 tracing::info!("Auto-lock config changed — timer will rebuild on next tick");
             }
             "sync" => {
-                tracing::info!(
-                    "Sync config changed — SyncService rebuild deferred to next startup"
-                );
+                use crate::cloud::provider::create_cloud_storage;
+                match create_cloud_storage(&new_config.sync) {
+                    Ok(storage) => {
+                        executor.sync = Some(crate::services::sync::SyncService::new(storage));
+                        tracing::info!("SyncService rebuilt with updated config");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "SyncService rebuild failed — sync disabled");
+                        executor.sync = None;
+                    }
+                }
             }
             "general.vault_path" => {
                 tracing::warn!("vault_path changed — requires application restart");
