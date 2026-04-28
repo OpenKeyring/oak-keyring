@@ -12,6 +12,7 @@ use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::crypto::CryptoManager;
+use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 
 pub struct VaultService {
@@ -65,59 +66,25 @@ impl VaultService {
         self.crypto.current_dek_version()
     }
 
-    pub fn soft_delete(&mut self, id: Uuid) -> Result<(), VaultError> {
-        let now = chrono::Utc::now().timestamp();
-        self.conn.execute(
-            "UPDATE records SET deleted = 1, deleted_at = ?1, updated_at = ?2, version = version + 1 WHERE id = ?3 AND deleted = 0",
-            rusqlite::params![now, now, id.to_string()],
-        )?;
-        Ok(())
-    }
-
-    pub fn restore(&mut self, id: Uuid) -> Result<(), VaultError> {
-        let now = chrono::Utc::now().timestamp();
-        self.conn.execute(
-            "UPDATE records SET deleted = 0, deleted_at = NULL, updated_at = ?1, version = version + 1 WHERE id = ?2 AND deleted = 1",
-            rusqlite::params![now, id.to_string()],
-        )?;
-        Ok(())
-    }
-
+    /// Write an audit log entry.
+    ///
+    /// Delegates to `queries::insert_audit_entry` so all SQL goes through the
+    /// query layer.
     pub fn write_audit_entry(
-        &mut self,
+        &self,
         operation: crate::types::AuditOperation,
         record_id: Option<Uuid>,
         record_name: Option<String>,
         detail: Option<String>,
     ) -> Result<(), VaultError> {
-        let now = chrono::Utc::now().timestamp();
-        self.conn.execute(
-            "INSERT INTO audit_log (operation, record_id, record_name, detail, occurred_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![
-                operation.to_db_str(),
-                record_id.map(|id| id.to_string()),
-                record_name,
-                detail,
-                now,
-            ],
-        )?;
-        Ok(())
-    }
-
-    pub fn create_tag(&mut self, name: &str) -> Result<i64, VaultError> {
-        self.conn.execute(
-            "INSERT INTO tags (name) VALUES (?1)",
-            rusqlite::params![name],
-        )?;
-        Ok(self.conn.last_insert_rowid())
-    }
-
-    pub fn add_tag_to_record(&mut self, record_id: Uuid, tag_id: i64) -> Result<(), VaultError> {
-        self.conn.execute(
-            "INSERT OR IGNORE INTO record_tags (record_id, tag_id) VALUES (?1, ?2)",
-            rusqlite::params![record_id.to_string(), tag_id],
-        )?;
-        Ok(())
+        queries::insert_audit_entry(
+            &self.conn,
+            operation,
+            record_id.as_ref(),
+            record_name.as_deref(),
+            detail.as_deref(),
+        )
+        .map_err(record::db_error_to_vault)
     }
 }
 
