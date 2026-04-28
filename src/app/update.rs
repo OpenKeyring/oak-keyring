@@ -322,8 +322,8 @@ fn route_to_screen(
         Screen::AuditLog => state.screens.audit_log.update(msg, ctx),
         Screen::SyncConflict => state.screens.sync_conflict.update(msg, ctx),
         Screen::PasswordGenerator => state.screens.password_generator.update(msg, ctx),
-        // Placeholder screens — ignore messages.
-        _ => ScreenResult::Continue,
+        Screen::CreateRecord => state.screens.create_record.update(msg, ctx),
+        Screen::EditRecord { .. } => state.screens.edit_record.update(msg, ctx),
     }
 }
 
@@ -405,7 +405,17 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
             state.shared.screen_focus_stack.push(current_panel);
             state.screens.password_generator.on_mount(ctx)
         }
-        _ => {}
+        Screen::CreateRecord => {
+            let current_panel = state.shared.focus.focused_panel;
+            state.shared.screen_focus_stack.push(current_panel);
+            state.screens.create_record.on_mount(ctx)
+        }
+        Screen::EditRecord { id } => {
+            let current_panel = state.shared.focus.focused_panel;
+            state.shared.screen_focus_stack.push(current_panel);
+            state.screens.edit_record.record_id = Some(id);
+            state.screens.edit_record.on_mount(ctx)
+        }
     }
 }
 
@@ -455,6 +465,17 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
             }
             state.screens.password_generator.on_unmount()
         }
-        _ => {}
+        Screen::CreateRecord => {
+            if let Some(panel) = state.shared.screen_focus_stack.pop() {
+                state.shared.focus.focused_panel = panel;
+            }
+            state.screens.create_record.on_unmount()
+        }
+        Screen::EditRecord { .. } => {
+            if let Some(panel) = state.shared.screen_focus_stack.pop() {
+                state.shared.focus.focused_panel = panel;
+            }
+            state.screens.edit_record.on_unmount()
+        }
     }
 }

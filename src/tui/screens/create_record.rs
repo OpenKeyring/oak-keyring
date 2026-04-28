@@ -2,9 +2,12 @@
 
 use crossterm::event::KeyCode;
 
+use crate::commands::result::CommandResult;
+use crate::commands::{Command, Message};
 use crate::tui::screens::form::validation;
 use crate::tui::state::form_state::{ExpiryOption, FormState};
 use crate::tui::state::generator_state::EmbeddedGeneratorState;
+use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::credential::CredentialType;
 
 /// Create record screen state.
@@ -29,8 +32,12 @@ impl CreateRecordScreen {
         }
     }
 
-    /// Handle a key event. Returns action to take.
-    pub fn handle_key(&mut self, key_event: crossterm::event::KeyEvent) -> CreateRecordAction {
+    /// Handle a key event.
+    fn handle_key(
+        &mut self,
+        key_event: crossterm::event::KeyEvent,
+        _ctx: &mut ScreenContext,
+    ) -> ScreenResult {
         let key = key_event.code;
         // If dialogs are showing, handle them first
         if self.form.show_weak_password_dialog {
@@ -57,18 +64,18 @@ impl CreateRecordScreen {
         match key {
             KeyCode::Tab => {
                 self.form.focus_next();
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
             KeyCode::BackTab => {
                 self.form.focus_prev();
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
             KeyCode::Esc => {
                 if self.form.has_changes {
                     self.form.show_unsaved_dialog = true;
-                    CreateRecordAction::None
+                    ScreenResult::Continue
                 } else {
-                    CreateRecordAction::Cancel
+                    ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
                 }
             }
             KeyCode::Char('s')
@@ -93,18 +100,18 @@ impl CreateRecordScreen {
                     self.handle_backspace()
                 }
             }
-            _ => CreateRecordAction::None,
+            _ => ScreenResult::Continue,
         }
     }
 
-    fn handle_enter(&mut self) -> CreateRecordAction {
+    fn handle_enter(&mut self) -> ScreenResult {
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 
         // Check if focused on a dropdown field - toggle it
         if focused == 0 && self.form.is_credential_type_editable() {
             self.form.credential_dropdown.expanded = true;
-            return CreateRecordAction::None;
+            return ScreenResult::Continue;
         }
         let expiry_idx = match ct {
             CredentialType::Login | CredentialType::Api => 5,
@@ -112,7 +119,7 @@ impl CreateRecordScreen {
         };
         if focused == expiry_idx {
             self.form.expiry_dropdown.expanded = true;
-            return CreateRecordAction::None;
+            return ScreenResult::Continue;
         }
 
         // If on tag input, add tag
@@ -126,13 +133,13 @@ impl CreateRecordScreen {
                 self.form.fields.tags.push(tag);
                 self.form.has_changes = true;
             }
-            return CreateRecordAction::None;
+            return ScreenResult::Continue;
         }
 
-        CreateRecordAction::None
+        ScreenResult::Continue
     }
 
-    fn handle_char_input(&mut self, c: char) -> CreateRecordAction {
+    fn handle_char_input(&mut self, c: char) -> ScreenResult {
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 
@@ -225,10 +232,10 @@ impl CreateRecordScreen {
                 }
             }
         }
-        CreateRecordAction::None
+        ScreenResult::Continue
     }
 
-    fn handle_backspace(&mut self) -> CreateRecordAction {
+    fn handle_backspace(&mut self) -> ScreenResult {
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 
@@ -276,7 +283,7 @@ impl CreateRecordScreen {
             }
         }
         self.form.has_changes = true;
-        CreateRecordAction::None
+        ScreenResult::Continue
     }
 
     /// Check if the custom date sub-input is currently focused.
@@ -289,7 +296,7 @@ impl CreateRecordScreen {
     }
 
     /// Handle smart cursor backspace for YYYY-MM-DD date input.
-    fn handle_date_backspace(&mut self) -> CreateRecordAction {
+    fn handle_date_backspace(&mut self) -> ScreenResult {
         if let Some(ref mut date) = self.form.fields.custom_date {
             if !date.is_empty() {
                 date.pop();
@@ -300,13 +307,13 @@ impl CreateRecordScreen {
             }
         }
         self.form.has_changes = true;
-        CreateRecordAction::None
+        ScreenResult::Continue
     }
 
     /// Handle digit input for YYYY-MM-DD with auto-skip separators.
-    fn handle_date_char(&mut self, c: char) -> CreateRecordAction {
+    fn handle_date_char(&mut self, c: char) -> ScreenResult {
         if !c.is_ascii_digit() {
-            return CreateRecordAction::None;
+            return ScreenResult::Continue;
         }
         let date = self
             .form
@@ -322,56 +329,58 @@ impl CreateRecordScreen {
         }
 
         self.form.has_changes = true;
-        CreateRecordAction::None
+        ScreenResult::Continue
     }
 
-    fn attempt_save(&mut self) -> CreateRecordAction {
+    fn attempt_save(&mut self) -> ScreenResult {
         let errors = validation::validate(&self.form.fields, self.form.credential_type);
         if !errors.is_empty() {
             self.form.validation_errors = errors;
             self.form.focused_field = self.form.validation_errors[0].field_index;
-            return CreateRecordAction::None;
+            return ScreenResult::Continue;
         }
 
         // Check weak password (Login only)
         if self.form.credential_type == CredentialType::Login && self.form.is_password_weak() {
             self.form.show_weak_password_dialog = true;
-            return CreateRecordAction::None;
+            return ScreenResult::Continue;
         }
 
-        CreateRecordAction::Save
+        self.create_record_command()
     }
 
-    fn handle_weak_password_dialog(&mut self, key: KeyCode) -> CreateRecordAction {
+    fn handle_weak_password_dialog(&mut self, key: KeyCode) -> ScreenResult {
         match key {
             KeyCode::Esc | KeyCode::Char('n') => {
                 self.form.show_weak_password_dialog = false;
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
             KeyCode::Enter | KeyCode::Char('y') => {
                 self.form.show_weak_password_dialog = false;
-                CreateRecordAction::Save
+                self.create_record_command()
             }
-            _ => CreateRecordAction::None,
+            _ => ScreenResult::Continue,
         }
     }
 
-    fn handle_unsaved_dialog(&mut self, key: KeyCode) -> CreateRecordAction {
+    fn handle_unsaved_dialog(&mut self, key: KeyCode) -> ScreenResult {
         match key {
             KeyCode::Esc | KeyCode::Char('n') => {
                 self.form.show_unsaved_dialog = false;
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
-            KeyCode::Enter | KeyCode::Char('y') => CreateRecordAction::Cancel,
-            _ => CreateRecordAction::None,
+            KeyCode::Enter | KeyCode::Char('y') => {
+                ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+            }
+            _ => ScreenResult::Continue,
         }
     }
 
-    fn handle_generator_key(&mut self, key: KeyCode) -> CreateRecordAction {
+    fn handle_generator_key(&mut self, key: KeyCode) -> ScreenResult {
         match key {
             KeyCode::Esc => {
                 self.generator.collapse();
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
             KeyCode::Enter => {
                 if self.generator.generator.focus
@@ -381,28 +390,28 @@ impl CreateRecordScreen {
                     self.form.fields.password = Some(pw);
                     self.form.fields.update_strength();
                     self.form.has_changes = true;
-                    return CreateRecordAction::None;
+                    return ScreenResult::Continue;
                 }
                 self.generator.generator.regenerate();
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
-            _ => CreateRecordAction::None,
+            _ => ScreenResult::Continue,
         }
     }
 
-    fn handle_credential_dropdown(&mut self, key: KeyCode) -> CreateRecordAction {
+    fn handle_credential_dropdown(&mut self, key: KeyCode) -> ScreenResult {
         match key {
             KeyCode::Up => {
                 if self.form.credential_dropdown.selected_index > 0 {
                     self.form.credential_dropdown.selected_index -= 1;
                 }
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
             KeyCode::Down => {
                 if self.form.credential_dropdown.selected_index < 2 {
                     self.form.credential_dropdown.selected_index += 1;
                 }
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 let ct = match self.form.credential_dropdown.selected_index {
@@ -412,49 +421,209 @@ impl CreateRecordScreen {
                 };
                 self.form.switch_credential_type(ct);
                 self.form.credential_dropdown.expanded = false;
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
             KeyCode::Esc => {
                 self.form.credential_dropdown.expanded = false;
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
-            _ => CreateRecordAction::None,
+            _ => ScreenResult::Continue,
         }
     }
 
-    fn handle_expiry_dropdown(&mut self, key: KeyCode) -> CreateRecordAction {
+    fn handle_expiry_dropdown(&mut self, key: KeyCode) -> ScreenResult {
         let options = ExpiryOption::all_options();
         match key {
             KeyCode::Up => {
                 if self.form.expiry_dropdown.selected_index > 0 {
                     self.form.expiry_dropdown.selected_index -= 1;
                 }
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
             KeyCode::Down => {
                 if self.form.expiry_dropdown.selected_index < options.len() - 1 {
                     self.form.expiry_dropdown.selected_index += 1;
                 }
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 self.form.fields.expires_at = options[self.form.expiry_dropdown.selected_index].1;
                 self.form.expiry_dropdown.expanded = false;
                 self.form.has_changes = true;
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
             KeyCode::Esc => {
                 self.form.expiry_dropdown.expanded = false;
-                CreateRecordAction::None
+                ScreenResult::Continue
             }
-            _ => CreateRecordAction::None,
+            _ => ScreenResult::Continue,
         }
+    }
+
+    fn create_record_command(&mut self) -> ScreenResult {
+        ScreenResult::Command(Box::new(Command::CreateRecord {
+            credential_type: self.form.credential_type,
+            payload: self.form.build_payload(),
+            tags: std::mem::take(&mut self.form.fields.tags),
+            is_favorite: false,
+            expires_at: self.form.expiry_datetime(),
+        }))
     }
 }
 
-/// Actions from the create record screen.
-pub enum CreateRecordAction {
-    None,
-    Save,
-    Cancel,
+impl Screen for CreateRecordScreen {
+    fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
+        match msg {
+            Message::KeyEvent(key) => self.handle_key(key, ctx),
+            Message::CommandCompleted(result) => match result {
+                CommandResult::TagsLoaded { tags } => {
+                    self.all_tags = tags.into_iter().map(|tag| tag.name).collect();
+                    ScreenResult::Continue
+                }
+                CommandResult::RecordCreated { .. } => ScreenResult::PopScreen,
+                _ => ScreenResult::Continue,
+            },
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        crate::tui::screens::form::render::render_form(
+            frame,
+            area,
+            &self.form,
+            Some(&self.generator),
+            &self.all_tags,
+        );
+    }
+
+    fn on_mount(&mut self, ctx: &mut ScreenContext) {
+        self.form = FormState::new_create();
+        self.all_tags.clear();
+        let _ = ctx.command_tx.try_send(Command::LoadTags);
+    }
+
+    fn on_unmount(&mut self) {
+        self.form.clear_sensitive_fields();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::result::CommandResult;
+    use crate::types::tag::Tag;
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use tokio::sync::mpsc;
+
+    fn make_screen() -> CreateRecordScreen {
+        CreateRecordScreen::new()
+    }
+
+    struct TestEnv {
+        config: crate::config::AppConfig,
+    }
+
+    impl TestEnv {
+        fn new() -> Self {
+            Self {
+                config: crate::config::AppConfig::default(),
+            }
+        }
+
+        fn make_ctx<'a>(&'a self, tx: &'a mpsc::Sender<Command>) -> ScreenContext<'a> {
+            ScreenContext {
+                command_tx: tx,
+                config: &self.config,
+            }
+        }
+    }
+
+    #[test]
+    fn on_mount_sends_load_tags() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.on_mount(&mut ctx);
+        let cmd = rx.try_recv().unwrap();
+        assert!(matches!(cmd, Command::LoadTags));
+    }
+
+    #[test]
+    fn update_tags_loaded_populates_all_tags() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        let tags = vec![
+            Tag {
+                id: 1,
+                name: "work".into(),
+            },
+            Tag {
+                id: 2,
+                name: "personal".into(),
+            },
+        ];
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::TagsLoaded { tags }),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.all_tags.len(), 2);
+    }
+
+    #[test]
+    fn update_record_created_pops_screen() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::RecordCreated {
+                id: uuid::Uuid::new_v4(),
+            }),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::PopScreen));
+    }
+
+    #[test]
+    fn esc_without_changes_navigates_to_main() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.has_changes = false;
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(
+            result,
+            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+        ));
+    }
+
+    #[test]
+    fn esc_with_changes_shows_unsaved_dialog() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.has_changes = true;
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.form.show_unsaved_dialog);
+    }
 }

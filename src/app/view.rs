@@ -48,9 +48,11 @@ pub fn render(frame: &mut Frame, app: &App) {
         Screen::PasswordGenerator => {
             app.state.screens.password_generator.view(frame, area);
         }
-        // Placeholder for unimplemented screens.
-        _ => {
-            render_placeholder(frame, area, &format!("{:?}", app.state.current_screen));
+        Screen::CreateRecord => {
+            app.state.screens.create_record.view(frame, area);
+        }
+        Screen::EditRecord { .. } => {
+            app.state.screens.edit_record.view(frame, area);
         }
     }
 }
@@ -68,22 +70,6 @@ fn render_too_small(frame: &mut Frame, area: ratatui::layout::Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(theme::Styles::error_border()),
-        );
-    frame.render_widget(paragraph, area);
-}
-
-fn render_placeholder(frame: &mut Frame, area: ratatui::layout::Rect, screen_name: &str) {
-    use ratatui::layout::Alignment;
-    use ratatui::widgets::{Block, Borders, Paragraph};
-
-    let text = format!("Screen: {} (not yet implemented)", screen_name);
-    let paragraph = Paragraph::new(text)
-        .style(theme::Styles::dim_text())
-        .alignment(Alignment::Center)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(theme::Styles::unfocused_border()),
         );
     frame.render_widget(paragraph, area);
 }

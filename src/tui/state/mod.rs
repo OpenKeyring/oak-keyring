@@ -17,6 +17,8 @@ use crate::commands::types::{AppPhase, Screen};
 use crate::tui::screens::audit_log::AuditLogScreen;
 use crate::tui::screens::change_master_password::ChangeMasterPasswordScreen;
 use crate::tui::screens::config_screen::ConfigScreen;
+use crate::tui::screens::create_record::CreateRecordScreen;
+use crate::tui::screens::edit_record::EditRecordScreen;
 use crate::tui::screens::import_export::ImportExportScreen;
 use crate::tui::screens::onboarding::OnboardingScreen;
 use crate::tui::screens::password_generator::PasswordGeneratorScreen;
@@ -69,6 +71,8 @@ pub struct ScreenStates {
     pub audit_log: AuditLogScreen,
     pub sync_conflict: SyncConflictScreen,
     pub password_generator: PasswordGeneratorScreen,
+    pub create_record: CreateRecordScreen,
+    pub edit_record: EditRecordScreen,
 }
 
 impl Default for AppState {
