@@ -617,33 +617,7 @@ impl VaultService {
     /// If the `sync_state` table is empty (sync never used), the map will be empty,
     /// which is the correct default — callers get `None` for all records.
     fn load_sync_status_map(&self) -> std::collections::HashMap<String, SyncStatus> {
-        let mut map = std::collections::HashMap::new();
-        let mut stmt = match self
-            .conn
-            .prepare("SELECT record_id, sync_status FROM sync_state")
-        {
-            Ok(s) => s,
-            Err(_) => return map,
-        };
-        let rows = match stmt.query_map([], |row| {
-            let record_id: String = row.get(0)?;
-            let status: i32 = row.get(1)?;
-            Ok((record_id, status))
-        }) {
-            Ok(r) => r,
-            Err(_) => return map,
-        };
-        for row in rows.flatten() {
-            let (record_id, status) = row;
-            let sync_status = match status {
-                0 => SyncStatus::Pending,
-                1 => SyncStatus::Synced,
-                2 => SyncStatus::Conflict,
-                _ => continue,
-            };
-            map.insert(record_id, sync_status);
-        }
-        map
+        crate::db::queries::load_sync_status_map(&self.conn)
     }
 
     /// Query the `audit_log` table for access counts per record.
