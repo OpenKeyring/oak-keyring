@@ -89,24 +89,10 @@ impl DropdownField {
                 vec!["7".into(), "30".into(), "90".into(), "365".into()]
             }
             DropdownField::Animation => vec!["auto".into(), "on".into(), "off".into()],
-            DropdownField::SyncProvider => vec![
-                "Disabled",
-                "ICloud",
-                "GoogleDrive",
-                "Dropbox",
-                "OneDrive",
-                "WebDav",
-                "Sftp",
-                "S3",
-                "AliyunDrive",
-                "AliyunOss",
-                "TencentCos",
-                "HuaweiObs",
-                "Upyun",
-            ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
+            // Only expose providers with verified end-to-end closed loops.
+            // Hidden providers retain their enum variants, adapter code, and
+            // config deserialization — add them back here when closed-loop verified.
+            DropdownField::SyncProvider => vec!["Disabled".into(), "GoogleDrive".into()],
             DropdownField::SyncMode => vec!["Auto".into(), "Manual".into()],
             DropdownField::SyncInterval => {
                 vec![
@@ -189,18 +175,7 @@ impl DropdownField {
             ],
             DropdownField::SyncProvider => vec![
                 crate::t!("tui.config.opt_provider_disabled").to_string(),
-                crate::t!("tui.config.opt_provider_icloud").to_string(),
                 crate::t!("tui.config.opt_provider_google_drive").to_string(),
-                crate::t!("tui.config.opt_provider_dropbox").to_string(),
-                crate::t!("tui.config.opt_provider_onedrive").to_string(),
-                crate::t!("tui.config.opt_provider_webdav").to_string(),
-                crate::t!("tui.config.opt_provider_sftp").to_string(),
-                crate::t!("tui.config.opt_provider_s3").to_string(),
-                crate::t!("tui.config.opt_provider_aliyun_drive").to_string(),
-                crate::t!("tui.config.opt_provider_aliyun_oss").to_string(),
-                crate::t!("tui.config.opt_provider_tencent_cos").to_string(),
-                crate::t!("tui.config.opt_provider_huawei_obs").to_string(),
-                crate::t!("tui.config.opt_provider_upyun").to_string(),
             ],
             DropdownField::SyncMode => vec![
                 crate::t!("tui.config.opt_sync_mode_auto").to_string(),
