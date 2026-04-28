@@ -83,7 +83,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
             &state.sync,
             state.sync_status,
             state.gdrive_auth_status.clone(),
-            None, // TODO: pass state.last_sync when available from sync engine
+            state.last_sync,
             focused,
         ),
         ConfigTab::Security => {

@@ -463,11 +463,7 @@ fn evaluate_rule(rule: &ValidationRule, key: &str, value: &str) -> FieldValidati
             } else {
                 FieldValidation::Fail {
                     field: key.into(),
-                    message: if rule.error_message.is_empty() {
-                        "invalid format".to_string()
-                    } else {
-                        rule.error_message.clone()
-                    },
+                    message: rule.error_message.clone(),
                 }
             }
         }
