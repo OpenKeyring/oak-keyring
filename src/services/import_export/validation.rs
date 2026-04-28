@@ -434,9 +434,23 @@ fn evaluate_rule(rule: &ValidationRule, key: &str, value: &str) -> FieldValidati
                 FieldValidation::Pass
             }
         }
-        ValidationRuleType::Pattern(_) => {
-            // Pattern matching is deferred to a later task; treat as pass.
-            FieldValidation::Pass
+        ValidationRuleType::Pattern(pattern) => {
+            match regex::Regex::new(pattern) {
+                Ok(re) => {
+                    if re.is_match(value) {
+                        FieldValidation::Pass
+                    } else {
+                        FieldValidation::Fail {
+                            field: key.into(),
+                            message: rule.error_message.clone(),
+                        }
+                    }
+                }
+                Err(_) => FieldValidation::Fail {
+                    field: key.into(),
+                    message: format!("invalid regex pattern: {}", pattern),
+                },
+            }
         }
         ValidationRuleType::Format => {
             // Format-level validation is deferred; treat as pass for now.
@@ -582,6 +596,85 @@ mod tests {
 
         let results = validate_item(&fields, &rules);
         assert_eq!(results[0], FieldValidation::Pass);
+    }
+
+    // -- Pattern rule --
+
+    #[test]
+    fn pattern_rejects_non_matching_value() {
+        let rule = ValidationRule {
+            rule_type: ValidationRuleType::Pattern(r"^\d{4}-\d{2}-\d{2}$".to_string()),
+            field: Some(TargetField::ExpiresAt),
+            constraint: ValidationConstraint::DateTime,
+            error_message: "expected YYYY-MM-DD".to_string(),
+        };
+        let result = evaluate_rule(&rule, "expires_at", "not-a-date");
+        assert!(matches!(result, FieldValidation::Fail { .. }));
+        if let FieldValidation::Fail { field, message } = &result {
+            assert_eq!(field, "expires_at");
+            assert_eq!(message, "expected YYYY-MM-DD");
+        }
+    }
+
+    #[test]
+    fn pattern_accepts_matching_value() {
+        let rule = ValidationRule {
+            rule_type: ValidationRuleType::Pattern(r"^\d{4}-\d{2}-\d{2}$".to_string()),
+            field: Some(TargetField::ExpiresAt),
+            constraint: ValidationConstraint::DateTime,
+            error_message: "expected YYYY-MM-DD".to_string(),
+        };
+        let result = evaluate_rule(&rule, "expires_at", "2026-04-28");
+        assert_eq!(result, FieldValidation::Pass);
+    }
+
+    #[test]
+    fn pattern_invalid_regex_produces_fail() {
+        let rule = ValidationRule {
+            rule_type: ValidationRuleType::Pattern("([invalid".to_string()),
+            field: Some(TargetField::Name),
+            constraint: ValidationConstraint::NotEmpty,
+            error_message: "pattern check".to_string(),
+        };
+        let result = evaluate_rule(&rule, "name", "anything");
+        assert!(matches!(result, FieldValidation::Fail { .. }));
+        if let FieldValidation::Fail { message, .. } = &result {
+            assert!(message.contains("invalid regex pattern"));
+        }
+    }
+
+    #[test]
+    fn pattern_passes_through_validate_item() {
+        let mut fields = HashMap::new();
+        fields.insert("expires_at".into(), "2026-01-15".into());
+
+        let rules = vec![ValidationRule {
+            rule_type: ValidationRuleType::Pattern(r"^\d{4}-\d{2}-\d{2}$".to_string()),
+            field: Some(TargetField::ExpiresAt),
+            constraint: ValidationConstraint::DateTime,
+            error_message: "expected YYYY-MM-DD".to_string(),
+        }];
+
+        let results = validate_item(&fields, &rules);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], FieldValidation::Pass);
+    }
+
+    #[test]
+    fn pattern_fails_through_validate_item() {
+        let mut fields = HashMap::new();
+        fields.insert("expires_at".into(), "bad-date".into());
+
+        let rules = vec![ValidationRule {
+            rule_type: ValidationRuleType::Pattern(r"^\d{4}-\d{2}-\d{2}$".to_string()),
+            field: Some(TargetField::ExpiresAt),
+            constraint: ValidationConstraint::DateTime,
+            error_message: "expected YYYY-MM-DD".to_string(),
+        }];
+
+        let results = validate_item(&fields, &rules);
+        assert_eq!(results.len(), 1);
+        assert!(matches!(&results[0], FieldValidation::Fail { field, .. } if field == "expires_at"));
     }
 
     // -- Per-format rule counts and required fields --
