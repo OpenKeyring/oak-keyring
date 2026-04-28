@@ -498,6 +498,8 @@ impl Screen for CreateRecordScreen {
     }
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
+        self.form = FormState::new_create();
+        self.all_tags.clear();
         let _ = ctx.command_tx.try_send(Command::LoadTags);
     }
 

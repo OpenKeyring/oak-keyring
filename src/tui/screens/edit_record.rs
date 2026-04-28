@@ -350,6 +350,10 @@ impl EditRecordScreen {
             return ScreenResult::Continue;
         }
 
+        self.update_record_command()
+    }
+
+    fn update_record_command(&mut self) -> ScreenResult {
         ScreenResult::Command(Box::new(Command::UpdateRecord {
             id: self.record_id.unwrap_or_else(Uuid::nil),
             payload: self.form.build_payload(),
@@ -368,14 +372,7 @@ impl EditRecordScreen {
             }
             KeyCode::Enter | KeyCode::Char('y') => {
                 self.form.show_weak_password_dialog = false;
-                ScreenResult::Command(Box::new(Command::UpdateRecord {
-                    id: self.record_id.unwrap_or_else(Uuid::nil),
-                    payload: self.form.build_payload(),
-                    tags: std::mem::take(&mut self.form.fields.tags),
-                    is_favorite: false,
-                    expires_at: self.form.expiry_datetime(),
-                    expected_version: self.record_version.unwrap_or(0),
-                }))
+                self.update_record_command()
             }
             _ => ScreenResult::Continue,
         }
@@ -586,6 +583,8 @@ impl Screen for EditRecordScreen {
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
         if let Some(id) = self.record_id {
+            self.form = FormState::new_edit(id, self.form.credential_type);
+            self.all_tags.clear();
             let _ = ctx.command_tx.try_send(Command::LoadRecordForEdit { id });
         }
         let _ = ctx.command_tx.try_send(Command::LoadTags);
