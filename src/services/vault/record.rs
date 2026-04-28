@@ -432,7 +432,7 @@ impl VaultService {
     /// - `Expired` — active records where `expires_at < now`
     /// - `Trash` — soft-deleted records
     /// - `Tag(name)` — active records with the specified tag
-    /// - `Search(query)` — delegates to search module (placeholder: returns empty)
+    /// - `Search(query)` — delegates to search module for filtering
     /// - `HealthIssues` — returns all active records; executor filters using health_report
     ///
     /// # Sort behavior

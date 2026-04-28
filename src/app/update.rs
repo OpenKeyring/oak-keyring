@@ -177,6 +177,9 @@ fn handle_message(
                     app.state.shared.notification.enqueue(msg);
                 }
                 CommandResult::SyncCompleted { .. } => {
+                    let now = chrono::Utc::now();
+                    app.state.shared.last_sync = Some(now);
+                    app.state.screens.config.state.last_sync = Some(now);
                     if let Screen::Main = app.state.current_screen {
                         app.state.screens.main.status_bar.sync_status =
                             crate::tui::state::main_state::SyncIndicator::Synced;
