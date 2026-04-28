@@ -15,6 +15,7 @@ use crate::types::record::{
     CreateRecordParams, DecryptedRecord, StoredRecord, TuiRecord, UpdateRecordParams,
 };
 use crate::types::sensitive::SecureStr;
+use crate::types::sync::SyncStatus;
 
 impl VaultService {
     /// Create a new vault record with encryption, tags, and audit logging.
@@ -462,6 +463,7 @@ impl VaultService {
                 let stored_records =
                     queries::list_active_records(&self.conn).map_err(db_error_to_vault)?;
 
+                let sync_map = self.load_sync_status_map();
                 let mut tui_records: Vec<TuiRecord> = Vec::with_capacity(stored_records.len());
                 for stored in &stored_records {
                     let aad = format!("record:{}", stored.id);
@@ -500,7 +502,7 @@ impl VaultService {
                         deleted: stored.deleted,
                         deleted_at: stored.deleted_at,
                         tags: stored.tags.clone(),
-                        sync_status: None,
+                        sync_status: sync_map.get(&stored.id.to_string()).copied(),
                     });
                 }
 
@@ -519,6 +521,7 @@ impl VaultService {
         };
 
         let now = Utc::now();
+        let sync_map = self.load_sync_status_map();
 
         // Decrypt and build TuiRecords, applying application-layer filters
         let mut tui_records: Vec<TuiRecord> = Vec::with_capacity(stored_records.len());
@@ -580,7 +583,7 @@ impl VaultService {
                 deleted: stored.deleted,
                 deleted_at: stored.deleted_at,
                 tags: stored.tags.clone(),
-                sync_status: None,
+                sync_status: sync_map.get(&stored.id.to_string()).copied(),
             });
         }
 
@@ -596,6 +599,42 @@ impl VaultService {
     /// which needs the full encrypted record for batch analysis.
     pub fn list_all_stored_records(&self) -> Result<Vec<StoredRecord>, VaultError> {
         queries::list_active_records(&self.conn).map_err(db_error_to_vault)
+    }
+
+    /// Load all sync statuses from the `sync_state` table in a single query.
+    ///
+    /// Returns a map from record ID (as hyphenated string) to its `SyncStatus`.
+    /// If the `sync_state` table is empty (sync never used), the map will be empty,
+    /// which is the correct default — callers get `None` for all records.
+    fn load_sync_status_map(&self) -> std::collections::HashMap<String, SyncStatus> {
+        let mut map = std::collections::HashMap::new();
+        let mut stmt = match self
+            .conn
+            .prepare("SELECT record_id, sync_status FROM sync_state")
+        {
+            Ok(s) => s,
+            Err(_) => return map,
+        };
+        let rows = match stmt.query_map([], |row| {
+            let record_id: String = row.get(0)?;
+            let status: i32 = row.get(1)?;
+            Ok((record_id, status))
+        }) {
+            Ok(r) => r,
+            Err(_) => return map,
+        };
+        for row in rows {
+            if let Ok((record_id, status)) = row {
+                let sync_status = match status {
+                    0 => SyncStatus::Pending,
+                    1 => SyncStatus::Synced,
+                    2 => SyncStatus::Conflict,
+                    _ => continue,
+                };
+                map.insert(record_id, sync_status);
+            }
+        }
+        map
     }
 
     /// List all records that need DEK migration (dek_version < target).
