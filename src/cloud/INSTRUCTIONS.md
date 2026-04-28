@@ -26,7 +26,7 @@ trait ProviderAdapter: Send + Sync {
 | **iCloud** | ✅ | 本地文件系统 (~/Library/Mobile Documents) |
 | **SFTP** | ✅ | SSH key，自动补端口 22 |
 | **Dropbox** | ⚠️ | client_id + client_secret + refresh_token (OAuth2 流程未完整实现) |
-| Google Drive | ❌ | 返回 ProviderNotSupported |
+| **Google Drive** | ✅ | OAuth2 (drive.file scope, PKCE, built-in credentials); root_path defaults to `.oak-keyring/`; tokens stored in TokenStore |
 | OneDrive | ❌ | 返回 ProviderNotSupported |
 | Aliyun Drive | ❌ | 返回 ProviderNotSupported |
 | Upyun | ❌ | 返回 ProviderNotSupported |

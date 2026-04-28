@@ -17,13 +17,18 @@ impl ProviderAdapter for GoogleDriveAdapter {
     fn create_operator(&self, config: &ProviderConfig) -> Result<Operator, SyncError> {
         match config {
             ProviderConfig::GoogleDrive(drive_config) => {
-                let mut builder = opendal::services::Gdrive::default();
+                let built_in_client_id = env!("OAK_GOOGLE_CLIENT_ID");
+                let built_in_client_secret = env!("OAK_GOOGLE_CLIENT_SECRET");
 
-                if !drive_config.access_token.is_empty() {
-                    builder = builder.access_token(&drive_config.access_token);
-                }
+                let mut builder = opendal::services::Gdrive::default()
+                    .client_id(built_in_client_id)
+                    .client_secret(built_in_client_secret);
+
                 if !drive_config.refresh_token.is_empty() {
                     builder = builder.refresh_token(&drive_config.refresh_token);
+                }
+                if !drive_config.access_token.is_empty() {
+                    builder = builder.access_token(&drive_config.access_token);
                 }
                 if !drive_config.root_path.is_empty() {
                     builder = builder.root(&drive_config.root_path);

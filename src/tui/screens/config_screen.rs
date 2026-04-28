@@ -118,6 +118,10 @@ impl ConfigScreen {
                             cfg.refresh_token = rt;
                         }
                     }
+                    // Auto-save config after OAuth2 success triggers SyncService rebuild
+                    // via detect_changed_fields comparing provider_config (which includes tokens).
+                    let config = self.state.to_app_config();
+                    return ScreenResult::Command(Box::new(Command::SaveConfig { config }));
                 }
                 ScreenResult::Continue
             }

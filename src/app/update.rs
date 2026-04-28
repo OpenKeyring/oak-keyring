@@ -176,6 +176,29 @@ fn handle_message(
                     };
                     app.state.shared.notification.enqueue(msg);
                 }
+                CommandResult::SyncCompleted { .. } => {
+                    let now = chrono::Utc::now();
+                    app.state.shared.last_sync = Some(now);
+                    app.state.screens.config.state.last_sync = Some(now);
+                    if let Screen::Main = app.state.current_screen {
+                        app.state.screens.main.status_bar.sync_status =
+                            crate::tui::state::main_state::SyncIndicator::Synced;
+                    }
+                }
+                CommandResult::Error {
+                    code: crate::errors::ErrorCode::Sync(ref _msg),
+                    fallback,
+                    ..
+                } => {
+                    if let Screen::Main = app.state.current_screen {
+                        app.state.screens.main.status_bar.sync_status =
+                            crate::tui::state::main_state::SyncIndicator::Failed;
+                    }
+                    app.state
+                        .shared
+                        .notification
+                        .enqueue(StatusMessage::error(fallback.clone()));
+                }
                 CommandResult::Error { fallback, .. } => {
                     app.state
                         .shared

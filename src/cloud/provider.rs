@@ -642,6 +642,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn oauth2_validate_missing_refresh_token() {
         let adapter = GoogleDriveAdapter::new();
         let config = ProviderConfig::GoogleDrive(GoogleDriveConfig {
@@ -665,6 +666,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn oauth2_validate_with_valid_config() {
         let adapter = GoogleDriveAdapter::new();
         let config = ProviderConfig::GoogleDrive(GoogleDriveConfig {

@@ -43,6 +43,9 @@ base64 = "0.22"
 # CSV parsing
 csv = "1"
 
+# Regex
+regex = "1"
+
 # KeePass .kdbx parsing
 keepass = "0.7"
 

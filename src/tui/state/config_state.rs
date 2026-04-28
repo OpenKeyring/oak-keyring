@@ -516,6 +516,8 @@ pub struct ConfigScreenState {
     pub terminal_height: u16,
     /// Google Drive OAuth2 authorization status.
     pub gdrive_auth_status: GDriveAuthStatus,
+    /// Timestamp of the last successful sync (mirrored from SharedState).
+    pub last_sync: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl ConfigScreenState {

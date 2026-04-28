@@ -2488,6 +2488,7 @@ dependencies = [
  "opendal",
  "rand 0.9.3",
  "ratatui 0.30.0",
+ "regex",
  "rusqlite",
  "rust-i18n",
  "serde",
