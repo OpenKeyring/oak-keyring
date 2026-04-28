@@ -151,8 +151,13 @@ pub async fn handle_test_sync_connection(
 
         return match create_cloud_storage(&test_sync) {
             Ok(storage) => {
-                match crate::services::sync::SyncService::new(storage).test_connection().await {
-                    Ok((success, message)) => CommandResult::SyncConnectionTested { success, message },
+                match crate::services::sync::SyncService::new(storage)
+                    .test_connection()
+                    .await
+                {
+                    Ok((success, message)) => {
+                        CommandResult::SyncConnectionTested { success, message }
+                    }
                     Err(e) => CommandResult::SyncConnectionTested {
                         success: false,
                         message: e.to_string(),
