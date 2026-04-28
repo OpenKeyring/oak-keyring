@@ -433,12 +433,12 @@ impl VaultService {
     /// - `Trash` — soft-deleted records
     /// - `Tag(name)` — active records with the specified tag
     /// - `Search(query)` — delegates to search module (placeholder: returns empty)
-    /// - `HealthIssues` — placeholder, returns empty (S3 implements)
+    /// - `HealthIssues` — returns all active records; executor filters using health_report
     ///
     /// # Sort behavior
     /// - `Name` — sorted at application layer after decryption
     /// - `CreatedAt` / `UpdatedAt` — sorted at application layer on timestamps
-    /// - `UsageFrequency` — no-op (not yet implemented)
+    /// - `UsageFrequency` — sorted by audit_log access count (descending by default)
     ///
     /// # Errors
     /// - `VaultError::NotUnlocked` if the vault is locked.
@@ -507,15 +507,19 @@ impl VaultService {
                 }
 
                 let mut filtered = search::search_records(&tui_records, query);
-                apply_sort(&mut filtered, sort);
+                let freq_map = if matches!(sort.field, SortField::UsageFrequency) {
+                    let ids: Vec<String> = filtered.iter().map(|r| r.id.to_string()).collect();
+                    Some(self.get_access_frequencies(&ids))
+                } else {
+                    None
+                };
+                apply_sort(&mut filtered, sort, freq_map.as_ref());
                 return Ok(filtered);
             }
-            RecordFilter::HealthIssues => {
-                // Placeholder: S3 implements health-based filtering
-                return Ok(vec![]);
-            }
             _ => {
-                // All, Favorites, Expired, Tag — start from active records
+                // All, Favorites, Expired, HealthIssues, Tag — start from active records.
+                // HealthIssues returns all active records here; the executor enriches
+                // them with health data and filters at its level.
                 queries::list_active_records(&self.conn).map_err(db_error_to_vault)?
             }
         };
@@ -577,7 +581,7 @@ impl VaultService {
                 is_favorite: stored.is_favorite,
                 is_expired,
                 expires_at: stored.expires_at,
-                has_weak_password: false, // S3 implements
+                has_weak_password: false, // populated by executor from health_report
                 created_at: stored.created_at,
                 updated_at: stored.updated_at,
                 deleted: stored.deleted,
@@ -588,7 +592,13 @@ impl VaultService {
         }
 
         // Application-layer sort
-        apply_sort(&mut tui_records, sort);
+        let freq_map = if matches!(sort.field, SortField::UsageFrequency) {
+            let ids: Vec<String> = tui_records.iter().map(|r| r.id.to_string()).collect();
+            Some(self.get_access_frequencies(&ids))
+        } else {
+            None
+        };
+        apply_sort(&mut tui_records, sort, freq_map.as_ref());
 
         Ok(tui_records)
     }
@@ -633,6 +643,27 @@ impl VaultService {
                 };
                 map.insert(record_id, sync_status);
             }
+        }
+        map
+    }
+
+    /// Query the `audit_log` table for access counts per record.
+    ///
+    /// Returns a map from record ID (hyphenated string) to the number of
+    /// audit entries referencing that record. Records with no audit entries
+    /// are absent from the map (callers treat missing as 0).
+    fn get_access_frequencies(&self, record_ids: &[String]) -> std::collections::HashMap<String, i64> {
+        let mut map = std::collections::HashMap::with_capacity(record_ids.len());
+        for id in record_ids {
+            let count: i64 = self
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM audit_log WHERE record_id = ?1",
+                    rusqlite::params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            map.insert(id.clone(), count);
         }
         map
     }
@@ -837,7 +868,15 @@ fn extract_field(
 }
 
 /// Apply the requested sort order to a list of TuiRecords.
-fn apply_sort(records: &mut [TuiRecord], sort: &RecordSort) {
+///
+/// When `freq_map` is `Some`, it maps record ID strings to their access count
+/// (from `audit_log`). This is required for `SortField::UsageFrequency` to
+/// produce meaningful order; without it, UsageFrequency falls back to equal ordering.
+fn apply_sort(
+    records: &mut [TuiRecord],
+    sort: &RecordSort,
+    freq_map: Option<&std::collections::HashMap<String, i64>>,
+) {
     let direction_multiplier: i32 = match sort.direction {
         SortDirection::Asc => 1,
         SortDirection::Desc => -1,
@@ -848,7 +887,19 @@ fn apply_sort(records: &mut [TuiRecord], sort: &RecordSort) {
             SortField::Name => a.name.cmp(&b.name),
             SortField::CreatedAt => a.created_at.cmp(&b.created_at),
             SortField::UpdatedAt => a.updated_at.cmp(&b.updated_at),
-            SortField::UsageFrequency => std::cmp::Ordering::Equal, // No-op
+            SortField::UsageFrequency => {
+                let freq_a = freq_map
+                    .and_then(|m| m.get(&a.id.to_string()))
+                    .copied()
+                    .unwrap_or(0);
+                let freq_b = freq_map
+                    .and_then(|m| m.get(&b.id.to_string()))
+                    .copied()
+                    .unwrap_or(0);
+                // Default direction: descending — most used first.
+                // Ascending reverses this.
+                freq_b.cmp(&freq_a)
+            }
         };
         if direction_multiplier == -1 {
             cmp.reverse()
@@ -2613,14 +2664,15 @@ mod tests {
         assert_eq!(result.unwrap().len(), 2, "empty search returns all records");
     }
 
-    // --- list_records: HealthIssues returns empty (placeholder) ---
+    // --- list_records: HealthIssues returns all active records (executor filters) ---
 
     #[test]
-    fn list_records_health_issues_returns_empty_placeholder() {
+    fn list_records_health_issues_returns_all_active_records() {
         let mut svc = setup_service();
         unlock_service(&mut svc);
 
-        create_named_record(&mut svc, "Alpha");
+        let _id_a = create_named_record(&mut svc, "Alpha");
+        let _id_b = create_named_record(&mut svc, "Bravo");
 
         let result = svc.list_records(
             &RecordFilter::HealthIssues,
@@ -2631,9 +2683,12 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(
-            result.unwrap().is_empty(),
-            "HealthIssues placeholder returns empty"
+        // Vault service returns all active records; executor-level filtering
+        // uses the health_report to narrow down to actual health issues.
+        assert_eq!(
+            result.unwrap().len(),
+            2,
+            "HealthIssues should return all active records at vault service level"
         );
     }
 

@@ -148,6 +148,26 @@ pub fn handle_load_record_list(
                     record.has_weak_password = report.weak_passwords.contains(&record.id);
                 }
             }
+
+            // HealthIssues filter: the vault service returns all active records;
+            // we filter here where the health_report is available.
+            if matches!(filter, RecordFilter::HealthIssues) {
+                if let Some(report) = &executor.health_report {
+                    records.retain(|r| {
+                        report.weak_passwords.contains(&r.id)
+                            || report
+                                .duplicate_passwords
+                                .iter()
+                                .any(|group| group.contains(&r.id))
+                            || report.compromised.contains(&r.id)
+                            || report.expired.contains(&r.id)
+                    });
+                } else {
+                    // No health report available — no health issues to show
+                    records.clear();
+                }
+            }
+
             let total = records.len();
             CommandResult::RecordListLoaded { records, total }
         }
