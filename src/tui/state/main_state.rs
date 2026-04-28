@@ -534,7 +534,10 @@ impl MainScreenState {
             KeyCode::Char('n') => ScreenResult::NavigateTo(ScreenEnum::CreateRecord),
             KeyCode::Char('e') => {
                 if self.focused_panel == PanelId::Detail {
-                    let detail_id = self.detail.record.as_ref()
+                    let detail_id = self
+                        .detail
+                        .record
+                        .as_ref()
                         .map(|r| r.id)
                         .unwrap_or_else(Uuid::nil);
                     if !detail_id.is_nil() {
