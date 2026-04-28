@@ -453,8 +453,23 @@ fn evaluate_rule(rule: &ValidationRule, key: &str, value: &str) -> FieldValidati
             }
         }
         ValidationRuleType::Format => {
-            // Format-level validation is deferred; treat as pass for now.
-            FieldValidation::Pass
+            let valid = value.is_empty()
+                || (value.contains('@') && value.contains('.')) // email heuristic
+                || value.starts_with("http://") || value.starts_with("https://") // url
+                || chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S").is_ok()
+                || chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S").is_ok();
+            if valid {
+                FieldValidation::Pass
+            } else {
+                FieldValidation::Fail {
+                    field: key.into(),
+                    message: if rule.error_message.is_empty() {
+                        "invalid format".to_string()
+                    } else {
+                        rule.error_message.clone()
+                    },
+                }
+            }
         }
         ValidationRuleType::Enum(allowed) => {
             if value.is_empty() || allowed.iter().any(|a| a == value) {
