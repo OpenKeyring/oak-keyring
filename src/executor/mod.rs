@@ -18,8 +18,11 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+use crate::cloud::oauth2::TokenStore;
+use crate::cloud::provider::create_cloud_storage;
 use crate::commands::types::HealthReport;
 use crate::commands::{Command, Message};
+use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::AppConfig;
 use crate::db::schema::init_db;
 use crate::services::clipboard::ClipboardService;
@@ -29,6 +32,29 @@ use crate::services::vault::VaultService;
 
 use crate::config::notification::ServiceNotification;
 use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
+
+/// Load OAuth2 tokens from TokenStore into the in-memory GoogleDriveConfig.
+/// TokenStore is the single source of truth — config.toml never stores tokens.
+fn load_oauth2_tokens_into_config(config: &mut AppConfig) {
+    if config.sync.provider != SyncProvider::GoogleDrive {
+        return;
+    }
+    let base_path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("open-keyring")
+        .join("tokens");
+    let store = TokenStore::new(base_path);
+    let tokens = match store.load("google_drive") {
+        Ok(Some(t)) => t,
+        _ => return,
+    };
+    if let Some(ProviderConfig::GoogleDrive(ref mut cfg)) = config.sync.provider_config {
+        cfg.access_token = tokens.access_token;
+        if let Some(rt) = tokens.refresh_token {
+            cfg.refresh_token = rt;
+        }
+    }
+}
 
 /// Command executor that bridges the UI layer to service layer.
 ///
@@ -87,7 +113,7 @@ impl CommandExecutor {
     /// backend is unavailable in the current environment.
     #[tracing::instrument(skip(result_tx, cancel_token))]
     pub fn new(
-        config: AppConfig,
+        mut config: AppConfig,
         vault_dir: PathBuf,
         result_tx: mpsc::Sender<Message>,
         cancel_token: CancellationToken,
@@ -113,8 +139,19 @@ impl CommandExecutor {
             &clipboard,
         ))));
 
-        // Sync is not yet wired up; will be integrated in Task 22.
-        let sync = None;
+        // Load OAuth2 tokens from TokenStore (runtime-only, not in config.toml).
+        load_oauth2_tokens_into_config(&mut config);
+
+        let sync = match create_cloud_storage(&config.sync) {
+            Ok(storage) => {
+                info!("SyncService initialized for {:?}", config.sync.provider);
+                Some(crate::services::sync::SyncService::new(storage))
+            }
+            Err(e) => {
+                info!(error = %e, "SyncService not initialized — sync features disabled");
+                None
+            }
+        };
 
         // Create internal signaling channel
         let (internal_tx, internal_rx) = mpsc::channel(64);
