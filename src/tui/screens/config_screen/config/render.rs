@@ -111,7 +111,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
             super::security::render(frame, content_area, &state.security, focused, state.sub_item_focus)
         }
         ConfigTab::Password => {
-            render_password_defaults(frame, content_area, &state.password, focused)
+            render_password_defaults(frame, content_area, &state.password, focused, state.editing_length)
         }
         ConfigTab::About => super::about::render(frame, content_area, &state.about),
     }
@@ -138,6 +138,7 @@ fn render_password_defaults(
     area: Rect,
     form: &PasswordDefaultsForm,
     focused: usize,
+    editing_length: bool,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -160,19 +161,30 @@ fn render_password_defaults(
     frame.render_widget(title, chunks[0]);
 
     // Row index 0: Length (focused == 0)
-    let length = format!(
-        "{}      [ {} ]",
-        t!("tui.config.default_length"),
-        form.length
-    );
-    frame.render_widget(
-        Paragraph::new(length).style(if focused == 0 {
-            focused_style
-        } else {
-            normal_style
-        }),
-        chunks[1],
-    );
+    if editing_length && focused == 0 {
+        let slider_line = crate::tui::components::length_slider::render_length_slider(
+            &t!("tui.config.default_length").to_string(),
+            form.length,
+            8,
+            128,
+            true,
+        );
+        frame.render_widget(Paragraph::new(slider_line), chunks[1]);
+    } else {
+        let length = format!(
+            "{}      [ {} ]",
+            t!("tui.config.default_length"),
+            form.length
+        );
+        frame.render_widget(
+            Paragraph::new(length).style(if focused == 0 {
+                focused_style
+            } else {
+                normal_style
+            }),
+            chunks[1],
+        );
+    }
 
     // Row index 1: Digits (focused == 1)
     let digits = format!(

@@ -66,6 +66,10 @@ impl Screen for ConfigScreen {
                 }
             }
         }
+
+        if let Some(ref dialog) = self.state.vault_path_dialog {
+            dialog.render(frame, area);
+        }
     }
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
@@ -142,6 +146,16 @@ impl ConfigScreen {
         // When overlay is active, delegate to overlay key handler
         if self.state.overlay.is_some() {
             return self.handle_overlay_key(key, ctx);
+        }
+
+        // When vault path dialog is active, delegate to dialog handler
+        if self.state.vault_path_dialog.is_some() {
+            return self.handle_vault_path_dialog_key(key, ctx);
+        }
+
+        // When editing password length, delegate to slider handler
+        if self.state.editing_length {
+            return self.handle_length_edit_key(key, ctx);
         }
 
         match (key.code, key.modifiers) {
@@ -232,7 +246,13 @@ impl ConfigScreen {
             ConfigTab::General => match item {
                 0 => self.open_dropdown(DropdownField::Language),
                 1 => {
-                    // TODO: VaultPathDialog — complex, deferred to a later task
+                    let current = self.state.general.vault_path.to_string_lossy().to_string();
+                    self.state.vault_path_dialog = Some(
+                        crate::tui::components::vault_path_dialog::VaultPathDialog::new(
+                            current,
+                            String::new(),
+                        ),
+                    );
                     ScreenResult::Continue
                 }
                 2 => self.open_dropdown(DropdownField::AutoLock),
@@ -319,7 +339,7 @@ impl ConfigScreen {
             },
             ConfigTab::Password => match item {
                 0 => {
-                    // Length is read-only for now
+                    self.state.editing_length = true;
                     ScreenResult::Continue
                 }
                 1 => {
@@ -520,6 +540,77 @@ impl ConfigScreen {
             }
         }
         self.state.mark_changed();
+    }
+
+    fn handle_length_edit_key(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
+        match key.code {
+            KeyCode::Left => {
+                if self.state.password.length > 8 {
+                    self.state.password.length -= 1;
+                    self.state.mark_changed();
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Right => {
+                if self.state.password.length < 128 {
+                    self.state.password.length += 1;
+                    self.state.mark_changed();
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => {
+                self.state.editing_length = false;
+                let config = self.state.to_app_config();
+                let _ = ctx.command_tx.try_send(Command::SaveConfig { config });
+                ScreenResult::Continue
+            }
+            KeyCode::Esc => {
+                self.state.editing_length = false;
+                ScreenResult::Continue
+            }
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn handle_vault_path_dialog_key(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
+        match key.code {
+            KeyCode::Char(c) => {
+                if let Some(ref mut dialog) = self.state.vault_path_dialog {
+                    dialog.new_path.push(c);
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Backspace => {
+                if let Some(ref mut dialog) = self.state.vault_path_dialog {
+                    dialog.new_path.pop();
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => {
+                if let Some(dialog) = self.state.vault_path_dialog.take() {
+                    if !dialog.new_path.is_empty() {
+                        self.state.general.vault_path = std::path::PathBuf::from(&dialog.new_path);
+                        self.state.mark_changed();
+                        let config = self.state.to_app_config();
+                        let _ = ctx.command_tx.try_send(Command::SaveConfig { config });
+                    }
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Esc => {
+                self.state.vault_path_dialog = None;
+                ScreenResult::Continue
+            }
+            _ => ScreenResult::Continue,
+        }
     }
 
     fn handle_overlay_key(
