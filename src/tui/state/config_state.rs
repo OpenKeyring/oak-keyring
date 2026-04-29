@@ -493,6 +493,8 @@ pub struct ConfigScreenState {
     pub gdrive_auth_status: GDriveAuthStatus,
     /// Timestamp of the last successful sync (mirrored from SharedState).
     pub last_sync: Option<chrono::DateTime<chrono::Utc>>,
+    /// Sub-item focus index within the focused row (None = whole row focused)
+    pub sub_item_focus: Option<usize>,
 }
 
 impl ConfigScreenState {
@@ -510,6 +512,7 @@ impl ConfigScreenState {
         self.has_changes = false;
         self.scroll_offset = 0;
         self.focused_item = 0;
+        self.sub_item_focus = None;
 
         // Derive initial sync connection status from provider
         self.sync_status = if config.sync.provider == SyncProvider::Disabled {
@@ -538,6 +541,7 @@ impl ConfigScreenState {
             self.active_tab = tab;
             self.scroll_offset = 0;
             self.focused_item = 0;
+            self.sub_item_focus = None;
         }
     }
 
@@ -546,6 +550,7 @@ impl ConfigScreenState {
         if total_items == 0 {
             return;
         }
+        self.sub_item_focus = None;
         self.focused_item = (self.focused_item + 1) % total_items;
     }
 
@@ -554,6 +559,7 @@ impl ConfigScreenState {
         if total_items == 0 {
             return;
         }
+        self.sub_item_focus = None;
         self.focused_item = (self.focused_item + total_items - 1) % total_items;
     }
 
