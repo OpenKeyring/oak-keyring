@@ -200,8 +200,27 @@ impl ConfigScreen {
                 }
                 ScreenResult::Continue
             }
+            (KeyCode::Left, _) | (KeyCode::Right, _) => {
+                self.handle_sub_item_focus(key.code);
+                ScreenResult::Continue
+            }
             (KeyCode::Enter, _) => self.handle_item_enter(ctx),
             _ => ScreenResult::Continue,
+        }
+    }
+
+    fn handle_sub_item_focus(&mut self, key: KeyCode) {
+        let state = &mut self.state;
+        if state.active_tab == ConfigTab::Security && state.focused_item == 3 {
+            let current = state.sub_item_focus.unwrap_or(0);
+            let new = match key {
+                KeyCode::Left if current > 0 => Some(current - 1),
+                KeyCode::Left => Some(1),
+                KeyCode::Right if current < 1 => Some(current + 1),
+                KeyCode::Right => Some(0),
+                _ => return,
+            };
+            state.sub_item_focus = new;
         }
     }
 
@@ -283,12 +302,16 @@ impl ConfigScreen {
                 1 => self.open_dropdown(DropdownField::HealthFrequency),
                 2 => ScreenResult::NavigateTo(ScreenEnum::ChangeMasterPassword),
                 3 => {
-                    // TODO(U8): Audit log navigation — "查看记录" link shares this row with
-                    // the audit toggle. When the UI supports sub-item focus, pressing Enter
-                    // on the "查看记录" link should navigate to Screen::AuditLog.
-                    // For now, Enter on this row toggles the audit switch.
-                    self.state.security.audit_enabled = !self.state.security.audit_enabled;
-                    self.state.mark_changed();
+                    match self.state.sub_item_focus.unwrap_or(0) {
+                        0 => {
+                            self.state.security.audit_enabled = !self.state.security.audit_enabled;
+                            self.state.mark_changed();
+                        }
+                        1 => {
+                            return ScreenResult::NavigateTo(ScreenEnum::AuditLog);
+                        }
+                        _ => {}
+                    }
                     ScreenResult::Continue
                 }
                 4 => self.open_dropdown(DropdownField::AuditRetention),
