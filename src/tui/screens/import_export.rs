@@ -79,7 +79,7 @@ pub enum ExportScopeOption {
 
 // ── Source metadata ─────────────────────────────────────────────────────────
 
-const IMPORT_SOURCES: [(ImportSource, &str, bool, &str); 6] = [
+pub const IMPORT_SOURCES: [(ImportSource, &str, bool, &str); 6] = [
     (
         ImportSource::KeePass,
         "KeePass (.kdbx)",
@@ -122,7 +122,7 @@ fn source_display(source: ImportSource) -> &'static str {
         .unwrap_or("Unknown")
 }
 
-fn source_needs_password(source: ImportSource) -> bool {
+pub fn source_needs_password(source: ImportSource) -> bool {
     IMPORT_SOURCES
         .iter()
         .find(|(s, _, _, _)| *s == source)
