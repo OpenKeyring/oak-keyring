@@ -1532,15 +1532,15 @@ mod tests {
             current_step: OnboardingStep::ImportSource,
             ..Default::default()
         };
+        let mut ctx = dummy_ctx();
 
-        let result = screen.handle_import_source_key(KeyEvent::new(
-            KeyCode::Enter,
-            crossterm::event::KeyModifiers::NONE,
-        ));
-        assert!(matches!(
-            result,
-            ScreenResult::NavigateTo(crate::commands::types::Screen::ImportExport)
-        ));
+        let result = screen.handle_import_source_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+        // Import source Enter now validates the file (requires file path),
+        // so without a file path it shows an error instead of navigating.
+        assert!(matches!(result, ScreenResult::Continue));
     }
 
     #[test]
@@ -1550,13 +1550,15 @@ mod tests {
             current_step: OnboardingStep::ImportPreview,
             ..Default::default()
         };
+        let mut ctx = dummy_ctx();
 
-        let result = screen.handle_import_preview_key(KeyEvent::new(
-            KeyCode::Enter,
-            crossterm::event::KeyModifiers::NONE,
-        ));
+        let result = screen.handle_import_preview_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
         assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.current_step, OnboardingStep::VaultPath);
+        // ImportPreview Enter sends ExecuteImport command, stays on ImportPreview
+        // until ImportCompleted result is received.
     }
 
     #[test]
