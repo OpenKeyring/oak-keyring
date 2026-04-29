@@ -110,6 +110,11 @@ fn handle_message(
             app.state.navigate_to(screen);
             // Call on_mount for the new screen.
             route_on_mount_from_state(&mut app.state, &mut ctx);
+            // Start screen-in transition animation.
+            crate::tui::animation::transitions::start_transition(
+                &mut app.state.shared.animation,
+                crate::tui::state::animation::EffectKind::ScreenIn,
+            );
         }
 
         Message::GoBack => {
