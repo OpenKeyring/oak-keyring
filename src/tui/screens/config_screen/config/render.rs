@@ -87,7 +87,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
             focused,
         ),
         ConfigTab::Security => {
-            super::security::render(frame, content_area, &state.security, focused)
+            super::security::render(frame, content_area, &state.security, focused, state.sub_item_focus)
         }
         ConfigTab::Password => {
             render_password_defaults(frame, content_area, &state.password, focused)
