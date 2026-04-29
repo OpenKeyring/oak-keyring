@@ -1,5 +1,6 @@
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::{layout::Rect, Frame};
 
@@ -8,7 +9,7 @@ use crate::t;
 use crate::tui::state::config_state::SecurityConfigForm;
 use crate::tui::theme;
 
-pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused: usize) {
+pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused: usize, sub_item_focus: Option<usize>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -87,25 +88,54 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused:
         chunks[3],
     );
 
-    // Row index 3: Audit (focused == 3)
-    let audit = format!(
-        "{}            [ {} ]  [ {} ]",
-        t!("tui.config.audit"),
-        if form.audit_enabled {
-            format!("\u{2713} {}", t!("tui.config.enabled"))
+    // Row index 3: Audit with sub-item focus
+    if focused == 3 {
+        let label_span = Span::styled(
+            format!("{}            ", t!("tui.config.audit")),
+            focused_style,
+        );
+        let toggle_text = if form.audit_enabled {
+            format!("[\u{2713} {}]", t!("tui.config.enabled"))
         } else {
-            format!("\u{2717} {}", t!("tui.config.disabled"))
-        },
-        t!("tui.config.view_audit_log")
-    );
-    frame.render_widget(
-        Paragraph::new(audit).style(if focused == 3 {
+            format!("[\u{2717} {}]", t!("tui.config.disabled"))
+        };
+        let toggle_style = if sub_item_focus.unwrap_or(0) == 0 {
+            Style::default().add_modifier(Modifier::UNDERLINED).fg(crate::tui::theme::PRIMARY)
+        } else {
             focused_style
+        };
+        let toggle_span = Span::styled(toggle_text, toggle_style);
+
+        let sep = Span::styled("  ", focused_style);
+
+        let link_style = if sub_item_focus.unwrap_or(0) == 1 {
+            Style::default().add_modifier(Modifier::UNDERLINED).fg(crate::tui::theme::PRIMARY)
         } else {
-            normal_style
-        }),
-        chunks[4],
-    );
+            focused_style
+        };
+        let link_span = Span::styled(
+            format!("[ {} ]", t!("tui.config.view_audit_log")),
+            link_style,
+        );
+
+        let line = Line::from(vec![label_span, toggle_span, sep, link_span]);
+        frame.render_widget(Paragraph::new(line), chunks[4]);
+    } else {
+        let audit = format!(
+            "{}            [ {} ]  [ {} ]",
+            t!("tui.config.audit"),
+            if form.audit_enabled {
+                format!("\u{2713} {}", t!("tui.config.enabled"))
+            } else {
+                format!("\u{2717} {}", t!("tui.config.disabled"))
+            },
+            t!("tui.config.view_audit_log"),
+        );
+        frame.render_widget(
+            Paragraph::new(audit).style(normal_style),
+            chunks[4],
+        );
+    }
 
     // Row index 4: Audit retention (focused == 4)
     let retention = format!(
