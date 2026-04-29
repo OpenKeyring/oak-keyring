@@ -32,7 +32,7 @@ tokio = { version = "1", features = ["full", "signal"] }
 # TUI
 ratatui = "0.30"
 crossterm = "0.29"
-tachyonfx = "0.20.1"
+tachyonfx = "0.22.0"
 
 # Serialization & Config
 serde = { version = "1", features = ["derive"] }
