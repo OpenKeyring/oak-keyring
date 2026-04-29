@@ -26,14 +26,11 @@ use crate::tui::screens::set_password::SetPasswordScreen;
 use crate::tui::screens::sync_conflict::SyncConflictScreen;
 use crate::tui::screens::unlock::UnlockScreen;
 use main_state::MainScreenState;
-use std::collections::HashMap;
-
 /// Screen snapshot — saves focus state when leaving a screen for restoration on go_back
 #[derive(Debug, Clone)]
 pub struct ScreenSnapshot {
     pub screen: Screen,
     pub focus_path: focus::FocusPath,
-    pub scroll_positions: HashMap<crate::commands::types::PanelId, usize>,
 }
 
 /// Central application state. Owned by `App`, passed by `&mut` to update() and `&` to view().
@@ -113,7 +110,6 @@ impl AppState {
         let snapshot = ScreenSnapshot {
             screen: self.current_screen,
             focus_path: focus::FocusPath::new(self.shared.focus.focused_panel),
-            scroll_positions: HashMap::new(),
         };
         self.screen_history.push(snapshot);
         self.current_screen = screen;
@@ -121,6 +117,11 @@ impl AppState {
 
     /// Go back to previous screen. Returns false if stack is empty.
     pub fn go_back(&mut self) -> bool {
+        debug_assert_eq!(
+            self.screen_history.len(),
+            self.screen_stack.len(),
+            "screen_history and screen_stack must stay in sync"
+        );
         if let Some(prev) = self.screen_stack.pop() {
             self.current_screen = prev;
             if let Some(snapshot) = self.screen_history.pop() {
