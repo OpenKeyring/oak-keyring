@@ -45,6 +45,7 @@ impl VaultPathButton {
 }
 
 /// Reusable vault-path confirmation dialog component.
+#[derive(Debug)]
 pub struct VaultPathDialog {
     pub current_path: String,
     pub new_path: String,

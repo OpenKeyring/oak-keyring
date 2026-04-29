@@ -495,6 +495,10 @@ pub struct ConfigScreenState {
     pub last_sync: Option<chrono::DateTime<chrono::Utc>>,
     /// Sub-item focus index within the focused row (None = whole row focused)
     pub sub_item_focus: Option<usize>,
+    /// Whether the password length field is in edit mode (using LengthSlider)
+    pub editing_length: bool,
+    /// Active vault path dialog overlay
+    pub vault_path_dialog: Option<crate::tui::components::vault_path_dialog::VaultPathDialog>,
 }
 
 impl ConfigScreenState {
