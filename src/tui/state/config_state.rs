@@ -497,6 +497,8 @@ pub struct ConfigScreenState {
     pub sub_item_focus: Option<usize>,
     /// Whether the password length field is in edit mode (using LengthSlider)
     pub editing_length: bool,
+    /// Original password length before editing (for Esc cancel)
+    pub editing_length_original: usize,
     /// Active vault path dialog overlay
     pub vault_path_dialog: Option<crate::tui::components::vault_path_dialog::VaultPathDialog>,
 }

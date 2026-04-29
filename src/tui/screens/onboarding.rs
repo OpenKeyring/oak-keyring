@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
-use crate::commands::types::{ImportPreview, ImportSource, Screen};
+use crate::commands::types::{ImportPreview, Screen};
 use crate::commands::{Command, Message};
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::theme::{
@@ -80,6 +80,7 @@ pub struct OnboardingScreen {
     // Import state for ImportSource/ImportPreview steps
     pub selected_source_idx: usize,
     pub import_file_path: String,
+    pub import_password: String,
     pub import_focus: crate::tui::screens::import_export::ImportFocus,
     pub import_preview: Option<ImportPreview>,
 }
@@ -101,6 +102,7 @@ impl Default for OnboardingScreen {
             returning_from_import: false,
             selected_source_idx: 0,
             import_file_path: String::new(),
+            import_password: String::new(),
             import_focus: ImportFocus::SourceList,
             import_preview: None,
         }
@@ -378,7 +380,7 @@ impl OnboardingScreen {
     }
 
     fn handle_import_source_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
-        use crate::tui::screens::import_export::{IMPORT_SOURCES, ImportFocus};
+        use crate::tui::screens::import_export::{source_needs_password, IMPORT_SOURCES, ImportFocus};
 
         match key.code {
             KeyCode::Up => {
@@ -394,27 +396,63 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Tab => {
-                self.import_focus = ImportFocus::FilePath;
+                let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let needs_pw = source_needs_password(source);
+                self.import_focus = match self.import_focus {
+                    ImportFocus::SourceList => ImportFocus::FilePath,
+                    ImportFocus::FilePath if needs_pw => ImportFocus::Password,
+                    _ => ImportFocus::SourceList,
+                };
                 ScreenResult::Continue
             }
-            KeyCode::Char(c) if self.import_focus == ImportFocus::FilePath => {
-                self.import_file_path.push(c);
+            KeyCode::BackTab => {
+                let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let needs_pw = source_needs_password(source);
+                self.import_focus = match self.import_focus {
+                    ImportFocus::Password => ImportFocus::FilePath,
+                    ImportFocus::FilePath => ImportFocus::SourceList,
+                    _ if needs_pw => ImportFocus::Password,
+                    _ => ImportFocus::FilePath,
+                };
                 ScreenResult::Continue
             }
-            KeyCode::Backspace if self.import_focus == ImportFocus::FilePath => {
-                self.import_file_path.pop();
-                ScreenResult::Continue
-            }
+            KeyCode::Char(c) => match self.import_focus {
+                ImportFocus::FilePath => {
+                    self.import_file_path.push(c);
+                    ScreenResult::Continue
+                }
+                ImportFocus::Password => {
+                    self.import_password.push(c);
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            KeyCode::Backspace => match self.import_focus {
+                ImportFocus::FilePath => {
+                    self.import_file_path.pop();
+                    ScreenResult::Continue
+                }
+                ImportFocus::Password => {
+                    self.import_password.pop();
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
             KeyCode::Enter => {
                 if self.import_file_path.is_empty() {
                     self.error = Some("File path is required".to_string());
                     return ScreenResult::Continue;
                 }
                 let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let password = if self.import_password.is_empty() {
+                    None
+                } else {
+                    Some(SecureStr::new(self.import_password.clone()))
+                };
                 let cmd = Command::ValidateImportFile {
                     source,
                     path: std::path::PathBuf::from(&self.import_file_path),
-                    password: None,
+                    password,
                 };
                 let _ = ctx.command_tx.try_send(cmd);
                 ScreenResult::Continue
@@ -433,10 +471,15 @@ impl OnboardingScreen {
         match key.code {
             KeyCode::Enter => {
                 let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let password = if self.import_password.is_empty() {
+                    None
+                } else {
+                    Some(SecureStr::new(self.import_password.clone()))
+                };
                 let cmd = Command::ExecuteImport {
                     source,
                     path: std::path::PathBuf::from(&self.import_file_path),
-                    password: None,
+                    password,
                     column_mapping: None,
                 };
                 let _ = ctx.command_tx.try_send(cmd);
@@ -556,6 +599,12 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.verify_inputs = std::array::from_fn(|_| String::new());
         self.verify_errors = [false; 4];
         self.verify_positions = [0; 4];
+        self.selected_source_idx = 0;
+        self.import_file_path.clear();
+        self.import_password.zeroize();
+        self.import_password.clear();
+        self.import_focus = crate::tui::screens::import_export::ImportFocus::SourceList;
+        self.import_preview = None;
     }
 
     fn on_unmount(&mut self) {
@@ -571,6 +620,11 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
             input.clear();
         }
         self.verify_positions.zeroize();
+        self.import_file_path.zeroize();
+        self.import_file_path.clear();
+        self.import_password.zeroize();
+        self.import_password.clear();
+        self.import_preview = None;
     }
 }
 
@@ -1038,9 +1092,11 @@ impl OnboardingScreen {
     }
 
     fn view_import_source(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        use crate::tui::screens::import_export::{IMPORT_SOURCES, ImportFocus};
+        use crate::tui::screens::import_export::{source_needs_password, IMPORT_SOURCES, ImportFocus};
 
-        let content_area = Self::centered_content(area, 18);
+        let content_area = Self::centered_content(area, 20);
+        let source = IMPORT_SOURCES[self.selected_source_idx].0;
+        let needs_pw = source_needs_password(source);
 
         let mut lines: Vec<Line> = vec![
             Line::from(Span::styled(
@@ -1088,6 +1144,23 @@ impl OnboardingScreen {
             Span::styled(fp_text, fp_style),
         ]));
 
+        if needs_pw {
+            let pw_style = if self.import_focus == ImportFocus::Password {
+                Style::default().fg(PRIMARY)
+            } else {
+                Style::default().fg(TEXT_MUTED)
+            };
+            let pw_display = if self.import_password.is_empty() {
+                "password".to_string()
+            } else {
+                "*".repeat(self.import_password.len())
+            };
+            lines.push(Line::from(vec![
+                Span::styled("Password: ", Style::default().fg(TEXT)),
+                Span::styled(pw_display, pw_style),
+            ]));
+        }
+
         if let Some(ref err) = self.error {
             lines.push(Line::from(Span::styled(
                 err.clone(),
@@ -1097,7 +1170,7 @@ impl OnboardingScreen {
 
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
-            "\u{2191}\u{2193}: navigate | Tab: file path | Enter: validate | Esc: back",
+            "\u{2191}\u{2193}: navigate | Tab: cycle fields | Enter: validate | Esc: back",
             Style::default().fg(TEXT_MUTED),
         )));
 
@@ -1158,51 +1231,6 @@ impl OnboardingScreen {
         )));
 
         frame.render_widget(Paragraph::new(lines), content_area);
-    }
-
-    fn view_placeholder(
-        &self,
-        frame: &mut ratatui::Frame,
-        area: ratatui::layout::Rect,
-        step_name: &str,
-    ) {
-        let content_area = Self::centered_content(area, 8);
-
-        let rows = Layout::vertical([
-            Constraint::Length(1), // title
-            Constraint::Length(2), // gap
-            Constraint::Length(1), // content
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // hint
-            Constraint::Length(1), // step indicator
-        ])
-        .split(content_area);
-
-        // Title
-        let title = Paragraph::new(step_name)
-            .style(Styles::brand_text())
-            .alignment(Alignment::Center);
-        frame.render_widget(title, rows[0]);
-
-        // Content
-        let content = Paragraph::new(format!("{} configuration (coming soon)", step_name))
-            .style(Style::default().fg(TEXT_SECONDARY))
-            .alignment(Alignment::Center);
-        frame.render_widget(content, rows[3]);
-
-        // Hint
-        let hint = Paragraph::new("Enter to continue  |  Esc to go back")
-            .style(Style::default().fg(TEXT_MUTED))
-            .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[5]);
-
-        // Step indicator
-        let step = self.current_step_number();
-        let total = self.total_steps();
-        let step_text = Paragraph::new(format!("Step {}/{}", step, total))
-            .style(Style::default().fg(TEXT_MUTED))
-            .alignment(Alignment::Center);
-        frame.render_widget(step_text, rows[6]);
     }
 }
 
