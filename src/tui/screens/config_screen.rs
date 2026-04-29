@@ -339,6 +339,7 @@ impl ConfigScreen {
             },
             ConfigTab::Password => match item {
                 0 => {
+                    self.state.editing_length_original = self.state.password.length;
                     self.state.editing_length = true;
                     ScreenResult::Continue
                 }
@@ -569,6 +570,7 @@ impl ConfigScreen {
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
+                self.state.password.length = self.state.editing_length_original;
                 self.state.editing_length = false;
                 ScreenResult::Continue
             }
@@ -581,36 +583,48 @@ impl ConfigScreen {
         key: crossterm::event::KeyEvent,
         ctx: &mut ScreenContext,
     ) -> ScreenResult {
+        // Text input for new_path field
         match key.code {
             KeyCode::Char(c) => {
                 if let Some(ref mut dialog) = self.state.vault_path_dialog {
                     dialog.new_path.push(c);
                 }
-                ScreenResult::Continue
+                return ScreenResult::Continue;
             }
             KeyCode::Backspace => {
                 if let Some(ref mut dialog) = self.state.vault_path_dialog {
                     dialog.new_path.pop();
                 }
-                ScreenResult::Continue
+                return ScreenResult::Continue;
             }
-            KeyCode::Enter => {
-                if let Some(dialog) = self.state.vault_path_dialog.take() {
-                    if !dialog.new_path.is_empty() {
-                        self.state.general.vault_path = std::path::PathBuf::from(&dialog.new_path);
-                        self.state.mark_changed();
-                        let config = self.state.to_app_config();
-                        let _ = ctx.command_tx.try_send(Command::SaveConfig { config });
+            _ => {}
+        }
+
+        // Delegate to dialog's own button handling (Tab/Left/Right toggle, Enter/Esc)
+        if let Some(ref mut dialog) = self.state.vault_path_dialog {
+            match dialog.handle_key(key.code) {
+                Some(true) => {
+                    // Confirmed
+                    if let Some(dialog) = self.state.vault_path_dialog.take() {
+                        if !dialog.new_path.is_empty() {
+                            self.state.general.vault_path =
+                                std::path::PathBuf::from(&dialog.new_path);
+                            self.state.mark_changed();
+                            let config = self.state.to_app_config();
+                            let _ = ctx.command_tx.try_send(Command::SaveConfig { config });
+                        }
                     }
                 }
-                ScreenResult::Continue
+                Some(false) => {
+                    // Cancelled
+                    self.state.vault_path_dialog = None;
+                }
+                None => {
+                    // Focus toggle within dialog (no action needed)
+                }
             }
-            KeyCode::Esc => {
-                self.state.vault_path_dialog = None;
-                ScreenResult::Continue
-            }
-            _ => ScreenResult::Continue,
         }
+        ScreenResult::Continue
     }
 
     fn handle_overlay_key(
