@@ -21,6 +21,10 @@ pub mod timing {
     pub const ONBOARDING_STEP: u64 = 400;
     /// Sidebar sweep animation.
     pub const SIDEBAR_SWEEP: u64 = 200;
+    /// Screen transition in.
+    pub const SCREEN_IN: u64 = 300;
+    /// Screen transition out.
+    pub const SCREEN_OUT: u64 = 200;
 }
 
 /// Start a transition effect on the given `AnimationState`.
@@ -35,6 +39,8 @@ pub fn start_transition(state: &mut AnimationState, kind: EffectKind) {
         EffectKind::ModalAppear => (timing::MODAL_APPEAR, true),
         EffectKind::ModalDismiss => (timing::MODAL_DISMISS, true),
         EffectKind::BrandDissolve => (timing::UNLOCK_TO_MAIN, false),
+        EffectKind::ScreenIn => (timing::SCREEN_IN, true),
+        EffectKind::ScreenOut => (timing::SCREEN_OUT, true),
     };
     state.start(kind, duration, interruptible);
 }
@@ -79,6 +85,8 @@ mod tests {
             EffectKind::ModalAppear,
             EffectKind::ModalDismiss,
             EffectKind::BrandDissolve,
+            EffectKind::ScreenIn,
+            EffectKind::ScreenOut,
         ] {
             state.clear();
             start_transition(&mut state, kind);

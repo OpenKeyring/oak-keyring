@@ -23,6 +23,8 @@ pub enum EffectKind {
     ModalAppear,
     ModalDismiss,
     BrandDissolve,
+    ScreenIn,
+    ScreenOut,
 }
 
 impl Default for AnimationState {
