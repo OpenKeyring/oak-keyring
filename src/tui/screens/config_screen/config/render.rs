@@ -60,6 +60,27 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
     let header = Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::BG_BAR));
     frame.render_widget(header, chunks[0]);
 
+    // Restart hint line + remaining content
+    let content_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // Restart hint
+            Constraint::Min(0),    // Remaining content
+        ])
+        .split(chunks[1]);
+
+    let hint = Paragraph::new(Line::from(vec![
+        Span::styled(
+            " \u{2139} ",
+            Style::default().fg(ratatui::style::Color::Yellow),
+        ),
+        Span::styled(
+            "部分配置修改需要重启应用后生效",
+            Style::default().fg(ratatui::style::Color::Yellow),
+        ),
+    ]));
+    frame.render_widget(hint, content_layout[0]);
+
     // Content area - split into content + scrollbar track
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -67,7 +88,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
             Constraint::Min(0),    // Content
             Constraint::Length(1), // Scrollbar track
         ])
-        .split(chunks[1]);
+        .split(content_layout[1]);
 
     let content_area = content_chunks[0];
     let scrollbar_area = content_chunks[1];
