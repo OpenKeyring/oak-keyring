@@ -35,6 +35,13 @@ pub const ICON_TRASH: &str = "\u{1F5D1}";
 pub const ICON_CHECK: &str = "\u{2611}";
 pub const ICON_ARROW_LR: &str = "\u{2190}\u{2192}"; // ←→
 pub const ICON_PIPE: &str = "\u{2502}"; // │
+pub const ICON_SEARCH: &str = "\u{1F50D}";
+pub const ICON_PROGRESS_FILL: &str = "\u{2588}";
+pub const ICON_PROGRESS_EMPTY: &str = "\u{2591}";
+pub const SPINNER_FRAMES: &[&str] = &[
+    "\u{280B}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283C}",
+    "\u{2834}", "\u{2826}", "\u{2827}", "\u{2807}", "\u{280F}",
+];
 
 /// ASCII fallbacks for terminals without Unicode support.
 pub mod ascii {
@@ -50,6 +57,10 @@ pub mod ascii {
     pub const ICON_CHECK: &str = "[x]";
     pub const ICON_ARROW_LR: &str = "<->";
     pub const ICON_PIPE: &str = "|";
+    pub const ICON_SEARCH: &str = "[?]";
+    pub const ICON_PROGRESS_FILL: &str = "#";
+    pub const ICON_PROGRESS_EMPTY: &str = "-";
+    pub const SPINNER_FRAMES: &[&str] = &["-", "\\", "|", "/"];
 }
 
 /// Reusable style presets for common UI elements.
