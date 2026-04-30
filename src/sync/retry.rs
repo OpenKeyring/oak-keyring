@@ -64,6 +64,7 @@ impl RetryPolicy {
             SyncError::RecordNotFound { .. } => false,
             SyncError::PermissionDenied { .. } => false,
             SyncError::QuotaExceeded { .. } => false,
+            SyncError::Cancelled { .. } => false,
         }
     }
 

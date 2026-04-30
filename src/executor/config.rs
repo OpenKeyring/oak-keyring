@@ -4,6 +4,7 @@ use crate::config::notification::ServiceNotification;
 use crate::config::sync::ProviderConfig;
 use crate::config::AppConfig;
 use crate::errors::{ErrorCode, ErrorContext};
+use std::future::Future;
 
 use super::CommandExecutor;
 
@@ -136,7 +137,8 @@ pub async fn handle_test_sync_connection(
     executor: &mut CommandExecutor,
     provider_config: Option<ProviderConfig>,
 ) -> CommandResult {
-    if executor.cancel_token().is_cancelled() {
+    let cancel = executor.cancel_token().clone();
+    if cancel.is_cancelled() {
         return CommandResult::cancelled("sync_connection_test");
     }
 
@@ -155,18 +157,8 @@ pub async fn handle_test_sync_connection(
 
         return match create_cloud_storage(&test_sync) {
             Ok(storage) => {
-                match crate::services::sync::SyncService::new(storage)
-                    .test_connection()
-                    .await
-                {
-                    Ok((success, message)) => {
-                        CommandResult::SyncConnectionTested { success, message }
-                    }
-                    Err(e) => CommandResult::SyncConnectionTested {
-                        success: false,
-                        message: e.to_string(),
-                    },
-                }
+                let svc = crate::services::sync::SyncService::new(storage);
+                connection_test_result_with_cancel(cancel, svc.test_connection()).await
             }
             Err(e) => CommandResult::SyncConnectionTested {
                 success: false,
@@ -188,11 +180,27 @@ pub async fn handle_test_sync_connection(
         }
     };
 
-    match sync.test_connection().await {
-        Ok((success, message)) => CommandResult::SyncConnectionTested { success, message },
-        Err(e) => CommandResult::SyncConnectionTested {
-            success: false,
-            message: e.to_string(),
+    connection_test_result_with_cancel(cancel, sync.test_connection()).await
+}
+
+async fn connection_test_result_with_cancel<F>(
+    cancel: tokio_util::sync::CancellationToken,
+    fut: F,
+) -> CommandResult
+where
+    F: Future<Output = Result<(bool, String), crate::errors::mapping::sync::SyncError>>,
+{
+    tokio::select! {
+        _ = cancel.cancelled() => CommandResult::cancelled("sync_connection_test"),
+        result = fut => match result {
+            Ok((success, message)) => CommandResult::SyncConnectionTested { success, message },
+            Err(crate::errors::mapping::sync::SyncError::Cancelled { .. }) => {
+                CommandResult::cancelled("sync_connection_test")
+            }
+            Err(e) => CommandResult::SyncConnectionTested {
+                success: false,
+                message: e.to_string(),
+            },
         },
     }
 }
@@ -357,5 +365,26 @@ mod tests {
         apply_config_changes(&mut executor, &["general.auto_lock_seconds"], &new_config);
 
         assert_eq!(executor.clipboard.clear_timeout(), 30); // unchanged
+    }
+
+    #[tokio::test]
+    async fn connection_test_future_returns_cancelled_when_token_cancels_while_waiting() {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let cancel_for_task = cancel.clone();
+        tokio::spawn(async move {
+            cancel_for_task.cancel();
+        });
+
+        let result = connection_test_result_with_cancel(
+            cancel,
+            std::future::pending::<Result<(bool, String), crate::errors::mapping::sync::SyncError>>(
+            ),
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            CommandResult::Cancelled { ref operation, .. } if operation == "sync_connection_test"
+        ));
     }
 }

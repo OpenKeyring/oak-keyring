@@ -4,7 +4,6 @@ use crossterm::event::{KeyCode, KeyEvent};
 use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
-use crate::commands::types::Screen as ScreenEnum;
 use crate::commands::{Command, Message};
 use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel};
 use crate::tui::theme::{
@@ -279,9 +278,6 @@ impl Screen for ChangeMasterPasswordScreen {
     }
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {
-        // TODO(U7.5/L1): _ctx.focus_stack.push(ScreenSnapshot::ConfigPage);
-        // Push config screen snapshot for restoration on close.
-        // Depends on Plan L1 (UI Infrastructure) focus stack implementation.
         self.step = 1;
         self.current_password.zeroize();
         self.current_password.clear();
@@ -295,7 +291,6 @@ impl Screen for ChangeMasterPasswordScreen {
     }
 
     fn on_unmount(&mut self) {
-        // TODO(U7.5/L1): Focus stack pop handled by screen router.
         self.current_password.zeroize();
         self.new_password.zeroize();
         self.confirm_password.zeroize();
@@ -411,7 +406,7 @@ impl ChangeMasterPasswordScreen {
 impl ChangeMasterPasswordScreen {
     fn handle_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
         match key.code {
-            KeyCode::Esc => ScreenResult::NavigateTo(ScreenEnum::Config),
+            KeyCode::Esc => ScreenResult::PopScreen,
 
             KeyCode::Enter if self.step == 1 => {
                 if self.current_password.is_empty() {
@@ -505,7 +500,7 @@ impl ChangeMasterPasswordScreen {
                 self.step = 2;
                 ScreenResult::Continue
             }
-            CommandResult::MasterPasswordChanged => ScreenResult::NavigateTo(ScreenEnum::Config),
+            CommandResult::MasterPasswordChanged => ScreenResult::PopScreen,
             CommandResult::Error { fallback, .. } => {
                 self.error_message = Some(fallback);
                 ScreenResult::Continue

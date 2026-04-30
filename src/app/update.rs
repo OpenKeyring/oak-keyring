@@ -22,6 +22,13 @@ use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenRes
 /// Tick rate: how often we check for terminal events. Also drives timers/animations.
 const TICK_RATE: Duration = Duration::from_millis(50);
 
+fn start_screen_in_transition(state: &mut crate::tui::state::AppState) {
+    crate::tui::animation::transitions::start_transition(
+        &mut state.shared.animation,
+        crate::tui::state::animation::EffectKind::ScreenIn,
+    );
+}
+
 pub fn run(
     app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -105,31 +112,26 @@ fn handle_message(
                 command_tx: &command_tx,
                 config: &app.config,
             };
-            // Call on_unmount on the old screen before navigating.
             route_on_unmount_from_state(&mut app.state);
             app.state.navigate_to(screen);
-            // Call on_mount for the new screen.
             route_on_mount_from_state(&mut app.state, &mut ctx);
-            // Start screen-in transition animation.
-            crate::tui::animation::transitions::start_transition(
-                &mut app.state.shared.animation,
-                crate::tui::state::animation::EffectKind::ScreenIn,
-            );
+            start_screen_in_transition(&mut app.state);
         }
 
         Message::GoBack => {
-            // Call on_unmount on the current screen.
             route_on_unmount_from_state(&mut app.state);
             if !app.state.go_back() {
-                // Stack is empty — exit the app.
                 app.phase = AppPhase::ShuttingDown;
                 app.cancel_token.cancel();
                 return Ok(LoopControl::Exit);
             }
-            crate::tui::animation::transitions::start_transition(
-                &mut app.state.shared.animation,
-                crate::tui::state::animation::EffectKind::ScreenIn,
-            );
+            let command_tx = app.command_tx.clone();
+            let mut ctx = ScreenContext {
+                command_tx: &command_tx,
+                config: &app.config,
+            };
+            route_on_mount_from_state(&mut app.state, &mut ctx);
+            start_screen_in_transition(&mut app.state);
         }
 
         // -- Tick (direct) ------------------
@@ -242,10 +244,7 @@ fn handle_message(
                     app.state
                         .shared
                         .notification
-                        .enqueue(StatusMessage::warning(format!(
-                            "{} cancelled",
-                            operation
-                        )));
+                        .enqueue(StatusMessage::warning(format!("{} cancelled", operation)));
                 }
                 _ => {} // Screen-specific results handled below
             }
@@ -266,20 +265,18 @@ fn handle_message(
                         config: &app.config,
                     };
                     route_on_mount_from_state(&mut app.state, &mut ctx);
+                    start_screen_in_transition(&mut app.state);
                 }
                 ScreenResult::PopScreen => {
                     route_on_unmount_from_state(&mut app.state);
                     app.state.go_back();
-                    crate::tui::animation::transitions::start_transition(
-                        &mut app.state.shared.animation,
-                        crate::tui::state::animation::EffectKind::ScreenIn,
-                    );
                     let command_tx = app.command_tx.clone();
                     let mut ctx = ScreenContext {
                         command_tx: &command_tx,
                         config: &app.config,
                     };
                     route_on_mount_from_state(&mut app.state, &mut ctx);
+                    start_screen_in_transition(&mut app.state);
                 }
                 ScreenResult::Command(cmd) => {
                     let _ = app.command_tx.try_send(*cmd);
@@ -310,20 +307,18 @@ fn handle_message(
                         config: &app.config,
                     };
                     route_on_mount_from_state(&mut app.state, &mut ctx);
+                    start_screen_in_transition(&mut app.state);
                 }
                 ScreenResult::PopScreen => {
                     route_on_unmount_from_state(&mut app.state);
                     app.state.go_back();
-                    crate::tui::animation::transitions::start_transition(
-                        &mut app.state.shared.animation,
-                        crate::tui::state::animation::EffectKind::ScreenIn,
-                    );
                     let command_tx = app.command_tx.clone();
                     let mut ctx = ScreenContext {
                         command_tx: &command_tx,
                         config: &app.config,
                     };
                     route_on_mount_from_state(&mut app.state, &mut ctx);
+                    start_screen_in_transition(&mut app.state);
                 }
                 ScreenResult::Command(cmd) => {
                     let _ = app.command_tx.try_send(*cmd);
@@ -470,5 +465,49 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         Screen::PasswordGenerator => state.screens.password_generator.on_unmount(),
         Screen::CreateRecord => state.screens.create_record.on_unmount(),
         Screen::EditRecord { .. } => state.screens.edit_record.on_unmount(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::types::{AppPhase, PanelId};
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+
+    fn test_app() -> App {
+        let mut app = App::new(
+            crate::config::AppConfig::default(),
+            std::path::PathBuf::from(":memory:"),
+        )
+        .expect("app");
+        app.phase = AppPhase::Running;
+        app
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
+        }
+    }
+
+    #[test]
+    fn screen_result_navigate_to_starts_screen_in_animation() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::Main;
+        app.state.shared.focus.focused_panel = PanelId::Sidebar;
+
+        let result = handle_message(&mut app, Message::KeyEvent(key(KeyCode::Char('g'))))
+            .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Config);
+        assert!(app
+            .state
+            .shared
+            .animation
+            .has_active_kind(crate::tui::state::animation::EffectKind::ScreenIn));
     }
 }

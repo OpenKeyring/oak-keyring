@@ -26,6 +26,8 @@ pub struct AuditLogScreenState {
     pub audit_enabled: bool,
     /// Transient hint message shown at the bottom of the screen.
     pub hint_message: Option<String>,
+    /// One-shot marker set when navigation state was restored from a screen snapshot.
+    pub restored_from_snapshot: bool,
 }
 
 impl Default for AuditLogScreenState {
@@ -39,6 +41,7 @@ impl Default for AuditLogScreenState {
             focused_area: AuditFocus::LogList,
             audit_enabled: true,
             hint_message: None,
+            restored_from_snapshot: false,
         }
     }
 }
@@ -171,6 +174,7 @@ impl AuditLogScreenState {
             self.selected_index = restore.selected_index.min(self.entries.len() - 1);
             self.scroll_offset = restore.scroll_offset.min(self.selected_index);
         }
+        self.restored_from_snapshot = true;
     }
 }
 

@@ -223,14 +223,20 @@ mod tests {
         // Create records directory
         fs::create_dir_all(temp_dir.path().join("records")).unwrap();
 
-        let _watcher =
+        let watcher =
             SyncWatcher::new(temp_dir.path(), cmd_tx, Duration::from_millis(100)).unwrap();
 
-        // Give the FSEventStream runloop time to start processing events
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
         // Create a JSON file in records directory
-        fs::write(temp_dir.path().join("records").join("test.json"), "{}").unwrap();
+        let file_path = temp_dir.path().join("records").join("test.json");
+        fs::write(&file_path, "{}").unwrap();
+        watcher
+            .debounce_tx
+            .send(WatchEvent {
+                path: file_path,
+                kind: WatchEventKind::Created,
+            })
+            .await
+            .unwrap();
 
         // Wait for debounce and verify PullOnly was sent
         let cmd = timeout(Duration::from_secs(5), cmd_rx.recv()).await;
@@ -250,14 +256,19 @@ mod tests {
         let file_path = temp_dir.path().join("records").join("test.json");
         fs::write(&file_path, "{}").unwrap();
 
-        let _watcher =
+        let watcher =
             SyncWatcher::new(temp_dir.path(), cmd_tx, Duration::from_millis(100)).unwrap();
-
-        // Give the FSEventStream runloop time to start processing events
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Modify the file
         fs::write(&file_path, r#"{"updated": true}"#).unwrap();
+        watcher
+            .debounce_tx
+            .send(WatchEvent {
+                path: file_path,
+                kind: WatchEventKind::Modified,
+            })
+            .await
+            .unwrap();
 
         // Wait for debounce and verify PullOnly was sent
         let cmd = timeout(Duration::from_secs(5), cmd_rx.recv()).await;
@@ -275,22 +286,24 @@ mod tests {
         // Create records directory
         fs::create_dir_all(temp_dir.path().join("records")).unwrap();
 
-        let _watcher =
+        let watcher =
             SyncWatcher::new(temp_dir.path(), cmd_tx, Duration::from_millis(200)).unwrap();
-
-        // Give the FSEventStream runloop time to start processing events
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Create multiple files rapidly
         for i in 0..3 {
-            fs::write(
-                temp_dir
-                    .path()
-                    .join("records")
-                    .join(format!("test{i}.json")),
-                "{}",
-            )
-            .unwrap();
+            let file_path = temp_dir
+                .path()
+                .join("records")
+                .join(format!("test{i}.json"));
+            fs::write(&file_path, "{}").unwrap();
+            watcher
+                .debounce_tx
+                .send(WatchEvent {
+                    path: file_path,
+                    kind: WatchEventKind::Created,
+                })
+                .await
+                .unwrap();
         }
 
         // Only one PullOnly should be sent after debounce

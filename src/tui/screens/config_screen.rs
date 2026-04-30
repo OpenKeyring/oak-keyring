@@ -73,22 +73,18 @@ impl Screen for ConfigScreen {
     }
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
-        // TODO(U7.5/L1): ctx.focus_stack.push(ScreenSnapshot::Main);
-        // Push main screen snapshot to focus stack for restoration on close.
-        // Depends on Plan L1 (UI Infrastructure) focus stack implementation.
         let _ = ctx.command_tx.try_send(Command::LoadConfig);
     }
 
-    fn on_unmount(&mut self) {
-        // TODO(U7.5/L1): Focus stack pop handled by screen router.
-    }
+    fn on_unmount(&mut self) {}
 }
 
 impl ConfigScreen {
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
             CommandResult::ConfigLoaded { config } => {
-                self.state.load_from_config(&config);
+                self.state
+                    .load_from_config_preserving_restored_navigation(&config);
                 ScreenResult::Continue
             }
             CommandResult::ConfigSaved => {
@@ -816,4 +812,48 @@ fn render_unsaved_changes_dialog(frame: &mut Frame, area: Rect, focused_button: 
         ),
     ]);
     frame.render_widget(Paragraph::new(buttons), chunks[1]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AppConfig;
+    use tokio::sync::mpsc;
+
+    fn test_context<'a>(tx: &'a mpsc::Sender<Command>, config: &'a AppConfig) -> ScreenContext<'a> {
+        ScreenContext {
+            command_tx: tx,
+            config,
+        }
+    }
+
+    #[test]
+    fn config_loaded_after_snapshot_restore_preserves_navigation_state() {
+        let mut screen = ConfigScreen::new();
+        screen
+            .state
+            .restore_from(crate::tui::state::ConfigRestoreState {
+                active_tab: ConfigTab::Security,
+                focused_item: 3,
+                sub_item_focus: Some(1),
+                scroll_offset: 4,
+            });
+
+        let (tx, _rx) = mpsc::channel(1);
+        let config = AppConfig::default();
+        let mut ctx = test_context(&tx, &config);
+
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::ConfigLoaded {
+                config: config.clone(),
+            }),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.state.active_tab, ConfigTab::Security);
+        assert_eq!(screen.state.focused_item, 3);
+        assert_eq!(screen.state.sub_item_focus, Some(1));
+        assert_eq!(screen.state.scroll_offset, 4);
+    }
 }
