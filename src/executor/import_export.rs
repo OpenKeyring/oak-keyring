@@ -24,6 +24,10 @@ pub fn handle_validate_import_file(
     path: PathBuf,
     password: Option<SecureStr>,
 ) -> CommandResult {
+    if executor.cancel_token().is_cancelled() {
+        return CommandResult::cancelled("import_validate");
+    }
+
     // Step 1: Create import session.
     let session_id = match executor
         .import_export
@@ -60,6 +64,10 @@ pub fn handle_execute_import(
     password: Option<SecureStr>,
     column_mapping: Option<CsvColumnMapping>,
 ) -> CommandResult {
+    if executor.cancel_token().is_cancelled() {
+        return CommandResult::cancelled("import_execute");
+    }
+
     // Step 1: Create import session.
     let session_id =
         match executor
@@ -150,6 +158,10 @@ pub fn handle_execute_export(
     export_password: SecureStr,
     master_password: SecureStr,
 ) -> CommandResult {
+    if executor.cancel_token().is_cancelled() {
+        return CommandResult::cancelled("export_execute");
+    }
+
     // Step 1: Verify master password.
     if crate::crypto::keystore::KeyStore::unlock(&executor.vault_dir, &master_password).is_err() {
         return CommandResult::Error {
@@ -361,6 +373,101 @@ mod tests {
     use crate::types::sensitive::SecureStr;
     use chrono::Utc;
     use uuid::Uuid;
+
+    fn make_test_executor() -> CommandExecutor {
+        use crate::config::AppConfig;
+        use crate::executor::config_impl::ServiceNotificationImpl;
+        use crate::services::clipboard::{ClipboardService, MockBackend};
+        use crate::services::health::HealthService;
+        use crate::services::import_export::ImportExportService;
+        use crate::services::vault::VaultService;
+        use std::sync::Arc;
+        use tokio::sync::mpsc;
+        use tokio_util::sync::CancellationToken;
+
+        let conn = crate::db::schema::init_db_in_memory();
+        let vault = VaultService::new(conn);
+        let (result_tx, _) = mpsc::channel(64);
+        let (internal_tx, internal_rx) = mpsc::channel(64);
+
+        CommandExecutor {
+            vault,
+            sync: None,
+            health: HealthService::new(),
+            clipboard: Arc::new(ClipboardService::with_backend(
+                Box::new(MockBackend::new()),
+                30,
+            )),
+            import_export: ImportExportService::new(),
+            config: AppConfig::default(),
+            config_notifier: ServiceNotificationImpl::new(),
+            vault_dir: std::path::PathBuf::from(":memory:"),
+            health_report: None,
+            result_tx,
+            internal_tx,
+            internal_rx: Some(internal_rx),
+            cancel_token: CancellationToken::new(),
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        }
+    }
+
+    #[test]
+    fn import_validate_returns_cancelled_when_token_already_cancelled() {
+        let mut executor = make_test_executor();
+        executor.cancel_token().cancel();
+
+        let result = handle_validate_import_file(
+            &mut executor,
+            ImportSource::Csv,
+            std::path::PathBuf::from("sample.csv"),
+            None,
+        );
+
+        assert!(matches!(
+            result,
+            CommandResult::Cancelled { ref operation, .. } if operation == "import_validate"
+        ));
+    }
+
+    #[test]
+    fn import_execute_returns_cancelled_when_token_already_cancelled() {
+        let mut executor = make_test_executor();
+        executor.cancel_token().cancel();
+
+        let result = handle_execute_import(
+            &mut executor,
+            ImportSource::Csv,
+            std::path::PathBuf::from("sample.csv"),
+            None,
+            None,
+        );
+
+        assert!(matches!(
+            result,
+            CommandResult::Cancelled { ref operation, .. } if operation == "import_execute"
+        ));
+    }
+
+    #[test]
+    fn export_execute_returns_cancelled_when_token_already_cancelled() {
+        let mut executor = make_test_executor();
+        executor.cancel_token().cancel();
+
+        let result = handle_execute_export(
+            &mut executor,
+            ExportScope::All,
+            std::path::PathBuf::from("export.okb"),
+            SecureStr::new("export_pass".to_string()),
+            SecureStr::new("master_pass".to_string()),
+        );
+
+        assert!(matches!(
+            result,
+            CommandResult::Cancelled { ref operation, .. } if operation == "export_execute"
+        ));
+    }
+
+    // --- existing tests below ---
 
     fn uuid() -> Uuid {
         Uuid::new_v4()
