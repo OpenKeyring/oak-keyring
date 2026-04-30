@@ -501,6 +501,8 @@ pub struct ConfigScreenState {
     pub editing_length_original: usize,
     /// Active vault path dialog overlay
     pub vault_path_dialog: Option<crate::tui::components::vault_path_dialog::VaultPathDialog>,
+    /// One-shot marker set when navigation state was restored from a screen snapshot.
+    pub restored_from_snapshot: bool,
 }
 
 impl ConfigScreenState {
@@ -526,6 +528,19 @@ impl ConfigScreenState {
         } else {
             SyncConnectionStatus::Disconnected
         };
+    }
+
+    /// Populate config forms while preserving navigation state restored from history.
+    pub fn load_from_config_preserving_restored_navigation(&mut self, config: &AppConfig) {
+        if !self.restored_from_snapshot {
+            self.load_from_config(config);
+            return;
+        }
+
+        let restore = self.to_restore_state();
+        self.load_from_config(config);
+        self.restore_from(restore);
+        self.restored_from_snapshot = false;
     }
 
     /// Convert the current form state back into an [`AppConfig`].
@@ -636,6 +651,7 @@ impl ConfigScreenState {
             None
         };
         self.scroll_offset = restore.scroll_offset;
+        self.restored_from_snapshot = true;
     }
 }
 

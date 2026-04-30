@@ -8,9 +8,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
-use crate::commands::types::{
-    CsvColumnMapping, ExportScope, ImportPreview, ImportSource, Screen as ScreenEnum,
-};
+use crate::commands::types::{CsvColumnMapping, ExportScope, ImportPreview, ImportSource};
 use crate::commands::{Command, Message};
 use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel};
 use crate::tui::theme::{
@@ -234,8 +232,9 @@ impl ImportExportScreen {
     /// Navigate back to the appropriate screen based on entry point.
     fn go_back(&self) -> ScreenResult {
         match self.entry_point {
-            ImportEntryPoint::Onboarding { .. } => ScreenResult::NavigateTo(ScreenEnum::Onboarding),
-            _ => ScreenResult::NavigateTo(ScreenEnum::Config),
+            ImportEntryPoint::Onboarding { .. } | ImportEntryPoint::ConfigPage => {
+                ScreenResult::PopScreen
+            }
         }
     }
 
@@ -706,7 +705,7 @@ impl ImportExportScreen {
             ExportStep::Exporting => ScreenResult::Continue,
             ExportStep::Complete => {
                 if key.code == KeyCode::Enter || key.code == KeyCode::Esc {
-                    ScreenResult::NavigateTo(ScreenEnum::Config)
+                    self.go_back()
                 } else {
                     ScreenResult::Continue
                 }
@@ -718,7 +717,7 @@ impl ImportExportScreen {
         self.error_message = None;
 
         match key.code {
-            KeyCode::Esc => return ScreenResult::NavigateTo(ScreenEnum::Config),
+            KeyCode::Esc => return self.go_back(),
             KeyCode::Tab => {
                 self.export_focus = match self.export_focus {
                     ExportFocus::Scope => ExportFocus::ExportPassword,
@@ -2128,5 +2127,16 @@ mod tests {
         assert!(restored.decrypt_password.is_empty());
         assert!(restored.export_password.is_empty());
         assert!(restored.master_password.is_empty());
+    }
+
+    #[test]
+    fn esc_from_config_entry_uses_pop_screen_not_forward_navigation() {
+        let mut screen = ImportExportScreen::new();
+        screen.entry_point = ImportEntryPoint::ConfigPage;
+        screen.export_step = ExportStep::Form;
+
+        let result = screen.go_back();
+
+        assert!(matches!(result, ScreenResult::PopScreen));
     }
 }

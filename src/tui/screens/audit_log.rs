@@ -709,10 +709,14 @@ impl Screen for AuditLogScreen {
     }
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
-        self.state.entries.clear();
-        self.state.total_count = 0;
-        self.state.selected_index = 0;
-        self.state.scroll_offset = 0;
+        if self.state.restored_from_snapshot {
+            self.state.restored_from_snapshot = false;
+        } else {
+            self.state.entries.clear();
+            self.state.total_count = 0;
+            self.state.selected_index = 0;
+            self.state.scroll_offset = 0;
+        }
         self.state.hint_message = None;
 
         // Read audit_enabled from config
@@ -954,5 +958,50 @@ mod tests {
         let filtered = screen.filtered_entries();
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].id, 2);
+    }
+
+    #[test]
+    fn on_mount_after_snapshot_restore_preserves_selection_scroll_and_focus() {
+        let mut screen = AuditLogScreen::new();
+        screen.state.entries = (0..10)
+            .map(|id| crate::types::AuditEntry {
+                id,
+                operation: AuditOperation::VaultUnlock,
+                record_id: None,
+                record_name: None,
+                detail: None,
+                occurred_at: chrono::Utc::now(),
+            })
+            .collect();
+        screen
+            .state
+            .restore_from(crate::tui::state::AuditLogRestoreState {
+                focused_area: AuditFocus::SearchInput,
+                selected_index: 7,
+                scroll_offset: 4,
+                filter: AuditFilter {
+                    search: "vault".to_string(),
+                    operation: None,
+                    time_range: Some(AuditTimeRange::LastMonth),
+                },
+            });
+
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+
+        screen.on_mount(&mut ctx);
+
+        assert_eq!(screen.state.focused_area, AuditFocus::SearchInput);
+        assert_eq!(screen.state.selected_index, 7);
+        assert_eq!(screen.state.scroll_offset, 4);
+        assert_eq!(screen.state.filter.search, "vault");
+        assert_eq!(
+            screen.state.filter.time_range,
+            Some(AuditTimeRange::LastMonth)
+        );
     }
 }

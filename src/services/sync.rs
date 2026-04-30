@@ -6,6 +6,7 @@
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 use crate::cloud::{CloudMetadata, CloudStorage};
 use crate::errors::mapping::sync::SyncError;
@@ -89,6 +90,20 @@ impl SyncService {
     /// - Timeout (60s) expires before `Completed` or `Failed` event
     /// - `Failed` event is received
     pub async fn sync(&mut self) -> Result<SyncReport, SyncError> {
+        self.sync_with_cancel(CancellationToken::new()).await
+    }
+
+    /// Triggers a full sync cycle and returns promptly if `cancel` is triggered.
+    pub async fn sync_with_cancel(
+        &mut self,
+        cancel: CancellationToken,
+    ) -> Result<SyncReport, SyncError> {
+        if cancel.is_cancelled() {
+            return Err(SyncError::Cancelled {
+                operation: "sync".to_string(),
+            });
+        }
+
         self.cmd_tx
             .send(SyncCommand::TriggerSync)
             .await
@@ -98,7 +113,7 @@ impl SyncService {
             })?;
 
         let event = self
-            .wait_for_event(SYNC_TIMEOUT, |event| {
+            .wait_for_event_or_cancel(SYNC_TIMEOUT, cancel, "sync", |event| {
                 matches!(event, SyncEvent::Completed(_) | SyncEvent::Failed { .. })
             })
             .await?;
@@ -273,6 +288,19 @@ impl SyncService {
         }
     }
 
+    /// Checks cloud storage connectivity and returns promptly if cancelled.
+    pub async fn test_connection_with_cancel(
+        &self,
+        cancel: CancellationToken,
+    ) -> Result<(bool, String), SyncError> {
+        tokio::select! {
+            _ = cancel.cancelled() => Err(SyncError::Cancelled {
+                operation: "sync_connection_test".to_string(),
+            }),
+            result = self.test_connection() => result,
+        }
+    }
+
     /// Pauses sync processing, waiting up to 30s for any in-progress Push to complete.
     ///
     /// Sends `Pause` command and waits for `Paused` event. If a sync cycle is
@@ -389,6 +417,24 @@ impl SyncService {
             }
         }
     }
+
+    async fn wait_for_event_or_cancel<F>(
+        &mut self,
+        timeout: Duration,
+        cancel: CancellationToken,
+        operation: &'static str,
+        predicate: F,
+    ) -> Result<SyncEvent, SyncError>
+    where
+        F: Fn(&SyncEvent) -> bool,
+    {
+        tokio::select! {
+            result = self.wait_for_event(timeout, predicate) => result,
+            _ = cancel.cancelled() => Err(SyncError::Cancelled {
+                operation: operation.to_string(),
+            }),
+        }
+    }
 }
 
 impl Drop for SyncService {
@@ -433,6 +479,18 @@ mod tests {
 
         // Clean shutdown
         let _ = svc.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn sync_with_cancel_returns_cancelled_when_token_is_cancelled() {
+        let storage = create_test_storage();
+        let mut svc = SyncService::new(storage);
+        let cancel = tokio_util::sync::CancellationToken::new();
+        cancel.cancel();
+
+        let result = svc.sync_with_cancel(cancel).await;
+
+        assert!(matches!(result, Err(SyncError::Cancelled { .. })));
     }
 
     #[tokio::test]

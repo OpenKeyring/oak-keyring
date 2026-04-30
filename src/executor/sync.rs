@@ -14,6 +14,8 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
         return CommandResult::cancelled("sync");
     }
 
+    let cancel = executor.cancel_token().clone();
+
     let sync = match executor.sync.as_mut() {
         Some(s) => s,
         None => {
@@ -26,7 +28,7 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
         }
     };
 
-    match sync.sync().await {
+    match sync.sync_with_cancel(cancel).await {
         Ok(report) => {
             if executor.cancel_token().is_cancelled() {
                 return CommandResult::cancelled("sync");
@@ -39,9 +41,11 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
                     conflicts: report.conflicts as i64,
                 },
             }
-        },
+        }
         Err(e) => {
-            if executor.cancel_token().is_cancelled() {
+            if executor.cancel_token().is_cancelled()
+                || matches!(e, crate::errors::mapping::sync::SyncError::Cancelled { .. })
+            {
                 return CommandResult::cancelled("sync");
             }
             CommandResult::Error {
@@ -50,7 +54,7 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
                 message_key: "error.sync_failed",
                 fallback: format!("Sync failed: {}", e),
             }
-        },
+        }
     }
 }
 

@@ -73,6 +73,9 @@ pub enum SyncError {
 
     #[error("Quota exceeded: {provider}")]
     QuotaExceeded { provider: String },
+
+    #[error("Cancelled: {operation}")]
+    Cancelled { operation: String },
 }
 
 impl ServiceError for SyncError {
@@ -150,6 +153,7 @@ impl ServiceError for SyncError {
             Self::QuotaExceeded { provider } => {
                 Some(ErrorContext::new().with("provider", provider))
             }
+            Self::Cancelled { operation } => Some(ErrorContext::new().with("operation", operation)),
             Self::TokenExpired => None,
             Self::SerializationFailed { message } => {
                 Some(ErrorContext::new().with("message", message))
@@ -167,6 +171,7 @@ impl ServiceError for SyncError {
             Self::ConnectionRefused { .. } => ErrorLevel::Warning,
             Self::MetadataVersionConflict { .. } => ErrorLevel::Warning,
             Self::RecordNotFound { .. } => ErrorLevel::Warning,
+            Self::Cancelled { .. } => ErrorLevel::Warning,
             Self::VaultIdentityMismatch { .. } => ErrorLevel::Fatal,
             _ => ErrorLevel::Error,
         }

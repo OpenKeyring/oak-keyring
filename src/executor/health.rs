@@ -83,6 +83,9 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
 
                 _ = cancel_token.cancelled() => {
                     tracing::info!("Health check cancelled: clearing remaining memory");
+                    let _ = tx.send(Message::CommandCompleted(
+                        CommandResult::cancelled("health_check")
+                    )).await;
                     return; // Remaining entries in entries_iter will be dropped/zeroized here
                 }
                 _ = ticker.tick() => {
@@ -186,5 +189,93 @@ pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) 
             message_key: "error.hibp_check_failed",
             fallback: format!("HIBP check task panicked: {}", e),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AppConfig;
+    use crate::crypto::bip39::{MnemonicLanguage, Passkey};
+    use crate::executor::config_impl::ServiceNotificationImpl;
+    use crate::services::clipboard::{ClipboardService, MockBackend};
+    use crate::services::health::HealthService;
+    use crate::services::import_export::ImportExportService;
+    use crate::services::vault::VaultService;
+    use crate::types::{CredentialType, EncryptedPayload, SecureStr};
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+
+    fn make_executor_with_one_login() -> CommandExecutor {
+        let conn = crate::db::schema::init_db_in_memory();
+        let mut vault = VaultService::new(conn);
+        let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
+        vault
+            .unlock_with_mnemonic(&mnemonic)
+            .expect("unlock with mnemonic");
+        vault
+            .create_record(crate::types::record::CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: "Example".to_string(),
+                    username: "alice".to_string(),
+                    password: SecureStr::new("password123".to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("record");
+
+        let (result_tx, _) = mpsc::channel(64);
+        let (internal_tx, internal_rx) = mpsc::channel(64);
+
+        CommandExecutor {
+            vault,
+            sync: None,
+            health: HealthService::new(),
+            clipboard: Arc::new(ClipboardService::with_backend(
+                Box::new(MockBackend::new()),
+                30,
+            )),
+            import_export: ImportExportService::new(),
+            config: AppConfig::default(),
+            config_notifier: ServiceNotificationImpl::new(),
+            vault_dir: std::path::PathBuf::from(":memory:"),
+            health_report: None,
+            result_tx,
+            internal_tx,
+            internal_rx: Some(internal_rx),
+            cancel_token: CancellationToken::new(),
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        }
+    }
+
+    #[tokio::test]
+    async fn health_background_cancel_sends_cancelled_result() {
+        let mut executor = make_executor_with_one_login();
+        let mut result_rx = {
+            let (result_tx, result_rx) = mpsc::channel(64);
+            executor.result_tx = result_tx;
+            result_rx
+        };
+
+        let started = handle_run_health_check(&mut executor);
+        assert!(matches!(started, CommandResult::HealthCheckStarted));
+        executor.cancel_token().cancel();
+
+        let message = tokio::time::timeout(std::time::Duration::from_secs(1), result_rx.recv())
+            .await
+            .expect("health cancellation message")
+            .expect("message");
+
+        assert!(matches!(
+            message,
+            Message::CommandCompleted(CommandResult::Cancelled { ref operation, .. })
+                if operation == "health_check"
+        ));
     }
 }
