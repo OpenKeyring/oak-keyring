@@ -1,4 +1,5 @@
 pub mod adapters;
+pub mod credentials;
 pub mod metadata;
 pub mod oauth2;
 pub mod provider;

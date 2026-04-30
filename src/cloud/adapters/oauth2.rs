@@ -1,5 +1,6 @@
 use opendal::Operator;
 
+use crate::cloud::credentials::{google_client_id, google_client_secret};
 use crate::cloud::ProviderAdapter;
 use crate::config::sync::ProviderConfig;
 use crate::errors::mapping::sync::SyncError;
@@ -17,12 +18,12 @@ impl ProviderAdapter for GoogleDriveAdapter {
     fn create_operator(&self, config: &ProviderConfig) -> Result<Operator, SyncError> {
         match config {
             ProviderConfig::GoogleDrive(drive_config) => {
-                let built_in_client_id = env!("OAK_GOOGLE_CLIENT_ID");
-                let built_in_client_secret = env!("OAK_GOOGLE_CLIENT_SECRET");
+                let built_in_client_id = google_client_id();
+                let built_in_client_secret = google_client_secret();
 
                 let mut builder = opendal::services::Gdrive::default()
-                    .client_id(built_in_client_id)
-                    .client_secret(built_in_client_secret);
+                    .client_id(&built_in_client_id)
+                    .client_secret(&built_in_client_secret);
 
                 if !drive_config.refresh_token.is_empty() {
                     builder = builder.refresh_token(&drive_config.refresh_token);
