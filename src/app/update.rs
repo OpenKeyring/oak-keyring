@@ -9,14 +9,14 @@
 use std::time::Duration;
 
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
-use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
 
-use crate::app::App;
 use crate::app::signal::SignalHandler;
 use crate::app::view;
-use crate::commands::Message;
+use crate::app::App;
 use crate::commands::types::{AppPhase, Screen};
+use crate::commands::Message;
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
 
 /// Tick rate: how often we check for terminal events. Also drives timers/animations.
@@ -506,11 +506,10 @@ mod tests {
 
         assert_eq!(result, LoopControl::Continue);
         assert_eq!(app.state.current_screen, Screen::Config);
-        assert!(
-            app.state
-                .shared
-                .animation
-                .has_active_kind(crate::tui::state::animation::EffectKind::ScreenIn)
-        );
+        assert!(app
+            .state
+            .shared
+            .animation
+            .has_active_kind(crate::tui::state::animation::EffectKind::ScreenIn));
     }
 }
