@@ -21,15 +21,57 @@ pub enum EmptyStateVariant {
 }
 
 impl EmptyStateVariant {
-    fn icon(&self) -> &'static str {
+    fn icon(&self, unicode: bool) -> &'static str {
         match self {
-            Self::NoPasswords => "\u{1F510}",
-            Self::EmptyTrash => "\u{1F5D1}",
-            Self::NoFavorites => "\u{2605}",
-            Self::NoExpired => "\u{2713}",
-            Self::NoHealthIssues => "\u{2713}",
-            Self::EmptyTag { .. } => "\u{1F4C1}",
-            Self::NoSearchResults { .. } => "\u{1F50D}",
+            Self::NoPasswords => {
+                if unicode {
+                    theme::ICON_LOCK
+                } else {
+                    theme::ascii::ICON_LOCK
+                }
+            }
+            Self::EmptyTrash => {
+                if unicode {
+                    theme::ICON_TRASH
+                } else {
+                    theme::ascii::ICON_TRASH
+                }
+            }
+            Self::NoFavorites => {
+                if unicode {
+                    theme::ICON_STAR
+                } else {
+                    theme::ascii::ICON_STAR
+                }
+            }
+            Self::NoExpired => {
+                if unicode {
+                    theme::ICON_SUCCESS
+                } else {
+                    theme::ascii::ICON_SUCCESS
+                }
+            }
+            Self::NoHealthIssues => {
+                if unicode {
+                    theme::ICON_SUCCESS
+                } else {
+                    theme::ascii::ICON_SUCCESS
+                }
+            }
+            Self::EmptyTag { .. } => {
+                if unicode {
+                    theme::ICON_FOLDER
+                } else {
+                    theme::ascii::ICON_FOLDER
+                }
+            }
+            Self::NoSearchResults { .. } => {
+                if unicode {
+                    theme::ICON_SEARCH
+                } else {
+                    theme::ascii::ICON_SEARCH
+                }
+            }
         }
     }
 
@@ -66,7 +108,7 @@ pub struct EmptyStateWidget;
 
 impl EmptyStateWidget {
     pub fn view(frame: &mut Frame, area: Rect, variant: &EmptyStateVariant, unicode: bool) {
-        let icon = if unicode { variant.icon() } else { "" };
+        let icon = variant.icon(unicode);
         let lines = vec![
             Line::from(Span::styled(
                 format!("  {}  ", icon),

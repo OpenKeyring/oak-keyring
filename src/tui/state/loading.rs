@@ -1,6 +1,6 @@
 //! Loading indicators: spinner frame counter and progress bar state.
 
-const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+use crate::tui::theme;
 
 #[derive(Debug, Clone, Default)]
 pub struct SpinnerState {
@@ -17,15 +17,15 @@ impl SpinnerState {
     }
 
     pub fn tick(&mut self) {
-        self.frame_index = (self.frame_index + 1) % SPINNER_FRAMES.len();
+        self.frame_index = (self.frame_index + 1) % theme::SPINNER_FRAMES.len();
     }
 
     pub fn frame(&self) -> &str {
-        SPINNER_FRAMES[self.frame_index]
+        theme::SPINNER_FRAMES[self.frame_index]
     }
 
     pub fn frames_ascii() -> &'static [&'static str] {
-        &["-", "\\", "|", "/"]
+        theme::ascii::SPINNER_FRAMES
     }
 }
 
