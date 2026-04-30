@@ -48,7 +48,7 @@ impl Default for AuditLogScreenState {
 /// Unlike [`crate::commands::types::AuditFilter`] which uses `Option<String>`
 /// for search, this version uses `String` so the UI always has a buffer to
 /// write into. Convert to the command version when dispatching queries.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AuditFilter {
     /// Operation category filter (None = show all).
     pub operation: Option<AuditOperation>,

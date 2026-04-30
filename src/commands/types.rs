@@ -26,7 +26,7 @@ pub enum SortDirection {
     Desc,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordSort {
     pub field: SortField,
     pub direction: SortDirection,

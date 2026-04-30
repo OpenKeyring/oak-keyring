@@ -123,13 +123,52 @@ pub async fn handle_resolve_all_conflicts(
 mod tests {
     use super::*;
 
-    /// Tests that `handle_trigger_sync` returns `Cancelled` when the token is
-    /// already cancelled. Marked `#[ignore]` because constructing a test
-    /// executor with a SyncService requires a cloud storage backend.
+    /// Cancellation check happens before sync.as_mut(), so a test executor with
+    /// `sync: None` and a cancelled token still exercises the cancellation path.
     #[tokio::test]
-    #[ignore]
     async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
-        // TODO: construct a test executor with sync service
+        use crate::config::AppConfig;
+        use crate::executor::config_impl::ServiceNotificationImpl;
+        use crate::services::clipboard::{ClipboardService, MockBackend};
+        use crate::services::health::HealthService;
+        use crate::services::import_export::ImportExportService;
+        use crate::services::vault::VaultService;
+        use std::sync::Arc;
+        use tokio::sync::mpsc;
+        use tokio_util::sync::CancellationToken;
+
+        let conn = crate::db::schema::init_db_in_memory();
+        let vault = VaultService::new(conn);
+        let (result_tx, _) = mpsc::channel(64);
+        let (internal_tx, internal_rx) = mpsc::channel(64);
+
+        let mut executor = CommandExecutor {
+            vault,
+            sync: None,
+            health: HealthService::new(),
+            clipboard: Arc::new(ClipboardService::with_backend(
+                Box::new(MockBackend::new()),
+                30,
+            )),
+            import_export: ImportExportService::new(),
+            config: AppConfig::default(),
+            config_notifier: ServiceNotificationImpl::new(),
+            vault_dir: std::path::PathBuf::from(":memory:"),
+            health_report: None,
+            result_tx,
+            internal_tx,
+            internal_rx: Some(internal_rx),
+            cancel_token: CancellationToken::new(),
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        };
+        executor.cancel_token().cancel();
+
+        let result = handle_trigger_sync(&mut executor).await;
+
+        assert!(matches!(
+            result,
+            CommandResult::Cancelled { ref operation, .. } if operation == "sync"
+        ));
     }
 
     #[test]

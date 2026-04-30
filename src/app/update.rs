@@ -238,6 +238,15 @@ fn handle_message(
                             imported_count
                         )));
                 }
+                CommandResult::Cancelled { operation, .. } => {
+                    app.state
+                        .shared
+                        .notification
+                        .enqueue(StatusMessage::error(format!(
+                            "{} 已取消",
+                            operation
+                        )));
+                }
                 _ => {} // Screen-specific results handled below
             }
             // Also route to current screen for screen-specific result handling.
