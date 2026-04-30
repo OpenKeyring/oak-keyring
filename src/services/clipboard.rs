@@ -79,6 +79,31 @@ impl ClipboardBackend for ArboardBackend {
     }
 }
 
+/// Backend used when the platform clipboard is unavailable.
+struct UnavailableBackend {
+    reason: String,
+}
+
+impl UnavailableBackend {
+    fn new(reason: String) -> Self {
+        Self { reason }
+    }
+}
+
+impl ClipboardBackend for UnavailableBackend {
+    fn set_text(&self, _text: &str) -> Result<(), ClipboardError> {
+        Err(ClipboardError::PlatformUnavailable(self.reason.clone()))
+    }
+
+    fn get_text(&self) -> Result<String, ClipboardError> {
+        Err(ClipboardError::PlatformUnavailable(self.reason.clone()))
+    }
+
+    fn is_available(&self) -> bool {
+        false
+    }
+}
+
 // ---------------------------------------------------------------------------
 // MockBackend — test-only implementation
 // ---------------------------------------------------------------------------
@@ -198,11 +223,28 @@ impl ClipboardService {
 
     pub fn new_safe(clear_timeout: u64) -> Result<Self, ClipboardError> {
         if Self::is_headless() {
-            return Err(ClipboardError::PlatformUnavailable(
-                "Headless environment detected — clipboard unavailable".into(),
+            return Ok(Self::with_backend(
+                Box::new(UnavailableBackend::new(
+                    "Headless environment detected — clipboard unavailable".into(),
+                )),
+                clear_timeout,
             ));
         }
-        Self::new(clear_timeout)
+
+        match ArboardBackend::new() {
+            Ok(backend) => Ok(Self::with_backend(Box::new(backend), clear_timeout)),
+            Err(ClipboardError::PlatformUnavailable(reason)) => {
+                warn!(
+                    reason,
+                    "System clipboard unavailable, falling back to disabled backend"
+                );
+                Ok(Self::with_backend(
+                    Box::new(UnavailableBackend::new(reason)),
+                    clear_timeout,
+                ))
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Copy text to clipboard and start auto-clear timer.
@@ -532,6 +574,20 @@ mod backend_tests {
         let backend = MockBackend::new_unavailable();
         assert!(!backend.is_available());
         assert!(backend.set_text("test").is_err());
+    }
+
+    #[test]
+    fn unavailable_backend_always_reports_platform_unavailable() {
+        let backend = UnavailableBackend::new("no clipboard".into());
+        assert!(!backend.is_available());
+        assert!(matches!(
+            backend.set_text("test"),
+            Err(ClipboardError::PlatformUnavailable(_))
+        ));
+        assert!(matches!(
+            backend.get_text(),
+            Err(ClipboardError::PlatformUnavailable(_))
+        ));
     }
 
     #[test]

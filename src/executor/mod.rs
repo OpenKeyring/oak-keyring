@@ -109,8 +109,11 @@ impl CommandExecutor {
     /// * `cancel_token` — Token for cooperative cancellation / shutdown
     ///
     /// # Errors
-    /// Returns an error if the database cannot be opened or the clipboard
-    /// backend is unavailable in the current environment.
+    /// Returns an error if the database cannot be opened.
+    ///
+    /// Clipboard initialization degrades to a disabled backend when the
+    /// platform clipboard is unavailable, so executor startup remains usable
+    /// in headless and CI environments.
     #[tracing::instrument(skip(result_tx, cancel_token))]
     pub fn new(
         mut config: AppConfig,
@@ -128,8 +131,7 @@ impl CommandExecutor {
         let health = HealthService::new();
         let import_export = ImportExportService::new();
 
-        // Clipboard may fail in headless/CI environments — propagate the error
-        // so callers can decide how to handle it.
+        // Clipboard degrades to a disabled backend in headless/CI environments.
         let clipboard_clear_seconds = config.general.clipboard_clear_seconds;
         let clipboard = Arc::new(ClipboardService::new_safe(clipboard_clear_seconds)?);
 

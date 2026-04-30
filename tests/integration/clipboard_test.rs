@@ -90,12 +90,14 @@ fn test_headless_detection() {
 #[test]
 fn test_new_safe_graceful_degradation() {
     let result = ClipboardService::new_safe(30);
+    assert!(result.is_ok(), "new_safe should degrade instead of failing");
+
+    let svc = result.unwrap();
+    let copy_result = svc.copy("probe");
     if ClipboardService::is_headless() {
         assert!(matches!(
-            result,
+            copy_result,
             Err(ClipboardError::PlatformUnavailable(_))
         ));
-    } else {
-        assert!(result.is_ok());
     }
 }
