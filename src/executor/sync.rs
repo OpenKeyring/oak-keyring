@@ -10,6 +10,10 @@ use super::CommandExecutor;
 
 #[tracing::instrument(skip_all)]
 pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResult {
+    if executor.cancel_token().is_cancelled() {
+        return CommandResult::cancelled("sync");
+    }
+
     let sync = match executor.sync.as_mut() {
         Some(s) => s,
         None => {
@@ -46,6 +50,10 @@ pub async fn handle_resolve_conflict(
     record_id: Uuid,
     resolution: ConflictResolution,
 ) -> CommandResult {
+    if executor.cancel_token().is_cancelled() {
+        return CommandResult::cancelled("sync");
+    }
+
     let sync = match executor.sync.as_mut() {
         Some(s) => s,
         None => {
@@ -79,6 +87,10 @@ pub async fn handle_resolve_all_conflicts(
     executor: &mut CommandExecutor,
     resolution: ConflictResolution,
 ) -> CommandResult {
+    if executor.cancel_token().is_cancelled() {
+        return CommandResult::cancelled("sync");
+    }
+
     let sync = match executor.sync.as_mut() {
         Some(s) => s,
         None => {
@@ -104,5 +116,28 @@ pub async fn handle_resolve_all_conflicts(
             message_key: "error.conflict_resolve_all_failed",
             fallback: format!("Failed to resolve all conflicts: {}", e),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tests that `handle_trigger_sync` returns `Cancelled` when the token is
+    /// already cancelled. Marked `#[ignore]` because constructing a test
+    /// executor with a SyncService requires a cloud storage backend.
+    #[tokio::test]
+    #[ignore]
+    async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
+        // TODO: construct a test executor with sync service
+    }
+
+    #[test]
+    fn cancelled_helper_returns_correct_operation_name() {
+        let result = CommandResult::cancelled("sync");
+        assert!(matches!(
+            result,
+            CommandResult::Cancelled { ref operation, .. } if operation == "sync"
+        ));
     }
 }

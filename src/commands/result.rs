@@ -212,9 +212,22 @@ pub enum CommandResult {
     /// Partial progress preserved for resume capability.
     /// Follows tea-command-pattern-arch §6.6.3 cancellation semantics.
     Cancelled {
-        operation: &'static str,
-        partial_progress: usize,
+        operation: String,
+        partial_progress: Option<String>,
     },
+}
+
+impl CommandResult {
+    /// Create a `Cancelled` result for the given operation name.
+    ///
+    /// `partial_progress` is set to `None`, indicating no progress was made
+    /// before the cancellation took effect.
+    pub fn cancelled(operation: impl Into<String>) -> Self {
+        Self::Cancelled {
+            operation: operation.into(),
+            partial_progress: None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -293,5 +306,15 @@ mod exhaustive_tests {
                 CommandResult::Cancelled { .. } => {}
             }
         }
+    }
+
+    #[test]
+    fn cancelled_helper_creates_correct_variant() {
+        let result = CommandResult::cancelled("sync");
+        assert!(matches!(
+            result,
+            CommandResult::Cancelled { ref operation, ref partial_progress }
+                if operation == "sync" && partial_progress.is_none()
+        ));
     }
 }

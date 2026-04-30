@@ -136,6 +136,10 @@ pub async fn handle_test_sync_connection(
     executor: &mut CommandExecutor,
     provider_config: Option<ProviderConfig>,
 ) -> CommandResult {
+    if executor.cancel_token().is_cancelled() {
+        return CommandResult::cancelled("sync_connection_test");
+    }
+
     use crate::cloud::provider::create_cloud_storage;
     use crate::config::sync::SyncConfig;
 

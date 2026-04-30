@@ -12,6 +12,10 @@ use super::CommandExecutor;
 
 #[tracing::instrument(skip_all)]
 pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult {
+    if executor.cancel_token().is_cancelled() {
+        return CommandResult::cancelled("health_check");
+    }
+
     // Step 1: Fetch all active stored records (fast, local)
     let records = match executor.vault.list_all_stored_records() {
         Ok(r) => r,
@@ -140,6 +144,10 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
 
 #[tracing::instrument(skip_all)]
 pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) -> CommandResult {
+    if executor.cancel_token().is_cancelled() {
+        return CommandResult::cancelled("hibp_check");
+    }
+
     // Step 1: Decrypt the record's password
     let password = match executor
         .vault
