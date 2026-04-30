@@ -314,6 +314,20 @@ impl ImportExportScreen {
         }
     }
 
+    fn reset_for_entry(&mut self) {
+        match self.mode {
+            ImportExportMode::Import => {
+                self.import_step = ImportStep::SourceSelect;
+                self.import_focus = ImportFocus::SourceList;
+                self.selected_source_idx = 0;
+            }
+            ImportExportMode::Export => {
+                self.export_step = ExportStep::Form;
+                self.export_focus = ExportFocus::Scope;
+            }
+        }
+    }
+
     /// Capture reusable navigation state for this screen (excludes sensitive buffers).
     pub fn to_restore_state(&self) -> crate::tui::state::ImportExportRestoreState {
         crate::tui::state::ImportExportRestoreState {
@@ -418,16 +432,12 @@ impl Screen for ImportExportScreen {
         self.export_record_count = 0;
         self.export_password_strength = None;
 
-        if self.mode == ImportExportMode::Import {
-            self.import_step = ImportStep::SourceSelect;
-            self.import_focus = ImportFocus::SourceList;
-            self.selected_source_idx = 0;
-            self.source = None;
-        } else {
-            self.export_step = ExportStep::Form;
-            self.export_focus = ExportFocus::Scope;
-            self.export_scope_option = ExportScopeOption::All;
-            self.export_output_path = default_export_path();
+        // Only reset navigation state on first entry, not when restored from snapshot
+        if self.import_step == ImportStep::SourceSelect
+            && self.export_step == ExportStep::Form
+            && self.error_message.is_none()
+        {
+            self.reset_for_entry();
         }
     }
 
