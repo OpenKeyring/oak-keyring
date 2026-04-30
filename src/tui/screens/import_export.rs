@@ -348,8 +348,9 @@ impl ImportExportScreen {
         self.mode = restore.mode;
         self.entry_point = restore.entry_point;
         self.import_step = restore.import_step;
-        self.selected_source_idx =
-            restore.selected_source_idx.min(IMPORT_SOURCES.len().saturating_sub(1));
+        self.selected_source_idx = restore
+            .selected_source_idx
+            .min(IMPORT_SOURCES.len().saturating_sub(1));
         self.import_focus = restore.import_focus;
         self.export_step = restore.export_step;
         self.export_focus = restore.export_focus;
@@ -2120,7 +2121,10 @@ mod tests {
         assert_eq!(restored.import_focus, ImportFocus::CsvUsername);
         assert_eq!(restored.export_step, ExportStep::MasterPasswordConfirm);
         assert_eq!(restored.export_focus, ExportFocus::ConfirmPassword);
-        assert_eq!(restored.export_scope_option, ExportScopeOption::CurrentFilter);
+        assert_eq!(
+            restored.export_scope_option,
+            ExportScopeOption::CurrentFilter
+        );
         assert!(restored.decrypt_password.is_empty());
         assert!(restored.export_password.is_empty());
         assert!(restored.master_password.is_empty());

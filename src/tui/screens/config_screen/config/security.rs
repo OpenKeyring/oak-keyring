@@ -9,7 +9,13 @@ use crate::t;
 use crate::tui::state::config_state::SecurityConfigForm;
 use crate::tui::theme;
 
-pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused: usize, sub_item_focus: Option<usize>) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    form: &SecurityConfigForm,
+    focused: usize,
+    sub_item_focus: Option<usize>,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -100,7 +106,9 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused:
             format!("[\u{2717} {}]", t!("tui.config.disabled"))
         };
         let toggle_style = if sub_item_focus.unwrap_or(0) == 0 {
-            Style::default().add_modifier(Modifier::UNDERLINED).fg(crate::tui::theme::PRIMARY)
+            Style::default()
+                .add_modifier(Modifier::UNDERLINED)
+                .fg(crate::tui::theme::PRIMARY)
         } else {
             focused_style
         };
@@ -109,7 +117,9 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused:
         let sep = Span::styled("  ", focused_style);
 
         let link_style = if sub_item_focus.unwrap_or(0) == 1 {
-            Style::default().add_modifier(Modifier::UNDERLINED).fg(crate::tui::theme::PRIMARY)
+            Style::default()
+                .add_modifier(Modifier::UNDERLINED)
+                .fg(crate::tui::theme::PRIMARY)
         } else {
             focused_style
         };
@@ -131,10 +141,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &SecurityConfigForm, focused:
             },
             t!("tui.config.view_audit_log"),
         );
-        frame.render_widget(
-            Paragraph::new(audit).style(normal_style),
-            chunks[4],
-        );
+        frame.render_widget(Paragraph::new(audit).style(normal_style), chunks[4]);
     }
 
     // Row index 4: Audit retention (focused == 4)

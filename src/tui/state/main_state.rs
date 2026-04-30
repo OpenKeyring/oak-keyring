@@ -917,7 +917,10 @@ mod tests {
         let mut restored = MainScreenState::default();
         restored.restore_from(restore.clone());
 
-        assert_eq!(restore.focused_panel, crate::commands::types::PanelId::Detail);
+        assert_eq!(
+            restore.focused_panel,
+            crate::commands::types::PanelId::Detail
+        );
         assert_eq!(restored.sidebar.selected_index, 2);
         assert!(restored.sidebar.tags_expanded);
         assert_eq!(restored.sidebar.tag_scroll_offset, 3);

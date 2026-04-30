@@ -207,7 +207,10 @@ fn set_password_context_from_onboarding_create_path() {
     // Navigate to SetNewMasterPassword (simulating route_on_mount logic)
     state.navigate_to(Screen::SetNewMasterPassword);
     // Verify: screen_history has Onboarding, selected_path is CreateNew
-    assert_eq!(state.screen_history.last().map(|s| s.screen), Some(Screen::Onboarding));
+    assert_eq!(
+        state.screen_history.last().map(|s| s.screen),
+        Some(Screen::Onboarding)
+    );
     assert_eq!(
         state.screens.onboarding.selected_path,
         Some(OnboardingPath::CreateNew)

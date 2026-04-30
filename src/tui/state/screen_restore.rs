@@ -140,7 +140,9 @@ impl crate::tui::state::AppState {
             ScreenRestoreState::AuditLog(restore) if snapshot.screen == Screen::AuditLog => {
                 self.screens.audit_log.state.restore_from(restore);
             }
-            ScreenRestoreState::ImportExport(restore) if snapshot.screen == Screen::ImportExport => {
+            ScreenRestoreState::ImportExport(restore)
+                if snapshot.screen == Screen::ImportExport =>
+            {
                 self.screens.import_export.restore_from(restore);
             }
             _ => {}
