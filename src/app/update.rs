@@ -9,14 +9,14 @@
 use std::time::Duration;
 
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 
+use crate::app::App;
 use crate::app::signal::SignalHandler;
 use crate::app::view;
-use crate::app::App;
-use crate::commands::types::{AppPhase, Screen};
 use crate::commands::Message;
+use crate::commands::types::{AppPhase, Screen};
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
 
 /// Tick rate: how often we check for terminal events. Also drives timers/animations.
@@ -112,6 +112,7 @@ fn handle_message(
                 command_tx: &command_tx,
                 config: &app.config,
             };
+            // Keep screen lifecycle ordering explicit: unmount old screen, switch route, mount new screen.
             route_on_unmount_from_state(&mut app.state);
             app.state.navigate_to(screen);
             route_on_mount_from_state(&mut app.state, &mut ctx);
@@ -121,6 +122,7 @@ fn handle_message(
         Message::GoBack => {
             route_on_unmount_from_state(&mut app.state);
             if !app.state.go_back() {
+                // No previous screen remains; treat back as app exit.
                 app.phase = AppPhase::ShuttingDown;
                 app.cancel_token.cancel();
                 return Ok(LoopControl::Exit);
@@ -504,10 +506,11 @@ mod tests {
 
         assert_eq!(result, LoopControl::Continue);
         assert_eq!(app.state.current_screen, Screen::Config);
-        assert!(app
-            .state
-            .shared
-            .animation
-            .has_active_kind(crate::tui::state::animation::EffectKind::ScreenIn));
+        assert!(
+            app.state
+                .shared
+                .animation
+                .has_active_kind(crate::tui::state::animation::EffectKind::ScreenIn)
+        );
     }
 }
