@@ -7,7 +7,7 @@ use crate::commands::types::Screen;
 use crate::tui::theme;
 use crate::tui::traits::screen::Screen as ScreenTrait;
 
-pub fn render(frame: &mut Frame, app: &App) {
+pub fn render(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
 
     // Show "terminal too small" warning if below minimum size.
@@ -55,6 +55,17 @@ pub fn render(frame: &mut Frame, app: &App) {
             app.state.screens.edit_record.view(frame, area);
         }
     }
+
+    // Apply active animation effect to the frame buffer.
+    let area = frame.area();
+    if let Some(active) = app.state.shared.animation.active_effect.as_mut() {
+        active.effect.process(
+            std::time::Duration::from_millis(50).into(),
+            frame.buffer_mut(),
+            area,
+        );
+    }
+    app.state.shared.animation.clear_finished();
 }
 
 fn render_too_small(frame: &mut Frame, area: ratatui::layout::Rect) {

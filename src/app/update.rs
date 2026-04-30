@@ -136,7 +136,7 @@ fn handle_message(
         Message::Tick => {
             // Tick notification state for auto-dismiss.
             app.state.shared.notification.tick();
-            // AnimationState clears itself when expired via is_active().
+            app.state.shared.animation.clear_finished();
         }
 
         // -- Resize (direct) ----------------
