@@ -630,12 +630,11 @@ impl ConfigScreenState {
         } else {
             restore.focused_item.min(item_count - 1)
         };
-        self.sub_item_focus =
-            if self.active_tab == ConfigTab::Security && self.focused_item == 3 {
-                restore.sub_item_focus.filter(|idx| *idx <= 1)
-            } else {
-                None
-            };
+        self.sub_item_focus = if self.active_tab == ConfigTab::Security && self.focused_item == 3 {
+            restore.sub_item_focus.filter(|idx| *idx <= 1)
+        } else {
+            None
+        };
         self.scroll_offset = restore.scroll_offset;
     }
 }

@@ -282,6 +282,18 @@ mod tests {
         let restore = state.to_restore_state();
 
         let mut restored = AuditLogScreenState::default();
+        // Populate entries so that selected_index and scroll_offset aren't clamped to 0
+        let now = chrono::Utc::now();
+        restored.entries = (0..10)
+            .map(|i| crate::types::AuditEntry {
+                id: i as i64,
+                operation: crate::types::AuditOperation::RecordCreate,
+                record_id: None,
+                record_name: None,
+                detail: None,
+                occurred_at: now,
+            })
+            .collect();
         restored.restore_from(restore);
 
         assert_eq!(restored.focused_area, AuditFocus::SearchInput);

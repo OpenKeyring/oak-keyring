@@ -48,15 +48,10 @@ impl AnimationState {
         if self.level == AnimationLevel::None {
             return;
         }
-        if self
-            .active_effect
-            .as_ref()
-            .is_some_and(|active| {
-                !active.interruptible
-                    && active.started_at.elapsed().as_millis()
-                        < active.duration_ms as u128
-            })
-        {
+        if self.active_effect.as_ref().is_some_and(|active| {
+            !active.interruptible
+                && active.started_at.elapsed().as_millis() < active.duration_ms as u128
+        }) {
             return;
         }
         self.active_effect = Some(ActiveEffect {
@@ -101,10 +96,7 @@ mod tests {
     #[test]
     fn clear_finished_removes_expired_effect() {
         let mut state = AnimationState::default();
-        crate::tui::animation::transitions::start_transition(
-            &mut state,
-            EffectKind::ScreenIn,
-        );
+        crate::tui::animation::transitions::start_transition(&mut state, EffectKind::ScreenIn);
         if let Some(active) = state.active_effect.as_mut() {
             active.started_at = std::time::Instant::now()
                 - std::time::Duration::from_millis(active.duration_ms + 1);

@@ -42,26 +42,17 @@ pub fn start_transition(state: &mut AnimationState, kind: EffectKind) {
         EffectKind::UnlockTransition => (
             timing::UNLOCK_TO_MAIN,
             false,
-            crate::tui::animation::effects::dissolve(
-                timing::UNLOCK_TO_MAIN as u32,
-                state.level,
-            ),
+            crate::tui::animation::effects::dissolve(timing::UNLOCK_TO_MAIN as u32, state.level),
         ),
         EffectKind::LockTransition => (
             timing::MAIN_TO_LOCK,
             false,
-            crate::tui::animation::effects::coalesce(
-                timing::MAIN_TO_LOCK as u32,
-                state.level,
-            ),
+            crate::tui::animation::effects::coalesce(timing::MAIN_TO_LOCK as u32, state.level),
         ),
         EffectKind::PageSwitch => (
             timing::PAGE_SWITCH,
             true,
-            crate::tui::animation::effects::slide_in(
-                timing::PAGE_SWITCH as u32,
-                state.level,
-            ),
+            crate::tui::animation::effects::slide_in(timing::PAGE_SWITCH as u32, state.level),
         ),
         EffectKind::ModalAppear => (
             timing::MODAL_APPEAR,
@@ -74,34 +65,22 @@ pub fn start_transition(state: &mut AnimationState, kind: EffectKind) {
         EffectKind::ModalDismiss => (
             timing::MODAL_DISMISS,
             true,
-            crate::tui::animation::effects::dissolve(
-                timing::MODAL_DISMISS as u32,
-                state.level,
-            ),
+            crate::tui::animation::effects::dissolve(timing::MODAL_DISMISS as u32, state.level),
         ),
         EffectKind::BrandDissolve => (
             timing::UNLOCK_TO_MAIN,
             false,
-            crate::tui::animation::effects::dissolve(
-                timing::UNLOCK_TO_MAIN as u32,
-                state.level,
-            ),
+            crate::tui::animation::effects::dissolve(timing::UNLOCK_TO_MAIN as u32, state.level),
         ),
         EffectKind::ScreenIn => (
             timing::SCREEN_IN,
             true,
-            crate::tui::animation::effects::coalesce(
-                timing::SCREEN_IN as u32,
-                state.level,
-            ),
+            crate::tui::animation::effects::coalesce(timing::SCREEN_IN as u32, state.level),
         ),
         EffectKind::ScreenOut => (
             timing::SCREEN_OUT,
             true,
-            crate::tui::animation::effects::dissolve(
-                timing::SCREEN_OUT as u32,
-                state.level,
-            ),
+            crate::tui::animation::effects::dissolve(timing::SCREEN_OUT as u32, state.level),
         ),
     };
 

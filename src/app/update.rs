@@ -379,9 +379,7 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
         }
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
         Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
-        Screen::Config => {
-            state.screens.config.on_mount(ctx)
-        }
+        Screen::Config => state.screens.config.on_mount(ctx),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
         Screen::SetNewMasterPassword => {
             let context = match state.screen_history.last().map(|s| s.screen) {
@@ -417,7 +415,10 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                     crate::tui::screens::import_export::ImportEntryPoint::ConfigPage;
             }
             // Check if navigating from Onboarding Import path (AC18)
-            if matches!(state.screen_history.last().map(|s| s.screen), Some(Screen::Onboarding)) {
+            if matches!(
+                state.screen_history.last().map(|s| s.screen),
+                Some(Screen::Onboarding)
+            ) {
                 state.screens.import_export.mode =
                     crate::tui::screens::import_export::ImportExportMode::Import;
                 state.screens.import_export.entry_point =
@@ -425,18 +426,10 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
             }
             state.screens.import_export.on_mount(ctx)
         }
-        Screen::AuditLog => {
-            state.screens.audit_log.on_mount(ctx)
-        }
-        Screen::SyncConflict => {
-            state.screens.sync_conflict.on_mount(ctx)
-        }
-        Screen::PasswordGenerator => {
-            state.screens.password_generator.on_mount(ctx)
-        }
-        Screen::CreateRecord => {
-            state.screens.create_record.on_mount(ctx)
-        }
+        Screen::AuditLog => state.screens.audit_log.on_mount(ctx),
+        Screen::SyncConflict => state.screens.sync_conflict.on_mount(ctx),
+        Screen::PasswordGenerator => state.screens.password_generator.on_mount(ctx),
+        Screen::CreateRecord => state.screens.create_record.on_mount(ctx),
         Screen::EditRecord { id } => {
             state.screens.edit_record.record_id = Some(id);
             state.screens.edit_record.on_mount(ctx)
@@ -450,9 +443,7 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         Screen::Main => state.screens.main.on_unmount(),
         Screen::Unlock => state.screens.unlock.on_unmount(),
         Screen::Onboarding => state.screens.onboarding.on_unmount(),
-        Screen::Config => {
-            state.screens.config.on_unmount()
-        }
+        Screen::Config => state.screens.config.on_unmount(),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
         Screen::SetNewMasterPassword => state.screens.set_new_master_password.on_unmount(),
         Screen::ImportExport => {
@@ -465,20 +456,10 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
             }
             state.screens.import_export.on_unmount()
         }
-        Screen::AuditLog => {
-            state.screens.audit_log.on_unmount()
-        }
-        Screen::SyncConflict => {
-            state.screens.sync_conflict.on_unmount()
-        }
-        Screen::PasswordGenerator => {
-            state.screens.password_generator.on_unmount()
-        }
-        Screen::CreateRecord => {
-            state.screens.create_record.on_unmount()
-        }
-        Screen::EditRecord { .. } => {
-            state.screens.edit_record.on_unmount()
-        }
+        Screen::AuditLog => state.screens.audit_log.on_unmount(),
+        Screen::SyncConflict => state.screens.sync_conflict.on_unmount(),
+        Screen::PasswordGenerator => state.screens.password_generator.on_unmount(),
+        Screen::CreateRecord => state.screens.create_record.on_unmount(),
+        Screen::EditRecord { .. } => state.screens.edit_record.on_unmount(),
     }
 }

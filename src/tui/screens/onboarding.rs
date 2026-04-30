@@ -380,7 +380,9 @@ impl OnboardingScreen {
     }
 
     fn handle_import_source_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
-        use crate::tui::screens::import_export::{source_needs_password, IMPORT_SOURCES, ImportFocus};
+        use crate::tui::screens::import_export::{
+            source_needs_password, ImportFocus, IMPORT_SOURCES,
+        };
 
         match key.code {
             KeyCode::Up => {
@@ -465,7 +467,11 @@ impl OnboardingScreen {
         }
     }
 
-    fn handle_import_preview_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
+    fn handle_import_preview_key(
+        &mut self,
+        key: KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
         use crate::tui::screens::import_export::IMPORT_SOURCES;
 
         match key.code {
@@ -1092,7 +1098,9 @@ impl OnboardingScreen {
     }
 
     fn view_import_source(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        use crate::tui::screens::import_export::{source_needs_password, IMPORT_SOURCES, ImportFocus};
+        use crate::tui::screens::import_export::{
+            source_needs_password, ImportFocus, IMPORT_SOURCES,
+        };
 
         let content_area = Self::centered_content(area, 20);
         let source = IMPORT_SOURCES[self.selected_source_idx].0;

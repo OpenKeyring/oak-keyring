@@ -107,12 +107,20 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
             state.last_sync,
             focused,
         ),
-        ConfigTab::Security => {
-            super::security::render(frame, content_area, &state.security, focused, state.sub_item_focus)
-        }
-        ConfigTab::Password => {
-            render_password_defaults(frame, content_area, &state.password, focused, state.editing_length)
-        }
+        ConfigTab::Security => super::security::render(
+            frame,
+            content_area,
+            &state.security,
+            focused,
+            state.sub_item_focus,
+        ),
+        ConfigTab::Password => render_password_defaults(
+            frame,
+            content_area,
+            &state.password,
+            focused,
+            state.editing_length,
+        ),
         ConfigTab::About => super::about::render(frame, content_area, &state.about),
     }
 
