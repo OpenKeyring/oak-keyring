@@ -62,7 +62,7 @@ AppState
 ├── shared: SharedState (notification/loading/focus/animation)
 ├── screens: ScreenStates (各屏幕状态实例)
 ├── current_screen: Screen
-└── screen_stack: Vec<Screen> (导航栈)
+└── screen_history: Vec<ScreenSnapshot> (导航历史)
 ```
 
 Per-screen state 文件:

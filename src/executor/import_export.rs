@@ -197,6 +197,8 @@ pub fn handle_execute_export(
         direction: SortDirection::Asc,
     };
 
+    let cancel_token = executor.cancel_token().clone();
+
     let (result_path, record_count) = match executor.import_export.execute_export(
         session_id,
         || {
@@ -208,6 +210,9 @@ pub fn handle_execute_export(
             // Decrypt each record fully to populate export fields.
             let mut export_records = Vec::with_capacity(records.len());
             for r in &records {
+                if cancel_token.is_cancelled() {
+                    return Err("cancelled".to_string());
+                }
                 let decrypted = executor
                     .vault
                     .get_decrypted_record(r.id)
@@ -219,8 +224,16 @@ pub fn handle_execute_export(
         },
         &executor.vault_dir.to_string_lossy(),
     ) {
-        Ok(result) => result,
+        Ok(result) => {
+            if cancel_token.is_cancelled() {
+                return CommandResult::cancelled("export_execute");
+            }
+            result
+        }
         Err(e) => {
+            if cancel_token.is_cancelled() {
+                return CommandResult::cancelled("export_execute");
+            }
             return CommandResult::Error {
                 code: ErrorCode::ImportExport(e.to_string()),
                 context: ErrorContext::default(),

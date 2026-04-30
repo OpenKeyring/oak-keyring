@@ -38,7 +38,7 @@ pub struct ConfigRestoreState {
     pub scroll_offset: u16,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MainRestoreState {
     pub focused_panel: PanelId,
     pub sidebar_selected_index: usize,
@@ -51,7 +51,7 @@ pub struct MainRestoreState {
     pub detail_focused_field: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AuditLogRestoreState {
     pub focused_area: AuditFocus,
     pub selected_index: usize,
@@ -59,7 +59,7 @@ pub struct AuditLogRestoreState {
     pub filter: AuditFilter,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImportExportRestoreState {
     pub mode: ImportExportMode,
     pub entry_point: ImportEntryPoint,
