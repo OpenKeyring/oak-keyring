@@ -39,8 +39,8 @@ pub const ICON_SEARCH: &str = "\u{1F50D}";
 pub const ICON_PROGRESS_FILL: &str = "\u{2588}";
 pub const ICON_PROGRESS_EMPTY: &str = "\u{2591}";
 pub const SPINNER_FRAMES: &[&str] = &[
-    "\u{280B}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283C}",
-    "\u{2834}", "\u{2826}", "\u{2827}", "\u{2807}", "\u{280F}",
+    "\u{280B}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283C}", "\u{2834}", "\u{2826}", "\u{2827}",
+    "\u{2807}", "\u{280F}",
 ];
 
 /// ASCII fallbacks for terminals without Unicode support.

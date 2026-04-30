@@ -19,7 +19,10 @@ impl ProgressBarWidget {
         let (fill_char, empty_char) = if unicode {
             (theme::ICON_PROGRESS_FILL, theme::ICON_PROGRESS_EMPTY)
         } else {
-            (theme::ascii::ICON_PROGRESS_FILL, theme::ascii::ICON_PROGRESS_EMPTY)
+            (
+                theme::ascii::ICON_PROGRESS_FILL,
+                theme::ascii::ICON_PROGRESS_EMPTY,
+            )
         };
 
         let bar = format!(
