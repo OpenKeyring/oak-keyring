@@ -97,11 +97,15 @@ pub fn handle_execute_import(
 
     // Step 3: Execute import with a closure that creates vault records.
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
+    let import_cancel = executor.cancel_token().clone();
 
     let result = match executor.import_export.execute_import(
         session_id,
         existing_keys,
         |cred_type, fields, tags| {
+            if import_cancel.is_cancelled() {
+                return Err("cancelled".to_string());
+            }
             // Build an EncryptedPayload from the field map.
             let payload = fields_to_payload(cred_type, &fields);
             let params = CreateRecordParams {
@@ -117,8 +121,16 @@ pub fn handle_execute_import(
                 .map_err(|e| e.to_string())
         },
     ) {
-        Ok(r) => r,
+        Ok(r) => {
+            if executor.cancel_token().is_cancelled() {
+                return CommandResult::cancelled("import_execute");
+            }
+            r
+        }
         Err(e) => {
+            if executor.cancel_token().is_cancelled() {
+                return CommandResult::cancelled("import_execute");
+            }
             return CommandResult::Error {
                 code: ErrorCode::ImportExport(e.to_string()),
                 context: ErrorContext::default(),

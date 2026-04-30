@@ -193,4 +193,31 @@ mod tests {
 
         assert!(!state.go_back());
     }
+
+    #[test]
+    fn config_audit_log_back_restores_view_audit_sub_item() {
+        use crate::tui::state::config_state::ConfigTab;
+
+        let mut state = AppState::default();
+        state.current_screen = Screen::Config;
+        state.screens.config.state.active_tab = ConfigTab::Security;
+        state.screens.config.state.focused_item = 3;
+        state.screens.config.state.sub_item_focus = Some(1);
+        state.screens.config.state.scroll_offset = 2;
+
+        state.navigate_to(Screen::AuditLog);
+        // Simulate state changes that would happen on the AuditLog screen
+        state.screens.config.state.active_tab = ConfigTab::General;
+        state.screens.config.state.focused_item = 0;
+        state.screens.config.state.sub_item_focus = None;
+        state.screens.config.state.scroll_offset = 0;
+
+        assert!(state.go_back());
+
+        assert_eq!(state.current_screen, Screen::Config);
+        assert_eq!(state.screens.config.state.active_tab, ConfigTab::Security);
+        assert_eq!(state.screens.config.state.focused_item, 3);
+        assert_eq!(state.screens.config.state.sub_item_focus, Some(1));
+        assert_eq!(state.screens.config.state.scroll_offset, 2);
+    }
 }
