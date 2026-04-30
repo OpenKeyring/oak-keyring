@@ -17,9 +17,9 @@ impl ProgressBarWidget {
         let empty = state.width.saturating_sub(filled);
 
         let (fill_char, empty_char) = if unicode {
-            ("\u{2588}", "\u{2591}")
+            (theme::ICON_PROGRESS_FILL, theme::ICON_PROGRESS_EMPTY)
         } else {
-            ("#", "-")
+            (theme::ascii::ICON_PROGRESS_FILL, theme::ascii::ICON_PROGRESS_EMPTY)
         };
 
         let bar = format!(
