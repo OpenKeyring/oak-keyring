@@ -313,6 +313,40 @@ impl ImportExportScreen {
             }
         }
     }
+
+    /// Capture reusable navigation state for this screen (excludes sensitive buffers).
+    pub fn to_restore_state(&self) -> crate::tui::state::ImportExportRestoreState {
+        crate::tui::state::ImportExportRestoreState {
+            mode: self.mode,
+            entry_point: self.entry_point,
+            import_step: self.import_step,
+            selected_source_idx: self.selected_source_idx,
+            import_focus: self.import_focus,
+            export_step: self.export_step,
+            export_focus: self.export_focus,
+            export_scope_option: self.export_scope_option,
+        }
+    }
+
+    /// Restore navigation state from a previously captured restore state.
+    /// Clears sensitive password buffers on restore.
+    pub fn restore_from(&mut self, restore: crate::tui::state::ImportExportRestoreState) {
+        self.mode = restore.mode;
+        self.entry_point = restore.entry_point;
+        self.import_step = restore.import_step;
+        self.selected_source_idx =
+            restore.selected_source_idx.min(IMPORT_SOURCES.len().saturating_sub(1));
+        self.import_focus = restore.import_focus;
+        self.export_step = restore.export_step;
+        self.export_focus = restore.export_focus;
+        self.export_scope_option = restore.export_scope_option;
+
+        // Clear sensitive buffers
+        self.decrypt_password.clear();
+        self.export_password.clear();
+        self.export_confirm_password.clear();
+        self.master_password.clear();
+    }
 }
 
 impl Default for ImportExportScreen {
@@ -2048,5 +2082,37 @@ mod tests {
     fn export_scope_options() {
         let screen = ImportExportScreen::new();
         assert_eq!(screen.export_scope_option, ExportScopeOption::All);
+    }
+
+    #[test]
+    fn import_export_restore_state_restores_navigation_without_sensitive_buffers() {
+        let mut screen = ImportExportScreen::new();
+        screen.mode = ImportExportMode::Export;
+        screen.entry_point = ImportEntryPoint::ConfigPage;
+        screen.import_step = ImportStep::Preview;
+        screen.selected_source_idx = 4;
+        screen.import_focus = ImportFocus::CsvUsername;
+        screen.export_step = ExportStep::MasterPasswordConfirm;
+        screen.export_focus = ExportFocus::ConfirmPassword;
+        screen.export_scope_option = ExportScopeOption::CurrentFilter;
+        screen.decrypt_password = "secret".to_string();
+        screen.export_password = "export-secret".to_string();
+        screen.master_password = "master-secret".to_string();
+
+        let restore = screen.to_restore_state();
+
+        let mut restored = ImportExportScreen::new();
+        restored.restore_from(restore);
+
+        assert_eq!(restored.mode, ImportExportMode::Export);
+        assert_eq!(restored.import_step, ImportStep::Preview);
+        assert_eq!(restored.selected_source_idx, 4);
+        assert_eq!(restored.import_focus, ImportFocus::CsvUsername);
+        assert_eq!(restored.export_step, ExportStep::MasterPasswordConfirm);
+        assert_eq!(restored.export_focus, ExportFocus::ConfirmPassword);
+        assert_eq!(restored.export_scope_option, ExportScopeOption::CurrentFilter);
+        assert!(restored.decrypt_password.is_empty());
+        assert!(restored.export_password.is_empty());
+        assert!(restored.master_password.is_empty());
     }
 }

@@ -464,6 +464,38 @@ impl MainScreenState {
         self.focused_panel = focused_panel;
         self.unicode_capable = unicode_capable;
     }
+
+    /// Capture reusable navigation state for this screen.
+    pub fn to_restore_state(&self, focused_panel: PanelId) -> crate::tui::state::MainRestoreState {
+        crate::tui::state::MainRestoreState {
+            focused_panel,
+            sidebar_selected_index: self.sidebar.selected_index,
+            sidebar_tags_expanded: self.sidebar.tags_expanded,
+            sidebar_tag_scroll_offset: self.sidebar.tag_scroll_offset,
+            list_selected_index: self.list.selected_index,
+            list_scroll_offset: self.list.scroll_offset,
+            current_filter: self.current_filter.clone(),
+            current_sort: self.current_sort.clone(),
+            detail_focused_field: self.detail.focused_field,
+        }
+    }
+
+    /// Restore navigation state from a previously captured restore state.
+    pub fn restore_from(&mut self, restore: crate::tui::state::MainRestoreState) {
+        self.sidebar.tags_expanded = restore.sidebar_tags_expanded;
+        self.sidebar.tag_scroll_offset = restore.sidebar_tag_scroll_offset;
+        self.sidebar.rebuild();
+        self.sidebar.selected_index = restore
+            .sidebar_selected_index
+            .min(self.sidebar.items.len().saturating_sub(1));
+        self.list.selected_index = restore.list_selected_index;
+        self.list.scroll_offset = restore.list_scroll_offset;
+        self.current_filter = restore.current_filter;
+        self.current_sort = restore.current_sort;
+        self.list.sort = self.current_sort.clone();
+        self.detail.focused_field = restore.detail_focused_field;
+        self.focused_panel = restore.focused_panel;
+    }
 }
 
 impl Screen for MainScreenState {
@@ -868,5 +900,29 @@ mod tests {
 
         assert_eq!(state.trash_retention_days, 0);
         assert_eq!(state.detail.trash_retention_days, 0);
+    }
+
+    #[test]
+    fn main_restore_state_restores_navigation_context() {
+        let mut state = MainScreenState::default();
+        state.sidebar.selected_index = 2;
+        state.sidebar.tags_expanded = true;
+        state.sidebar.tag_scroll_offset = 3;
+        state.list.selected_index = Some(4);
+        state.list.scroll_offset = 2;
+        state.detail.focused_field = 5;
+
+        let restore = state.to_restore_state(crate::commands::types::PanelId::Detail);
+
+        let mut restored = MainScreenState::default();
+        restored.restore_from(restore.clone());
+
+        assert_eq!(restore.focused_panel, crate::commands::types::PanelId::Detail);
+        assert_eq!(restored.sidebar.selected_index, 2);
+        assert!(restored.sidebar.tags_expanded);
+        assert_eq!(restored.sidebar.tag_scroll_offset, 3);
+        assert_eq!(restored.list.selected_index, Some(4));
+        assert_eq!(restored.list.scroll_offset, 2);
+        assert_eq!(restored.detail.focused_field, 5);
     }
 }
