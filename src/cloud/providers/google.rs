@@ -1,9 +1,8 @@
 //! Google Drive OAuth2 provider.
 
-use super::OAuth2Provider;
+use crate::cloud::credentials::{google_client_id, google_client_secret};
 
-const BUILT_IN_CLIENT_ID: &str = env!("OAK_GOOGLE_CLIENT_ID");
-const BUILT_IN_CLIENT_SECRET: &str = env!("OAK_GOOGLE_CLIENT_SECRET");
+use super::OAuth2Provider;
 
 /// Google Drive OAuth2 provider.
 #[derive(Debug)]
@@ -22,8 +21,8 @@ impl GoogleDriveProvider {
     /// Create with built-in compiled credentials.
     pub fn new() -> Self {
         Self {
-            client_id: BUILT_IN_CLIENT_ID.to_string(),
-            client_secret: BUILT_IN_CLIENT_SECRET.to_string(),
+            client_id: google_client_id(),
+            client_secret: google_client_secret(),
         }
     }
 

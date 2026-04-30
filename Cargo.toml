@@ -85,6 +85,9 @@ url = "2"
 opendal = { version = "0.55", features = ["services-memory", "services-fs", "services-webdav", "services-s3", "services-sftp", "services-gcs", "services-dropbox", "services-azblob", "services-oss", "services-gdrive"] }
 notify = "7"
 
+# String obfuscation
+obfstr = "0.4"
+
 [dev-dependencies]
 insta = "1"
 mockall = "0.13"

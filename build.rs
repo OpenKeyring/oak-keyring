@@ -1,16 +1,21 @@
-//! Build script: read Google OAuth2 credentials from env or .env file.
+//! Build script: read Google OAuth2 credentials from env or .env file,
+//! generate obfuscated credential helpers via obfstr.
+
+use std::env;
+use std::fs;
+use std::path::Path;
 
 fn main() {
     println!("cargo:rerun-if-changed=locales/");
     println!("cargo:rerun-if-changed=.env");
 
     // Priority 1: OS environment variables
-    let mut client_id = std::env::var("OAK_GOOGLE_CLIENT_ID").unwrap_or_default();
-    let mut client_secret = std::env::var("OAK_GOOGLE_CLIENT_SECRET").unwrap_or_default();
+    let mut client_id = env::var("OAK_GOOGLE_CLIENT_ID").unwrap_or_default();
+    let mut client_secret = env::var("OAK_GOOGLE_CLIENT_SECRET").unwrap_or_default();
 
     // Priority 2: .env file fallback
     if client_id.is_empty() || client_secret.is_empty() {
-        if let Ok(env_content) = std::fs::read_to_string(".env") {
+        if let Ok(env_content) = fs::read_to_string(".env") {
             for line in env_content.lines() {
                 let line = line.trim();
                 if line.starts_with('#') || line.is_empty() {
@@ -44,6 +49,31 @@ fn main() {
         std::process::exit(1);
     }
 
-    println!("cargo:rustc-env=OAK_GOOGLE_CLIENT_ID={}", client_id);
-    println!("cargo:rustc-env=OAK_GOOGLE_CLIENT_SECRET={}", client_secret);
+    // Generate obfuscated credential accessors.
+    // obfstring! requires a string literal, so we generate a source file
+    // with the credentials embedded as literals and include it at compile time.
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let dest = Path::new(&out_dir).join("_obfuscated_credentials.rs");
+
+    let content = format!(
+        r#"/// Returns the compiled-in Google OAuth2 client id (obfuscated in binary).
+pub fn google_client_id() -> String {{
+    obfstr::obfstring!("{client_id}")
+}}
+
+/// Returns the compiled-in Google OAuth2 client secret (obfuscated in binary).
+pub fn google_client_secret() -> String {{
+    obfstr::obfstring!("{client_secret}")
+}}
+"#,
+        client_id = escape_literal(&client_id),
+        client_secret = escape_literal(&client_secret),
+    );
+
+    fs::write(&dest, content).unwrap();
+}
+
+/// Escape special characters for use inside a string literal.
+fn escape_literal(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
