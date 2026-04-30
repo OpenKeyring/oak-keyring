@@ -76,12 +76,24 @@ pub struct ImportExportRestoreState {
 impl crate::tui::state::AppState {
     /// Capture a snapshot of the current screen for restoration.
     pub fn snapshot_current_screen(&self) -> ScreenSnapshot {
-        let focus_path = FocusPath::new(self.shared.focus.focused_panel);
+        let restore_state = match self.current_screen {
+            Screen::Config => {
+                ScreenRestoreState::Config(self.screens.config.state.to_restore_state())
+            }
+            _ => ScreenRestoreState::None,
+        };
+        let focus_path = match &restore_state {
+            ScreenRestoreState::Config(config) => FocusPath::new(self.shared.focus.focused_panel)
+                .with_row(config.focused_item)
+                .with_sub_item(config.sub_item_focus.unwrap_or(0)),
+            _ => FocusPath::new(self.shared.focus.focused_panel),
+        };
+
         ScreenSnapshot {
             screen: self.current_screen,
             focus_path,
             scroll_positions: HashMap::new(),
-            restore_state: ScreenRestoreState::None,
+            restore_state,
         }
     }
 
@@ -103,9 +115,15 @@ impl crate::tui::state::AppState {
         true
     }
 
-    /// Restore focus from a screen snapshot.
+    /// Restore focus and per-screen state from a snapshot.
     pub fn restore_snapshot(&mut self, snapshot: ScreenSnapshot) {
         self.shared.focus.focused_panel = snapshot.focus_path.panel;
+        match snapshot.restore_state {
+            ScreenRestoreState::Config(restore) if snapshot.screen == Screen::Config => {
+                self.screens.config.state.restore_from(restore);
+            }
+            _ => {}
+        }
     }
 }
 

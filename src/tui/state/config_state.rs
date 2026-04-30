@@ -610,6 +610,34 @@ impl ConfigScreenState {
             self.scroll_offset = (item_row - visible_height + 1) as u16;
         }
     }
+
+    /// Capture the config screen state for later restoration.
+    pub fn to_restore_state(&self) -> crate::tui::state::ConfigRestoreState {
+        crate::tui::state::ConfigRestoreState {
+            active_tab: self.active_tab,
+            focused_item: self.focused_item,
+            sub_item_focus: self.sub_item_focus,
+            scroll_offset: self.scroll_offset,
+        }
+    }
+
+    /// Restore config screen state from a snapshot, with bounds clamping.
+    pub fn restore_from(&mut self, restore: crate::tui::state::ConfigRestoreState) {
+        self.active_tab = restore.active_tab;
+        let item_count = self.active_tab.item_count();
+        self.focused_item = if item_count == 0 {
+            0
+        } else {
+            restore.focused_item.min(item_count - 1)
+        };
+        self.sub_item_focus =
+            if self.active_tab == ConfigTab::Security && self.focused_item == 3 {
+                restore.sub_item_focus.filter(|idx| *idx <= 1)
+            } else {
+                None
+            };
+        self.scroll_offset = restore.scroll_offset;
+    }
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -901,5 +929,43 @@ mod tests {
         let options = DropdownField::SyncProvider.options();
         let labels = DropdownField::SyncProvider.display_labels();
         assert_eq!(options.len(), labels.len());
+    }
+
+    #[test]
+    fn config_restore_state_restores_tab_row_sub_item_and_scroll() {
+        let mut state = ConfigScreenState::default();
+        state.active_tab = ConfigTab::General;
+        state.focused_item = 0;
+        state.sub_item_focus = None;
+        state.scroll_offset = 0;
+
+        state.restore_from(crate::tui::state::ConfigRestoreState {
+            active_tab: ConfigTab::Security,
+            focused_item: 3,
+            sub_item_focus: Some(1),
+            scroll_offset: 4,
+        });
+
+        assert_eq!(state.active_tab, ConfigTab::Security);
+        assert_eq!(state.focused_item, 3);
+        assert_eq!(state.sub_item_focus, Some(1));
+        assert_eq!(state.scroll_offset, 4);
+    }
+
+    #[test]
+    fn config_restore_clamps_focused_item_to_active_tab_count() {
+        let mut state = ConfigScreenState::default();
+
+        state.restore_from(crate::tui::state::ConfigRestoreState {
+            active_tab: ConfigTab::Security,
+            focused_item: 99,
+            sub_item_focus: Some(1),
+            scroll_offset: 2,
+        });
+
+        assert_eq!(state.active_tab, ConfigTab::Security);
+        assert_eq!(state.focused_item, ConfigTab::Security.item_count() - 1);
+        assert_eq!(state.sub_item_focus, None);
+        assert_eq!(state.scroll_offset, 2);
     }
 }
