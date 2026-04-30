@@ -171,7 +171,7 @@ fn render_password_defaults(
     // Row index 0: Length (focused == 0)
     if editing_length && focused == 0 {
         let slider_line = crate::tui::components::length_slider::render_length_slider(
-            &t!("tui.config.default_length").to_string(),
+            &t!("tui.config.default_length"),
             form.length,
             8,
             128,

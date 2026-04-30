@@ -242,8 +242,8 @@ fn handle_message(
                     app.state
                         .shared
                         .notification
-                        .enqueue(StatusMessage::error(format!(
-                            "{} 已取消",
+                        .enqueue(StatusMessage::warning(format!(
+                            "{} cancelled",
                             operation
                         )));
                 }

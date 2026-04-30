@@ -27,19 +27,29 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
     };
 
     match sync.sync().await {
-        Ok(report) => CommandResult::SyncCompleted {
-            stats: SyncStats {
-                total: (report.uploaded + report.downloaded) as i64,
-                pending: 0,
-                synced: (report.uploaded + report.downloaded) as i64,
-                conflicts: report.conflicts as i64,
-            },
+        Ok(report) => {
+            if executor.cancel_token().is_cancelled() {
+                return CommandResult::cancelled("sync");
+            }
+            CommandResult::SyncCompleted {
+                stats: SyncStats {
+                    total: (report.uploaded + report.downloaded) as i64,
+                    pending: 0,
+                    synced: (report.uploaded + report.downloaded) as i64,
+                    conflicts: report.conflicts as i64,
+                },
+            }
         },
-        Err(e) => CommandResult::Error {
-            code: ErrorCode::Sync(e.to_string()),
-            context: ErrorContext::default(),
-            message_key: "error.sync_failed",
-            fallback: format!("Sync failed: {}", e),
+        Err(e) => {
+            if executor.cancel_token().is_cancelled() {
+                return CommandResult::cancelled("sync");
+            }
+            CommandResult::Error {
+                code: ErrorCode::Sync(e.to_string()),
+                context: ErrorContext::default(),
+                message_key: "error.sync_failed",
+                fallback: format!("Sync failed: {}", e),
+            }
         },
     }
 }
