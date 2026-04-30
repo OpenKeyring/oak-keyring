@@ -147,6 +147,33 @@ impl AuditOperationFilter {
     }
 }
 
+// ── AuditLogScreenState ──────────────────────────────────────────────────────
+
+impl AuditLogScreenState {
+    /// Capture reusable navigation state for this screen.
+    pub fn to_restore_state(&self) -> crate::tui::state::AuditLogRestoreState {
+        crate::tui::state::AuditLogRestoreState {
+            focused_area: self.focused_area,
+            selected_index: self.selected_index,
+            scroll_offset: self.scroll_offset,
+            filter: self.filter.clone(),
+        }
+    }
+
+    /// Restore navigation state from a previously captured restore state.
+    pub fn restore_from(&mut self, restore: crate::tui::state::AuditLogRestoreState) {
+        self.focused_area = restore.focused_area;
+        self.filter = restore.filter;
+        if self.entries.is_empty() {
+            self.selected_index = 0;
+            self.scroll_offset = 0;
+        } else {
+            self.selected_index = restore.selected_index.min(self.entries.len() - 1);
+            self.scroll_offset = restore.scroll_offset.min(self.selected_index);
+        }
+    }
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -242,5 +269,24 @@ mod tests {
         assert!(filter.matches(&AuditOperation::DekRotated));
         assert!(filter.matches(&AuditOperation::DekRotationFailed));
         assert!(!filter.matches(&AuditOperation::RecordCreate));
+    }
+
+    #[test]
+    fn audit_log_restore_state_restores_focus_filter_selection_and_scroll() {
+        let mut state = AuditLogScreenState::default();
+        state.focused_area = AuditFocus::SearchInput;
+        state.selected_index = 7;
+        state.scroll_offset = 4;
+        state.filter.search = "vault".to_string();
+
+        let restore = state.to_restore_state();
+
+        let mut restored = AuditLogScreenState::default();
+        restored.restore_from(restore);
+
+        assert_eq!(restored.focused_area, AuditFocus::SearchInput);
+        assert_eq!(restored.selected_index, 7);
+        assert_eq!(restored.scroll_offset, 4);
+        assert_eq!(restored.filter.search, "vault");
     }
 }

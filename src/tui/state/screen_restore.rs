@@ -80,6 +80,17 @@ impl crate::tui::state::AppState {
             Screen::Config => {
                 ScreenRestoreState::Config(self.screens.config.state.to_restore_state())
             }
+            Screen::Main => ScreenRestoreState::Main(
+                self.screens
+                    .main
+                    .to_restore_state(self.shared.focus.focused_panel),
+            ),
+            Screen::AuditLog => {
+                ScreenRestoreState::AuditLog(self.screens.audit_log.state.to_restore_state())
+            }
+            Screen::ImportExport => {
+                ScreenRestoreState::ImportExport(self.screens.import_export.to_restore_state())
+            }
             _ => ScreenRestoreState::None,
         };
         let focus_path = match &restore_state {
@@ -121,6 +132,16 @@ impl crate::tui::state::AppState {
         match snapshot.restore_state {
             ScreenRestoreState::Config(restore) if snapshot.screen == Screen::Config => {
                 self.screens.config.state.restore_from(restore);
+            }
+            ScreenRestoreState::Main(restore) if snapshot.screen == Screen::Main => {
+                self.shared.focus.focused_panel = restore.focused_panel;
+                self.screens.main.restore_from(restore);
+            }
+            ScreenRestoreState::AuditLog(restore) if snapshot.screen == Screen::AuditLog => {
+                self.screens.audit_log.state.restore_from(restore);
+            }
+            ScreenRestoreState::ImportExport(restore) if snapshot.screen == Screen::ImportExport => {
+                self.screens.import_export.restore_from(restore);
             }
             _ => {}
         }
