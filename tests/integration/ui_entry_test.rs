@@ -27,13 +27,13 @@ fn app_starts_at_unlock_screen() {
 fn app_state_navigate_to_pushes_stack() {
     let mut state = oak_keyring::tui::state::AppState::default();
     assert_eq!(state.current_screen, Screen::Unlock);
-    assert!(state.screen_stack.is_empty());
+    assert!(state.screen_history.is_empty());
 
     state.navigate_to(Screen::Onboarding);
 
     assert_eq!(state.current_screen, Screen::Onboarding);
-    assert_eq!(state.screen_stack.len(), 1);
-    assert_eq!(state.screen_stack[0], Screen::Unlock);
+    assert_eq!(state.screen_history.len(), 1);
+    assert_eq!(state.screen_history[0].screen, Screen::Unlock);
 }
 
 #[test]
@@ -46,14 +46,14 @@ fn app_state_go_back_pops_stack() {
 
     assert!(result);
     assert_eq!(state.current_screen, Screen::Unlock);
-    assert!(state.screen_stack.is_empty());
+    assert!(state.screen_history.is_empty());
 }
 
 #[test]
 fn app_state_go_back_at_root_returns_false() {
     let mut state = oak_keyring::tui::state::AppState::default();
     assert_eq!(state.current_screen, Screen::Unlock);
-    assert!(state.screen_stack.is_empty());
+    assert!(state.screen_history.is_empty());
 
     let result = state.go_back();
 
@@ -206,15 +206,15 @@ fn set_password_context_from_onboarding_create_path() {
 
     // Navigate to SetNewMasterPassword (simulating route_on_mount logic)
     state.navigate_to(Screen::SetNewMasterPassword);
-    // Verify: screen_stack has Onboarding, selected_path is CreateNew
-    assert_eq!(state.screen_stack.last(), Some(&Screen::Onboarding));
+    // Verify: screen_history has Onboarding, selected_path is CreateNew
+    assert_eq!(state.screen_history.last().map(|s| s.screen), Some(Screen::Onboarding));
     assert_eq!(
         state.screens.onboarding.selected_path,
         Some(OnboardingPath::CreateNew)
     );
 
     // Apply context detection logic (mirrors route_on_mount_from_state)
-    let context = match state.screen_stack.last() {
+    let context = match state.screen_history.last().map(|s| s.screen) {
         Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
         _ => match state.screens.onboarding.selected_path {
             Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
@@ -237,7 +237,7 @@ fn set_password_context_from_onboarding_restore_path() {
 
     state.navigate_to(Screen::SetNewMasterPassword);
 
-    let context = match state.screen_stack.last() {
+    let context = match state.screen_history.last().map(|s| s.screen) {
         Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
         _ => match state.screens.onboarding.selected_path {
             Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
@@ -256,7 +256,7 @@ fn set_password_context_from_onboarding_import_path() {
     state.navigate_to(Screen::SetNewMasterPassword);
 
     // Import path should use OnboardingCreate context
-    let context = match state.screen_stack.last() {
+    let context = match state.screen_history.last().map(|s| s.screen) {
         Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
         _ => match state.screens.onboarding.selected_path {
             Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
@@ -270,10 +270,10 @@ fn set_password_context_from_onboarding_import_path() {
 fn set_password_context_from_unlock_post_recovery() {
     let mut state = oak_keyring::tui::state::AppState::default();
     // Simulate: user unlocks via recovery key on Unlock screen
-    // screen_stack will have Unlock when navigating to SetNewMasterPassword
+    // screen_history will have Unlock when navigating to SetNewMasterPassword
     state.navigate_to(Screen::SetNewMasterPassword);
 
-    let context = match state.screen_stack.last() {
+    let context = match state.screen_history.last().map(|s| s.screen) {
         Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
         _ => match state.screens.onboarding.selected_path {
             Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,

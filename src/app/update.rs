@@ -126,6 +126,10 @@ fn handle_message(
                 app.cancel_token.cancel();
                 return Ok(LoopControl::Exit);
             }
+            crate::tui::animation::transitions::start_transition(
+                &mut app.state.shared.animation,
+                crate::tui::state::animation::EffectKind::ScreenIn,
+            );
         }
 
         // -- Tick (direct) ------------------
@@ -257,6 +261,10 @@ fn handle_message(
                 ScreenResult::PopScreen => {
                     route_on_unmount_from_state(&mut app.state);
                     app.state.go_back();
+                    crate::tui::animation::transitions::start_transition(
+                        &mut app.state.shared.animation,
+                        crate::tui::state::animation::EffectKind::ScreenIn,
+                    );
                     let command_tx = app.command_tx.clone();
                     let mut ctx = ScreenContext {
                         command_tx: &command_tx,
@@ -297,6 +305,10 @@ fn handle_message(
                 ScreenResult::PopScreen => {
                     route_on_unmount_from_state(&mut app.state);
                     app.state.go_back();
+                    crate::tui::animation::transitions::start_transition(
+                        &mut app.state.shared.animation,
+                        crate::tui::state::animation::EffectKind::ScreenIn,
+                    );
                     let command_tx = app.command_tx.clone();
                     let mut ctx = ScreenContext {
                         command_tx: &command_tx,
@@ -368,14 +380,11 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
         Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
         Screen::Config => {
-            // Save current main screen focus panel before entering Config
-            let current_panel = state.shared.focus.focused_panel;
-            state.shared.screen_focus_stack.push(current_panel);
             state.screens.config.on_mount(ctx)
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
         Screen::SetNewMasterPassword => {
-            let context = match state.screen_stack.last() {
+            let context = match state.screen_history.last().map(|s| s.screen) {
                 Some(Screen::Unlock) => {
                     crate::tui::screens::set_password::SetPasswordContext::PostRecovery
                 }
@@ -408,39 +417,27 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                     crate::tui::screens::import_export::ImportEntryPoint::ConfigPage;
             }
             // Check if navigating from Onboarding Import path (AC18)
-            if matches!(state.screen_stack.last(), Some(Screen::Onboarding)) {
+            if matches!(state.screen_history.last().map(|s| s.screen), Some(Screen::Onboarding)) {
                 state.screens.import_export.mode =
                     crate::tui::screens::import_export::ImportExportMode::Import;
                 state.screens.import_export.entry_point =
                     crate::tui::screens::import_export::ImportEntryPoint::Onboarding { step: 2 };
             }
-            let current_panel = state.shared.focus.focused_panel;
-            state.shared.screen_focus_stack.push(current_panel);
             state.screens.import_export.on_mount(ctx)
         }
         Screen::AuditLog => {
-            let current_panel = state.shared.focus.focused_panel;
-            state.shared.screen_focus_stack.push(current_panel);
             state.screens.audit_log.on_mount(ctx)
         }
         Screen::SyncConflict => {
-            let current_panel = state.shared.focus.focused_panel;
-            state.shared.screen_focus_stack.push(current_panel);
             state.screens.sync_conflict.on_mount(ctx)
         }
         Screen::PasswordGenerator => {
-            let current_panel = state.shared.focus.focused_panel;
-            state.shared.screen_focus_stack.push(current_panel);
             state.screens.password_generator.on_mount(ctx)
         }
         Screen::CreateRecord => {
-            let current_panel = state.shared.focus.focused_panel;
-            state.shared.screen_focus_stack.push(current_panel);
             state.screens.create_record.on_mount(ctx)
         }
         Screen::EditRecord { id } => {
-            let current_panel = state.shared.focus.focused_panel;
-            state.shared.screen_focus_stack.push(current_panel);
             state.screens.edit_record.record_id = Some(id);
             state.screens.edit_record.on_mount(ctx)
         }
@@ -454,10 +451,6 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         Screen::Unlock => state.screens.unlock.on_unmount(),
         Screen::Onboarding => state.screens.onboarding.on_unmount(),
         Screen::Config => {
-            // Restore focus panel when leaving Config
-            if let Some(panel) = state.shared.screen_focus_stack.pop() {
-                state.shared.focus.focused_panel = panel;
-            }
             state.screens.config.on_unmount()
         }
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
@@ -470,39 +463,21 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
             ) {
                 state.screens.onboarding.returning_from_import = true;
             }
-            if let Some(panel) = state.shared.screen_focus_stack.pop() {
-                state.shared.focus.focused_panel = panel;
-            }
             state.screens.import_export.on_unmount()
         }
         Screen::AuditLog => {
-            if let Some(panel) = state.shared.screen_focus_stack.pop() {
-                state.shared.focus.focused_panel = panel;
-            }
             state.screens.audit_log.on_unmount()
         }
         Screen::SyncConflict => {
-            if let Some(panel) = state.shared.screen_focus_stack.pop() {
-                state.shared.focus.focused_panel = panel;
-            }
             state.screens.sync_conflict.on_unmount()
         }
         Screen::PasswordGenerator => {
-            if let Some(panel) = state.shared.screen_focus_stack.pop() {
-                state.shared.focus.focused_panel = panel;
-            }
             state.screens.password_generator.on_unmount()
         }
         Screen::CreateRecord => {
-            if let Some(panel) = state.shared.screen_focus_stack.pop() {
-                state.shared.focus.focused_panel = panel;
-            }
             state.screens.create_record.on_unmount()
         }
         Screen::EditRecord { .. } => {
-            if let Some(panel) = state.shared.screen_focus_stack.pop() {
-                state.shared.focus.focused_panel = panel;
-            }
             state.screens.edit_record.on_unmount()
         }
     }
