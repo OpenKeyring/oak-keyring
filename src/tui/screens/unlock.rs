@@ -80,22 +80,23 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
 
     fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
         use ratatui::layout::{Alignment, Constraint, Layout};
+        use ratatui::text::{Line, Span};
         use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
-        // Vertical centering: place content block in the middle third
+        // Vertical centering
         let outer = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(13),
+            Constraint::Length(18),
             Constraint::Fill(1),
         ])
         .split(area);
 
         let center_area = outer[1];
 
-        // Horizontal centering: 50 chars wide
+        // Horizontal centering: 72 chars wide
         let h_layout = Layout::horizontal([
             Constraint::Fill(1),
-            Constraint::Max(50),
+            Constraint::Max(72),
             Constraint::Fill(1),
         ])
         .split(center_area);
@@ -103,8 +104,41 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         let content_area = h_layout[1];
 
         // Brand title
-        let brand = Paragraph::new("OpenKeyring")
-            .style(Styles::brand_text())
+        let brand = Paragraph::new(Line::from(vec![Span::styled(
+            "OpenKeyring",
+            Styles::brand_text().add_modifier(ratatui::style::Modifier::BOLD),
+        )]))
+        .alignment(Alignment::Center);
+
+        // Tagline
+        let tagline_line = Line::from(vec![
+            Span::styled(
+                "Secure",
+                ratatui::style::Style::default().fg(TEXT_SECONDARY),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                "\u{2022}",
+                ratatui::style::Style::default().fg(theme::PRIMARY),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                "Private",
+                ratatui::style::Style::default().fg(TEXT_SECONDARY),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                "\u{2022}",
+                ratatui::style::Style::default().fg(theme::PRIMARY),
+            ),
+            Span::raw("  "),
+            Span::styled("Yours", ratatui::style::Style::default().fg(TEXT_SECONDARY)),
+        ]);
+        let tagline = Paragraph::new(tagline_line).alignment(Alignment::Center);
+
+        // Divider
+        let divider = Paragraph::new("─────────────────────────────────")
+            .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
 
         // Input field — border style changes by state
@@ -116,8 +150,16 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         };
 
         let input_title = match self.mode {
-            UnlockMode::Password => " Password ",
-            UnlockMode::RecoveryKey => " Recovery Key ",
+            UnlockMode::Password => Line::from(" MASTER PASSWORD ")
+                .style(
+                    ratatui::style::Style::default().add_modifier(ratatui::style::Modifier::BOLD),
+                )
+                .alignment(Alignment::Center),
+            UnlockMode::RecoveryKey => Line::from(" RECOVERY KEY ")
+                .style(
+                    ratatui::style::Style::default().add_modifier(ratatui::style::Modifier::BOLD),
+                )
+                .alignment(Alignment::Center),
         };
 
         let display_text = if self.password_input.is_empty() {
@@ -126,13 +168,9 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
             self.masked_input()
         };
 
-        let placeholder = if self.password_input.is_empty() {
-            match self.mode {
-                UnlockMode::Password => t!("tui.entry.unlock_prompt").to_string(),
-                UnlockMode::RecoveryKey => "Enter recovery key words".to_string(),
-            }
-        } else {
-            String::new()
+        let placeholder = match self.mode {
+            UnlockMode::Password => t!("tui.entry.unlock_prompt").to_string(),
+            UnlockMode::RecoveryKey => "Enter your recovery key words\u{2026}".to_string(),
         };
 
         let input_block = Block::default()
@@ -140,15 +178,28 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
             .border_style(border_style)
             .title(input_title);
 
-        let input_text = if display_text.is_empty() {
-            Paragraph::new(placeholder)
-                .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
-                .alignment(Alignment::Left)
+        let input_content = if display_text.is_empty() {
+            Line::from(vec![
+                Span::styled(
+                    format!("{}  ", theme::ICON_LOCK),
+                    ratatui::style::Style::default().fg(theme::PRIMARY),
+                ),
+                Span::styled(
+                    placeholder,
+                    ratatui::style::Style::default().fg(TEXT_PLACEHOLDER),
+                ),
+            ])
         } else {
-            Paragraph::new(display_text)
-                .style(ratatui::style::Style::default().fg(TEXT))
-                .alignment(Alignment::Left)
+            Line::from(vec![
+                Span::styled(
+                    format!("{}  ", theme::ICON_LOCK),
+                    ratatui::style::Style::default().fg(theme::PRIMARY),
+                ),
+                Span::styled(display_text, ratatui::style::Style::default().fg(TEXT)),
+            ])
         };
+
+        let input_text = Paragraph::new(input_content).alignment(Alignment::Left);
 
         // Verifying indicator
         let verifying_text = match &self.state {
@@ -207,96 +258,111 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
             _ => None,
         };
 
-        // Button labels — styled, not interactive
-        let (btn_recovery, btn_unlock) = match self.mode {
-            UnlockMode::Password => (
-                Paragraph::new(format!(" [ {} ] ", t!("tui.entry.recovery_button")))
-                    .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
-                    .alignment(Alignment::Center),
-                Paragraph::new(format!(" [ {} ] ", t!("tui.entry.unlock_button")))
-                    .style(Styles::button_primary())
-                    .alignment(Alignment::Center),
-            ),
-            UnlockMode::RecoveryKey => (
-                Paragraph::new(format!(" [ {} ] ", t!("tui.entry.recovery_back")))
-                    .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
-                    .alignment(Alignment::Center),
-                Paragraph::new(format!(" [ {} ] ", t!("tui.entry.unlock_button")))
-                    .style(Styles::button_primary())
-                    .alignment(Alignment::Center),
-            ),
+        // Hint text
+        let hint_msg = match self.mode {
+            UnlockMode::Password => "Your master password unlocks your encrypted data",
+            UnlockMode::RecoveryKey => "Your recovery key unlocks your encrypted data",
         };
-
-        // Version number
-        let version = Paragraph::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-            .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+        let hint = Paragraph::new(hint_msg)
+            .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
             .alignment(Alignment::Center);
 
+        // Recovery key shortcut
+        let mode_hint = match self.mode {
+            UnlockMode::Password => Line::from(vec![
+                Span::styled(
+                    " [ Tab ] ",
+                    ratatui::style::Style::default()
+                        .fg(ratatui::style::Color::Black)
+                        .bg(ratatui::style::Color::Yellow)
+                        .add_modifier(ratatui::style::Modifier::BOLD),
+                ),
+                Span::raw("  "),
+                Span::styled(
+                    "Press Tab to use recovery key",
+                    ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
+                ),
+            ]),
+            UnlockMode::RecoveryKey => Line::from(vec![
+                Span::styled(
+                    " [ Tab ] ",
+                    ratatui::style::Style::default()
+                        .fg(ratatui::style::Color::Black)
+                        .bg(ratatui::style::Color::Yellow)
+                        .add_modifier(ratatui::style::Modifier::BOLD),
+                ),
+                Span::raw("  "),
+                Span::styled(
+                    "Press Tab to use master password",
+                    ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
+                ),
+            ]),
+        };
+        let mode_hint_widget = Paragraph::new(mode_hint).alignment(Alignment::Center);
+
         // -- Render --
-        // Layout rows:
-        // 0: brand
-        // 1: gap
-        // 2: input with borders (3 lines)
-        // 3: gap
-        // 4: error/lockout-countdown/verifying/success
-        // 5: lockout-count (only during lockout)
-        // 6: gap
-        // 7: button labels
-        // 8: version
-        let is_locked = matches!(self.state, UnlockPhase::LockedOut { .. });
-        let status_rows = if is_locked { 2 } else { 1 };
         let rows = Layout::vertical([
-            Constraint::Length(1),           // 0: brand
-            Constraint::Length(1),           // 1: gap
-            Constraint::Length(3),           // 2: input with borders
-            Constraint::Length(1),           // 3: gap
-            Constraint::Length(1),           // 4: error/lockout-countdown/verifying/success
-            Constraint::Length(status_rows), // 5: lockout-count or gap
-            Constraint::Length(1),           // 6: gap
-            Constraint::Length(1),           // 7: button labels
-            Constraint::Length(1),           // 8: version
+            Constraint::Length(1), // 0: brand
+            Constraint::Length(1), // 1: tagline
+            Constraint::Length(2), // 2: empty + divider
+            Constraint::Length(1), // 3: empty
+            Constraint::Length(5), // 4: input block
+            Constraint::Length(2), // 5: empty + hint
+            Constraint::Length(2), // 6: empty + divider
+            Constraint::Length(2), // 7: empty + status
+            Constraint::Length(2), // 8: empty + mode hint
         ])
         .split(content_area);
 
         frame.render_widget(brand, rows[0]);
-        frame.render_widget(input_block, rows[2]);
+        frame.render_widget(tagline, rows[1]);
 
-        // Render input text inside the bordered area
-        let input_row_inner = Layout::vertical([Constraint::Length(1)]).split(rows[2])[0];
-        let inner_with_padding =
-            Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(input_row_inner);
-        frame.render_widget(input_text, inner_with_padding[1]);
+        let divider_area1 =
+            Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(rows[2])[1];
+        frame.render_widget(divider.clone(), divider_area1);
 
-        // Status row (verifying / error / lockout countdown / success)
-        if let Some(ref t) = verifying_text {
-            frame.render_widget(t.clone(), rows[4]);
-        } else if let Some(ref t) = error_text {
-            frame.render_widget(t.clone(), rows[4]);
-        } else if let Some(ref t) = lockout_countdown {
-            frame.render_widget(t.clone(), rows[4]);
-        } else if let Some(ref t) = success_text {
-            frame.render_widget(t.clone(), rows[4]);
-        }
+        frame.render_widget(input_block, rows[4]);
 
-        // Lockout failure count (second line during lockout)
-        if let Some(ref t) = lockout_count {
-            frame.render_widget(t.clone(), rows[5]);
-        }
-
-        // Button labels — split horizontally for left/right alignment
-        let btn_layout = Layout::horizontal([
-            Constraint::Fill(1),
-            Constraint::Length(20),
+        // Input text centered vertically in the 5-height block (y=2 relative to block)
+        let inner_area = rows[4];
+        let inner_content_y = Layout::vertical([
             Constraint::Length(2),
-            Constraint::Length(12),
+            Constraint::Length(1),
             Constraint::Fill(1),
         ])
-        .split(rows[7]);
-        frame.render_widget(btn_recovery, btn_layout[1]);
-        frame.render_widget(btn_unlock, btn_layout[3]);
+        .split(inner_area)[1];
+        let inner_content_xy = Layout::horizontal([Constraint::Length(2), Constraint::Fill(1)])
+            .split(inner_content_y)[1];
+        frame.render_widget(input_text, inner_content_xy);
 
-        // Version at bottom
-        frame.render_widget(version, rows[8]);
+        let hint_area =
+            Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(rows[5])[1];
+        frame.render_widget(hint, hint_area);
+
+        let divider_area2 =
+            Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(rows[6])[1];
+        frame.render_widget(divider, divider_area2);
+
+        let status_area =
+            Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(rows[7])[1];
+        if let Some(ref t) = verifying_text {
+            frame.render_widget(t.clone(), status_area);
+        } else if let Some(ref t) = error_text {
+            frame.render_widget(t.clone(), status_area);
+        } else if let Some(ref t) = lockout_countdown {
+            let lockout_lines =
+                Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(rows[7]);
+            frame.render_widget(t.clone(), lockout_lines[0]);
+            if let Some(ref c) = lockout_count {
+                frame.render_widget(c.clone(), lockout_lines[1]);
+            }
+        } else if let Some(ref t) = success_text {
+            frame.render_widget(t.clone(), status_area);
+        }
+
+        let mode_hint_area =
+            Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(rows[8])[1];
+        frame.render_widget(mode_hint_widget, mode_hint_area);
     }
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {

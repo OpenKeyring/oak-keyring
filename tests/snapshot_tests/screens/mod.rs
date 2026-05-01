@@ -3,3 +3,4 @@ mod detail_test;
 mod help_test;
 mod set_password_test;
 mod status_bar_test;
+pub mod unlock_test;
