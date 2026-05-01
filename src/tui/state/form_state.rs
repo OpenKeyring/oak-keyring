@@ -14,6 +14,17 @@ pub enum FormMode {
     Edit { record_id: Uuid },
 }
 
+/// Sub-focus within a password/sensitive field.
+/// Tracks which inline button (or the input itself) is focused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordFieldFocus {
+    Input,
+    Show,
+    Copy,
+    Generate,
+    Paste,
+}
+
 /// Expiry options for the dropdown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpiryOption {
@@ -172,6 +183,9 @@ pub struct FormState {
     pub tag_autocomplete: Option<TagAutocompleteState>,
     pub show_weak_password_dialog: bool,
     pub show_unsaved_dialog: bool,
+    /// Sub-focus within the currently focused password/sensitive field.
+    /// Only meaningful when `focused_field` points to a field with inline buttons.
+    pub password_sub_focus: PasswordFieldFocus,
 }
 
 /// Tag autocomplete dropdown state.
@@ -206,6 +220,7 @@ impl FormState {
             tag_autocomplete: None,
             show_weak_password_dialog: false,
             show_unsaved_dialog: false,
+            password_sub_focus: PasswordFieldFocus::Input,
         }
     }
 
@@ -231,6 +246,130 @@ impl FormState {
         }
     }
 
+    /// Get the ordered list of inline buttons for the currently focused field.
+    /// Returns `None` if the focused field does not have inline buttons.
+    pub fn inline_buttons(&self) -> Option<Vec<PasswordFieldFocus>> {
+        let focused = self.focused_field;
+        let ct = self.credential_type;
+        match ct {
+            CredentialType::Login if focused == 4 => Some(vec![
+                PasswordFieldFocus::Generate,
+                PasswordFieldFocus::Show,
+                PasswordFieldFocus::Copy,
+            ]),
+            CredentialType::Api if focused == 4 => {
+                Some(vec![PasswordFieldFocus::Show, PasswordFieldFocus::Copy])
+            }
+            CredentialType::Ssh => match focused {
+                3 => Some(vec![PasswordFieldFocus::Paste, PasswordFieldFocus::Copy]),
+                4 => Some(vec![
+                    PasswordFieldFocus::Show,
+                    PasswordFieldFocus::Paste,
+                    PasswordFieldFocus::Copy,
+                ]),
+                5 => Some(vec![
+                    PasswordFieldFocus::Show,
+                    PasswordFieldFocus::Paste,
+                    PasswordFieldFocus::Copy,
+                ]),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Advance sub-focus to the next inline button.
+    /// Returns `true` if sub-focus moved (meaning the key was consumed).
+    pub fn sub_focus_next(&mut self) -> bool {
+        if let Some(buttons) = self.inline_buttons() {
+            if self.password_sub_focus == PasswordFieldFocus::Input {
+                // Move from input to first button
+                self.password_sub_focus = buttons[0];
+                return true;
+            }
+            if let Some(idx) = buttons.iter().position(|b| *b == self.password_sub_focus) {
+                if idx + 1 < buttons.len() {
+                    self.password_sub_focus = buttons[idx + 1];
+                    return true;
+                }
+            }
+            // Already at last button -- do not consume
+        }
+        false
+    }
+
+    /// Move sub-focus to the previous inline button.
+    /// Returns `true` if sub-focus moved (meaning the key was consumed).
+    pub fn sub_focus_prev(&mut self) -> bool {
+        if let Some(buttons) = self.inline_buttons() {
+            if let Some(idx) = buttons.iter().position(|b| *b == self.password_sub_focus) {
+                if idx > 0 {
+                    self.password_sub_focus = buttons[idx - 1];
+                    return true;
+                }
+                // At first button -- move back to Input
+                self.password_sub_focus = PasswordFieldFocus::Input;
+                return true;
+            }
+            // Not on any button (e.g. Input) -- do not consume
+        }
+        false
+    }
+
+    /// Get the visibility flag for the currently focused sensitive field.
+    pub fn current_field_visible(&self) -> bool {
+        let focused = self.focused_field;
+        let ct = self.credential_type;
+        match ct {
+            CredentialType::Login if focused == 4 => self.fields.password_visible,
+            CredentialType::Api if focused == 4 => self.fields.secret_visible,
+            CredentialType::Ssh => match focused {
+                4 => self.fields.private_visible,
+                5 => self.fields.passphrase_visible,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Toggle visibility for the currently focused sensitive field.
+    pub fn toggle_current_visibility(&mut self) {
+        let focused = self.focused_field;
+        let ct = self.credential_type;
+        match ct {
+            CredentialType::Login if focused == 4 => {
+                self.fields.password_visible = !self.fields.password_visible;
+            }
+            CredentialType::Api if focused == 4 => {
+                self.fields.secret_visible = !self.fields.secret_visible;
+            }
+            CredentialType::Ssh => match focused {
+                4 => self.fields.private_visible = !self.fields.private_visible,
+                5 => self.fields.passphrase_visible = !self.fields.passphrase_visible,
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    /// Get the secret value of the currently focused sensitive field as a string.
+    /// Returns `None` if the focused field is not a sensitive field.
+    pub fn current_secret_value(&self) -> Option<&str> {
+        let focused = self.focused_field;
+        let ct = self.credential_type;
+        match ct {
+            CredentialType::Login if focused == 4 => self.fields.password.as_deref(),
+            CredentialType::Api if focused == 4 => self.fields.secret_key.as_deref(),
+            CredentialType::Ssh => match focused {
+                3 => self.fields.public_key.as_deref(),
+                4 => self.fields.private_key.as_deref(),
+                5 => self.fields.passphrase.as_deref(),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// Get the number of visible fields for current credential type.
     pub fn field_count(&self) -> usize {
         match self.credential_type {
@@ -245,6 +384,7 @@ impl FormState {
         let count = self.field_count();
         if self.focused_field < count - 1 {
             self.focused_field += 1;
+            self.password_sub_focus = PasswordFieldFocus::Input;
         }
     }
 
@@ -252,6 +392,7 @@ impl FormState {
     pub fn focus_prev(&mut self) {
         if self.focused_field > 0 {
             self.focused_field -= 1;
+            self.password_sub_focus = PasswordFieldFocus::Input;
         }
     }
 
@@ -456,5 +597,85 @@ mod tests {
         assert!(state.fields.secret_key.is_none());
         assert!(state.fields.private_key.is_none());
         assert!(state.fields.passphrase.is_none());
+    }
+
+    #[test]
+    fn inline_buttons_login_password() {
+        let state = FormState::new_create();
+        // Login password is field 4
+        assert!(state.inline_buttons().is_none()); // field 0 has no buttons
+        let mut s = state;
+        s.focused_field = 4;
+        let buttons = s.inline_buttons().unwrap();
+        assert_eq!(
+            buttons,
+            vec![
+                PasswordFieldFocus::Generate,
+                PasswordFieldFocus::Show,
+                PasswordFieldFocus::Copy,
+            ]
+        );
+    }
+
+    #[test]
+    fn sub_focus_next_cycles_through_buttons() {
+        let mut state = FormState::new_create();
+        state.focused_field = 4; // Login password
+        assert_eq!(state.password_sub_focus, PasswordFieldFocus::Input);
+        // Right from Input should go to Generate (first button)
+        assert!(state.sub_focus_next());
+        assert_eq!(state.password_sub_focus, PasswordFieldFocus::Generate);
+        assert!(state.sub_focus_next());
+        assert_eq!(state.password_sub_focus, PasswordFieldFocus::Show);
+        assert!(state.sub_focus_next());
+        assert_eq!(state.password_sub_focus, PasswordFieldFocus::Copy);
+        // At last button, should not move
+        assert!(!state.sub_focus_next());
+        assert_eq!(state.password_sub_focus, PasswordFieldFocus::Copy);
+    }
+
+    #[test]
+    fn sub_focus_prev_from_first_button_moves_to_input() {
+        let mut state = FormState::new_create();
+        state.focused_field = 4;
+        state.password_sub_focus = PasswordFieldFocus::Generate;
+        assert!(state.sub_focus_prev());
+        assert_eq!(state.password_sub_focus, PasswordFieldFocus::Input);
+    }
+
+    #[test]
+    fn sub_focus_prev_from_input_does_not_move() {
+        let mut state = FormState::new_create();
+        state.focused_field = 4;
+        state.password_sub_focus = PasswordFieldFocus::Input;
+        assert!(!state.sub_focus_prev());
+    }
+
+    #[test]
+    fn toggle_visibility_login_password() {
+        let mut state = FormState::new_create();
+        state.focused_field = 4;
+        assert!(!state.current_field_visible());
+        state.toggle_current_visibility();
+        assert!(state.current_field_visible());
+        state.toggle_current_visibility();
+        assert!(!state.current_field_visible());
+    }
+
+    #[test]
+    fn current_secret_value_returns_password() {
+        let mut state = FormState::new_create();
+        state.fields.password = Some("hunter2".into());
+        state.focused_field = 4;
+        assert_eq!(state.current_secret_value(), Some("hunter2"));
+    }
+
+    #[test]
+    fn focus_next_resets_sub_focus() {
+        let mut state = FormState::new_create();
+        state.focused_field = 4;
+        state.password_sub_focus = PasswordFieldFocus::Show;
+        state.focus_next(); // moves to field 5
+        assert_eq!(state.password_sub_focus, PasswordFieldFocus::Input);
     }
 }

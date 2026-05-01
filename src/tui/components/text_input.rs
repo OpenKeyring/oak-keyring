@@ -5,6 +5,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::tui::state::form_state::PasswordFieldFocus;
 use crate::tui::theme;
 
 /// Render a labeled text input field.
@@ -53,32 +54,55 @@ pub fn render_text_input(
     ])]
 }
 
+/// A button descriptor for password input inline buttons.
+pub struct PasswordButton {
+    pub label: &'static str,
+    pub focus_variant: PasswordFieldFocus,
+}
+
 /// Render a masked input with action buttons.
+///
+/// When `visible` is true, the value is shown as plaintext instead of bullets.
+/// The button matching `focused_button` (if any) is rendered with reversed highlight.
+#[allow(clippy::too_many_arguments)]
 pub fn render_password_input_with_buttons(
     label: &str,
     value: &str,
-    _focused: bool,
+    focused: bool,
     _has_error: bool,
-    buttons: &[(&str, bool)], // (label, is_focused)
+    visible: bool,
+    buttons: &[PasswordButton],
+    focused_button: Option<PasswordFieldFocus>,
     width: u16,
 ) -> Vec<Line<'static>> {
-    let display_value = "\u{2022}".repeat(value.chars().count());
+    let display_value = if visible {
+        value.to_string()
+    } else {
+        "\u{2022}".repeat(value.chars().count())
+    };
     let input_width = width.saturating_sub(label.len() as u16 + buttons.len() as u16 * 12 + 4);
     let padded = format!("{:<width$}", display_value, width = input_width as usize);
+
+    let input_style = if focused {
+        Style::default()
+            .fg(theme::TEXT)
+            .bg(theme::BG_SURFACE)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE)
+    };
 
     let mut spans = vec![
         Span::styled(
             format!("  {} ", label),
             Style::default().fg(theme::TEXT_SECONDARY),
         ),
-        Span::styled(
-            format!("[{}]", padded),
-            Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE),
-        ),
+        Span::styled(format!("[{}]", padded), input_style),
     ];
 
-    for (btn_label, btn_focused) in buttons {
-        let style = if *btn_focused {
+    for btn in buttons {
+        let is_focused = focused_button == Some(btn.focus_variant);
+        let style = if is_focused {
             Style::default()
                 .fg(theme::PRIMARY)
                 .add_modifier(Modifier::REVERSED)
@@ -86,7 +110,7 @@ pub fn render_password_input_with_buttons(
             Style::default().fg(theme::PRIMARY)
         };
         spans.push(Span::raw(" "));
-        spans.push(Span::styled(format!("[ {} ]", btn_label), style));
+        spans.push(Span::styled(format!("[ {} ]", btn.label), style));
     }
 
     vec![Line::from(spans)]
@@ -114,5 +138,38 @@ mod tests {
         let lines = render_text_input("pass", "secret", false, false, true, true, 60);
         let text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"));
+    }
+
+    #[test]
+    fn render_password_input_visible_shows_plaintext() {
+        let buttons = [
+            PasswordButton {
+                label: "显示",
+                focus_variant: PasswordFieldFocus::Show,
+            },
+            PasswordButton {
+                label: "复制",
+                focus_variant: PasswordFieldFocus::Copy,
+            },
+        ];
+        let lines = render_password_input_with_buttons(
+            "密码", "hunter2", false, false, true, &buttons, None, 60,
+        );
+        let text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("hunter2"));
+    }
+
+    #[test]
+    fn render_password_input_masked_shows_bullets() {
+        let buttons = [PasswordButton {
+            label: "显示",
+            focus_variant: PasswordFieldFocus::Show,
+        }];
+        let lines = render_password_input_with_buttons(
+            "密码", "secret", false, false, false, &buttons, None, 60,
+        );
+        let text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(!text.contains("secret"));
+        assert!(text.contains("\u{2022}"));
     }
 }

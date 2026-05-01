@@ -70,6 +70,24 @@ impl CreateRecordScreen {
                 self.form.focus_prev();
                 ScreenResult::Continue
             }
+            KeyCode::Right => {
+                if self.form.sub_focus_next() {
+                    ScreenResult::Continue
+                } else {
+                    // Right at end of buttons → move to next field
+                    self.form.focus_next();
+                    ScreenResult::Continue
+                }
+            }
+            KeyCode::Left => {
+                if self.form.sub_focus_prev() {
+                    ScreenResult::Continue
+                } else {
+                    // Left at start of buttons → move to prev field
+                    self.form.focus_prev();
+                    ScreenResult::Continue
+                }
+            }
             KeyCode::Esc => {
                 if self.form.has_changes {
                     self.form.show_unsaved_dialog = true;
@@ -108,6 +126,38 @@ impl CreateRecordScreen {
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 
+        // Check inline button actions first
+        match self.form.password_sub_focus {
+            crate::tui::state::form_state::PasswordFieldFocus::Show => {
+                self.form.toggle_current_visibility();
+                return ScreenResult::Continue;
+            }
+            crate::tui::state::form_state::PasswordFieldFocus::Copy => {
+                if let Some(value) = self.form.current_secret_value() {
+                    if !value.is_empty() {
+                        use crate::types::sensitive::SecureStr;
+                        let val = value.to_string();
+                        return ScreenResult::Command(Box::new(Command::CopyRawToClipboard {
+                            value: SecureStr::new(val),
+                        }));
+                    }
+                }
+                return ScreenResult::Continue;
+            }
+            crate::tui::state::form_state::PasswordFieldFocus::Generate => {
+                // Only Login password field has Generate button
+                if ct == CredentialType::Login && focused == 4 {
+                    self.generator.expand();
+                    return ScreenResult::Continue;
+                }
+            }
+            crate::tui::state::form_state::PasswordFieldFocus::Paste => {
+                // Paste is not wired to a command here -- future clipboard paste support
+                return ScreenResult::Continue;
+            }
+            crate::tui::state::form_state::PasswordFieldFocus::Input => {}
+        }
+
         // Check if focused on a dropdown field - toggle it
         if focused == 0 && self.form.is_credential_type_editable() {
             self.form.credential_dropdown.expanded = true;
@@ -140,6 +190,12 @@ impl CreateRecordScreen {
     }
 
     fn handle_char_input(&mut self, c: char) -> ScreenResult {
+        // If sub-focus is on a button, don't accept text input
+        if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
+        {
+            return ScreenResult::Continue;
+        }
+
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 
@@ -236,6 +292,12 @@ impl CreateRecordScreen {
     }
 
     fn handle_backspace(&mut self) -> ScreenResult {
+        // If sub-focus is on a button, don't delete text
+        if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
+        {
+            return ScreenResult::Continue;
+        }
+
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 
