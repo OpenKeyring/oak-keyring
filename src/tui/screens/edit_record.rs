@@ -79,6 +79,22 @@ impl EditRecordScreen {
                 self.form.focus_prev();
                 ScreenResult::Continue
             }
+            KeyCode::Right => {
+                if self.form.sub_focus_next() {
+                    ScreenResult::Continue
+                } else {
+                    self.form.focus_next();
+                    ScreenResult::Continue
+                }
+            }
+            KeyCode::Left => {
+                if self.form.sub_focus_prev() {
+                    ScreenResult::Continue
+                } else {
+                    self.form.focus_prev();
+                    ScreenResult::Continue
+                }
+            }
             KeyCode::Esc => {
                 if self.form.has_changes {
                     self.form.show_unsaved_dialog = true;
@@ -116,6 +132,37 @@ impl EditRecordScreen {
     fn handle_enter(&mut self) -> ScreenResult {
         let ct = self.form.credential_type;
 
+        // Check inline button actions first
+        match self.form.password_sub_focus {
+            crate::tui::state::form_state::PasswordFieldFocus::Show => {
+                self.form.toggle_current_visibility();
+                return ScreenResult::Continue;
+            }
+            crate::tui::state::form_state::PasswordFieldFocus::Copy => {
+                if let Some(value) = self.form.current_secret_value() {
+                    if !value.is_empty() {
+                        use crate::types::sensitive::SecureStr;
+                        let val = value.to_string();
+                        return ScreenResult::Command(Box::new(Command::CopyRawToClipboard {
+                            value: SecureStr::new(val),
+                        }));
+                    }
+                }
+                return ScreenResult::Continue;
+            }
+            crate::tui::state::form_state::PasswordFieldFocus::Generate => {
+                // Only Login password field has Generate button
+                if ct == CredentialType::Login && self.form.focused_field == 4 {
+                    self.generator.expand();
+                    return ScreenResult::Continue;
+                }
+            }
+            crate::tui::state::form_state::PasswordFieldFocus::Paste => {
+                return ScreenResult::Continue;
+            }
+            crate::tui::state::form_state::PasswordFieldFocus::Input => {}
+        }
+
         // Toggle expiry dropdown on Enter
         let expiry_idx = match ct {
             CredentialType::Login | CredentialType::Api => 5,
@@ -144,6 +191,12 @@ impl EditRecordScreen {
     }
 
     fn handle_char_input(&mut self, c: char) -> ScreenResult {
+        // If sub-focus is on a button, don't accept text input
+        if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
+        {
+            return ScreenResult::Continue;
+        }
+
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 
@@ -240,6 +293,12 @@ impl EditRecordScreen {
     }
 
     fn handle_backspace(&mut self) -> ScreenResult {
+        // If sub-focus is on a button, don't delete text
+        if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
+        {
+            return ScreenResult::Continue;
+        }
+
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 

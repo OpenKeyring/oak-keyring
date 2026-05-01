@@ -8,8 +8,9 @@ use ratatui::{
     Frame,
 };
 
+use crate::tui::components::text_input::PasswordButton;
 use crate::tui::components::{dropdown, strength_bar, tag_input, text_input};
-use crate::tui::state::form_state::{ExpiryOption, FormState};
+use crate::tui::state::form_state::{ExpiryOption, FormState, PasswordFieldFocus};
 use crate::tui::theme;
 use crate::types::credential::CredentialType;
 
@@ -123,12 +124,32 @@ pub fn render_form(
 
             // Field 4: Password (special rendering with buttons)
             let pw_error = state.validation_errors.iter().find(|e| e.field_index == 4);
+            let login_buttons = [
+                PasswordButton {
+                    label: "生成",
+                    focus_variant: PasswordFieldFocus::Generate,
+                },
+                PasswordButton {
+                    label: "显示",
+                    focus_variant: PasswordFieldFocus::Show,
+                },
+                PasswordButton {
+                    label: "复制",
+                    focus_variant: PasswordFieldFocus::Copy,
+                },
+            ];
             let password_row = text_input::render_password_input_with_buttons(
                 "密码",
                 state.fields.password.as_deref().unwrap_or(""),
                 focused == 4,
                 pw_error.is_some(),
-                &[("生成", false), ("显示", false), ("复制", false)],
+                state.fields.password_visible,
+                &login_buttons,
+                if focused == 4 {
+                    Some(state.password_sub_focus)
+                } else {
+                    None
+                },
                 area.width,
             );
             lines.extend(password_row);
@@ -174,12 +195,28 @@ pub fn render_form(
             lines.push(Line::raw(""));
 
             // Field 4: SecretKey
+            let api_buttons = [
+                PasswordButton {
+                    label: "显示",
+                    focus_variant: PasswordFieldFocus::Show,
+                },
+                PasswordButton {
+                    label: "复制",
+                    focus_variant: PasswordFieldFocus::Copy,
+                },
+            ];
             let secret_row = text_input::render_password_input_with_buttons(
                 "SecretKey",
                 state.fields.secret_key.as_deref().unwrap_or(""),
                 focused == 4,
                 false,
-                &[("显示", false), ("复制", false)],
+                state.fields.secret_visible,
+                &api_buttons,
+                if focused == 4 {
+                    Some(state.password_sub_focus)
+                } else {
+                    None
+                },
                 area.width,
             );
             lines.extend(secret_row);
@@ -187,12 +224,28 @@ pub fn render_form(
         CredentialType::Ssh => {
             // Field 3: Public Key
             let pubkey_error = state.validation_errors.iter().find(|e| e.field_index == 3);
+            let pubkey_buttons = [
+                PasswordButton {
+                    label: "粘贴",
+                    focus_variant: PasswordFieldFocus::Paste,
+                },
+                PasswordButton {
+                    label: "复制",
+                    focus_variant: PasswordFieldFocus::Copy,
+                },
+            ];
             lines.extend(text_input::render_password_input_with_buttons(
                 "公钥",
                 state.fields.public_key.as_deref().unwrap_or(""),
                 focused == 3,
                 pubkey_error.is_some(),
-                &[("粘贴", false), ("复制", false)],
+                true, // public key is always visible
+                &pubkey_buttons,
+                if focused == 3 {
+                    Some(state.password_sub_focus)
+                } else {
+                    None
+                },
                 area.width,
             ));
             if let Some(err) = pubkey_error {
@@ -201,12 +254,32 @@ pub fn render_form(
             lines.push(Line::raw(""));
 
             // Field 4: Private Key
+            let privkey_buttons = [
+                PasswordButton {
+                    label: "显示",
+                    focus_variant: PasswordFieldFocus::Show,
+                },
+                PasswordButton {
+                    label: "粘贴",
+                    focus_variant: PasswordFieldFocus::Paste,
+                },
+                PasswordButton {
+                    label: "复制",
+                    focus_variant: PasswordFieldFocus::Copy,
+                },
+            ];
             lines.extend(text_input::render_password_input_with_buttons(
                 "私钥",
                 state.fields.private_key.as_deref().unwrap_or(""),
                 focused == 4,
                 false,
-                &[("显示", false), ("粘贴", false), ("复制", false)],
+                state.fields.private_visible,
+                &privkey_buttons,
+                if focused == 4 {
+                    Some(state.password_sub_focus)
+                } else {
+                    None
+                },
                 area.width,
             ));
             lines.push(Line::from(Span::styled(
@@ -216,12 +289,32 @@ pub fn render_form(
             lines.push(Line::raw(""));
 
             // Field 5: Passphrase
+            let passphrase_buttons = [
+                PasswordButton {
+                    label: "显示",
+                    focus_variant: PasswordFieldFocus::Show,
+                },
+                PasswordButton {
+                    label: "粘贴",
+                    focus_variant: PasswordFieldFocus::Paste,
+                },
+                PasswordButton {
+                    label: "复制",
+                    focus_variant: PasswordFieldFocus::Copy,
+                },
+            ];
             lines.extend(text_input::render_password_input_with_buttons(
                 "Passphrase",
                 state.fields.passphrase.as_deref().unwrap_or(""),
                 focused == 5,
                 false,
-                &[("显示", false), ("粘贴", false), ("复制", false)],
+                state.fields.passphrase_visible,
+                &passphrase_buttons,
+                if focused == 5 {
+                    Some(state.password_sub_focus)
+                } else {
+                    None
+                },
                 area.width,
             ));
             lines.push(Line::from(Span::styled(
