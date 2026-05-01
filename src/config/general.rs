@@ -30,6 +30,25 @@ fn default_vault_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("open-keyring")
 }
+
+/// Returns the default vault path as a PathBuf for filesystem operations.
+pub fn default_vault_pathbuf() -> PathBuf {
+    default_vault_path()
+}
+
+/// Returns the default vault path as a user-facing display string.
+/// Replaces the home directory prefix with `~` for compact display.
+pub fn default_vault_path_display() -> String {
+    let path = default_vault_path();
+    if let Some(home) = dirs::home_dir() {
+        let path_str = path.to_string_lossy();
+        let home_str = home.to_string_lossy();
+        if let Some(rest) = path_str.strip_prefix(home_str.as_ref()) {
+            return format!("~{}", rest);
+        }
+    }
+    path.to_string_lossy().to_string()
+}
 fn default_auto_lock() -> u64 {
     300
 }

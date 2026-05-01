@@ -85,6 +85,16 @@ pub struct OnboardingScreen {
     pub import_password: String,
     pub import_focus: crate::tui::screens::import_export::ImportFocus,
     pub import_preview: Option<ImportPreview>,
+    // VaultPath step state
+    /// Whether the path input is in editable (custom) mode.
+    pub vault_path_editable: bool,
+    /// Focus index for VaultPath step: 0=Use default button, 1=Custom button, 2=Path input (when editable).
+    pub vault_path_focus: usize,
+}
+
+/// Returns the default vault path as a display string for the VaultPath step.
+fn default_vault_path_display() -> String {
+    crate::config::general::default_vault_path_display()
 }
 
 impl Default for OnboardingScreen {
@@ -108,6 +118,8 @@ impl Default for OnboardingScreen {
             import_password: String::new(),
             import_focus: ImportFocus::SourceList,
             import_preview: None,
+            vault_path_editable: false,
+            vault_path_focus: 0,
         }
     }
 }
@@ -132,6 +144,97 @@ impl OnboardingScreen {
         self.verify_positions = positions;
         self.verify_inputs = std::array::from_fn(|_| String::new());
         self.verify_errors = [false; 4];
+    }
+
+    /// Validate the current vault path and return a status message and severity.
+    ///
+    /// Returns `Some((message, is_error))` where `is_error` is true for blocking errors.
+    fn validate_vault_path(&self) -> Option<(String, bool)> {
+        let path = self.resolved_vault_pathbuf();
+        if path.as_os_str().is_empty() {
+            return None;
+        }
+
+        if path.exists() {
+            if !path.is_dir() {
+                return Some(("Path exists but is not a directory".to_string(), true));
+            }
+
+            // Check write permission
+            let write_target = path.join(".oak_write_test_tmp");
+            let writable = std::fs::write(&write_target, b"").is_ok();
+            if writable {
+                let _ = std::fs::remove_file(&write_target);
+            } else {
+                return Some(("No write permission for this directory".to_string(), true));
+            }
+
+            // Check if directory is non-empty
+            match std::fs::read_dir(path) {
+                Ok(mut entries) => {
+                    if entries.next().is_some() {
+                        return Some((
+                            "Directory is not empty — files may be overwritten".to_string(),
+                            false,
+                        ));
+                    }
+                }
+                Err(e) => {
+                    return Some((format!("Cannot read directory: {}", e), true));
+                }
+            }
+
+            Some(("Path is valid".to_string(), false))
+        } else {
+            // Path does not exist — check if parent is writable
+            match path.parent() {
+                Some(parent) if !parent.as_os_str().is_empty() => {
+                    if parent.exists() {
+                        let write_target = parent.join(".oak_write_test_tmp");
+                        let writable = std::fs::write(&write_target, b"").is_ok();
+                        if writable {
+                            let _ = std::fs::remove_file(&write_target);
+                        }
+                        if !writable {
+                            return Some((
+                                "No write permission for parent directory".to_string(),
+                                true,
+                            ));
+                        }
+                        Some(("Directory will be created automatically".to_string(), false))
+                    } else {
+                        // Parent also does not exist — check ancestor chain
+                        match parent.parent() {
+                            Some(grandparent) if !grandparent.as_os_str().is_empty() => {
+                                let write_target = grandparent.join(".oak_write_test_tmp");
+                                let writable = std::fs::write(&write_target, b"").is_ok();
+                                if writable {
+                                    let _ = std::fs::remove_file(&write_target);
+                                }
+                                if !writable {
+                                    return Some((
+                                        "Cannot create directory path".to_string(),
+                                        true,
+                                    ));
+                                }
+                                Some(("Directory will be created automatically".to_string(), false))
+                            }
+                            _ => Some(("Invalid path".to_string(), true)),
+                        }
+                    }
+                }
+                _ => Some(("Invalid path".to_string(), true)),
+            }
+        }
+    }
+
+    /// Resolve the actual vault path as a PathBuf for filesystem operations.
+    fn resolved_vault_pathbuf(&self) -> std::path::PathBuf {
+        if self.path_input.is_empty() {
+            crate::config::general::default_vault_pathbuf()
+        } else {
+            std::path::PathBuf::from(&self.path_input)
+        }
     }
 
     /// Total steps for the current path (including Welcome).
@@ -223,15 +326,74 @@ impl OnboardingScreen {
     }
 
     fn handle_vault_path_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
+        if self.vault_path_editable {
+            self.handle_vault_path_editable_key(key, ctx)
+        } else {
+            self.handle_vault_path_button_key(key, ctx)
+        }
+    }
+
+    /// Handle key events when VaultPath is in non-editable (button) mode.
+    fn handle_vault_path_button_key(
+        &mut self,
+        key: KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
+        match key.code {
+            KeyCode::Tab | KeyCode::Right => {
+                self.vault_path_focus = (self.vault_path_focus + 1) % 2;
+                ScreenResult::Continue
+            }
+            KeyCode::BackTab | KeyCode::Left => {
+                self.vault_path_focus = (self.vault_path_focus + 1) % 2;
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => match self.vault_path_focus {
+                0 => {
+                    // "Use default path" — use the default and advance
+                    self.path_input.clear();
+                    self.advance_from_vault_path(ctx);
+                    ScreenResult::Continue
+                }
+                1 => {
+                    // "Custom path..." — switch to editable mode
+                    self.vault_path_editable = true;
+                    self.vault_path_focus = 2;
+                    self.path_input.clear();
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            KeyCode::Esc => {
+                self.current_step = OnboardingStep::Welcome;
+                ScreenResult::Continue
+            }
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    /// Handle key events when VaultPath is in editable (custom path input) mode.
+    fn handle_vault_path_editable_key(
+        &mut self,
+        key: KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
         match key.code {
             KeyCode::Enter => {
-                if !self.path_input.is_empty() {
+                // Only advance if path validation passes (no blocking errors)
+                let can_advance = self
+                    .validate_vault_path()
+                    .map(|(_, is_error)| !is_error)
+                    .unwrap_or(false);
+                if can_advance && !self.path_input.is_empty() {
                     self.advance_from_vault_path(ctx);
                 }
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::Welcome;
+                // Return to non-editable button mode
+                self.vault_path_editable = false;
+                self.vault_path_focus = 1;
                 ScreenResult::Continue
             }
             KeyCode::Backspace => {
@@ -247,10 +409,11 @@ impl OnboardingScreen {
     }
 
     fn advance_from_vault_path(&mut self, ctx: &mut ScreenContext) {
+        // Resolve the actual path to use (default if input is empty)
+        let vault_path = self.resolved_vault_pathbuf();
+
         match self.selected_path {
             Some(OnboardingPath::CreateNew) => {
-                // Send InitializeVault to create the vault and get recovery words
-                let vault_path = std::path::PathBuf::from(&self.path_input);
                 let password = SecureStr::new(String::new());
                 let cmd = Command::InitializeVault {
                     vault_path,
@@ -628,6 +791,8 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.import_password.clear();
         self.import_focus = crate::tui::screens::import_export::ImportFocus::SourceList;
         self.import_preview = None;
+        self.vault_path_editable = false;
+        self.vault_path_focus = 0;
     }
 
     fn on_unmount(&mut self) {
@@ -635,6 +800,8 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.path_input.clear();
         self.error = None;
         self.recovery_confirmed = false;
+        self.vault_path_editable = false;
+        self.vault_path_focus = 0;
         self.recovery_words.zeroize();
         self.recovery_words.clear();
         self.recovery_grid.zeroize();
@@ -790,14 +957,18 @@ impl OnboardingScreen {
     }
 
     fn view_vault_path(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        let content_area = Self::centered_content(area, 10);
+        let content_area = Self::centered_content(area, 14);
 
         let rows = Layout::vertical([
             Constraint::Length(1), // title
             Constraint::Length(1), // gap
-            Constraint::Length(3), // input with borders
+            Constraint::Length(1), // description
             Constraint::Length(1), // gap
-            Constraint::Length(1), // error
+            Constraint::Length(3), // path display / input with borders
+            Constraint::Length(1), // gap
+            Constraint::Length(1), // validation status
+            Constraint::Length(1), // gap
+            Constraint::Length(1), // buttons (non-editable) or hint (editable)
             Constraint::Length(1), // gap
             Constraint::Length(1), // hint
             Constraint::Length(1), // step indicator
@@ -805,43 +976,134 @@ impl OnboardingScreen {
         .split(content_area);
 
         // Title
-        let title = Paragraph::new("Vault Location")
+        let title = Paragraph::new("Vault Storage")
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
         frame.render_widget(title, rows[0]);
 
-        // Input field
-        let input_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Styles::focused_border())
-            .title(" Path ");
+        // Description
+        let desc = Paragraph::new("Choose where to store the encrypted database and config files.")
+            .style(Style::default().fg(TEXT_SECONDARY))
+            .alignment(Alignment::Center);
+        frame.render_widget(desc, rows[2]);
 
-        let display_text = if self.path_input.is_empty() {
-            let placeholder = "~/.local/share/open-keyring/vault.db";
-            Paragraph::new(placeholder).style(Style::default().fg(TEXT_PLACEHOLDER))
+        // Path display / input field
+        let (border_style, display_text) = if self.vault_path_editable {
+            // Editable mode — show actual input with cursor
+            let input_style = if self.path_input.is_empty() {
+                Style::default().fg(TEXT_PLACEHOLDER)
+            } else {
+                Style::default().fg(TEXT)
+            };
+            let text = if self.path_input.is_empty() {
+                "Enter custom path...".to_string()
+            } else {
+                format!("{}_", self.path_input)
+            };
+            (
+                Styles::focused_border(),
+                Paragraph::new(text).style(input_style),
+            )
         } else {
-            Paragraph::new(self.path_input.as_str()).style(Style::default().fg(TEXT))
+            // Read-only mode — show default or chosen path
+            (
+                Style::default().fg(BORDER),
+                Paragraph::new(default_vault_path_display())
+                    .style(Style::default().fg(TEXT_SECONDARY)),
+            )
         };
 
-        frame.render_widget(input_block, rows[2]);
+        let input_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style)
+            .title(" Vault Path ");
 
-        // Render input text inside the bordered area
-        let inner = Layout::vertical([Constraint::Length(1)]).split(rows[2])[0];
+        frame.render_widget(input_block, rows[4]);
+
+        // Render text inside the bordered area
+        let inner = Layout::vertical([Constraint::Length(1)]).split(rows[4])[0];
         let padded = Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(inner);
         frame.render_widget(display_text, padded[1]);
 
-        // Error
+        // Validation status (show when no command error is present)
+        if self.error.is_none() {
+            if let Some((msg, is_error)) = self.validate_vault_path() {
+                let icon = if is_error {
+                    theme::ICON_ERROR
+                } else {
+                    match msg.as_str() {
+                        "Path is valid" => theme::ICON_SUCCESS,
+                        _ => theme::ICON_WARNING,
+                    }
+                };
+                let style = if is_error {
+                    Styles::error_text()
+                } else {
+                    match msg.as_str() {
+                        "Path is valid" => Styles::success_text(),
+                        _ => Styles::warning_text(),
+                    }
+                };
+                let status = Paragraph::new(format!("{} {}", icon, msg)).style(style);
+                frame.render_widget(status, rows[6]);
+            }
+        }
+
+        // Error from command result (takes precedence)
         if let Some(ref err) = self.error {
             let error_text = Paragraph::new(format!("{} {}", theme::ICON_ERROR, err))
                 .style(Styles::error_text());
-            frame.render_widget(error_text, rows[4]);
+            frame.render_widget(error_text, rows[6]);
+        }
+
+        // Buttons or mode hint
+        if self.vault_path_editable {
+            let mode_hint = Paragraph::new("Enter: confirm  |  Esc: cancel custom path")
+                .style(Style::default().fg(TEXT_MUTED))
+                .alignment(Alignment::Center);
+            frame.render_widget(mode_hint, rows[8]);
+        } else {
+            // Two side-by-side buttons
+            let btn_area = Layout::horizontal([
+                Constraint::Fill(1),
+                Constraint::Length(22),
+                Constraint::Length(2),
+                Constraint::Length(20),
+                Constraint::Fill(1),
+            ])
+            .split(rows[8]);
+
+            let default_btn_style = if self.vault_path_focus == 0 {
+                Styles::button_primary()
+            } else {
+                Styles::button_secondary()
+            };
+            let default_btn = Paragraph::new(" Use default path ")
+                .style(default_btn_style)
+                .alignment(Alignment::Center);
+            frame.render_widget(default_btn, btn_area[1]);
+
+            let custom_btn_style = if self.vault_path_focus == 1 {
+                Styles::button_primary()
+            } else {
+                Styles::button_secondary()
+            };
+            let custom_btn = Paragraph::new(" Custom path... ")
+                .style(custom_btn_style)
+                .alignment(Alignment::Center);
+            frame.render_widget(custom_btn, btn_area[3]);
         }
 
         // Hint
-        let hint = Paragraph::new("Enter to continue  |  Esc to go back")
+        let hint = if self.vault_path_editable {
+            "Type a path  |  Enter: confirm  |  Esc: cancel"
+        } else {
+            "\u{2190}\u{2192}/Tab: switch  |  Enter: select  |  Esc: back"
+        };
+        let hint = Paragraph::new(hint)
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[6]);
+        frame.render_widget(hint, rows[10]);
 
         // Step indicator
         let step = self.current_step_number();
@@ -849,7 +1111,7 @@ impl OnboardingScreen {
         let step_text = Paragraph::new(format!("Step {}/{}", step, total))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(step_text, rows[7]);
+        frame.render_widget(step_text, rows[11]);
     }
 
     fn view_recovery_display(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
@@ -1497,10 +1759,93 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_vault_path_types() {
+    fn onboarding_vault_path_defaults_to_non_editable() {
+        let screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::VaultPath,
+            ..Default::default()
+        };
+        assert!(!screen.vault_path_editable);
+        assert_eq!(screen.vault_path_focus, 0);
+    }
+
+    #[test]
+    fn onboarding_vault_path_non_editable_ignores_chars() {
         let mut screen = OnboardingScreen {
             selected_path: Some(OnboardingPath::CreateNew),
             current_step: OnboardingStep::VaultPath,
+            ..Default::default()
+        };
+        // In non-editable mode, typing characters should be ignored
+        let result = screen.handle_vault_path_key(
+            KeyEvent::new(KeyCode::Char('/'), crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.path_input.is_empty());
+    }
+
+    #[test]
+    fn onboarding_vault_path_tab_cycles_buttons() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::VaultPath,
+            ..Default::default()
+        };
+        assert_eq!(screen.vault_path_focus, 0);
+        screen.handle_vault_path_key(
+            KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.vault_path_focus, 1);
+        screen.handle_vault_path_key(
+            KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.vault_path_focus, 0);
+    }
+
+    #[test]
+    fn onboarding_vault_path_enter_default_uses_default() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::VaultPath,
+            vault_path_focus: 0,
+            ..Default::default()
+        };
+        let result = screen.handle_vault_path_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        // Path input stays empty (default path resolved at advance time)
+        assert!(screen.path_input.is_empty());
+    }
+
+    #[test]
+    fn onboarding_vault_path_enter_custom_switches_to_editable() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::VaultPath,
+            vault_path_focus: 1,
+            ..Default::default()
+        };
+        let result = screen.handle_vault_path_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.vault_path_editable);
+        assert_eq!(screen.vault_path_focus, 2);
+    }
+
+    #[test]
+    fn onboarding_vault_path_editable_types() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::VaultPath,
+            vault_path_editable: true,
+            vault_path_focus: 2,
             ..Default::default()
         };
 
@@ -1524,6 +1869,24 @@ mod tests {
             &mut dummy_ctx(),
         );
         assert_eq!(screen.path_input, "/");
+    }
+
+    #[test]
+    fn onboarding_vault_path_esc_returns_to_button_mode() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::VaultPath,
+            vault_path_editable: true,
+            vault_path_focus: 2,
+            ..Default::default()
+        };
+        let result = screen.handle_vault_path_key(
+            KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(!screen.vault_path_editable);
+        assert_eq!(screen.vault_path_focus, 1);
     }
 
     #[test]
@@ -1831,6 +2194,126 @@ mod tests {
         assert!(screen.verify_inputs.iter().all(|s| s.is_empty()));
         assert!(screen.recovery_grid.words.iter().all(|w| w.is_empty()));
         assert_eq!(screen.verify_positions, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn onboarding_vault_path_validate_default_path() {
+        let screen = OnboardingScreen {
+            path_input: String::new(),
+            ..Default::default()
+        };
+        // When path_input is empty, resolved_vault_pathbuf returns the actual default path
+        let result = screen.validate_vault_path();
+        assert!(result.is_some());
+        let (_msg, is_error) = result.unwrap();
+        // Default path exists and is writable, so it should not be a blocking error
+        assert!(!is_error, "Default path should not have a blocking error");
+    }
+
+    #[test]
+    fn onboarding_vault_path_validate_nonexistent_directory() {
+        let screen = OnboardingScreen {
+            path_input: "/tmp/oak_test_nonexistent_dir_12345".to_string(),
+            ..Default::default()
+        };
+        let result = screen.validate_vault_path();
+        assert!(result.is_some());
+        let (msg, is_error) = result.unwrap();
+        assert!(
+            !is_error,
+            "Non-existent directory should be a warning, got: {}",
+            msg
+        );
+        assert!(
+            msg.to_lowercase().contains("creat"),
+            "Message should mention creation, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn onboarding_vault_path_validate_existing_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let screen = OnboardingScreen {
+            path_input: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let result = screen.validate_vault_path();
+        assert!(result.is_some());
+        let (msg, is_error) = result.unwrap();
+        assert!(
+            !is_error,
+            "Existing empty dir should be valid, got: {}",
+            msg
+        );
+        assert!(
+            msg.contains("valid"),
+            "Message should say valid, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn onboarding_vault_path_validate_existing_nonempty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create a file to make the directory non-empty
+        std::fs::write(dir.path().join("test.txt"), b"hello").unwrap();
+        let screen = OnboardingScreen {
+            path_input: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let result = screen.validate_vault_path();
+        assert!(result.is_some());
+        let (msg, is_error) = result.unwrap();
+        assert!(
+            !is_error,
+            "Non-empty dir should be a warning, not error, got: {}",
+            msg
+        );
+        assert!(
+            msg.to_lowercase().contains("not empty"),
+            "Message should mention not empty, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn onboarding_vault_path_validate_file_not_directory() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let screen = OnboardingScreen {
+            path_input: file.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let result = screen.validate_vault_path();
+        assert!(result.is_some());
+        let (msg, is_error) = result.unwrap();
+        assert!(is_error, "File path should be an error, got: {}", msg);
+    }
+
+    #[test]
+    fn onboarding_vault_path_resolved_default_when_empty() {
+        let screen = OnboardingScreen {
+            path_input: String::new(),
+            ..Default::default()
+        };
+        let resolved = screen.resolved_vault_pathbuf();
+        let resolved_str = resolved.to_string_lossy();
+        assert!(!resolved_str.is_empty());
+        assert!(
+            resolved_str.contains("open-keyring"),
+            "Default path should contain 'open-keyring', got: {}",
+            resolved_str
+        );
+    }
+
+    #[test]
+    fn onboarding_vault_path_resolved_custom_when_set() {
+        let screen = OnboardingScreen {
+            path_input: "/custom/path".to_string(),
+            ..Default::default()
+        };
+        let resolved = screen.resolved_vault_pathbuf();
+        assert_eq!(resolved, std::path::PathBuf::from("/custom/path"));
     }
 
     /// Helper to create a dummy ScreenContext for tests.
