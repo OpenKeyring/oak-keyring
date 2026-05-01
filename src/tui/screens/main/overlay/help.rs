@@ -15,7 +15,7 @@ use crate::tui::theme;
 
 // ── Colour constants ──────────────────────────────────────────
 
-const OVERLAY_BG: Color = Color::Rgb(26, 27, 38); // #1a1b26
+const OVERLAY_BG: Color = Color::Rgb(31, 35, 53); // #1f2335
 
 // ── Data model ────────────────────────────────────────────────
 
@@ -99,14 +99,10 @@ fn all_groups() -> [ShortcutGroup; 7] {
                 },
                 Shortcut {
                     key: "g",
-                    desc: "密码生成",
+                    desc: "配置页",
                 },
                 Shortcut {
                     key: "L",
-                    desc: "锁定",
-                },
-                Shortcut {
-                    key: "l",
                     desc: "审计日志",
                 },
                 Shortcut {
@@ -213,11 +209,11 @@ fn all_groups() -> [ShortcutGroup; 7] {
             shortcuts: &[
                 Shortcut {
                     key: "Ctrl+R",
-                    desc: "拉取",
+                    desc: "手动同步",
                 },
                 Shortcut {
                     key: "Ctrl+S",
-                    desc: "推送",
+                    desc: "保存配置",
                 },
             ],
         },
