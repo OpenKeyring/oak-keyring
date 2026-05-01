@@ -5,7 +5,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Alignment, Constraint, Layout};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use zeroize::Zeroize;
@@ -1648,6 +1648,46 @@ impl OnboardingScreen {
                 Span::styled(prefix.to_string(), name_style),
                 Span::styled((*name).to_string(), name_style),
                 Span::styled(format!("  {}", scope_hint), hint_style),
+            ]));
+        }
+
+        lines.push(Line::raw(""));
+
+        // Import Scope section
+        let scope_separator = format!("\u{2500}\u{2500} Import Scope {}", "\u{2500}".repeat(45));
+        lines.push(Line::from(Span::styled(
+            scope_separator,
+            Style::default().fg(BORDER),
+        )));
+
+        let scope_items: [(Color, &str, &str); 5] = [
+            (
+                SUCCESS,
+                theme::ICON_SUCCESS,
+                "Login items (name, account, password, URL, notes)",
+            ),
+            (
+                ERROR,
+                theme::ICON_ERROR,
+                "TOTP / 2FA (not supported in current version, discarded during import)",
+            ),
+            (
+                WARNING,
+                theme::ICON_WARNING,
+                "Custom fields (formatted and stored in notes field)",
+            ),
+            (SUCCESS, theme::ICON_SUCCESS, "Password history records"),
+            (
+                ERROR,
+                theme::ICON_ERROR,
+                "Attachments (ignored during import)",
+            ),
+        ];
+
+        for (color, icon, text) in &scope_items {
+            lines.push(Line::from(vec![
+                Span::styled(format!(" {} ", icon), Style::default().fg(*color)),
+                Span::styled(*text, Style::default().fg(TEXT_SECONDARY)),
             ]));
         }
 
