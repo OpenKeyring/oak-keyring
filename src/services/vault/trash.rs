@@ -57,6 +57,8 @@ impl VaultService {
                 is_expired,
                 expires_at: stored.expires_at,
                 has_weak_password: false,
+                is_compromised: false,
+                duplicate_group_size: None,
                 created_at: stored.created_at,
                 updated_at: stored.updated_at,
                 deleted: stored.deleted,

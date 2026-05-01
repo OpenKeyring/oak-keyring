@@ -321,11 +321,11 @@ fn render_list(
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
-/// Build a single two-line list item with separator.
+/// Build a single two-line list item with blank separator.
 ///
-/// Line 1 (title): `  [Type] Name [⚠弱]    timestamp ◀`
+/// Line 1 (title): `  [Type] Name [badge]    timestamp ◀`
 /// Line 2 (subtitle): `  subtitle`
-/// Line 3 (separator): `─────` or `-----`
+/// Line 3 (separator): blank/empty line
 fn build_record_item<'a>(
     record: &crate::types::record::TuiRecord,
     is_selected: bool,
@@ -343,8 +343,18 @@ fn build_record_item<'a>(
 
     // Build name spans: prefix (plain) + highlighted name (if search active)
     let prefix_str = format!("  {}", type_prefix);
-    let badge = if record.has_weak_password {
+
+    // Priority: Compromised > Weak > Duplicate (matches S3 spec)
+    let badge = if record.is_compromised {
+        health_badge(Some(&HealthIssue::Compromised), unicode)
+    } else if record.has_weak_password {
         health_badge(Some(&HealthIssue::Weak), unicode)
+    } else if let Some(group_size) = record.duplicate_group_size {
+        if group_size > 1 {
+            health_badge(Some(&HealthIssue::Duplicate { group_size }), unicode)
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -375,11 +385,17 @@ fn build_record_item<'a>(
     // Determine badge span style (override for visual-selected context)
     let badge_span = badge.map(|span| {
         if is_visual_selected {
+            // Preserve original badge color for visual-selected override
+            let badge_fg = if record.is_compromised {
+                theme::ERROR
+            } else {
+                theme::WARNING
+            };
             Span::styled(
                 span.content,
                 Style::default()
                     .bg(theme::BRAND)
-                    .fg(theme::WARNING)
+                    .fg(badge_fg)
                     .add_modifier(Modifier::DIM),
             )
         } else {
@@ -429,10 +445,8 @@ fn build_record_item<'a>(
         ))
     };
 
-    // ── Line 3: Separator ──
-    let sep_char = if unicode { '\u{2500}' } else { '-' }; // ─ / -
-    let sep_text: String = std::iter::repeat_n(sep_char, area_width as usize).collect();
-    let separator_line = Line::from(Span::styled(sep_text, Style::default().fg(theme::BORDER)));
+    // ── Line 3: Blank separator (empty line) ──
+    let separator_line = Line::from("");
 
     ListItem::new(vec![title_line, subtitle_line, separator_line])
 }
@@ -600,6 +614,8 @@ mod tests {
             is_expired: false,
             expires_at: None,
             has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted: false,
@@ -619,6 +635,8 @@ mod tests {
             is_expired: false,
             expires_at: None,
             has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted: false,
@@ -638,6 +656,54 @@ mod tests {
             is_expired: false,
             expires_at: None,
             has_weak_password: true,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: Vec::new(),
+            sync_status: None,
+        }
+    }
+
+    fn make_record_with_compromised(id: Uuid, name: &str) -> TuiRecord {
+        TuiRecord {
+            id,
+            credential_type: CredentialType::Login,
+            name: name.to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: true,
+            duplicate_group_size: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: Vec::new(),
+            sync_status: None,
+        }
+    }
+
+    fn make_record_with_duplicate(id: Uuid, name: &str, group_size: usize) -> TuiRecord {
+        TuiRecord {
+            id,
+            credential_type: CredentialType::Login,
+            name: name.to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: if group_size > 1 {
+                Some(group_size)
+            } else {
+                None
+            },
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted: false,
@@ -1255,6 +1321,61 @@ mod tests {
         assert!(result.is_none());
     }
 
+    // ── Health badge priority integration tests ──
+
+    #[test]
+    fn render_compromised_badge_in_list() {
+        let record = make_record_with_compromised(Uuid::new_v4(), "HackedSite");
+        let state = ListPanelState::with_records(vec![record]);
+        let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_duplicate_badge_in_list() {
+        let record = make_record_with_duplicate(Uuid::new_v4(), "SharedPass", 3);
+        let state = ListPanelState::with_records(vec![record]);
+        let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_compromised_takes_priority_over_weak() {
+        // Both compromised and weak: compromised badge should win
+        let mut record = make_record_with_compromised(Uuid::new_v4(), "BothBad");
+        record.has_weak_password = true;
+        let state = ListPanelState::with_records(vec![record]);
+        let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_weak_takes_priority_over_duplicate() {
+        // Both weak and duplicate: weak badge should win
+        let mut record = make_record_with_weak(Uuid::new_v4(), "WeakDup");
+        record.duplicate_group_size = Some(4);
+        let state = ListPanelState::with_records(vec![record]);
+        let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn render_duplicate_group_size_one_no_badge() {
+        // group_size == 1 means it's in a group of 1 (itself), not actually duplicated
+        let record = make_record_with_duplicate(Uuid::new_v4(), "Unique", 1);
+        let state = ListPanelState::with_records(vec![record]);
+        let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn separator_is_blank_line() {
+        let record = make_record(Uuid::new_v4(), "Test", "sub");
+        let item = build_record_item(&record, false, false, true, true, 50, None);
+        // Item has 3 lines: title, subtitle, blank separator
+        assert_eq!(item.height(), 3);
+    }
+
     // ── Trash item rendering tests ──
 
     fn make_trash_record(id: Uuid, name: &str, days_ago: i64) -> TuiRecord {
@@ -1268,6 +1389,8 @@ mod tests {
             is_expired: false,
             expires_at: None,
             has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted: true,

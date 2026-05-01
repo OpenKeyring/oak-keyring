@@ -142,10 +142,16 @@ pub fn handle_load_record_list(
 ) -> CommandResult {
     match executor.vault.list_records(&filter, &sort) {
         Ok(mut records) => {
-            // Spec Compliance: Populate has_weak_password from cached health_report
+            // Spec Compliance: Populate health fields from cached health_report
             if let Some(report) = &executor.health_report {
                 for record in &mut records {
                     record.has_weak_password = report.weak_passwords.contains(&record.id);
+                    record.is_compromised = report.compromised.contains(&record.id);
+                    record.duplicate_group_size = report
+                        .duplicate_passwords
+                        .iter()
+                        .find(|group| group.contains(&record.id))
+                        .map(|group| group.len());
                 }
             }
 

@@ -138,6 +138,8 @@ pub struct TuiRecord {
     pub is_expired: bool,
     pub expires_at: Option<DateTime<Utc>>,
     pub has_weak_password: bool,
+    pub is_compromised: bool,
+    pub duplicate_group_size: Option<usize>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted: bool,
@@ -155,6 +157,8 @@ impl PartialEq for TuiRecord {
             && self.is_favorite == other.is_favorite
             && self.is_expired == other.is_expired
             && self.has_weak_password == other.has_weak_password
+            && self.is_compromised == other.is_compromised
+            && self.duplicate_group_size == other.duplicate_group_size
             && self.tags == other.tags
             && self.sync_status == other.sync_status
     }
