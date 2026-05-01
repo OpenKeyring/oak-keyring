@@ -182,6 +182,8 @@ pub struct FormState {
     pub credential_dropdown: DropdownState,
     pub tag_autocomplete: Option<TagAutocompleteState>,
     pub show_weak_password_dialog: bool,
+    /// Focus index within the weak password dialog: 0 = "Go Back", 1 = "Save Anyway".
+    pub weak_dialog_focus: usize,
     pub show_unsaved_dialog: bool,
     /// Sub-focus within the currently focused password/sensitive field.
     /// Only meaningful when `focused_field` points to a field with inline buttons.
@@ -219,6 +221,7 @@ impl FormState {
             credential_dropdown: DropdownState::default(),
             tag_autocomplete: None,
             show_weak_password_dialog: false,
+            weak_dialog_focus: 0,
             show_unsaved_dialog: false,
             password_sub_focus: PasswordFieldFocus::Input,
         }
