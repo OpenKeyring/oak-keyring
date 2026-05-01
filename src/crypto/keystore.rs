@@ -93,6 +93,15 @@ pub struct KeyStore {
 }
 
 impl KeyStore {
+    /// Check whether a vault exists at the given directory.
+    ///
+    /// A vault is considered to exist when `wrapped_secret_key.json` is present
+    /// in the directory. This is used to decide whether to route the user to
+    /// Onboarding (no vault) or Unlock (has vault) on startup.
+    pub fn vault_exists(vault_dir: &Path) -> bool {
+        vault_dir.join("wrapped_secret_key.json").exists()
+    }
+
     pub fn initialize(
         path: &Path,
         sk_bytes: [u8; 32],
@@ -808,6 +817,48 @@ mod tests {
             store.mnemonic_language(),
             MnemonicLanguage::ChineseSimplified,
             "change_cmk must preserve mnemonic_language"
+        );
+    }
+
+    // -- vault_exists Tests ---------------------------------------------------
+
+    #[test]
+    fn test_vault_exists_returns_false_for_empty_directory() {
+        let dir = TempDir::new().unwrap();
+        assert!(
+            !KeyStore::vault_exists(dir.path()),
+            "vault_exists must return false for an empty directory"
+        );
+    }
+
+    #[test]
+    fn test_vault_exists_returns_true_after_initialize() {
+        let dir = TempDir::new().unwrap();
+        KeyStore::initialize(
+            dir.path(),
+            [0x77u8; 32],
+            &sec("vault-exists-test"),
+            &Argon2Params::medium(),
+            MnemonicLanguage::English,
+        )
+        .unwrap();
+
+        assert!(
+            KeyStore::vault_exists(dir.path()),
+            "vault_exists must return true after initialize creates the vault file"
+        );
+    }
+
+    #[test]
+    fn test_vault_exists_returns_true_for_manual_file() {
+        // Verify that any file named wrapped_secret_key.json triggers true,
+        // even without going through initialize.
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("wrapped_secret_key.json"), "{}").unwrap();
+
+        assert!(
+            KeyStore::vault_exists(dir.path()),
+            "vault_exists must return true when wrapped_secret_key.json is present"
         );
     }
 }
