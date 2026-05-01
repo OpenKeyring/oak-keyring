@@ -497,9 +497,16 @@ impl OnboardingScreen {
                     ScreenResult::Continue
                 }
                 RecoveryFocus::RegenerateButton => {
-                    if !self.recovery_words.is_empty() {
-                        self.regenerate_recovery_words();
-                    }
+                    // Re-initialize the vault with new recovery words so the
+                    // displayed words match the actual vault's recovery key.
+                    let vault_path = self.resolved_vault_pathbuf();
+                    self.recovery_confirmed = false;
+                    self.clipboard_copied = false;
+                    let cmd = Command::InitializeVault {
+                        vault_path,
+                        master_password: SecureStr::new(String::new()),
+                    };
+                    let _ = ctx.command_tx.try_send(cmd);
                     ScreenResult::Continue
                 }
                 RecoveryFocus::ConfirmCheckbox => {
@@ -524,26 +531,6 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
-        }
-    }
-
-    /// Regenerate the 24-word recovery phrase using BIP39.
-    fn regenerate_recovery_words(&mut self) {
-        use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-
-        self.recovery_words.zeroize();
-        self.recovery_words.clear();
-        self.recovery_confirmed = false;
-        self.clipboard_copied = false;
-
-        match Passkey::generate(24, MnemonicLanguage::English) {
-            Ok(passkey) => {
-                self.recovery_words = passkey.to_words();
-            }
-            Err(e) => {
-                tracing::error!("Failed to regenerate recovery words: {}", e);
-                self.error = Some(format!("Failed to regenerate recovery key: {}", e));
-            }
         }
     }
 
@@ -772,6 +759,7 @@ impl OnboardingScreen {
                     path: std::path::PathBuf::from(&self.import_file_path),
                     password,
                     column_mapping: None,
+                    import_as_notes: self.import_as_notes,
                 };
                 let _ = ctx.command_tx.try_send(cmd);
                 ScreenResult::Continue
@@ -2369,7 +2357,7 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_recovery_display_regenerate_creates_new_words() {
+    fn onboarding_recovery_display_regenerate_sends_initialize_vault() {
         let original_words: Vec<String> = (0..24).map(|i| format!("word{}", i)).collect();
         let mut screen = OnboardingScreen {
             selected_path: Some(OnboardingPath::CreateNew),
@@ -2386,19 +2374,17 @@ mod tests {
             &mut dummy_ctx(),
         );
 
-        // Words should be different (extremely unlikely to match a random BIP39 mnemonic)
-        assert_eq!(screen.recovery_words.len(), 24);
-        assert_ne!(
-            screen.recovery_words, original_words,
-            "Regenerated words should differ from original"
-        );
-        // Confirm and clipboard state should be reset
+        // Confirm and clipboard state should be reset immediately
         assert!(!screen.recovery_confirmed);
         assert!(!screen.clipboard_copied);
+        // Words are NOT regenerated locally — a command is sent to the executor
+        // which will asynchronously return new words via VaultInitialized.
+        // The local words stay unchanged until that result arrives.
+        assert_eq!(screen.recovery_words, original_words);
     }
 
     #[test]
-    fn onboarding_recovery_display_regenerate_skipped_when_empty() {
+    fn onboarding_recovery_display_regenerate_sends_command_even_with_empty_words() {
         let mut screen = OnboardingScreen {
             selected_path: Some(OnboardingPath::CreateNew),
             current_step: OnboardingStep::RecoveryDisplay,
@@ -2407,13 +2393,14 @@ mod tests {
             ..Default::default()
         };
 
-        screen.handle_recovery_display_key(
+        let result = screen.handle_recovery_display_key(
             KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
             &mut dummy_ctx(),
         );
 
-        // Words should still be empty — no regeneration
-        assert!(screen.recovery_words.is_empty());
+        // Should still send the command (no early return) — the vault will
+        // be re-initialized and new words returned.
+        assert!(matches!(result, ScreenResult::Continue));
     }
 
     #[test]
@@ -3111,16 +3098,16 @@ mod tests {
 
     #[test]
     fn onboarding_vault_path_validate_default_path() {
+        // Use a temp directory to make the test independent of the host filesystem.
+        let dir = tempfile::tempdir().unwrap();
         let screen = OnboardingScreen {
-            path_input: String::new(),
+            path_input: dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
-        // When path_input is empty, resolved_vault_pathbuf returns the actual default path
         let result = screen.validate_vault_path();
         assert!(result.is_some());
         let (_msg, is_error) = result.unwrap();
-        // Default path exists and is writable, so it should not be a blocking error
-        assert!(!is_error, "Default path should not have a blocking error");
+        assert!(!is_error, "Valid temp dir should not have a blocking error");
     }
 
     #[test]

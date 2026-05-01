@@ -338,6 +338,25 @@ pub enum StatusMessage {
     Search(String),
 }
 
+/// Phase of the health check lifecycle displayed in the status bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HealthCheckPhase {
+    #[default]
+    Inactive,
+    /// Health check is running: "检查中..."
+    Checking,
+    /// Health check found issues: "有需注意"
+    NeedsAttention {
+        weak: usize,
+        compromised: usize,
+        duplicate_groups: usize,
+    },
+    /// Health check passed: "全部安全"
+    AllSecure,
+    /// Leak detection was skipped: "跳过泄露检测"
+    Skipped,
+}
+
 /// Status bar state.
 #[derive(Debug, Clone, Default)]
 pub struct StatusBarState {
@@ -353,6 +372,8 @@ pub struct StatusBarState {
     pub record_count: usize,
     /// Progress of an ongoing health check (current, total).
     pub health_check_progress: Option<(usize, usize)>,
+    /// Current phase of the health check display cycle.
+    pub health_check_phase: HealthCheckPhase,
 }
 
 // ── Terminal Title ───────────────────────────────────────────────────────────
@@ -516,12 +537,28 @@ impl Screen for MainScreenState {
                 match result {
                     CommandResult::HealthCheckStarted => {
                         self.status_bar.health_check_progress = Some((0, 0));
+                        self.status_bar.health_check_phase = HealthCheckPhase::Checking;
                         ScreenResult::Continue
                     }
-                    CommandResult::HealthCheckCompleted { .. } => {
+                    CommandResult::HealthCheckCompleted { report } => {
                         self.status_bar.health_check_progress = None;
-                        // The detail panel will re-render with the new report
-                        // automatically because the entire frame is redrawn.
+                        let has_issues = !report.compromised.is_empty()
+                            || !report.weak_passwords.is_empty()
+                            || !report.duplicate_passwords.is_empty();
+                        if has_issues {
+                            self.status_bar.health_check_phase = HealthCheckPhase::NeedsAttention {
+                                weak: report.weak_passwords.len(),
+                                compromised: report.compromised.len(),
+                                duplicate_groups: report.duplicate_passwords.len(),
+                            };
+                        } else {
+                            self.status_bar.health_check_phase = HealthCheckPhase::AllSecure;
+                        }
+                        ScreenResult::Continue
+                    }
+                    CommandResult::HealthCheckSkipped => {
+                        self.status_bar.health_check_progress = None;
+                        self.status_bar.health_check_phase = HealthCheckPhase::Skipped;
                         ScreenResult::Continue
                     }
                     _ => ScreenResult::Continue,
@@ -539,6 +576,9 @@ impl Screen for MainScreenState {
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
         self.trash_retention_days = ctx.config.general.trash_retention_days;
         self.detail.trash_retention_days = ctx.config.general.trash_retention_days;
+        if !ctx.config.security.health_check_enabled {
+            self.status_bar.health_check_phase = HealthCheckPhase::Skipped;
+        }
     }
 
     fn on_unmount(&mut self) {

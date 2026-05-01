@@ -54,6 +54,7 @@ pub struct ImportSession {
     pub file_path: PathBuf,
     pub decrypt_password: Option<SecureStr>,
     pub csv_mapping: Option<CsvColumnMapping>,
+    pub import_as_notes: bool,
     pub status: ImportSessionStatus,
     pub validation_result: Option<ValidationResult>,
     pub mapped_records: Vec<MappedRecord>,

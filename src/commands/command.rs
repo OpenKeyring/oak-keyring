@@ -185,6 +185,7 @@ pub enum Command {
         path: PathBuf,
         password: Option<SecureStr>,
         column_mapping: Option<CsvColumnMapping>,
+        import_as_notes: bool,
     },
 
     ExecuteExport {

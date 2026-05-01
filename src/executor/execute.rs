@@ -74,6 +74,7 @@ impl CommandExecutor {
         // Spec S5: Update cached health report on completion
         if let CommandResult::HealthCheckCompleted { report } = result {
             self.health_report = Some(report.clone());
+            self.last_health_check_time = Some(chrono::Utc::now());
         }
     }
 
@@ -237,7 +238,15 @@ impl CommandExecutor {
                 path,
                 password,
                 column_mapping,
-            } => import_export::handle_execute_import(self, source, path, password, column_mapping),
+                import_as_notes,
+            } => import_export::handle_execute_import(
+                self,
+                source,
+                path,
+                password,
+                column_mapping,
+                import_as_notes,
+            ),
             Command::ExecuteExport {
                 scope,
                 output_path,

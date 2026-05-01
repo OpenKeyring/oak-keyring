@@ -102,7 +102,7 @@ fn all_groups() -> [ShortcutGroup; 7] {
                     desc: "配置页",
                 },
                 Shortcut {
-                    key: "L",
+                    key: "l",
                     desc: "审计日志",
                 },
                 Shortcut {
@@ -206,16 +206,10 @@ fn all_groups() -> [ShortcutGroup; 7] {
         // 6 — 同步
         ShortcutGroup {
             label: "同步",
-            shortcuts: &[
-                Shortcut {
-                    key: "Ctrl+R",
-                    desc: "手动同步",
-                },
-                Shortcut {
-                    key: "Ctrl+S",
-                    desc: "保存配置",
-                },
-            ],
+            shortcuts: &[Shortcut {
+                key: "Ctrl+R",
+                desc: "手动同步",
+            }],
         },
     ]
 }

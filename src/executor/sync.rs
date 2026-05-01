@@ -169,6 +169,7 @@ mod tests {
             config_notifier: ServiceNotificationImpl::new(),
             vault_dir: std::path::PathBuf::from(":memory:"),
             health_report: None,
+            last_health_check_time: None,
             result_tx,
             internal_tx,
             internal_rx: Some(internal_rx),

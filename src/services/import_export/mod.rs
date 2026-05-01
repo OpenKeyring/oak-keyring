@@ -72,6 +72,7 @@ impl ImportExportService {
         file_path: PathBuf,
         decrypt_password: Option<SecureStr>,
         csv_mapping: Option<CsvColumnMapping>,
+        import_as_notes: bool,
     ) -> Result<Uuid, ImportExportError> {
         let id = Uuid::new_v4();
         let session = ImportSession {
@@ -80,6 +81,7 @@ impl ImportExportService {
             file_path,
             decrypt_password,
             csv_mapping,
+            import_as_notes,
             status: ImportSessionStatus::Created,
             validation_result: None,
             mapped_records: Vec::new(),
@@ -248,7 +250,7 @@ impl ImportExportService {
         F: FnMut(CredentialType, HashMap<String, String>, Vec<String>) -> Result<Uuid, String>,
     {
         // 1. Verify session status is Validated.
-        {
+        let import_as_notes = {
             let session = self
                 .import_sessions
                 .get(&session_id)
@@ -260,7 +262,8 @@ impl ImportExportService {
                     actual: format!("{:?}", session.status),
                 });
             }
-        }
+            session.import_as_notes
+        };
 
         // 2. Transition to Importing.
         {
@@ -271,13 +274,46 @@ impl ImportExportService {
             session.status = ImportSessionStatus::Importing;
         }
 
-        // 3. Extract mapped records from session.
-        let records: Vec<MappedRecord> = {
+        // 3. Extract mapped records and review items from session.
+        let (records, review_records): (Vec<MappedRecord>, Vec<MappedRecord>) = {
             let session = self
                 .import_sessions
                 .get(&session_id)
                 .ok_or(ImportExportError::SessionNotFound(session_id))?;
-            session.mapped_records.clone()
+            let mapped = session.mapped_records.clone();
+
+            // When import_as_notes is enabled, convert review_items into
+            // additional MappedRecords so they are imported as note entries
+            // instead of being silently skipped.
+            let review_mapped = if import_as_notes {
+                session
+                    .validation_result
+                    .as_ref()
+                    .map(|vr| {
+                        vr.review_items
+                            .iter()
+                            .map(|item| {
+                                let mut fields = HashMap::new();
+                                fields.insert("name".to_string(), item.name.clone());
+                                MappedRecord {
+                                    id: Uuid::new_v4(),
+                                    credential_type: CredentialType::Login,
+                                    fields,
+                                    tags: Vec::new(),
+                                    is_favorite: false,
+                                    expires_at: None,
+                                    source_item_id: item.name.clone(),
+                                    notes: Some(format!("[Imported as notes] {}", item.reason)),
+                                    is_duplicate: false,
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            (mapped, review_mapped)
         };
 
         // 4. Run duplicate detection against provided existing keys.
@@ -302,10 +338,11 @@ impl ImportExportService {
 
         let start = std::time::Instant::now();
         let mut imported: usize = 0;
+        let mut reviewed: usize = 0;
         let mut skipped: usize = 0;
         let mut failed: usize = 0;
 
-        // 5. Import non-duplicate records.
+        // 5. Import non-duplicate records (including review_records as notes).
         for (i, record) in records.iter().enumerate() {
             if dup_flags[i] {
                 skipped += 1;
@@ -322,11 +359,23 @@ impl ImportExportService {
             }
         }
 
+        // 5b. Import review_records as notes — count as reviewed.
+        for record in &review_records {
+            match vault_create_fn(
+                record.credential_type,
+                record.fields.clone(),
+                record.tags.clone(),
+            ) {
+                Ok(_uuid) => reviewed += 1,
+                Err(_reason) => failed += 1,
+            }
+        }
+
         let duration_ms = start.elapsed().as_millis() as u64;
 
         let result = ImportResult {
             imported,
-            reviewed: 0,
+            reviewed,
             skipped,
             failed,
             duration_ms,
@@ -587,6 +636,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -608,6 +658,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -636,6 +687,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -696,6 +748,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -725,6 +778,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -747,6 +801,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -800,6 +855,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -823,6 +879,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -858,6 +915,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -895,6 +953,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -917,6 +976,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create session");
 
@@ -952,6 +1012,7 @@ mod tests {
                 f.path().to_path_buf(),
                 None,
                 Some(default_csv_mapping()),
+                false,
             )
             .expect("create");
 
