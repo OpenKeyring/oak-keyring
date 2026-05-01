@@ -389,6 +389,8 @@ tui:
     saved: "已保存"
     # -- Footer --
     footer: " ↑↓ 滚动  Tab 切换  Ctrl+S 保存  Esc 关闭 "
+    exit_program: "退出程序"
+    close: "关闭"
     # -- Dropdown --
     select: "选择"
     # -- Unsaved changes dialog --
