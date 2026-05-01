@@ -8,6 +8,7 @@ use zeroize::Zeroize;
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::{Command, Message};
+use crate::t;
 use crate::tui::theme::{
     self, Styles, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY, WARNING,
 };
@@ -84,7 +85,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         // Vertical centering: place content block in the middle third
         let outer = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(12),
+            Constraint::Length(13),
             Constraint::Fill(1),
         ])
         .split(area);
@@ -127,11 +128,11 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
 
         let placeholder = if self.password_input.is_empty() {
             match self.mode {
-                UnlockMode::Password => "Enter master password",
-                UnlockMode::RecoveryKey => "Enter recovery key words",
+                UnlockMode::Password => t!("tui.entry.unlock_prompt").to_string(),
+                UnlockMode::RecoveryKey => "Enter recovery key words".to_string(),
             }
         } else {
-            ""
+            String::new()
         };
 
         let input_block = Block::default()
@@ -152,14 +153,14 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         // Verifying indicator
         let verifying_text = match &self.state {
             UnlockPhase::Verifying => Some(
-                Paragraph::new("Verifying...")
+                Paragraph::new(t!("tui.loading.unlocking").to_string())
                     .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
                     .alignment(Alignment::Center),
             ),
             _ => None,
         };
 
-        // Error message
+        // Error message — i18n with failure count
         let error_text = self.error_message.as_ref().map(|msg| {
             Paragraph::new(format!("{} {}", theme::ICON_ERROR, msg))
                 .style(Styles::error_text())
@@ -167,22 +168,32 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
                 .wrap(Wrap { trim: true })
         });
 
-        // Lockout countdown
-        let lockout_text = match &self.state {
+        // Lockout countdown — two lines: countdown (orange) + failure count (gray)
+        let lockout_countdown = match &self.state {
             UnlockPhase::LockedOut { locked_until } => {
                 let remaining = locked_until
                     .saturating_duration_since(Instant::now())
                     .as_secs();
                 Some(
                     Paragraph::new(format!(
-                        "{} Too many attempts. Retry in {}s",
-                        theme::ICON_WARNING,
-                        remaining
+                        "\u{23F3} {}",
+                        t!("tui.entry.lockout_message", seconds = remaining)
                     ))
                     .style(Styles::warning_text())
                     .alignment(Alignment::Center),
                 )
             }
+            _ => None,
+        };
+        let lockout_count = match &self.state {
+            UnlockPhase::LockedOut { .. } => Some(
+                Paragraph::new(format!(
+                    "{}",
+                    t!("tui.entry.lockout_count", n = self.failed_attempts)
+                ))
+                .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+                .alignment(Alignment::Center),
+            ),
             _ => None,
         };
 
@@ -196,29 +207,54 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
             _ => None,
         };
 
-        // Mode hint
-        let mode_hint = match self.mode {
-            UnlockMode::Password => "Tab \u{2192} Recovery Key",
-            UnlockMode::RecoveryKey => "Tab \u{2192} Password",
+        // Button labels — styled, not interactive
+        let (btn_recovery, btn_unlock) = match self.mode {
+            UnlockMode::Password => (
+                Paragraph::new(format!(" [ {} ] ", t!("tui.entry.recovery_button")))
+                    .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
+                    .alignment(Alignment::Center),
+                Paragraph::new(format!(" [ {} ] ", t!("tui.entry.unlock_button")))
+                    .style(Styles::button_primary())
+                    .alignment(Alignment::Center),
+            ),
+            UnlockMode::RecoveryKey => (
+                Paragraph::new(format!(" [ {} ] ", t!("tui.entry.recovery_back")))
+                    .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
+                    .alignment(Alignment::Center),
+                Paragraph::new(format!(" [ {} ] ", t!("tui.entry.unlock_button")))
+                    .style(Styles::button_primary())
+                    .alignment(Alignment::Center),
+            ),
         };
-        let hint = Paragraph::new(mode_hint)
+
+        // Version number
+        let version = Paragraph::new(format!("v{}", env!("CARGO_PKG_VERSION")))
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
 
         // -- Render --
-        // We need to lay out vertically within content_area:
-        // brand, gap, input_block, error/lockout/success, hint
-        // But input_block uses content_area directly for border rendering.
-        // Instead, we split the vertical space around content_area.
-
+        // Layout rows:
+        // 0: brand
+        // 1: gap
+        // 2: input with borders (3 lines)
+        // 3: gap
+        // 4: error/lockout-countdown/verifying/success
+        // 5: lockout-count (only during lockout)
+        // 6: gap
+        // 7: button labels
+        // 8: version
+        let is_locked = matches!(self.state, UnlockPhase::LockedOut { .. });
+        let status_rows = if is_locked { 2 } else { 1 };
         let rows = Layout::vertical([
-            Constraint::Length(1), // brand
-            Constraint::Length(1), // gap
-            Constraint::Length(3), // input with borders
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // error/lockout/success or verifying
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // mode hint
+            Constraint::Length(1),           // 0: brand
+            Constraint::Length(1),           // 1: gap
+            Constraint::Length(3),           // 2: input with borders
+            Constraint::Length(1),           // 3: gap
+            Constraint::Length(1),           // 4: error/lockout-countdown/verifying/success
+            Constraint::Length(status_rows), // 5: lockout-count or gap
+            Constraint::Length(1),           // 6: gap
+            Constraint::Length(1),           // 7: button labels
+            Constraint::Length(1),           // 8: version
         ])
         .split(content_area);
 
@@ -231,18 +267,36 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
             Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(input_row_inner);
         frame.render_widget(input_text, inner_with_padding[1]);
 
-        // Verifying / error / lockout / success row
+        // Status row (verifying / error / lockout countdown / success)
         if let Some(ref t) = verifying_text {
             frame.render_widget(t.clone(), rows[4]);
         } else if let Some(ref t) = error_text {
             frame.render_widget(t.clone(), rows[4]);
-        } else if let Some(ref t) = lockout_text {
+        } else if let Some(ref t) = lockout_countdown {
             frame.render_widget(t.clone(), rows[4]);
         } else if let Some(ref t) = success_text {
             frame.render_widget(t.clone(), rows[4]);
         }
 
-        frame.render_widget(hint, rows[6]);
+        // Lockout failure count (second line during lockout)
+        if let Some(ref t) = lockout_count {
+            frame.render_widget(t.clone(), rows[5]);
+        }
+
+        // Button labels — split horizontally for left/right alignment
+        let btn_layout = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(20),
+            Constraint::Length(2),
+            Constraint::Length(12),
+            Constraint::Fill(1),
+        ])
+        .split(rows[7]);
+        frame.render_widget(btn_recovery, btn_layout[1]);
+        frame.render_widget(btn_unlock, btn_layout[3]);
+
+        // Version at bottom
+        frame.render_widget(version, rows[8]);
     }
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {
@@ -347,7 +401,7 @@ impl UnlockScreen {
                 self.state = UnlockPhase::Success;
                 ScreenResult::NavigateTo(Screen::SetNewMasterPassword)
             }
-            CommandResult::VaultUnlockFailed { attempts_remaining } => {
+            CommandResult::VaultUnlockFailed { .. } => {
                 self.failed_attempts += 1;
                 let duration = lockout_duration(self.failed_attempts);
                 if duration > 0 {
@@ -357,10 +411,9 @@ impl UnlockScreen {
                     self.error_message = None;
                 } else {
                     self.state = UnlockPhase::Failed;
-                    self.error_message = Some(match attempts_remaining {
-                        Some(n) => format!("Wrong password. {} attempts remaining.", n),
-                        None => "Wrong password. Please try again.".to_string(),
-                    });
+                    self.error_message = Some(
+                        t!("tui.entry.password_error_count", n = self.failed_attempts).to_string(),
+                    );
                 }
                 ScreenResult::Continue
             }
@@ -469,6 +522,9 @@ mod tests {
 
     #[test]
     fn command_result_failed_increments_attempts() {
+        // Ensure i18n is initialized for consistent test results
+        crate::tui::i18n::init("en");
+
         let mut screen = UnlockScreen::default();
         screen.state = UnlockPhase::Verifying;
         let result = screen.handle_command_result(CommandResult::VaultUnlockFailed {
@@ -477,7 +533,15 @@ mod tests {
         assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.failed_attempts, 1);
         assert_eq!(screen.state, UnlockPhase::Failed);
-        assert!(screen.error_message.is_some());
+        let msg = screen
+            .error_message
+            .as_ref()
+            .expect("error message should be set");
+        // i18n message should contain the attempt number
+        assert!(
+            msg.contains('1'),
+            "error message should contain attempt count: {msg}"
+        );
     }
 
     #[test]
