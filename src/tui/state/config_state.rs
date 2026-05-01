@@ -19,6 +19,9 @@ pub enum GDriveAuthStatus {
     },
 }
 
+/// Scroll boundary flash duration in milliseconds.
+pub const BOUNDARY_FLASH_DURATION_MS: u64 = 150;
+
 // ── Config Overlay ────────────────────────────────────────────────────────────
 
 /// Overlay state for the config screen (dropdowns, dialogs).
@@ -503,6 +506,8 @@ pub struct ConfigScreenState {
     pub vault_path_dialog: Option<crate::tui::components::vault_path_dialog::VaultPathDialog>,
     /// One-shot marker set when navigation state was restored from a screen snapshot.
     pub restored_from_snapshot: bool,
+    /// Instant when the scroll boundary flash started, None = no flash active.
+    pub boundary_flash_at: Option<std::time::Instant>,
 }
 
 impl ConfigScreenState {
@@ -567,26 +572,39 @@ impl ConfigScreenState {
     }
 
     /// Move focus to the next item in the current tab.
-    pub fn focus_next(&mut self, total_items: usize) {
+    /// Returns true if at the bottom boundary (focused was last item).
+    pub fn focus_next(&mut self, total_items: usize) -> bool {
         if total_items == 0 {
-            return;
+            return false;
         }
         self.sub_item_focus = None;
+        let at_boundary = self.focused_item == total_items - 1;
         self.focused_item = (self.focused_item + 1) % total_items;
+        at_boundary
     }
 
     /// Move focus to the previous item in the current tab.
-    pub fn focus_prev(&mut self, total_items: usize) {
+    /// Returns true if at the top boundary (focused was 0).
+    pub fn focus_prev(&mut self, total_items: usize) -> bool {
         if total_items == 0 {
-            return;
+            return false;
         }
         self.sub_item_focus = None;
+        let at_boundary = self.focused_item == 0;
         self.focused_item = (self.focused_item + total_items - 1) % total_items;
+        at_boundary
     }
 
     /// Mark that a change has been made.
     pub fn mark_changed(&mut self) {
         self.has_changes = true;
+    }
+
+    /// Returns true if the boundary flash is currently active.
+    pub fn is_boundary_flash_active(&self) -> bool {
+        self.boundary_flash_at.is_some_and(|instant| {
+            instant.elapsed().as_millis() < BOUNDARY_FLASH_DURATION_MS as u128
+        })
     }
 
     /// Reset changes flag (e.g. after save).
@@ -758,23 +776,67 @@ mod tests {
     fn focus_next_cycles() {
         let mut state = ConfigScreenState::default();
         state.focused_item = 4;
-        state.focus_next(5);
+        let at_boundary = state.focus_next(5);
         assert_eq!(state.focused_item, 0);
+        assert!(at_boundary);
     }
 
     #[test]
     fn focus_prev_cycles() {
         let mut state = ConfigScreenState::default();
         state.focused_item = 0;
-        state.focus_prev(5);
+        let at_boundary = state.focus_prev(5);
         assert_eq!(state.focused_item, 4);
+        assert!(at_boundary);
+    }
+
+    #[test]
+    fn focus_next_not_at_boundary() {
+        let mut state = ConfigScreenState::default();
+        state.focused_item = 2;
+        let at_boundary = state.focus_next(5);
+        assert_eq!(state.focused_item, 3);
+        assert!(!at_boundary);
+    }
+
+    #[test]
+    fn focus_prev_not_at_boundary() {
+        let mut state = ConfigScreenState::default();
+        state.focused_item = 3;
+        let at_boundary = state.focus_prev(5);
+        assert_eq!(state.focused_item, 2);
+        assert!(!at_boundary);
     }
 
     #[test]
     fn focus_next_empty_is_noop() {
         let mut state = ConfigScreenState::default();
-        state.focus_next(0);
+        let at_boundary = state.focus_next(0);
         assert_eq!(state.focused_item, 0);
+        assert!(!at_boundary);
+    }
+
+    #[test]
+    fn boundary_flash_active_within_duration() {
+        let mut state = ConfigScreenState::default();
+        state.boundary_flash_at = Some(std::time::Instant::now());
+        assert!(state.is_boundary_flash_active());
+    }
+
+    #[test]
+    fn boundary_flash_inactive_after_duration() {
+        let mut state = ConfigScreenState::default();
+        state.boundary_flash_at = Some(
+            std::time::Instant::now()
+                - std::time::Duration::from_millis(BOUNDARY_FLASH_DURATION_MS + 1),
+        );
+        assert!(!state.is_boundary_flash_active());
+    }
+
+    #[test]
+    fn boundary_flash_inactive_when_none() {
+        let state = ConfigScreenState::default();
+        assert!(!state.is_boundary_flash_active());
     }
 
     #[test]

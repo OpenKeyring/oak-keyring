@@ -390,6 +390,8 @@ tui:
     saved: "Saved"
     # -- Footer --
     footer: " ↑↓ Navigate  Tab Switch  Ctrl+S Save  Esc Close "
+    exit_program: "Exit Program"
+    close: "Close"
     # -- Dropdown --
     select: "Select"
     # -- Unsaved changes dialog --

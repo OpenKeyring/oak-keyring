@@ -135,10 +135,50 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
         total_items,
     );
 
-    // Footer
-    let footer = Paragraph::new(t!("tui.config.footer").to_string())
-        .style(Style::default().fg(theme::TEXT_SECONDARY));
-    frame.render_widget(footer, chunks[2]);
+    // Scroll boundary flash: overlay orange on the focused item row
+    if state.is_boundary_flash_active() && state.active_tab.item_count() > 0 {
+        // Each tab layout: row 0 = title, rows 1..N = items. Focused item row = focused + 1.
+        let focused_row = focused as u16 + 1;
+        let visible_row = focused_row.saturating_sub(state.scroll_offset);
+        if visible_row < visible_height {
+            let flash_area = Rect {
+                x: content_area.x,
+                y: content_area.y + visible_row,
+                width: content_area.width,
+                height: 1,
+            };
+            let flash = Paragraph::new("").style(
+                Style::default()
+                    .bg(theme::WARNING)
+                    .add_modifier(Modifier::BOLD),
+            );
+            frame.render_widget(flash, flash_area);
+        }
+    }
+
+    // Footer bar: keyboard hints + [Exit Program] red + [Close] blue
+    let exit_label = t!("tui.config.exit_program");
+    let close_label = t!("tui.config.close");
+    let footer = Line::from(vec![
+        Span::styled(
+            " \u{2191}\u{2193} scroll  Tab switch  Enter confirm  Esc close  q exit ",
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            format!("[ {} ]", exit_label),
+            Style::default()
+                .fg(theme::ERROR)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("[ {} ]", close_label),
+            Style::default().fg(theme::PRIMARY),
+        ),
+    ]);
+    let footer_widget = Paragraph::new(footer).style(Style::default().bg(theme::BG_BAR));
+    frame.render_widget(footer_widget, chunks[2]);
 }
 
 fn render_password_defaults(

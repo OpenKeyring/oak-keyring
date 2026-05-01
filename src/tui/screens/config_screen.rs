@@ -184,16 +184,21 @@ impl ConfigScreen {
                 self.state.switch_tab(tabs[prev_idx]);
                 ScreenResult::Continue
             }
-            (KeyCode::Up, _) => {
+            (KeyCode::Up, _) | (KeyCode::Char('k'), KeyModifiers::NONE) => {
                 let count = self.state.active_tab.item_count();
-                self.state.focus_prev(count);
+                if self.state.focus_prev(count) {
+                    self.state.boundary_flash_at = Some(std::time::Instant::now());
+                }
                 ScreenResult::Continue
             }
-            (KeyCode::Down, _) => {
+            (KeyCode::Down, _) | (KeyCode::Char('j'), KeyModifiers::NONE) => {
                 let count = self.state.active_tab.item_count();
-                self.state.focus_next(count);
+                if self.state.focus_next(count) {
+                    self.state.boundary_flash_at = Some(std::time::Instant::now());
+                }
                 ScreenResult::Continue
             }
+            (KeyCode::Char('q'), KeyModifiers::NONE) => ScreenResult::ExitApp,
             (KeyCode::PageUp, _) => {
                 if self.state.overlay.is_none() {
                     let visible_height = self.state.terminal_height.saturating_sub(4);
@@ -855,5 +860,95 @@ mod tests {
         assert_eq!(screen.state.focused_item, 3);
         assert_eq!(screen.state.sub_item_focus, Some(1));
         assert_eq!(screen.state.scroll_offset, 4);
+    }
+
+    fn make_key(code: KeyCode) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn j_key_moves_focus_down() {
+        let mut screen = ConfigScreen::new();
+        assert_eq!(screen.state.focused_item, 0);
+
+        let (tx, _rx) = mpsc::channel(1);
+        let config = AppConfig::default();
+        let mut ctx = test_context(&tx, &config);
+
+        let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('j'))), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.state.focused_item, 1);
+    }
+
+    #[test]
+    fn k_key_moves_focus_up() {
+        let mut screen = ConfigScreen::new();
+        screen.state.focused_item = 3;
+
+        let (tx, _rx) = mpsc::channel(1);
+        let config = AppConfig::default();
+        let mut ctx = test_context(&tx, &config);
+
+        let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('k'))), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.state.focused_item, 2);
+    }
+
+    #[test]
+    fn j_key_at_bottom_boundary_triggers_flash() {
+        let mut screen = ConfigScreen::new();
+        // General tab has 8 items (0..7), set to last item
+        screen.state.focused_item = 7;
+
+        let (tx, _rx) = mpsc::channel(1);
+        let config = AppConfig::default();
+        let mut ctx = test_context(&tx, &config);
+
+        let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('j'))), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.state.focused_item, 0);
+        assert!(screen.state.boundary_flash_at.is_some());
+    }
+
+    #[test]
+    fn k_key_at_top_boundary_triggers_flash() {
+        let mut screen = ConfigScreen::new();
+        assert_eq!(screen.state.focused_item, 0);
+
+        let (tx, _rx) = mpsc::channel(1);
+        let config = AppConfig::default();
+        let mut ctx = test_context(&tx, &config);
+
+        let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('k'))), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.state.focused_item, 7);
+        assert!(screen.state.boundary_flash_at.is_some());
+    }
+
+    #[test]
+    fn q_key_returns_exit_app() {
+        let mut screen = ConfigScreen::new();
+
+        let (tx, _rx) = mpsc::channel(1);
+        let config = AppConfig::default();
+        let mut ctx = test_context(&tx, &config);
+
+        let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('q'))), &mut ctx);
+        assert!(matches!(result, ScreenResult::ExitApp));
+    }
+
+    #[test]
+    fn j_key_no_boundary_flash_when_not_at_edge() {
+        let mut screen = ConfigScreen::new();
+        assert_eq!(screen.state.focused_item, 0);
+
+        let (tx, _rx) = mpsc::channel(1);
+        let config = AppConfig::default();
+        let mut ctx = test_context(&tx, &config);
+
+        let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('j'))), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.state.focused_item, 1);
+        assert!(screen.state.boundary_flash_at.is_none());
     }
 }
