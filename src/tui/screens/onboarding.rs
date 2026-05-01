@@ -15,8 +15,8 @@ use crate::commands::types::{ImportPreview, Screen};
 use crate::commands::{Command, Message};
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::theme::{
-    self, Styles, BORDER, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER,
-    TEXT_SECONDARY, WARNING,
+    self, Styles, BG, BG_SURFACE, BORDER, BRAND, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED,
+    TEXT_PLACEHOLDER, TEXT_SECONDARY, WARNING,
 };
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::SecureStr;
@@ -66,6 +66,8 @@ pub struct OnboardingScreen {
     pub path_input: String,
     pub error: Option<String>,
     pub recovery_confirmed: bool,
+    /// Currently highlighted card index on the Welcome step (0..3).
+    pub welcome_selected: usize,
     /// 24 recovery words populated after VaultInitialized command result.
     pub recovery_words: Vec<String>,
     /// Embedded grid for RecoveryInput step.
@@ -94,6 +96,7 @@ impl Default for OnboardingScreen {
             path_input: String::new(),
             error: None,
             recovery_confirmed: false,
+            welcome_selected: 0,
             recovery_words: Vec::new(),
             recovery_grid: WordGridState::default(),
             verify_inputs: std::array::from_fn(|_| String::new()),
@@ -185,20 +188,33 @@ impl OnboardingScreen {
     }
 
     fn handle_welcome_key(&mut self, key: KeyEvent) -> ScreenResult {
+        const PATH_COUNT: usize = 3;
+
         match key.code {
-            KeyCode::Char('1') | KeyCode::Enter => {
-                self.selected_path = Some(OnboardingPath::CreateNew);
-                self.current_step = OnboardingStep::VaultPath;
+            KeyCode::Down | KeyCode::Tab => {
+                self.welcome_selected = (self.welcome_selected + 1) % PATH_COUNT;
                 ScreenResult::Continue
             }
-            KeyCode::Char('2') => {
-                self.selected_path = Some(OnboardingPath::Restore);
-                self.current_step = OnboardingStep::RecoveryInput;
+            KeyCode::Up | KeyCode::BackTab => {
+                self.welcome_selected = (self.welcome_selected + PATH_COUNT - 1) % PATH_COUNT;
                 ScreenResult::Continue
             }
-            KeyCode::Char('3') => {
-                self.selected_path = Some(OnboardingPath::Import);
-                self.current_step = OnboardingStep::ImportSource;
+            KeyCode::Enter => {
+                match self.welcome_selected {
+                    0 => {
+                        self.selected_path = Some(OnboardingPath::CreateNew);
+                        self.current_step = OnboardingStep::VaultPath;
+                    }
+                    1 => {
+                        self.selected_path = Some(OnboardingPath::Restore);
+                        self.current_step = OnboardingStep::RecoveryInput;
+                    }
+                    2 => {
+                        self.selected_path = Some(OnboardingPath::Import);
+                        self.current_step = OnboardingStep::ImportSource;
+                    }
+                    _ => {}
+                }
                 ScreenResult::Continue
             }
             KeyCode::Esc => ScreenResult::ExitApp,
@@ -599,6 +615,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.path_input.clear();
         self.error = None;
         self.recovery_confirmed = false;
+        self.welcome_selected = 0;
         self.recovery_words.zeroize();
         self.recovery_words.clear();
         self.recovery_grid.zeroize();
@@ -657,72 +674,119 @@ impl OnboardingScreen {
     }
 
     fn view_welcome(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        let content_area = Self::centered_content(area, 12);
+        let content_area = Self::centered_content(area, 20);
 
         let rows = Layout::vertical([
-            Constraint::Length(1), // title
-            Constraint::Length(2), // gap
-            Constraint::Length(1), // option 1
-            Constraint::Length(1), // option 2
-            Constraint::Length(1), // option 3
+            Constraint::Length(1), // brand
+            Constraint::Length(1), // separator line
+            Constraint::Length(1), // subtitle
+            Constraint::Length(1), // gap
+            Constraint::Length(3), // card 0 — CreateNew
+            Constraint::Length(1), // gap
+            Constraint::Length(3), // card 1 — Restore
+            Constraint::Length(1), // gap
+            Constraint::Length(3), // card 2 — Import
             Constraint::Length(2), // gap
             Constraint::Length(1), // hint
             Constraint::Length(1), // step indicator
         ])
         .split(content_area);
 
-        // Title
-        let title = Paragraph::new("Welcome to OpenKeyring")
-            .style(Styles::brand_text())
-            .alignment(Alignment::Center);
-        frame.render_widget(title, rows[0]);
+        // Brand
+        let brand = Paragraph::new(Line::from(vec![
+            Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
+            Span::styled(
+                "OpenKeyring",
+                Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
+            ),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(brand, rows[0]);
 
-        // Options
-        let options = [
+        // Separator
+        let separator = Paragraph::new(Span::styled(
+            "\u{2500}".repeat(40),
+            Style::default().fg(BORDER),
+        ))
+        .alignment(Alignment::Center);
+        frame.render_widget(separator, rows[1]);
+
+        // Subtitle
+        let subtitle = Paragraph::new(Span::styled(
+            "Secure, open-source terminal password manager",
+            Style::default().fg(TEXT_SECONDARY),
+        ))
+        .alignment(Alignment::Center);
+        frame.render_widget(subtitle, rows[2]);
+
+        // Cards
+        let cards = [
             (
-                "1",
+                "\u{2726}", // ✦
                 "Create new vault",
-                "Generate a fresh vault with recovery key",
+                "Start fresh \u{2014} generate recovery key and set password",
             ),
             (
-                "2",
-                "Restore from recovery key",
-                "Recover an existing vault",
+                "\u{21BB}", // ↻
+                "Restore existing vault",
+                "Recover an OpenKeyring vault using a recovery key",
             ),
             (
-                "3",
+                "\u{2193}", // ↓
                 "Import from other manager",
-                "Import from KeePass, 1Password, Bitwarden, etc.",
+                "Migrate from KeePass, 1Password, Bitwarden, etc.",
             ),
         ];
 
-        for (i, (num, label, desc)) in options.iter().enumerate() {
-            let line = Line::from(vec![
+        for (i, (icon, title, desc)) in cards.iter().enumerate() {
+            let is_selected = i == self.welcome_selected;
+            let card_row = rows[4 + i * 2];
+
+            let border_color = if is_selected { PRIMARY } else { BORDER };
+            let bg_color = if is_selected { BG_SURFACE } else { BG };
+
+            let card_block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(border_color))
+                .style(Style::default().bg(bg_color));
+
+            let inner = card_block.inner(card_row);
+            frame.render_widget(card_block, card_row);
+
+            // Two lines inside the card: icon + title, then description
+            let card_lines = Layout::vertical([
+                Constraint::Length(1), // icon + title
+                Constraint::Length(1), // description
+            ])
+            .split(inner);
+
+            let title_line = Paragraph::new(Line::from(vec![
+                Span::styled(format!(" {} ", icon), Style::default().fg(BRAND)),
                 Span::styled(
-                    format!(" {} ", num),
-                    Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("{} ", label),
+                    title.to_string(),
                     Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(format!("- {}", desc), Style::default().fg(TEXT_SECONDARY)),
-            ]);
-            let para = Paragraph::new(line);
-            frame.render_widget(para, rows[2 + i]);
+            ]));
+            frame.render_widget(title_line, card_lines[0]);
+
+            let desc_line = Paragraph::new(Line::from(Span::styled(
+                format!("   {}", desc),
+                Style::default().fg(TEXT_SECONDARY),
+            )));
+            frame.render_widget(desc_line, card_lines[1]);
         }
 
         // Hint
-        let hint = Paragraph::new("Press 1, 2, or 3 to choose  |  Esc to quit")
+        let hint = Paragraph::new("\u{2191}\u{2193}/Tab: navigate  |  Enter: select  |  Esc: quit")
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[6]);
+        frame.render_widget(hint, rows[10]);
 
         // Step indicator
         let step_text = Paragraph::new("Step 1/1")
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(step_text, rows[7]);
+        frame.render_widget(step_text, rows[11]);
     }
 
     fn view_vault_path(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
@@ -1253,6 +1317,7 @@ mod tests {
         let screen = OnboardingScreen::default();
         assert!(screen.selected_path.is_none());
         assert_eq!(screen.current_step, OnboardingStep::Welcome);
+        assert_eq!(screen.welcome_selected, 0);
         assert!(screen.path_input.is_empty());
         assert!(screen.error.is_none());
         assert!(!screen.recovery_confirmed);
@@ -1295,10 +1360,17 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_select_create() {
+    fn onboarding_welcome_default_selected_is_first() {
+        let screen = OnboardingScreen::default();
+        assert_eq!(screen.welcome_selected, 0);
+    }
+
+    #[test]
+    fn onboarding_welcome_enter_selects_create() {
         let mut screen = OnboardingScreen::default();
+        // Default selection is 0 (CreateNew), pressing Enter should select it
         let result = screen.handle_welcome_key(KeyEvent::new(
-            KeyCode::Char('1'),
+            KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
         assert!(matches!(result, ScreenResult::Continue));
@@ -1307,10 +1379,17 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_select_restore() {
+    fn onboarding_welcome_down_then_enter_selects_restore() {
         let mut screen = OnboardingScreen::default();
+        // Press Down to move to index 1 (Restore)
+        screen.handle_welcome_key(KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.welcome_selected, 1);
+
         let result = screen.handle_welcome_key(KeyEvent::new(
-            KeyCode::Char('2'),
+            KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
         assert!(matches!(result, ScreenResult::Continue));
@@ -1319,15 +1398,78 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_select_import() {
+    fn onboarding_welcome_down_twice_then_enter_selects_import() {
         let mut screen = OnboardingScreen::default();
+        screen.handle_welcome_key(KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        screen.handle_welcome_key(KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.welcome_selected, 2);
+
         let result = screen.handle_welcome_key(KeyEvent::new(
-            KeyCode::Char('3'),
+            KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
         assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.selected_path, Some(OnboardingPath::Import));
         assert_eq!(screen.current_step, OnboardingStep::ImportSource);
+    }
+
+    #[test]
+    fn onboarding_welcome_down_wraps_around() {
+        let mut screen = OnboardingScreen::default();
+        // Down three times from 0 should wrap back to 0
+        screen.handle_welcome_key(KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.welcome_selected, 1);
+        screen.handle_welcome_key(KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.welcome_selected, 2);
+        screen.handle_welcome_key(KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.welcome_selected, 0);
+    }
+
+    #[test]
+    fn onboarding_welcome_up_wraps_around() {
+        let mut screen = OnboardingScreen::default();
+        // Up from 0 should wrap to 2
+        screen.handle_welcome_key(KeyEvent::new(
+            KeyCode::Up,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.welcome_selected, 2);
+    }
+
+    #[test]
+    fn onboarding_welcome_tab_moves_down() {
+        let mut screen = OnboardingScreen::default();
+        screen.handle_welcome_key(KeyEvent::new(
+            KeyCode::Tab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.welcome_selected, 1);
+    }
+
+    #[test]
+    fn onboarding_welcome_backtab_moves_up() {
+        let mut screen = OnboardingScreen::default();
+        screen.welcome_selected = 2;
+        screen.handle_welcome_key(KeyEvent::new(
+            KeyCode::BackTab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.welcome_selected, 1);
     }
 
     #[test]
@@ -1338,6 +1480,20 @@ mod tests {
             crossterm::event::KeyModifiers::NONE,
         ));
         assert!(matches!(result, ScreenResult::ExitApp));
+    }
+
+    #[test]
+    fn onboarding_welcome_ignores_number_keys() {
+        let mut screen = OnboardingScreen::default();
+        // Number keys no longer select paths — only navigation + Enter
+        let result = screen.handle_welcome_key(KeyEvent::new(
+            KeyCode::Char('1'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert!(matches!(result, ScreenResult::Continue));
+        // Should not have changed state
+        assert_eq!(screen.welcome_selected, 0);
+        assert!(screen.selected_path.is_none());
     }
 
     #[test]
