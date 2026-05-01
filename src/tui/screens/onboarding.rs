@@ -96,6 +96,10 @@ pub struct OnboardingScreen {
     pub import_password: String,
     pub import_focus: crate::tui::screens::import_export::ImportFocus,
     pub import_preview: Option<ImportPreview>,
+    /// Whether to import problematic entries as notes instead of skipping them.
+    pub import_as_notes: bool,
+    /// Whether the checkbox on ImportPreview step is focused.
+    pub import_preview_checkbox_focused: bool,
     // VaultPath step state
     /// Whether the path input is in editable (custom) mode.
     pub vault_path_editable: bool,
@@ -137,6 +141,8 @@ impl Default for OnboardingScreen {
             import_password: String::new(),
             import_focus: ImportFocus::SourceList,
             import_preview: None,
+            import_as_notes: false,
+            import_preview_checkbox_focused: false,
             vault_path_editable: false,
             vault_path_focus: 0,
             recovery_focus: RecoveryFocus::default(),
@@ -742,6 +748,18 @@ impl OnboardingScreen {
         use crate::tui::screens::import_export::IMPORT_SOURCES;
 
         match key.code {
+            KeyCode::Tab => {
+                self.import_preview_checkbox_focused = !self.import_preview_checkbox_focused;
+                ScreenResult::Continue
+            }
+            KeyCode::BackTab => {
+                self.import_preview_checkbox_focused = !self.import_preview_checkbox_focused;
+                ScreenResult::Continue
+            }
+            KeyCode::Char(' ') | KeyCode::Enter if self.import_preview_checkbox_focused => {
+                self.import_as_notes = !self.import_as_notes;
+                ScreenResult::Continue
+            }
             KeyCode::Enter => {
                 let source = IMPORT_SOURCES[self.selected_source_idx].0;
                 let password = if self.import_password.is_empty() {
@@ -880,6 +898,8 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.import_password.clear();
         self.import_focus = crate::tui::screens::import_export::ImportFocus::SourceList;
         self.import_preview = None;
+        self.import_as_notes = false;
+        self.import_preview_checkbox_focused = false;
         self.vault_path_editable = false;
         self.vault_path_focus = 0;
         self.recovery_focus = RecoveryFocus::default();
@@ -909,6 +929,8 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.import_password.zeroize();
         self.import_password.clear();
         self.import_preview = None;
+        self.import_as_notes = false;
+        self.import_preview_checkbox_focused = false;
         self.recovery_focus = RecoveryFocus::default();
         self.clipboard_copied = false;
         self.clipboard_clear_seconds = 30;
@@ -1789,8 +1811,31 @@ impl OnboardingScreen {
         }
 
         lines.push(Line::raw(""));
+
+        // Checkbox: "Import problematic entries as notes (instead of skipping)"
+        let check_icon = if self.import_as_notes {
+            theme::ICON_CHECK // ☑
+        } else {
+            "\u{2610}" // ☐
+        };
+        let check_style = if self.import_as_notes {
+            Style::default().fg(SUCCESS)
+        } else if self.import_preview_checkbox_focused {
+            Style::default().fg(PRIMARY)
+        } else {
+            Style::default().fg(TEXT_SECONDARY)
+        };
         lines.push(Line::from(Span::styled(
-            "Enter: start import | Esc: back",
+            format!(
+                " {} Import problematic entries as notes (instead of skipping)",
+                check_icon
+            ),
+            check_style,
+        )));
+
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled(
+            "Tab: toggle focus | Space/Enter: toggle checkbox | Enter: start import | Esc: back",
             Style::default().fg(TEXT_MUTED),
         )));
 
@@ -2569,6 +2614,117 @@ mod tests {
         assert!(matches!(result, ScreenResult::Continue));
         // ImportPreview Enter sends ExecuteImport command, stays on ImportPreview
         // until ImportCompleted result is received.
+    }
+
+    #[test]
+    fn onboarding_import_preview_enter_toggles_checkbox_when_focused() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::Import),
+            current_step: OnboardingStep::ImportPreview,
+            import_preview_checkbox_focused: true,
+            ..Default::default()
+        };
+        let mut ctx = dummy_ctx();
+
+        assert!(!screen.import_as_notes);
+
+        // Enter toggles checkbox when focused (does NOT trigger import)
+        screen.handle_import_preview_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+        assert!(screen.import_as_notes);
+
+        // Enter again to toggle back
+        screen.handle_import_preview_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+        assert!(!screen.import_as_notes);
+    }
+
+    #[test]
+    fn onboarding_import_preview_space_toggles_checkbox_when_focused() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::Import),
+            current_step: OnboardingStep::ImportPreview,
+            import_preview_checkbox_focused: true,
+            ..Default::default()
+        };
+        let mut ctx = dummy_ctx();
+
+        assert!(!screen.import_as_notes);
+
+        // Space toggles checkbox when focused
+        screen.handle_import_preview_key(
+            KeyEvent::new(KeyCode::Char(' '), crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+        assert!(screen.import_as_notes);
+    }
+
+    #[test]
+    fn onboarding_import_preview_space_ignored_when_checkbox_not_focused() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::Import),
+            current_step: OnboardingStep::ImportPreview,
+            import_preview_checkbox_focused: false,
+            ..Default::default()
+        };
+        let mut ctx = dummy_ctx();
+
+        assert!(!screen.import_as_notes);
+
+        // Space should NOT toggle checkbox when it is not focused
+        screen.handle_import_preview_key(
+            KeyEvent::new(KeyCode::Char(' '), crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+        assert!(!screen.import_as_notes);
+    }
+
+    #[test]
+    fn onboarding_import_preview_tab_toggles_focus() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::Import),
+            current_step: OnboardingStep::ImportPreview,
+            ..Default::default()
+        };
+        let mut ctx = dummy_ctx();
+
+        assert!(!screen.import_preview_checkbox_focused);
+
+        // Tab toggles checkbox focus
+        screen.handle_import_preview_key(
+            KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+        assert!(screen.import_preview_checkbox_focused);
+
+        // Tab again toggles back
+        screen.handle_import_preview_key(
+            KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+        assert!(!screen.import_preview_checkbox_focused);
+    }
+
+    #[test]
+    fn onboarding_import_preview_backtab_toggles_focus() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::Import),
+            current_step: OnboardingStep::ImportPreview,
+            import_preview_checkbox_focused: false,
+            ..Default::default()
+        };
+        let mut ctx = dummy_ctx();
+
+        // BackTab also toggles checkbox focus
+        screen.handle_import_preview_key(
+            KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+        assert!(screen.import_preview_checkbox_focused);
     }
 
     #[test]
