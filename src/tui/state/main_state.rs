@@ -75,7 +75,7 @@ pub enum SidebarItem {
 impl SidebarItem {
     /// Whether this item can receive keyboard focus / be selected.
     pub fn is_selectable(&self) -> bool {
-        !matches!(self, Self::Separator | Self::TagHeader)
+        !matches!(self, Self::Separator)
     }
 }
 
@@ -594,7 +594,7 @@ mod tests {
     fn sidebar_navigation_skips_separators() {
         let mut sidebar = SidebarState::default();
         // Items: All, Favorites, Expired, HealthIssues, Trash, Separator, TagHeader, Separator, Generator, Config
-        // Selectable indices: 0,1,2,3,4,       _,        _,        _,        8,         9
+        // Selectable indices: 0,1,2,3,4,       _,        6(Taggable), _,        8,         9
         // Start at All (0), next -> Favorites (1)
         sidebar.next_selectable();
         assert_eq!(sidebar.selected_index, 1);
@@ -603,14 +603,14 @@ mod tests {
             SidebarItem::Category(SidebarCategory::Favorites)
         ));
 
-        // Skip ahead past categories to verify separator skip at wrap point
+        // Skip ahead past categories to verify separator skip
         sidebar.selected_index = 4; // Trash
         sidebar.next_selectable();
-        // Items[5] is Separator, items[6] is TagHeader — both non-selectable
-        // Should land on Generator (index 8)
+        // Items[5] is Separator (non-selectable), items[6] is TagHeader (selectable)
+        // Should land on TagHeader (index 6)
         assert!(matches!(
             sidebar.items[sidebar.selected_index],
-            SidebarItem::Generator
+            SidebarItem::TagHeader
         ));
     }
 
@@ -809,6 +809,90 @@ mod tests {
             .all(|i| !matches!(i, SidebarItem::Tag(_))));
         state.toggle_tags();
         assert!(state.tags_expanded);
+    }
+
+    #[test]
+    fn tag_header_is_selectable() {
+        assert!(SidebarItem::TagHeader.is_selectable());
+    }
+
+    #[test]
+    fn tag_header_keyboard_navigable() {
+        let mut sidebar = SidebarState::default();
+        // Navigate from Trash (4) down — should land on TagHeader (6)
+        sidebar.selected_index = 4;
+        sidebar.move_down();
+        assert!(matches!(
+            sidebar.items[sidebar.selected_index],
+            SidebarItem::TagHeader
+        ));
+        // Move down again — should skip Separator and land on Generator (8)
+        sidebar.move_down();
+        assert!(matches!(
+            sidebar.items[sidebar.selected_index],
+            SidebarItem::Generator
+        ));
+    }
+
+    #[test]
+    fn tag_header_toggle_expands_and_collapses() {
+        let mut sidebar = SidebarState::default();
+        // Navigate to TagHeader
+        let header_idx = sidebar
+            .items
+            .iter()
+            .position(|i| matches!(i, SidebarItem::TagHeader))
+            .unwrap();
+        sidebar.selected_index = header_idx;
+        assert!(!sidebar.tags_expanded);
+
+        // Toggle: collapsed -> expanded
+        sidebar.toggle_tags();
+        assert!(sidebar.tags_expanded);
+
+        // Toggle: expanded -> collapsed, focus returns to TagHeader
+        sidebar.toggle_tags();
+        assert!(!sidebar.tags_expanded);
+        assert!(matches!(
+            sidebar.items[sidebar.selected_index],
+            SidebarItem::TagHeader
+        ));
+    }
+
+    #[test]
+    fn tag_header_collapse_returns_focus_to_header() {
+        let mut sidebar = SidebarState {
+            tags_expanded: true,
+            tags: vec![Tag {
+                id: 1,
+                name: "work".into(),
+            }],
+            ..Default::default()
+        };
+        sidebar.rebuild();
+        // Select a tag item
+        let tag_idx = sidebar
+            .items
+            .iter()
+            .position(|i| matches!(i, SidebarItem::Tag(_)))
+            .unwrap();
+        sidebar.selected_index = tag_idx;
+
+        // Select TagHeader and collapse
+        let header_idx = sidebar
+            .items
+            .iter()
+            .position(|i| matches!(i, SidebarItem::TagHeader))
+            .unwrap();
+        sidebar.selected_index = header_idx;
+        sidebar.toggle_tags();
+
+        // After collapse, focus should be on TagHeader
+        assert!(!sidebar.tags_expanded);
+        assert!(matches!(
+            sidebar.items[sidebar.selected_index],
+            SidebarItem::TagHeader
+        ));
     }
 
     // ── Tag delete and visual/search mutual exclusion tests ──────────────
