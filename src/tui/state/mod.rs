@@ -99,6 +99,29 @@ impl Default for AppState {
 }
 
 impl AppState {
+    /// Create a new AppState with the initial screen determined by vault existence.
+    ///
+    /// When `has_vault` is false (no vault file found), the user is routed to
+    /// `Screen::Onboarding` to create one. Otherwise, `Screen::Unlock` is shown.
+    pub fn new(has_vault: bool) -> Self {
+        Self {
+            phase: AppPhase::Initializing,
+            shared: SharedState::default(),
+            screens: ScreenStates::default(),
+            current_screen: if has_vault {
+                Screen::Unlock
+            } else {
+                Screen::Onboarding
+            },
+            screen_history: Vec::new(),
+            terminal_size: (80, 24),
+            too_small: false,
+            unicode_capable: true,
+            signal_count: 0,
+            last_signal_time: None,
+        }
+    }
+
     /// Check if terminal meets minimum size requirement (80x24).
     pub fn update_size(&mut self, width: u16, height: u16) {
         self.terminal_size = (width, height);
