@@ -339,9 +339,13 @@ impl UnlockScreen {
 
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
-            CommandResult::VaultUnlocked | CommandResult::RecoveryKeyUnlocked => {
+            CommandResult::VaultUnlocked => {
                 self.state = UnlockPhase::Success;
                 ScreenResult::NavigateTo(Screen::Main)
+            }
+            CommandResult::RecoveryKeyUnlocked => {
+                self.state = UnlockPhase::Success;
+                ScreenResult::NavigateTo(Screen::SetNewMasterPassword)
             }
             CommandResult::VaultUnlockFailed { attempts_remaining } => {
                 self.failed_attempts += 1;
@@ -453,11 +457,14 @@ mod tests {
     }
 
     #[test]
-    fn command_result_recovery_key_navigates_to_main() {
+    fn command_result_recovery_key_navigates_to_set_new_master_password() {
         let mut screen = UnlockScreen::default();
         let result = screen.handle_command_result(CommandResult::RecoveryKeyUnlocked);
         assert_eq!(screen.state, UnlockPhase::Success);
-        assert!(matches!(result, ScreenResult::NavigateTo(Screen::Main)));
+        assert!(matches!(
+            result,
+            ScreenResult::NavigateTo(Screen::SetNewMasterPassword)
+        ));
     }
 
     #[test]
