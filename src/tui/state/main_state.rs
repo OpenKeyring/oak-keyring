@@ -54,10 +54,12 @@ impl SidebarCategory {
     }
 }
 
-/// An item in the sidebar list — includes categories, visual separators, tags,
-/// and utility links (generator, config).
+/// An item in the sidebar list — includes brand header, categories, visual
+/// separators, tags, and utility links (generator, config).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidebarItem {
+    /// Brand header ("OpenKeyring") rendered at the top.
+    Brand,
     /// A filterable category entry.
     Category(SidebarCategory),
     /// A visual separator line.
@@ -75,7 +77,7 @@ pub enum SidebarItem {
 impl SidebarItem {
     /// Whether this item can receive keyboard focus / be selected.
     pub fn is_selectable(&self) -> bool {
-        !matches!(self, Self::Separator)
+        !matches!(self, Self::Brand | Self::Separator)
     }
 }
 
@@ -146,6 +148,8 @@ impl SidebarState {
     /// Build the ordered list of sidebar items.
     fn build_items(&self) -> Vec<SidebarItem> {
         let mut items: Vec<SidebarItem> = vec![
+            SidebarItem::Brand,
+            SidebarItem::Separator,
             SidebarItem::Category(SidebarCategory::All),
             SidebarItem::Category(SidebarCategory::Favorites),
             SidebarItem::Category(SidebarCategory::Expired),
@@ -209,6 +213,7 @@ impl SidebarState {
             // Generator and Config are shortcuts, not record filters
             SidebarItem::Generator
             | SidebarItem::Config
+            | SidebarItem::Brand
             | SidebarItem::Separator
             | SidebarItem::TagHeader => RecordFilter::All,
         }
@@ -585,29 +590,29 @@ mod tests {
     #[test]
     fn sidebar_default_selects_all_category() {
         let sidebar = SidebarState::default();
-        // First item is Category(All) — should be selected by default
-        assert_eq!(sidebar.selected_index, 0);
+        // Brand(0) and Separator(1) are non-selectable, so All(2) is selected
+        assert_eq!(sidebar.selected_index, 2);
         assert_eq!(sidebar.current_filter(), RecordFilter::All);
     }
 
     #[test]
     fn sidebar_navigation_skips_separators() {
         let mut sidebar = SidebarState::default();
-        // Items: All, Favorites, Expired, HealthIssues, Trash, Separator, TagHeader, Separator, Generator, Config
-        // Selectable indices: 0,1,2,3,4,       _,        6(Taggable), _,        8,         9
-        // Start at All (0), next -> Favorites (1)
+        // Items: Brand, Sep, All, Favorites, Expired, HealthIssues, Trash, Sep, TagHeader, Sep, Generator, Config
+        // Selectable:         2,    3,         4,       5,             6,     _,   8,         _,   10,         11
+        // Start at All (2), next -> Favorites (3)
         sidebar.next_selectable();
-        assert_eq!(sidebar.selected_index, 1);
+        assert_eq!(sidebar.selected_index, 3);
         assert!(matches!(
-            sidebar.items[1],
+            sidebar.items[3],
             SidebarItem::Category(SidebarCategory::Favorites)
         ));
 
         // Skip ahead past categories to verify separator skip
-        sidebar.selected_index = 4; // Trash
+        sidebar.selected_index = 6; // Trash
         sidebar.next_selectable();
-        // Items[5] is Separator (non-selectable), items[6] is TagHeader (selectable)
-        // Should land on TagHeader (index 6)
+        // Items[7] is Separator (non-selectable), items[8] is TagHeader (selectable)
+        // Should land on TagHeader (index 8)
         assert!(matches!(
             sidebar.items[sidebar.selected_index],
             SidebarItem::TagHeader
@@ -617,7 +622,7 @@ mod tests {
     #[test]
     fn sidebar_prev_navigation_wraps() {
         let mut sidebar = SidebarState::default();
-        // Start at index 0 (All), prev should wrap to last selectable item
+        // Start at index 2 (All), prev should wrap to last selectable item
         sidebar.prev_selectable();
         let last_index = sidebar.selected_index;
         // Last selectable should be Config
@@ -678,21 +683,23 @@ mod tests {
         };
         let items = sidebar.build_items();
 
-        // 5 categories + separator + tag header + 2 tags + separator + generator + config = 12
-        assert_eq!(items.len(), 12);
+        // Brand + sep + 5 categories + separator + tag header + 2 tags + separator + generator + config = 14
+        assert_eq!(items.len(), 14);
 
         // Verify structure
+        assert!(matches!(items[0], SidebarItem::Brand));
+        assert!(matches!(items[1], SidebarItem::Separator));
         assert!(matches!(
-            items[0],
+            items[2],
             SidebarItem::Category(SidebarCategory::All)
         ));
-        assert!(matches!(items[5], SidebarItem::Separator));
-        assert!(matches!(items[6], SidebarItem::TagHeader));
-        assert!(matches!(items[7], SidebarItem::Tag(ref t) if t == "personal"));
-        assert!(matches!(items[8], SidebarItem::Tag(ref t) if t == "work"));
-        assert!(matches!(items[9], SidebarItem::Separator));
-        assert!(matches!(items[10], SidebarItem::Generator));
-        assert!(matches!(items[11], SidebarItem::Config));
+        assert!(matches!(items[7], SidebarItem::Separator));
+        assert!(matches!(items[8], SidebarItem::TagHeader));
+        assert!(matches!(items[9], SidebarItem::Tag(ref t) if t == "personal"));
+        assert!(matches!(items[10], SidebarItem::Tag(ref t) if t == "work"));
+        assert!(matches!(items[11], SidebarItem::Separator));
+        assert!(matches!(items[12], SidebarItem::Generator));
+        assert!(matches!(items[13], SidebarItem::Config));
     }
 
     #[test]
@@ -723,7 +730,8 @@ mod tests {
         let state = MainScreenState::default();
         assert_eq!(state.current_filter, RecordFilter::All);
         assert!(state.pre_lock_snapshot.is_none());
-        assert_eq!(state.sidebar.selected_index, 0);
+        // Brand(0) and Separator(1) are non-selectable, so All is at index 2
+        assert_eq!(state.sidebar.selected_index, 2);
         assert_eq!(state.status_bar.record_count, 0);
     }
 
@@ -784,9 +792,10 @@ mod tests {
     #[test]
     fn sidebar_move_up() {
         let mut state = SidebarState::default();
-        state.selected_index = 1;
+        // Start at Favorites (index 3), move up to All (index 2)
+        state.selected_index = 3;
         state.move_up();
-        assert_eq!(state.selected_index, 0);
+        assert_eq!(state.selected_index, 2);
     }
 
     #[test]
@@ -819,14 +828,14 @@ mod tests {
     #[test]
     fn tag_header_keyboard_navigable() {
         let mut sidebar = SidebarState::default();
-        // Navigate from Trash (4) down — should land on TagHeader (6)
-        sidebar.selected_index = 4;
+        // Navigate from Trash (6) down — should land on TagHeader (8)
+        sidebar.selected_index = 6;
         sidebar.move_down();
         assert!(matches!(
             sidebar.items[sidebar.selected_index],
             SidebarItem::TagHeader
         ));
-        // Move down again — should skip Separator and land on Generator (8)
+        // Move down again — should skip Separator and land on Generator (10)
         sidebar.move_down();
         assert!(matches!(
             sidebar.items[sidebar.selected_index],

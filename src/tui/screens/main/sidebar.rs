@@ -29,7 +29,7 @@ const TAG_HEADER_EXPANDED_ASCII: &str = "v # Tags";
 const TAG_HEADER_COLLAPSED_ASCII: &str = "> # Tags";
 
 /// Indentation prefix for tag items.
-const TAG_INDENT: &str = "    ";
+const TAG_INDENT: &str = "  ";
 
 /// Generator label (unicode).
 const GENERATOR_LABEL_UNICODE: &str = "\u{2726} \u{751F}\u{6210}\u{5668}"; // ✦ 生成器
@@ -95,6 +95,12 @@ fn build_list_item<'a>(
     area_width: u16,
 ) -> ListItem<'a> {
     match item {
+        SidebarItem::Brand => ListItem::new(Line::from(Span::styled(
+            "OpenKeyring",
+            Style::default()
+                .fg(theme::BRAND)
+                .add_modifier(Modifier::BOLD),
+        ))),
         SidebarItem::Category(category) => {
             let label = category_label(category, unicode);
             let count = category_count(category, &state.category_counts);
@@ -155,7 +161,7 @@ fn build_list_item<'a>(
         }
         SidebarItem::Tag(name) => {
             if state.tag_management_mode {
-                let display = format!("{}#{}", TAG_INDENT, name);
+                let display = format!("{}{}", TAG_INDENT, name);
                 let edit_icon = if unicode { "\u{270E}" } else { "[e]" };
                 let delete_icon = if unicode { "\u{2717}" } else { "[x]" };
 
@@ -177,7 +183,7 @@ fn build_list_item<'a>(
                     ),
                 ]))
             } else {
-                let display = format!("{}#{}", TAG_INDENT, name);
+                let display = format!("{}{}", TAG_INDENT, name);
                 ListItem::new(Line::from(Span::styled(
                     display,
                     Style::default().fg(theme::TEXT),
@@ -192,7 +198,7 @@ fn build_list_item<'a>(
             };
             ListItem::new(Line::from(Span::styled(
                 label,
-                Style::default().fg(theme::BRAND),
+                Style::default().fg(theme::TEXT_SECONDARY),
             )))
         }
         SidebarItem::Config => {
@@ -203,7 +209,7 @@ fn build_list_item<'a>(
             };
             ListItem::new(Line::from(Span::styled(
                 label,
-                Style::default().fg(theme::BRAND),
+                Style::default().fg(theme::TEXT_SECONDARY),
             )))
         }
     }
@@ -246,10 +252,10 @@ fn category_count(
     }
 }
 
-/// Format a count as a right-aligned badge string (e.g. " 42").
+/// Format a count as a right-aligned badge string (e.g. "(42)").
 fn format_count(count: usize) -> String {
     if count > 0 {
-        format!(" {}", count)
+        format!(" ({})", count)
     } else {
         String::new()
     }
@@ -332,7 +338,7 @@ mod tests {
 
     #[test]
     fn format_count_nonzero() {
-        assert_eq!(format_count(42), " 42");
+        assert_eq!(format_count(42), " (42)");
     }
 
     #[test]
@@ -416,7 +422,7 @@ mod tests {
     fn build_list_item_tag_has_content() {
         let state = SidebarState::default();
         let item = build_list_item(&SidebarItem::Tag("work".into()), &state, true, 50);
-        // Tag item should have non-zero width (indent + "#work")
+        // Tag item should have non-zero width (indent + "work")
         assert!(item.width() > 0);
     }
 
@@ -438,6 +444,7 @@ mod tests {
     fn build_list_item_all_items_single_height() {
         let state = SidebarState::default();
         let items_to_test = [
+            &SidebarItem::Brand,
             &SidebarItem::Category(SidebarCategory::All),
             &SidebarItem::Category(SidebarCategory::Favorites),
             &SidebarItem::Separator,
