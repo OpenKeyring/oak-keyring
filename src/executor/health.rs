@@ -16,6 +16,15 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
         return CommandResult::cancelled("health_check");
     }
 
+    // Check if health check should run (enabled + frequency).
+    // Uses the actual last check time recorded when the previous check completed.
+    if !crate::services::health::should_run(
+        &executor.config.security,
+        executor.last_health_check_time,
+    ) {
+        return CommandResult::HealthCheckSkipped;
+    }
+
     // Step 1: Fetch all active stored records (fast, local)
     let records = match executor.vault.list_all_stored_records() {
         Ok(r) => r,
@@ -246,6 +255,7 @@ mod tests {
             config_notifier: ServiceNotificationImpl::new(),
             vault_dir: std::path::PathBuf::from(":memory:"),
             health_report: None,
+            last_health_check_time: None,
             result_tx,
             internal_tx,
             internal_rx: Some(internal_rx),

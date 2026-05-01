@@ -7,6 +7,13 @@ use std::path::PathBuf;
 
 use crate::config::*;
 
+/// Focusable buttons in the config footer bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FooterButton {
+    ExitProgram,
+    Close,
+}
+
 /// Google Drive OAuth2 authorization status.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum GDriveAuthStatus {
@@ -508,6 +515,8 @@ pub struct ConfigScreenState {
     pub restored_from_snapshot: bool,
     /// Instant when the scroll boundary flash started, None = no flash active.
     pub boundary_flash_at: Option<std::time::Instant>,
+    /// Focus state for the footer buttons. None = content area has focus.
+    pub footer_focus: Option<FooterButton>,
 }
 
 impl ConfigScreenState {

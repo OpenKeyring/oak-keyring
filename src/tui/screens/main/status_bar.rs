@@ -147,18 +147,77 @@ impl StatusBarPanel {
         all_spans.push(Span::styled(SEPARATOR, sep_style));
         all_spans.push(Span::styled(VERSION, version_style));
 
-        // Health Check Progress — show checking message while active
-        if let Some((_current, _total)) = state.health_check_progress {
-            let (icon, text) = if unicode {
-                ("\u{1F50D}", " \u{6B63}\u{5728}\u{68C0}\u{67E5}...") // "🔍 正在检查..."
-            } else {
-                ("[?]", " Checking...")
-            };
-            all_spans.push(Span::styled(SEPARATOR, sep_style));
-            all_spans.push(Span::styled(
-                format!("{}{}", icon, text),
-                Style::default().fg(theme::PRIMARY).bg(bar_bg),
-            ));
+        // Health Check status — show phase-appropriate message
+        use crate::tui::state::main_state::HealthCheckPhase;
+        match state.health_check_phase {
+            HealthCheckPhase::Checking => {
+                let (icon, text) = if unicode {
+                    ("\u{1F50D}", " \u{6B63}\u{5728}\u{68C0}\u{67E5}...") // "🔍 正在检查..."
+                } else {
+                    ("[?]", " Checking...")
+                };
+                all_spans.push(Span::styled(SEPARATOR, sep_style));
+                all_spans.push(Span::styled(
+                    format!("{}{}", icon, text),
+                    Style::default().fg(theme::PRIMARY).bg(bar_bg),
+                ));
+            }
+            HealthCheckPhase::NeedsAttention {
+                weak,
+                compromised,
+                duplicate_groups,
+            } => {
+                let (icon, text) = if unicode {
+                    (
+                        "\u{26A0}",
+                        format!(
+                            " \u{6709}\u{9700}\u{6CE8}\u{610F} W{} C{} D{}",
+                            weak, compromised, duplicate_groups
+                        ),
+                    )
+                    // "⚠ 有需注意 W{n} C{n} D{n}"
+                } else {
+                    (
+                        "[!]",
+                        format!(
+                            " NeedsAttn W{} C{} D{}",
+                            weak, compromised, duplicate_groups
+                        ),
+                    )
+                };
+                all_spans.push(Span::styled(SEPARATOR, sep_style));
+                all_spans.push(Span::styled(
+                    format!("{}{}", icon, text),
+                    Style::default().fg(theme::WARNING).bg(bar_bg),
+                ));
+            }
+            HealthCheckPhase::AllSecure => {
+                let text = if unicode {
+                    "\u{2714} \u{5168}\u{90E8}\u{5B89}\u{5168}" // "✔ 全部安全"
+                } else {
+                    "+ AllSecure"
+                };
+                all_spans.push(Span::styled(SEPARATOR, sep_style));
+                all_spans.push(Span::styled(
+                    text,
+                    Style::default().fg(theme::SUCCESS).bg(bar_bg),
+                ));
+            }
+            HealthCheckPhase::Skipped => {
+                let text = if unicode {
+                    "\u{2014} \u{8DF3}\u{8FC7}\u{6CC4}\u{9732}\u{68C0}\u{6D4B}" // "— 跳过泄露检测"
+                } else {
+                    "- HIBP skipped"
+                };
+                all_spans.push(Span::styled(SEPARATOR, sep_style));
+                all_spans.push(Span::styled(
+                    text,
+                    Style::default().fg(theme::TEXT_MUTED).bg(bar_bg),
+                ));
+            }
+            HealthCheckPhase::Inactive => {
+                // No health check indicator when inactive (initial state)
+            }
         }
 
         all_spans.push(Span::styled(SEPARATOR, sep_style));

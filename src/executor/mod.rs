@@ -83,6 +83,8 @@ pub struct CommandExecutor {
     pub(super) vault_dir: PathBuf,
     /// Cached health report, updated after health check runs.
     pub(super) health_report: Option<HealthReport>,
+    /// Timestamp of the most recent health check completion.
+    pub(super) last_health_check_time: Option<chrono::DateTime<chrono::Utc>>,
     /// Channel for sending messages (results) back to the UI layer.
     pub(super) result_tx: mpsc::Sender<Message>,
     /// Internal channel for background tasks to talk back to the executor.
@@ -170,6 +172,7 @@ impl CommandExecutor {
             config_notifier,
             vault_dir,
             health_report: None,
+            last_health_check_time: None,
             result_tx,
             internal_tx,
             internal_rx: Some(internal_rx),

@@ -103,6 +103,9 @@ pub enum CommandResult {
     HealthCheckCompleted {
         report: HealthReport,
     },
+    /// Health check was skipped — typically because it is disabled in config
+    /// or the configured frequency window hasn't elapsed yet.
+    HealthCheckSkipped,
     HibpCheckCompleted {
         record_id: Uuid,
         compromised: bool,
@@ -271,6 +274,7 @@ mod exhaustive_tests {
                 // Health Check Results
                 CommandResult::HealthCheckStarted => {}
                 CommandResult::HealthCheckCompleted { .. } => {}
+                CommandResult::HealthCheckSkipped => {}
                 CommandResult::HibpCheckCompleted { .. } => {}
                 // Sync Results
                 CommandResult::SyncCompleted { .. } => {}

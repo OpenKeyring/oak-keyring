@@ -31,7 +31,7 @@ pub fn handle_validate_import_file(
     // Step 1: Create import session.
     let session_id = match executor
         .import_export
-        .create_import_session(source, path, password, None)
+        .create_import_session(source, path, password, None, false)
     {
         Ok(id) => id,
         Err(e) => {
@@ -63,27 +63,30 @@ pub fn handle_execute_import(
     path: PathBuf,
     password: Option<SecureStr>,
     column_mapping: Option<CsvColumnMapping>,
+    import_as_notes: bool,
 ) -> CommandResult {
     if executor.cancel_token().is_cancelled() {
         return CommandResult::cancelled("import_execute");
     }
 
     // Step 1: Create import session.
-    let session_id =
-        match executor
-            .import_export
-            .create_import_session(source, path, password, column_mapping)
-        {
-            Ok(id) => id,
-            Err(e) => {
-                return CommandResult::Error {
-                    code: ErrorCode::ImportExport(e.to_string()),
-                    context: ErrorContext::default(),
-                    message_key: "error.import_session_create_failed",
-                    fallback: format!("Failed to create import session: {}", e),
-                };
-            }
-        };
+    let session_id = match executor.import_export.create_import_session(
+        source,
+        path,
+        password,
+        column_mapping,
+        import_as_notes,
+    ) {
+        Ok(id) => id,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::ImportExport(e.to_string()),
+                context: ErrorContext::default(),
+                message_key: "error.import_session_create_failed",
+                fallback: format!("Failed to create import session: {}", e),
+            };
+        }
+    };
 
     // Step 2: Validate the file first (session must be Validated before import).
     if let Err(e) = executor.import_export.validate_import_file(session_id) {
@@ -428,6 +431,7 @@ mod tests {
             config_notifier: ServiceNotificationImpl::new(),
             vault_dir: std::path::PathBuf::from(":memory:"),
             health_report: None,
+            last_health_check_time: None,
             result_tx,
             internal_tx,
             internal_rx: Some(internal_rx),
@@ -465,6 +469,7 @@ mod tests {
             std::path::PathBuf::from("sample.csv"),
             None,
             None,
+            false,
         );
 
         assert!(matches!(

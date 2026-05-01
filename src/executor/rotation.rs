@@ -380,6 +380,7 @@ mod tests {
             config_notifier,
             vault_dir: PathBuf::from(":memory:"),
             health_report: None,
+            last_health_check_time: None,
             result_tx,
             internal_tx,
             internal_rx: Some(internal_rx),

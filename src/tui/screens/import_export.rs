@@ -689,6 +689,7 @@ impl ImportExportScreen {
                     path: PathBuf::from(&self.file_path),
                     password,
                     column_mapping,
+                    import_as_notes: false,
                 };
                 let _ = ctx.command_tx.try_send(cmd);
                 self.import_step = ImportStep::Importing;

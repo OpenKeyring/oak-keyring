@@ -154,6 +154,11 @@ impl ConfigScreen {
             return self.handle_length_edit_key(key, ctx);
         }
 
+        // When footer has focus, delegate to footer key handler
+        if self.state.footer_focus.is_some() {
+            return self.handle_footer_key(key, ctx);
+        }
+
         match (key.code, key.modifiers) {
             (KeyCode::Esc, _) => {
                 if self.state.has_changes {
@@ -185,16 +190,24 @@ impl ConfigScreen {
                 ScreenResult::Continue
             }
             (KeyCode::Up, _) | (KeyCode::Char('k'), KeyModifiers::NONE) => {
-                let count = self.state.active_tab.item_count();
-                if self.state.focus_prev(count) {
-                    self.state.boundary_flash_at = Some(std::time::Instant::now());
+                if self.state.footer_focus.is_some() {
+                    // Return from footer to content (last item)
+                    self.state.footer_focus = None;
+                } else {
+                    let count = self.state.active_tab.item_count();
+                    if self.state.focus_prev(count) {
+                        self.state.boundary_flash_at = Some(std::time::Instant::now());
+                    }
                 }
                 ScreenResult::Continue
             }
             (KeyCode::Down, _) | (KeyCode::Char('j'), KeyModifiers::NONE) => {
                 let count = self.state.active_tab.item_count();
-                if self.state.focus_next(count) {
-                    self.state.boundary_flash_at = Some(std::time::Instant::now());
+                let was_at_bottom = self.state.focus_next(count);
+                if was_at_bottom {
+                    // At bottom of content — move focus to footer
+                    self.state.footer_focus =
+                        Some(crate::tui::state::config_state::FooterButton::ExitProgram);
                 }
                 ScreenResult::Continue
             }
@@ -362,6 +375,54 @@ impl ConfigScreen {
                 _ => ScreenResult::Continue,
             },
             ConfigTab::About => ScreenResult::Continue,
+        }
+    }
+
+    fn handle_footer_key(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        _ctx: &mut ScreenContext,
+    ) -> ScreenResult {
+        use crate::tui::state::config_state::FooterButton;
+        match key.code {
+            KeyCode::Tab | KeyCode::Right => {
+                self.state.footer_focus = match self.state.footer_focus {
+                    Some(FooterButton::ExitProgram) => Some(FooterButton::Close),
+                    Some(FooterButton::Close) => Some(FooterButton::ExitProgram),
+                    None => Some(FooterButton::ExitProgram),
+                };
+                ScreenResult::Continue
+            }
+            KeyCode::BackTab | KeyCode::Left => {
+                self.state.footer_focus = match self.state.footer_focus {
+                    Some(FooterButton::ExitProgram) => Some(FooterButton::Close),
+                    Some(FooterButton::Close) => Some(FooterButton::ExitProgram),
+                    None => Some(FooterButton::Close),
+                };
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => match self.state.footer_focus {
+                Some(FooterButton::ExitProgram) => {
+                    // Graceful shutdown via the event loop
+                    ScreenResult::ExitApp
+                }
+                Some(FooterButton::Close) => {
+                    if self.state.has_changes {
+                        self.state.overlay = Some(ConfigOverlay::UnsavedChanges {
+                            focused_button: ConfirmButton::Cancel,
+                        });
+                        ScreenResult::Continue
+                    } else {
+                        ScreenResult::NavigateTo(ScreenEnum::Main)
+                    }
+                }
+                None => ScreenResult::Continue,
+            },
+            KeyCode::Esc => {
+                self.state.footer_focus = None;
+                ScreenResult::Continue
+            }
+            _ => ScreenResult::Continue,
         }
     }
 
@@ -895,7 +956,7 @@ mod tests {
     }
 
     #[test]
-    fn j_key_at_bottom_boundary_triggers_flash() {
+    fn j_key_at_bottom_boundary_moves_focus_to_footer() {
         let mut screen = ConfigScreen::new();
         // General tab has 8 items (0..7), set to last item
         screen.state.focused_item = 7;
@@ -906,8 +967,12 @@ mod tests {
 
         let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('j'))), &mut ctx);
         assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.state.focused_item, 0);
-        assert!(screen.state.boundary_flash_at.is_some());
+        // At bottom boundary, focus moves to footer instead of wrapping
+        assert!(screen.state.footer_focus.is_some());
+        assert!(matches!(
+            screen.state.footer_focus,
+            Some(crate::tui::state::config_state::FooterButton::ExitProgram)
+        ));
     }
 
     #[test]

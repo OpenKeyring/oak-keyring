@@ -2,21 +2,21 @@
 source: tests/main_integration_test.rs
 expression: terminal.backend()
 ---
-"所有 42                                          │  排序: [ 创建时间 ▼│                                                 " Hidden by multi-width symbols: [(1, " "), (3, " "), (53, " "), (55, " "), (61, " "), (63, " "), (65, " "), (67, " ")]
-"☆ 收藏 5                                                  🔐                                                            " Hidden by multi-width symbols: [(3, " "), (5, " "), (59, " ")]
-"已过期 2                                                                                       🔐                       " Hidden by multi-width symbols: [(1, " "), (3, " "), (5, " "), (96, " ")]
-"健康问题 1                                          No passwords yet                                                    " Hidden by multi-width symbols: [(1, " "), (3, " "), (5, " "), (7, " ")]
-"🗑 回收站 3                                                                       Select an item to view details         " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
-"──────────────────────────────────────────────────  Press n to create              Press Enter to view details          "
-"▾ # 标签                                           your first password                                                  " Hidden by multi-width symbols: [(5, " "), (7, " ")]
-"    #work                                                                                                               "
-"    #personal                                                                                                           "
-"    #finance                                                                                                            "
+"OpenKeyring                                      │  排序: [ 创建时间 ▼│                                                 " Hidden by multi-width symbols: [(53, " "), (55, " "), (61, " "), (63, " "), (65, " "), (67, " ")]
+"──────────────────────────────────────────────────        🔐                                                            " Hidden by multi-width symbols: [(59, " ")]
+"所有 (42)                                                                                      🔐                       " Hidden by multi-width symbols: [(1, " "), (3, " "), (96, " ")]
+"☆ 收藏 (5)                                          No passwords yet                                                    " Hidden by multi-width symbols: [(3, " "), (5, " ")]
+"已过期 (2)                                                                       Select an item to view details         " Hidden by multi-width symbols: [(1, " "), (3, " "), (5, " ")]
+"健康问题 (1)                                        Press n to create              Press Enter to view details          " Hidden by multi-width symbols: [(1, " "), (3, " "), (5, " "), (7, " ")]
+"🗑 回收站 (3)                                       your first password                                                  " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+"──────────────────────────────────────────────────                                                                      "
+"▾ # 标签                                                                                                                " Hidden by multi-width symbols: [(5, " "), (7, " ")]
+"  work                                                                                                                  "
+"  personal                                                                                                              "
+"  finance                                                                                                               "
 "──────────────────────────────────────────────────                                                                      "
 "✦ 生成器                                                                                                                " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
 "✦ 配置                                                                                                                  " Hidden by multi-width symbols: [(3, " "), (5, " ")]
-"                                                                                                                        "
-"                                                                                                                        "
 "                                                                                                                        "
 "                                                                                                                        "
 "                                                                                                                        "
