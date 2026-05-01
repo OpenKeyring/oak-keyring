@@ -526,6 +526,8 @@ mod tests {
             is_expired: false,
             expires_at: None,
             has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted: false,

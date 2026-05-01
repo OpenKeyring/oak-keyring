@@ -496,7 +496,9 @@ impl VaultService {
                         is_favorite: stored.is_favorite,
                         is_expired,
                         expires_at: stored.expires_at,
-                        has_weak_password: false,
+                        has_weak_password: false, // populated by executor from health_report
+                        is_compromised: false,    // populated by executor from health_report
+                        duplicate_group_size: None, // populated by executor from health_report
                         created_at: stored.created_at,
                         updated_at: stored.updated_at,
                         deleted: stored.deleted,
@@ -582,6 +584,8 @@ impl VaultService {
                 is_expired,
                 expires_at: stored.expires_at,
                 has_weak_password: false, // populated by executor from health_report
+                is_compromised: false,
+                duplicate_group_size: None,
                 created_at: stored.created_at,
                 updated_at: stored.updated_at,
                 deleted: stored.deleted,
