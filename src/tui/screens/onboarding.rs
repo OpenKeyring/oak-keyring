@@ -32,6 +32,15 @@ pub enum OnboardingPath {
     Import,
 }
 
+/// Focusable elements within the RecoveryDisplay step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RecoveryFocus {
+    #[default]
+    CopyButton,
+    RegenerateButton,
+    ConfirmCheckbox,
+}
+
 /// Steps within each onboarding path.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum OnboardingStep {
@@ -90,6 +99,13 @@ pub struct OnboardingScreen {
     pub vault_path_editable: bool,
     /// Focus index for VaultPath step: 0=Use default button, 1=Custom button, 2=Path input (when editable).
     pub vault_path_focus: usize,
+    // RecoveryDisplay step state
+    /// Which element is focused on the RecoveryDisplay step.
+    pub recovery_focus: RecoveryFocus,
+    /// Whether recovery words have been copied to clipboard (show warning).
+    pub clipboard_copied: bool,
+    /// Clipboard clear timeout in seconds (captured from config when copying).
+    pub clipboard_clear_seconds: u64,
 }
 
 /// Returns the default vault path as a display string for the VaultPath step.
@@ -120,6 +136,9 @@ impl Default for OnboardingScreen {
             import_preview: None,
             vault_path_editable: false,
             vault_path_focus: 0,
+            recovery_focus: RecoveryFocus::default(),
+            clipboard_copied: false,
+            clipboard_clear_seconds: 30,
         }
     }
 }
@@ -280,7 +299,7 @@ impl OnboardingScreen {
         match &self.current_step {
             OnboardingStep::Welcome => self.handle_welcome_key(key),
             OnboardingStep::VaultPath => self.handle_vault_path_key(key, ctx),
-            OnboardingStep::RecoveryDisplay => self.handle_recovery_display_key(key),
+            OnboardingStep::RecoveryDisplay => self.handle_recovery_display_key(key, ctx),
             OnboardingStep::RecoveryVerify { .. } => self.handle_recovery_verify_key(key),
             OnboardingStep::RecoveryInput => self.handle_recovery_input_key(key, ctx),
             OnboardingStep::SecurityAdvisory => self.handle_security_advisory_key(key),
@@ -432,19 +451,62 @@ impl OnboardingScreen {
         }
     }
 
-    fn handle_recovery_display_key(&mut self, key: KeyEvent) -> ScreenResult {
+    fn handle_recovery_display_key(
+        &mut self,
+        key: KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
         match key.code {
-            KeyCode::Enter => {
-                if self.recovery_confirmed {
-                    self.generate_verify_positions();
-                    self.current_step = OnboardingStep::RecoveryVerify {
-                        positions: self.verify_positions,
-                    };
-                }
+            KeyCode::Tab | KeyCode::Right => {
+                self.recovery_focus = match self.recovery_focus {
+                    RecoveryFocus::CopyButton => RecoveryFocus::RegenerateButton,
+                    RecoveryFocus::RegenerateButton => RecoveryFocus::ConfirmCheckbox,
+                    RecoveryFocus::ConfirmCheckbox => RecoveryFocus::CopyButton,
+                };
                 ScreenResult::Continue
             }
-            KeyCode::Char('c') | KeyCode::Char('C') => {
-                self.recovery_confirmed = !self.recovery_confirmed;
+            KeyCode::BackTab | KeyCode::Left => {
+                self.recovery_focus = match self.recovery_focus {
+                    RecoveryFocus::CopyButton => RecoveryFocus::ConfirmCheckbox,
+                    RecoveryFocus::RegenerateButton => RecoveryFocus::CopyButton,
+                    RecoveryFocus::ConfirmCheckbox => RecoveryFocus::RegenerateButton,
+                };
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => match self.recovery_focus {
+                RecoveryFocus::CopyButton => {
+                    if !self.recovery_words.is_empty() {
+                        let words_str = self.recovery_words.join(" ");
+                        let cmd = Command::CopyRawToClipboard {
+                            value: SecureStr::new(words_str),
+                        };
+                        let _ = ctx.command_tx.try_send(cmd);
+                        self.clipboard_copied = true;
+                        self.clipboard_clear_seconds = ctx.config.general.clipboard_clear_seconds;
+                    }
+                    ScreenResult::Continue
+                }
+                RecoveryFocus::RegenerateButton => {
+                    if !self.recovery_words.is_empty() {
+                        self.regenerate_recovery_words();
+                    }
+                    ScreenResult::Continue
+                }
+                RecoveryFocus::ConfirmCheckbox => {
+                    if self.recovery_confirmed {
+                        self.generate_verify_positions();
+                        self.current_step = OnboardingStep::RecoveryVerify {
+                            positions: self.verify_positions,
+                        };
+                    }
+                    ScreenResult::Continue
+                }
+            },
+            KeyCode::Char(' ') => {
+                // Space toggles checkbox when it is focused
+                if self.recovery_focus == RecoveryFocus::ConfirmCheckbox {
+                    self.recovery_confirmed = !self.recovery_confirmed;
+                }
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
@@ -452,6 +514,26 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
+        }
+    }
+
+    /// Regenerate the 24-word recovery phrase using BIP39.
+    fn regenerate_recovery_words(&mut self) {
+        use crate::crypto::bip39::{MnemonicLanguage, Passkey};
+
+        self.recovery_words.zeroize();
+        self.recovery_words.clear();
+        self.recovery_confirmed = false;
+        self.clipboard_copied = false;
+
+        match Passkey::generate(24, MnemonicLanguage::English) {
+            Ok(passkey) => {
+                self.recovery_words = passkey.to_words();
+            }
+            Err(e) => {
+                tracing::error!("Failed to regenerate recovery words: {}", e);
+                self.error = Some(format!("Failed to regenerate recovery key: {}", e));
+            }
         }
     }
 
@@ -793,6 +875,9 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.import_preview = None;
         self.vault_path_editable = false;
         self.vault_path_focus = 0;
+        self.recovery_focus = RecoveryFocus::default();
+        self.clipboard_copied = false;
+        self.clipboard_clear_seconds = 30;
     }
 
     fn on_unmount(&mut self) {
@@ -815,6 +900,9 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.import_password.zeroize();
         self.import_password.clear();
         self.import_preview = None;
+        self.recovery_focus = RecoveryFocus::default();
+        self.clipboard_copied = false;
+        self.clipboard_clear_seconds = 30;
     }
 }
 
@@ -1115,15 +1203,20 @@ impl OnboardingScreen {
     }
 
     fn view_recovery_display(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        let content_area = Self::centered_content(area, 20);
+        let content_area = Self::centered_content(area, 22);
 
         let rows = Layout::vertical([
             Constraint::Length(1),  // title
             Constraint::Length(1),  // gap
             Constraint::Length(10), // word grid (4 rows x 6 cols = ~8 + borders)
+            Constraint::Length(1),  // separator gap
+            Constraint::Length(1),  // buttons row
+            Constraint::Length(1),  // gap
+            Constraint::Length(1),  // clipboard warning (conditional)
             Constraint::Length(1),  // gap
             Constraint::Length(1),  // checkbox
             Constraint::Length(1),  // gap
+            Constraint::Length(1),  // next step button / hint
             Constraint::Length(1),  // hint
             Constraint::Length(1),  // step indicator
         ])
@@ -1160,32 +1253,88 @@ impl OnboardingScreen {
             self.render_readonly_word_grid(frame, rows[2]);
         }
 
+        // Buttons row: [ Copy to clipboard ]  [ Regenerate ]
+        let btn_area = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(24),
+            Constraint::Length(2),
+            Constraint::Length(18),
+            Constraint::Fill(1),
+        ])
+        .split(rows[4]);
+
+        let copy_style = if self.recovery_focus == RecoveryFocus::CopyButton {
+            Styles::button_primary()
+        } else {
+            Styles::button_secondary()
+        };
+        let copy_btn = Paragraph::new(" Copy to clipboard ")
+            .style(copy_style)
+            .alignment(Alignment::Center);
+        frame.render_widget(copy_btn, btn_area[1]);
+
+        let regen_style = if self.recovery_focus == RecoveryFocus::RegenerateButton {
+            Styles::button_primary()
+        } else {
+            Styles::button_secondary()
+        };
+        let regen_btn = Paragraph::new(" Regenerate ")
+            .style(regen_style)
+            .alignment(Alignment::Center);
+        frame.render_widget(regen_btn, btn_area[3]);
+
+        // Clipboard clear warning (shown after copy)
+        if self.clipboard_copied {
+            let warning = Paragraph::new(format!(
+                "{} Clipboard will be cleared after {} seconds",
+                theme::ICON_WARNING,
+                self.clipboard_clear_seconds
+            ))
+            .style(Styles::warning_text())
+            .alignment(Alignment::Center);
+            frame.render_widget(warning, rows[6]);
+        }
+
         // Checkbox
         let check_icon = if self.recovery_confirmed {
             theme::ICON_CHECK
         } else {
             "[ ]"
         };
+        let check_focused = self.recovery_focus == RecoveryFocus::ConfirmCheckbox;
         let check_style = if self.recovery_confirmed {
             Style::default().fg(SUCCESS)
+        } else if check_focused {
+            Style::default().fg(PRIMARY)
         } else {
             Style::default().fg(TEXT_SECONDARY)
         };
         let checkbox = Paragraph::new(format!(" {} I have saved my recovery key", check_icon))
             .style(check_style)
             .alignment(Alignment::Center);
-        frame.render_widget(checkbox, rows[4]);
+        frame.render_widget(checkbox, rows[8]);
+
+        // Next step button or instruction
+        if self.recovery_confirmed {
+            let next_style = Styles::button_primary();
+            let next_btn = Paragraph::new(" Next step ")
+                .style(next_style)
+                .alignment(Alignment::Center);
+            frame.render_widget(next_btn, rows[10]);
+        } else {
+            let instruction = Paragraph::new("Check the box above to continue")
+                .style(Style::default().fg(TEXT_MUTED))
+                .alignment(Alignment::Center);
+            frame.render_widget(instruction, rows[10]);
+        }
 
         // Hint
-        let hint_text = if self.recovery_confirmed {
-            "Press C to unconfirm  |  Enter to continue  |  Esc to go back"
-        } else {
-            "Press C to confirm you saved the key  |  Esc to go back"
-        };
-        let hint = Paragraph::new(hint_text)
-            .style(Style::default().fg(TEXT_MUTED))
-            .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[6]);
+        let hint = Paragraph::new(
+            "\u{2190}\u{2192}/Tab: navigate  |  Enter: activate  |  Space: toggle  |  Esc: back",
+        )
+        .style(Style::default().fg(TEXT_MUTED))
+        .alignment(Alignment::Center);
+        frame.render_widget(hint, rows[11]);
 
         // Step indicator
         let step = self.current_step_number();
@@ -1193,7 +1342,7 @@ impl OnboardingScreen {
         let step_text = Paragraph::new(format!("Step {}/{}", step, total))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(step_text, rows[7]);
+        frame.render_widget(step_text, rows[12]);
     }
 
     /// Render a read-only 4x6 word grid from recovery_words.
@@ -1905,27 +2054,45 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_recovery_display_toggle_confirm() {
+    fn onboarding_recovery_display_space_toggles_checkbox() {
         let mut screen = OnboardingScreen {
             selected_path: Some(OnboardingPath::CreateNew),
             current_step: OnboardingStep::RecoveryDisplay,
+            recovery_focus: RecoveryFocus::ConfirmCheckbox,
             ..Default::default()
         };
 
         assert!(!screen.recovery_confirmed);
 
-        // Press C to confirm
-        screen.handle_recovery_display_key(KeyEvent::new(
-            KeyCode::Char('c'),
-            crossterm::event::KeyModifiers::NONE,
-        ));
+        // Space toggles checkbox when ConfirmCheckbox is focused
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Char(' '), crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
         assert!(screen.recovery_confirmed);
 
-        // Press C again to unconfirm
-        screen.handle_recovery_display_key(KeyEvent::new(
-            KeyCode::Char('C'),
-            crossterm::event::KeyModifiers::NONE,
-        ));
+        // Space again to unconfirm
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Char(' '), crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert!(!screen.recovery_confirmed);
+    }
+
+    #[test]
+    fn onboarding_recovery_display_space_ignored_on_buttons() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            recovery_focus: RecoveryFocus::CopyButton,
+            ..Default::default()
+        };
+
+        // Space should NOT toggle checkbox when copy button is focused
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Char(' '), crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
         assert!(!screen.recovery_confirmed);
     }
 
@@ -1935,13 +2102,14 @@ mod tests {
             selected_path: Some(OnboardingPath::CreateNew),
             current_step: OnboardingStep::RecoveryDisplay,
             recovery_confirmed: false,
+            recovery_focus: RecoveryFocus::ConfirmCheckbox,
             ..Default::default()
         };
 
-        screen.handle_recovery_display_key(KeyEvent::new(
-            KeyCode::Enter,
-            crossterm::event::KeyModifiers::NONE,
-        ));
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
         // Should NOT advance without confirmation
         assert_eq!(screen.current_step, OnboardingStep::RecoveryDisplay);
     }
@@ -1952,14 +2120,15 @@ mod tests {
             selected_path: Some(OnboardingPath::CreateNew),
             current_step: OnboardingStep::RecoveryDisplay,
             recovery_confirmed: true,
+            recovery_focus: RecoveryFocus::ConfirmCheckbox,
             recovery_words: vec!["abandon".to_string(); 24],
             ..Default::default()
         };
 
-        screen.handle_recovery_display_key(KeyEvent::new(
-            KeyCode::Enter,
-            crossterm::event::KeyModifiers::NONE,
-        ));
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
         assert!(matches!(
             screen.current_step,
             OnboardingStep::RecoveryVerify { .. }
@@ -1971,6 +2140,211 @@ mod tests {
             p
         };
         assert_eq!(screen.verify_positions, sorted);
+    }
+
+    #[test]
+    fn onboarding_recovery_display_tab_cycles_focus() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            ..Default::default()
+        };
+
+        assert_eq!(screen.recovery_focus, RecoveryFocus::CopyButton);
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.recovery_focus, RecoveryFocus::RegenerateButton);
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.recovery_focus, RecoveryFocus::ConfirmCheckbox);
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.recovery_focus, RecoveryFocus::CopyButton);
+    }
+
+    #[test]
+    fn onboarding_recovery_display_backtab_cycles_focus_reverse() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            ..Default::default()
+        };
+
+        assert_eq!(screen.recovery_focus, RecoveryFocus::CopyButton);
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.recovery_focus, RecoveryFocus::ConfirmCheckbox);
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.recovery_focus, RecoveryFocus::RegenerateButton);
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.recovery_focus, RecoveryFocus::CopyButton);
+    }
+
+    #[test]
+    fn onboarding_recovery_display_copy_button_sets_copied_flag() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            recovery_focus: RecoveryFocus::CopyButton,
+            recovery_words: vec!["abandon".to_string(); 24],
+            ..Default::default()
+        };
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+
+        assert!(
+            screen.clipboard_copied,
+            "clipboard_copied should be set after copy"
+        );
+    }
+
+    #[test]
+    fn onboarding_recovery_display_copy_skipped_when_empty() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            recovery_focus: RecoveryFocus::CopyButton,
+            recovery_words: vec![],
+            ..Default::default()
+        };
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+
+        assert!(
+            !screen.clipboard_copied,
+            "clipboard_copied should NOT be set when words are empty"
+        );
+    }
+
+    #[test]
+    fn onboarding_recovery_display_regenerate_creates_new_words() {
+        let original_words: Vec<String> = (0..24).map(|i| format!("word{}", i)).collect();
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            recovery_focus: RecoveryFocus::RegenerateButton,
+            recovery_words: original_words.clone(),
+            recovery_confirmed: true,
+            clipboard_copied: true,
+            ..Default::default()
+        };
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+
+        // Words should be different (extremely unlikely to match a random BIP39 mnemonic)
+        assert_eq!(screen.recovery_words.len(), 24);
+        assert_ne!(
+            screen.recovery_words, original_words,
+            "Regenerated words should differ from original"
+        );
+        // Confirm and clipboard state should be reset
+        assert!(!screen.recovery_confirmed);
+        assert!(!screen.clipboard_copied);
+    }
+
+    #[test]
+    fn onboarding_recovery_display_regenerate_skipped_when_empty() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            recovery_focus: RecoveryFocus::RegenerateButton,
+            recovery_words: vec![],
+            ..Default::default()
+        };
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+
+        // Words should still be empty — no regeneration
+        assert!(screen.recovery_words.is_empty());
+    }
+
+    #[test]
+    fn onboarding_recovery_display_esc_goes_back() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            ..Default::default()
+        };
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.current_step, OnboardingStep::VaultPath);
+    }
+
+    #[test]
+    fn onboarding_recovery_display_right_arrow_cycles() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            ..Default::default()
+        };
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Right, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.recovery_focus, RecoveryFocus::RegenerateButton);
+    }
+
+    #[test]
+    fn onboarding_recovery_display_left_arrow_cycles() {
+        let mut screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            ..Default::default()
+        };
+
+        screen.handle_recovery_display_key(
+            KeyEvent::new(KeyCode::Left, crossterm::event::KeyModifiers::NONE),
+            &mut dummy_ctx(),
+        );
+        assert_eq!(screen.recovery_focus, RecoveryFocus::ConfirmCheckbox);
+    }
+
+    #[test]
+    fn onboarding_recovery_display_defaults() {
+        let screen = OnboardingScreen {
+            selected_path: Some(OnboardingPath::CreateNew),
+            current_step: OnboardingStep::RecoveryDisplay,
+            ..Default::default()
+        };
+        assert_eq!(screen.recovery_focus, RecoveryFocus::CopyButton);
+        assert!(!screen.clipboard_copied);
+        assert_eq!(screen.clipboard_clear_seconds, 30);
     }
 
     #[test]
