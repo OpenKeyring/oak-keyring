@@ -85,6 +85,8 @@ pub struct OnboardingScreen {
     pub verify_inputs: [String; 4],
     pub verify_errors: [bool; 4],
     pub verify_positions: [usize; 4],
+    /// Currently focused verification input box index (0-3) on the RecoveryVerify step.
+    pub verify_focus_index: usize,
     /// Signals that onboarding is returning from ImportExportScreen.
     /// When true, skip ImportSource step and go directly to VaultPath.
     pub returning_from_import: bool,
@@ -128,6 +130,7 @@ impl Default for OnboardingScreen {
             verify_inputs: std::array::from_fn(|_| String::new()),
             verify_errors: [false; 4],
             verify_positions: [0; 4],
+            verify_focus_index: 0,
             returning_from_import: false,
             selected_source_idx: 0,
             import_file_path: String::new(),
@@ -163,6 +166,7 @@ impl OnboardingScreen {
         self.verify_positions = positions;
         self.verify_inputs = std::array::from_fn(|_| String::new());
         self.verify_errors = [false; 4];
+        self.verify_focus_index = 0;
     }
 
     /// Validate the current vault path and return a status message and severity.
@@ -538,42 +542,29 @@ impl OnboardingScreen {
     }
 
     fn handle_recovery_verify_key(&mut self, key: KeyEvent) -> ScreenResult {
-        // Find the first empty or errored input to fill
-        let focused = self
-            .verify_errors
-            .iter()
-            .enumerate()
-            .find(|(_, &e)| e)
-            .map(|(i, _)| i)
-            .unwrap_or_else(|| {
-                self.verify_inputs
-                    .iter()
-                    .enumerate()
-                    .find(|(_, s)| s.is_empty())
-                    .map(|(i, _)| i)
-                    .unwrap_or(0)
-            });
+        let focused = self.verify_focus_index;
 
         match key.code {
-            KeyCode::Enter => {
-                // Validate the 4 positions match recovery words
-                let all_correct = self.verify_positions.iter().enumerate().all(|(i, &pos)| {
-                    pos < self.recovery_words.len()
-                        && self.verify_inputs[i].eq_ignore_ascii_case(&self.recovery_words[pos])
-                });
-                if all_correct {
-                    self.verify_errors = [false; 4];
-                    self.current_step = OnboardingStep::SetPassword;
+            KeyCode::Tab => {
+                if focused < 3 {
+                    self.verify_focus_index = focused + 1;
                 } else {
-                    // Mark mismatches
-                    for (i, &pos) in self.verify_positions.iter().enumerate() {
-                        self.verify_errors[i] = pos >= self.recovery_words.len()
-                            || !self.verify_inputs[i]
-                                .eq_ignore_ascii_case(&self.recovery_words[pos]);
+                    // On last box: submit if all filled
+                    let all_filled = self.verify_inputs.iter().all(|s| !s.is_empty());
+                    if all_filled {
+                        return self.submit_recovery_verify();
                     }
+                    // Otherwise clamp to last box
                 }
                 ScreenResult::Continue
             }
+            KeyCode::BackTab => {
+                if focused > 0 {
+                    self.verify_focus_index = focused - 1;
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => self.submit_recovery_verify(),
             KeyCode::Esc => {
                 self.current_step = OnboardingStep::RecoveryDisplay;
                 ScreenResult::Continue
@@ -591,13 +582,28 @@ impl OnboardingScreen {
                 self.verify_errors[focused] = false;
                 ScreenResult::Continue
             }
-            KeyCode::Tab => {
-                // Move to next input
-                // (no-op for now, Tab just continues)
-                ScreenResult::Continue
-            }
             _ => ScreenResult::Continue,
         }
+    }
+
+    /// Validate the 4 verification inputs against the recovery words.
+    /// On success, advance to SetPassword. On failure, mark errors.
+    fn submit_recovery_verify(&mut self) -> ScreenResult {
+        let all_correct = self.verify_positions.iter().enumerate().all(|(i, &pos)| {
+            pos < self.recovery_words.len()
+                && self.verify_inputs[i].eq_ignore_ascii_case(&self.recovery_words[pos])
+        });
+        if all_correct {
+            self.verify_errors = [false; 4];
+            self.current_step = OnboardingStep::SetPassword;
+        } else {
+            // Mark mismatches
+            for (i, &pos) in self.verify_positions.iter().enumerate() {
+                self.verify_errors[i] = pos >= self.recovery_words.len()
+                    || !self.verify_inputs[i].eq_ignore_ascii_case(&self.recovery_words[pos]);
+            }
+        }
+        ScreenResult::Continue
     }
 
     fn handle_recovery_input_key(
@@ -867,6 +873,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.verify_inputs = std::array::from_fn(|_| String::new());
         self.verify_errors = [false; 4];
         self.verify_positions = [0; 4];
+        self.verify_focus_index = 0;
         self.selected_source_idx = 0;
         self.import_file_path.clear();
         self.import_password.zeroize();
@@ -894,7 +901,9 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
             input.zeroize();
             input.clear();
         }
+        self.verify_errors = [false; 4];
         self.verify_positions.zeroize();
+        self.verify_focus_index = 0;
         self.import_file_path.zeroize();
         self.import_file_path.clear();
         self.import_password.zeroize();
@@ -1388,17 +1397,21 @@ impl OnboardingScreen {
     }
 
     fn view_recovery_verify(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        let content_area = Self::centered_content(area, 14);
+        let content_area = Self::centered_content(area, 20);
 
         let rows = Layout::vertical([
             Constraint::Length(1), // title
             Constraint::Length(1), // gap
             Constraint::Length(1), // instruction
             Constraint::Length(1), // gap
-            Constraint::Length(1), // verify input 0
-            Constraint::Length(1), // verify input 1
-            Constraint::Length(1), // verify input 2
-            Constraint::Length(1), // verify input 3
+            Constraint::Length(1), // label 0
+            Constraint::Length(3), // input box 0
+            Constraint::Length(1), // label 1
+            Constraint::Length(3), // input box 1
+            Constraint::Length(1), // label 2
+            Constraint::Length(3), // input box 2
+            Constraint::Length(1), // label 3
+            Constraint::Length(3), // input box 3
             Constraint::Length(1), // gap
             Constraint::Length(1), // hint
             Constraint::Length(1), // step indicator
@@ -1417,30 +1430,58 @@ impl OnboardingScreen {
             .alignment(Alignment::Center);
         frame.render_widget(instruction, rows[2]);
 
-        // Verify inputs
+        // Verify input boxes
         for i in 0..4 {
             let pos = self.verify_positions[i] + 1; // 1-based display
-            let input_text = if self.verify_inputs[i].is_empty() {
-                format!("Word #{}: ____", pos)
+            let is_focused = i == self.verify_focus_index;
+            let has_error = self.verify_errors[i];
+
+            // Label
+            let label = Paragraph::new(format!("  Word #{}", pos))
+                .style(Style::default().fg(TEXT_SECONDARY));
+            frame.render_widget(label, rows[4 + i * 2]);
+
+            // Input box with border
+            let border_color = if has_error {
+                ERROR
+            } else if is_focused {
+                PRIMARY
             } else {
-                format!("Word #{}: {}", pos, self.verify_inputs[i])
+                BORDER
             };
-            let style = if self.verify_errors[i] {
+
+            let input_text = if self.verify_inputs[i].is_empty() {
+                String::new()
+            } else if is_focused {
+                format!("{}_", self.verify_inputs[i])
+            } else {
+                self.verify_inputs[i].clone()
+            };
+
+            let text_style = if has_error {
                 Style::default().fg(ERROR)
             } else if self.verify_inputs[i].is_empty() {
                 Style::default().fg(TEXT_MUTED)
             } else {
                 Style::default().fg(TEXT)
             };
-            let para = Paragraph::new(input_text).style(style);
-            frame.render_widget(para, rows[4 + i]);
+
+            let input_block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(border_color))
+                .style(Style::default().bg(BG_SURFACE));
+
+            let para = Paragraph::new(input_text).style(text_style);
+            let inner = input_block.inner(rows[5 + i * 2]);
+            frame.render_widget(input_block, rows[5 + i * 2]);
+            frame.render_widget(para, inner);
         }
 
         // Hint
-        let hint = Paragraph::new("Enter to verify  |  Esc to go back")
+        let hint = Paragraph::new("Tab/Shift+Tab: navigate  |  Enter: verify  |  Esc: back")
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[9]);
+        frame.render_widget(hint, rows[12]);
 
         // Step indicator
         let step = self.current_step_number();
@@ -1448,7 +1489,7 @@ impl OnboardingScreen {
         let step_text = Paragraph::new(format!("Step {}/{}", step, total))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(step_text, rows[10]);
+        frame.render_widget(step_text, rows[13]);
     }
 
     fn view_recovery_input(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
@@ -2546,6 +2587,308 @@ mod tests {
         // Inputs and errors should be reset
         assert!(screen.verify_inputs.iter().all(|s| s.is_empty()));
         assert!(screen.verify_errors.iter().all(|&e| !e));
+    }
+
+    // ── RecoveryVerify Tab navigation tests ────────────────────────────────
+
+    #[test]
+    fn onboarding_verify_default_focus_is_first_box() {
+        let screen = OnboardingScreen {
+            current_step: OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            },
+            verify_positions: [0, 5, 10, 15],
+            ..Default::default()
+        };
+        assert_eq!(screen.verify_focus_index, 0);
+    }
+
+    #[test]
+    fn onboarding_verify_tab_advances_focus() {
+        let mut screen = OnboardingScreen {
+            current_step: OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            },
+            verify_positions: [0, 5, 10, 15],
+            ..Default::default()
+        };
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Tab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.verify_focus_index, 1);
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Tab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.verify_focus_index, 2);
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Tab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.verify_focus_index, 3);
+    }
+
+    #[test]
+    fn onboarding_verify_tab_clamps_at_last_box() {
+        let mut screen = OnboardingScreen {
+            current_step: OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            },
+            verify_focus_index: 3,
+            verify_positions: [0, 5, 10, 15],
+            ..Default::default()
+        };
+
+        // Tab on last box when not all filled should clamp
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Tab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.verify_focus_index, 3);
+        assert_eq!(
+            screen.current_step,
+            OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            }
+        );
+    }
+
+    #[test]
+    fn onboarding_verify_tab_on_last_box_submits_when_all_filled() {
+        let mut screen = OnboardingScreen {
+            current_step: OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            },
+            verify_focus_index: 3,
+            verify_positions: [0, 5, 10, 15],
+            recovery_words: vec![
+                "abandon".to_string(),
+                "ability".to_string(),
+                "able".to_string(),
+                "about".to_string(),
+                "above".to_string(),
+                "absent".to_string(), // index 5
+                "absorb".to_string(),
+                "abstract".to_string(),
+                "absurd".to_string(),
+                "abundance".to_string(),
+                "academy".to_string(), // index 10
+                "accept".to_string(),
+                "access".to_string(),
+                "accident".to_string(),
+                "account".to_string(),
+                "accuse".to_string(), // index 15
+                "achieve".to_string(),
+                "acid".to_string(),
+                "acoustic".to_string(),
+                "acquire".to_string(),
+                "across".to_string(),
+                "act".to_string(),
+                "action".to_string(),
+                "actor".to_string(),
+            ],
+            verify_inputs: [
+                "abandon".to_string(), // matches pos 0
+                "absent".to_string(),  // matches pos 5
+                "academy".to_string(), // matches pos 10
+                "accuse".to_string(),  // matches pos 15
+            ],
+            ..Default::default()
+        };
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Tab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.current_step, OnboardingStep::SetPassword);
+    }
+
+    #[test]
+    fn onboarding_verify_shifttab_goes_back() {
+        let mut screen = OnboardingScreen {
+            current_step: OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            },
+            verify_focus_index: 3,
+            verify_positions: [0, 5, 10, 15],
+            ..Default::default()
+        };
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::BackTab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.verify_focus_index, 2);
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::BackTab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.verify_focus_index, 1);
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::BackTab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.verify_focus_index, 0);
+    }
+
+    #[test]
+    fn onboarding_verify_shifttab_clamps_at_first_box() {
+        let mut screen = OnboardingScreen {
+            current_step: OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            },
+            verify_focus_index: 0,
+            ..Default::default()
+        };
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::BackTab,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.verify_focus_index, 0);
+    }
+
+    #[test]
+    fn onboarding_verify_typing_affects_focused_box() {
+        let mut screen = OnboardingScreen {
+            current_step: OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            },
+            verify_focus_index: 2,
+            verify_positions: [0, 5, 10, 15],
+            ..Default::default()
+        };
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Char('h'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Char('e'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Char('l'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Char('l'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Char('o'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+
+        assert_eq!(screen.verify_inputs[0], "");
+        assert_eq!(screen.verify_inputs[1], "");
+        assert_eq!(screen.verify_inputs[2], "hello");
+        assert_eq!(screen.verify_inputs[3], "");
+    }
+
+    #[test]
+    fn onboarding_verify_backspace_affects_focused_box() {
+        let mut screen = OnboardingScreen {
+            current_step: OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            },
+            verify_focus_index: 1,
+            verify_positions: [0, 5, 10, 15],
+            verify_inputs: [
+                "abandon".to_string(),
+                "hello".to_string(),
+                String::new(),
+                String::new(),
+            ],
+            ..Default::default()
+        };
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Backspace,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.verify_inputs[0], "abandon");
+        assert_eq!(screen.verify_inputs[1], "hell");
+        assert_eq!(screen.verify_inputs[2], "");
+    }
+
+    #[test]
+    fn onboarding_verify_enter_validates() {
+        let mut screen = OnboardingScreen {
+            current_step: OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            },
+            verify_positions: [0, 5, 10, 15],
+            recovery_words: vec![
+                "abandon".to_string(),
+                "ability".to_string(),
+                "able".to_string(),
+                "about".to_string(),
+                "above".to_string(),
+                "absent".to_string(),
+                "absorb".to_string(),
+                "abstract".to_string(),
+                "absurd".to_string(),
+                "abundance".to_string(),
+                "academy".to_string(),
+                "accept".to_string(),
+                "access".to_string(),
+                "accident".to_string(),
+                "account".to_string(),
+                "accuse".to_string(),
+                "achieve".to_string(),
+                "acid".to_string(),
+                "acoustic".to_string(),
+                "acquire".to_string(),
+                "across".to_string(),
+                "act".to_string(),
+                "action".to_string(),
+                "actor".to_string(),
+            ],
+            verify_inputs: [
+                "abandon".to_string(),
+                "WRONG".to_string(),
+                "academy".to_string(),
+                "accuse".to_string(),
+            ],
+            ..Default::default()
+        };
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        // Should stay on RecoveryVerify with errors marked
+        assert!(matches!(
+            screen.current_step,
+            OnboardingStep::RecoveryVerify { .. }
+        ));
+        assert!(!screen.verify_errors[0]); // correct
+        assert!(screen.verify_errors[1]); // wrong
+        assert!(!screen.verify_errors[2]); // correct
+        assert!(!screen.verify_errors[3]); // correct
+    }
+
+    #[test]
+    fn onboarding_verify_esc_goes_back_to_recovery_display() {
+        let mut screen = OnboardingScreen {
+            current_step: OnboardingStep::RecoveryVerify {
+                positions: [0, 5, 10, 15],
+            },
+            ..Default::default()
+        };
+
+        screen.handle_recovery_verify_key(KeyEvent::new(
+            KeyCode::Esc,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(screen.current_step, OnboardingStep::RecoveryDisplay);
     }
 
     #[test]
