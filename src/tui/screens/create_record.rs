@@ -62,11 +62,11 @@ impl CreateRecordScreen {
 
         // Normal form navigation
         match key {
-            KeyCode::Tab => {
+            KeyCode::Tab | KeyCode::Down => {
                 self.form.focus_next();
                 ScreenResult::Continue
             }
-            KeyCode::BackTab => {
+            KeyCode::BackTab | KeyCode::Up => {
                 self.form.focus_prev();
                 ScreenResult::Continue
             }
