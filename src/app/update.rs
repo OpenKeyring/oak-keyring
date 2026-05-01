@@ -480,6 +480,7 @@ mod tests {
         let mut app = App::new(
             crate::config::AppConfig::default(),
             std::path::PathBuf::from(":memory:"),
+            true,
         )
         .expect("app");
         app.phase = AppPhase::Running;

@@ -46,6 +46,7 @@ impl App {
     pub fn new(
         config: AppConfig,
         vault_dir: std::path::PathBuf,
+        has_vault: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_SIZE);
         let (result_tx, result_rx) = mpsc::channel(RESULT_CHANNEL_SIZE);
@@ -53,7 +54,7 @@ impl App {
 
         Ok(Self {
             config,
-            state: AppState::default(),
+            state: AppState::new(has_vault),
             phase: AppPhase::Initializing,
             vault_dir,
             command_tx,

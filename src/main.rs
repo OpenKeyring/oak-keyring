@@ -1,5 +1,6 @@
 use oak_keyring::app::App;
 use oak_keyring::config::AppConfig;
+use oak_keyring::crypto::keystore::KeyStore;
 use oak_keyring::tui::i18n;
 
 fn main() {
@@ -11,6 +12,7 @@ fn main() {
     // Initialize i18n based on config (auto-detect or explicit locale)
     i18n::init(&config.general.language);
 
-    let mut app = App::new(config, vault_dir).expect("failed to create app");
+    let has_vault = KeyStore::vault_exists(&vault_dir);
+    let mut app = App::new(config, vault_dir, has_vault).expect("failed to create app");
     app.run().expect("app run failed");
 }
