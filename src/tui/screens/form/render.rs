@@ -428,7 +428,7 @@ pub fn render_form(
 
     // Weak password dialog overlay
     if state.show_weak_password_dialog {
-        render_weak_password_dialog(frame, area);
+        render_weak_password_dialog(frame, area, state.weak_dialog_focus);
     }
 
     // Unsaved changes dialog overlay
@@ -437,7 +437,22 @@ pub fn render_form(
     }
 }
 
-fn render_weak_password_dialog(frame: &mut Frame, area: Rect) {
+fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
+    let go_back_style = if focus == 0 {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
+    };
+    let save_anyway_style = if focus == 1 {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
+    };
+
     let lines = vec![
         Line::from(Span::styled(
             "  ⚠ 密码强度不足",
@@ -455,9 +470,9 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect) {
         Line::raw(""),
         Line::from(vec![
             Span::raw("      "),
-            Span::styled(" [ 返回修改 ] ", Style::default().fg(theme::PRIMARY)),
-            Span::raw("    "),
-            Span::styled(" [ 仍然保存 ] ", Style::default().fg(theme::WARNING)),
+            Span::styled("[ 返回修改 ]", go_back_style),
+            Span::raw("      "),
+            Span::styled("[ 直接保存 ]", save_anyway_style),
         ]),
     ];
     // Render centered

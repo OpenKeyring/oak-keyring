@@ -425,13 +425,30 @@ impl EditRecordScreen {
 
     fn handle_weak_password_dialog(&mut self, key: KeyCode) -> ScreenResult {
         match key {
-            KeyCode::Esc | KeyCode::Char('n') => {
+            KeyCode::Esc => {
                 self.form.show_weak_password_dialog = false;
+                self.form.weak_dialog_focus = 0;
                 ScreenResult::Continue
             }
-            KeyCode::Enter | KeyCode::Char('y') => {
+            KeyCode::Left | KeyCode::Tab => {
+                self.form.weak_dialog_focus = 0;
+                ScreenResult::Continue
+            }
+            KeyCode::Right => {
+                self.form.weak_dialog_focus = 1;
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => {
+                let focus = self.form.weak_dialog_focus;
                 self.form.show_weak_password_dialog = false;
-                self.update_record_command()
+                self.form.weak_dialog_focus = 0;
+                if focus == 0 {
+                    // "Go Back" — return to editing
+                    ScreenResult::Continue
+                } else {
+                    // "Save Anyway"
+                    self.update_record_command()
+                }
             }
             _ => ScreenResult::Continue,
         }
@@ -743,5 +760,127 @@ mod tests {
         );
         assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.all_tags.len(), 1);
+    }
+
+    #[test]
+    fn weak_dialog_esc_returns_to_edit() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_weak_password_dialog = true;
+        screen.form.weak_dialog_focus = 1;
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(!screen.form.show_weak_password_dialog);
+        assert_eq!(screen.form.weak_dialog_focus, 0);
+    }
+
+    #[test]
+    fn weak_dialog_left_focuses_go_back() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_weak_password_dialog = true;
+        screen.form.weak_dialog_focus = 1;
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Left,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.weak_dialog_focus, 0);
+        assert!(screen.form.show_weak_password_dialog);
+    }
+
+    #[test]
+    fn weak_dialog_right_focuses_save_anyway() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_weak_password_dialog = true;
+        screen.form.weak_dialog_focus = 0;
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Right,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.weak_dialog_focus, 1);
+        assert!(screen.form.show_weak_password_dialog);
+    }
+
+    #[test]
+    fn weak_dialog_tab_focuses_go_back() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_weak_password_dialog = true;
+        screen.form.weak_dialog_focus = 1;
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Tab,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.weak_dialog_focus, 0);
+    }
+
+    #[test]
+    fn weak_dialog_enter_go_back_returns_to_edit() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_weak_password_dialog = true;
+        screen.form.weak_dialog_focus = 0;
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(!screen.form.show_weak_password_dialog);
+        assert_eq!(screen.form.weak_dialog_focus, 0);
+    }
+
+    #[test]
+    fn weak_dialog_enter_save_anyway_saves() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_weak_password_dialog = true;
+        screen.form.weak_dialog_focus = 1;
+        screen.record_id = Some(uuid::Uuid::new_v4());
+        screen.form.fields.name = "Test".into();
+        screen.form.fields.username = Some("user".into());
+        screen.form.fields.password = Some("weak".into());
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Command(_)));
+        assert!(!screen.form.show_weak_password_dialog);
     }
 }
