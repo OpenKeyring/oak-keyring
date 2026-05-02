@@ -3,6 +3,8 @@ pub mod conflict;
 pub mod lock;
 pub mod nonce_validator;
 pub mod pipeline;
+#[cfg(test)]
+mod pipeline_test;
 pub mod retry;
 pub mod state_machine;
 pub mod task;
