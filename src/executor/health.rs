@@ -16,6 +16,57 @@ use crate::types::record::StoredRecord;
 use super::CommandExecutor;
 
 // ---------------------------------------------------------------------------
+// HIBP skip logic (spec section 8.2)
+// ---------------------------------------------------------------------------
+
+/// Determine whether a record can skip the HIBP check based on persisted
+/// health state.
+///
+/// Per spec section 8.2, a record is skipped when ALL of these hold:
+/// 1. A persisted `RecordHealthState` exists for this record
+/// 2. `record_health_state.record_version == record_version`
+/// 3. `compromised == Some(true)`
+///
+/// The password has not changed (version matches), and it was already known
+/// to be compromised — re-checking would produce the same result.
+pub fn should_skip_hibp(health_state: Option<&RecordHealthState>, record_version: u64) -> bool {
+    match health_state {
+        Some(state) => state.record_version == record_version && state.compromised == Some(true),
+        None => false,
+    }
+}
+
+/// Partition entries into those that can skip HIBP and those that need it.
+///
+/// Returns `(skipped_ids, entries_to_check)`.
+/// - `skipped_ids`: record IDs where `should_skip_hibp` returned true;
+///   these are already known-compromised and are added directly to the
+///   compromised result list.
+/// - `entries_to_check`: remaining `PasswordEntry`s that need a live HIBP call.
+pub fn partition_entries_for_hibp(
+    entries: Vec<PasswordEntry>,
+    record_versions: &HashMap<Uuid, u64>,
+    health_states: &HashMap<Uuid, RecordHealthState>,
+) -> (Vec<Uuid>, Vec<PasswordEntry>) {
+    let mut skipped_ids = Vec::new();
+    let mut entries_to_check = Vec::new();
+
+    for entry in entries {
+        let version = record_versions.get(&entry.id).copied().unwrap_or(0);
+        let state = health_states.get(&entry.id);
+
+        if should_skip_hibp(state, version) {
+            skipped_ids.push(entry.id);
+            // entry (SecureStr) is dropped here, zeroizing the password.
+        } else {
+            entries_to_check.push(entry);
+        }
+    }
+
+    (skipped_ids, entries_to_check)
+}
+
+// ---------------------------------------------------------------------------
 // Health-check write-back functions (Task E)
 // ---------------------------------------------------------------------------
 
@@ -135,10 +186,18 @@ pub fn persist_health_report(
     Ok(deltas)
 }
 
-/// For records with changed health attributes, mark them as pending sync.
+/// For records with changed health attributes, bump their version and mark them
+/// as pending sync.
 ///
-/// This pushes the record's `sync_state` to `Pending` so that the next sync
-/// cycle will propagate the updated health attributes to the cloud.
+/// Per spec section 10.2, health attribute changes are record attribute changes.
+/// This function:
+/// 1. Increments `records.version` by 1 (so the sync pipeline sees the change)
+/// 2. Sets `updated_at` to now and `updated_by` to the current device ID
+/// 3. Pushes `sync_state` to `Pending` so the next sync cycle propagates the
+///    updated health attributes to the cloud
+///
+/// The checksum is NOT modified (spec section 10.3: checksum only covers
+/// `encrypted_data`).
 pub fn schedule_health_resync_for_records(
     executor: &mut CommandExecutor,
     deltas: &[HealthStateDelta],
@@ -148,11 +207,18 @@ pub fn schedule_health_resync_for_records(
     }
 
     let record_ids: Vec<Uuid> = deltas.iter().map(|d| d.record_id).collect();
+
+    // Bump version/updated_at/updated_by so the sync pipeline picks up the change.
+    executor
+        .vault
+        .bump_record_versions_for_health(&record_ids)?;
+
+    // Mark sync_state = Pending for the next sync cycle.
     executor.vault.mark_records_pending_sync(&record_ids)?;
 
     tracing::info!(
         count = record_ids.len(),
-        "Marked records as pending sync due to health attribute changes"
+        "Bumped version and marked records as pending sync due to health attribute changes"
     );
 
     Ok(())
@@ -231,18 +297,22 @@ pub fn load_cached_health_report(
 }
 
 #[tracing::instrument(skip_all)]
-pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult {
+pub fn handle_run_health_check(executor: &mut CommandExecutor, force: bool) -> CommandResult {
     if executor.cancel_token().is_cancelled() {
         return CommandResult::cancelled("health_check");
     }
 
-    // Check if health check should run (enabled + frequency).
-    // Uses the actual last check time recorded when the previous check completed.
-    if !crate::services::health::should_run(
-        &executor.config.security,
-        executor.last_health_check_time,
-    ) {
-        return CommandResult::HealthCheckSkipped;
+    // When force == false (unlock auto-scheduling), respect the frequency gate.
+    // When force == true (mutation/import-triggered), skip the gate entirely.
+    if !force {
+        // Check if health check should run (enabled + frequency).
+        // Uses the actual last check time recorded when the previous check completed.
+        if !crate::services::health::should_run(
+            &executor.config.security,
+            executor.last_health_check_time,
+        ) {
+            return CommandResult::HealthCheckSkipped;
+        }
     }
 
     // Step 1: Fetch all active stored records (fast, local)
@@ -288,7 +358,35 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
     let expired = detect_expired_records(&records);
     let total_checked = entries.len(); // Fix AC: only count actual decrypted entries
 
-    // Step 4: Prepare background task for HIBP check (slow, network)
+    // Step 4: Load persisted health states and partition entries.
+    //
+    // Records where compromised == true AND record_version matches can skip
+    // the HIBP call (spec section 8.2). We separate them before spawning
+    // the background task so the async closure does not need DB access.
+    let health_states = executor
+        .vault
+        .list_record_health_states()
+        .unwrap_or_default();
+    let health_map: HashMap<Uuid, RecordHealthState> = health_states
+        .into_iter()
+        .map(|s| (s.record_id, s))
+        .collect();
+
+    // Build version lookup from the records list for O(1) access.
+    let record_versions: HashMap<Uuid, u64> = records.iter().map(|r| (r.id, r.version)).collect();
+
+    let (skipped_compromised, entries_to_check) =
+        partition_entries_for_hibp(entries, &record_versions, &health_map);
+
+    if !skipped_compromised.is_empty() {
+        tracing::info!(
+            skip_count = skipped_compromised.len(),
+            check_count = entries_to_check.len(),
+            "Skipping HIBP for records with unchanged compromised state"
+        );
+    }
+
+    // Step 5: Prepare background task for HIBP check (slow, network)
     let tx = executor.result_tx.clone();
     let self_tx = executor.internal_tx.clone(); // Self-sender for internal caching
     let health_service = executor.health.clone();
@@ -296,12 +394,13 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
 
     // Spawn the background task for HIBP check and final report assembly
     tokio::spawn(async move {
-        let mut compromised = Vec::new();
-        let total = entries.len();
+        // Pre-populate compromised list with records that were skipped.
+        let mut compromised = skipped_compromised;
+        let total = entries_to_check.len();
 
         // Security: Use into_iter to ensure each entry (SecureStr) is dropped
         // and zeroized IMMEDIATELY after its individual check is done.
-        let mut entries_iter = entries.into_iter().enumerate();
+        let mut entries_iter = entries_to_check.into_iter().enumerate();
 
         // 100ms rate limit ticker as recommended
         let mut ticker = tokio::time::interval(std::time::Duration::from_millis(100));
@@ -370,7 +469,7 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor) -> CommandResult 
             .await;
     });
 
-    // Step 5: Return immediate "Started" result
+    // Step 6: Return immediate "Started" result
     CommandResult::HealthCheckStarted
 }
 

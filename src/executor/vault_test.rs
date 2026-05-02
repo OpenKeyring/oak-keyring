@@ -98,7 +98,7 @@ fn schedules_run_health_check_when_no_previous_check() {
         .try_recv()
         .expect("should have a command in internal channel");
     assert!(
-        matches!(cmd, crate::commands::Command::RunHealthCheck),
+        matches!(cmd, crate::commands::Command::RunHealthCheck { .. }),
         "expected RunHealthCheck command, got {:?}",
         cmd
     );
@@ -194,7 +194,10 @@ fn handles_missing_metadata_gracefully() {
     // RunHealthCheck should have been sent
     let internal_rx = executor.internal_rx.as_mut().expect("internal_rx");
     let cmd = internal_rx.try_recv().expect("should have RunHealthCheck");
-    assert!(matches!(cmd, crate::commands::Command::RunHealthCheck));
+    assert!(matches!(
+        cmd,
+        crate::commands::Command::RunHealthCheck { .. }
+    ));
 }
 
 // --- loads empty report gracefully when no health states exist ---
@@ -244,7 +247,10 @@ fn schedules_check_when_daily_frequency_expired() {
 
     let internal_rx = executor.internal_rx.as_mut().expect("internal_rx");
     let cmd = internal_rx.try_recv().expect("should have RunHealthCheck");
-    assert!(matches!(cmd, crate::commands::Command::RunHealthCheck));
+    assert!(matches!(
+        cmd,
+        crate::commands::Command::RunHealthCheck { .. }
+    ));
 }
 
 // --- loads cached report with multiple categories ---

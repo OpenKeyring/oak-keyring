@@ -214,7 +214,7 @@ impl CommandExecutor {
             Command::GeneratePin { length } => record::handle_generate_pin(self, length),
 
             // ── Health Check ──────────────────────────────
-            Command::RunHealthCheck => health::handle_run_health_check(self),
+            Command::RunHealthCheck { force } => health::handle_run_health_check(self, force),
             Command::CheckHibp { record_id } => health::handle_check_hibp(self, record_id).await,
 
             // ── Sync Operations ──────────────────────────
