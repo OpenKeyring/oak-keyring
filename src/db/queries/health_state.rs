@@ -40,7 +40,8 @@ pub fn list_record_health_states(conn: &Connection) -> Result<Vec<RecordHealthSt
     let mut stmt = conn.prepare(
         "SELECT record_id, record_version, evaluated_at, weak_password,
                 duplicate_group_size, compromised, expired
-         FROM record_health_state",
+         FROM record_health_state
+         ORDER BY record_id",
     )?;
 
     let rows = stmt.query_map([], RecordHealthStateRow::from_row)?;

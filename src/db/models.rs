@@ -260,8 +260,7 @@ impl RecordHealthStateRow {
 
     /// Convert into the domain `RecordHealthState`.
     ///
-    /// Uses `bool_from_int` / `int_from_bool` helpers to bridge the
-    /// SQLite INTEGER ↔ Rust `Option<bool>` gap.
+    /// Uses `bool_from_int` helper to bridge the SQLite INTEGER ↔ Rust `Option<bool>` gap.
     #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_health_state(self) -> Result<RecordHealthState, DbError> {
         let record_id = Uuid::parse_str(&self.record_id).map_err(DbError::Uuid)?;
