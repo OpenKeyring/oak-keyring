@@ -112,7 +112,7 @@ pub fn source_needs_password(source: ImportSource) -> bool {
         .unwrap_or(false)
 }
 
-pub fn default_export_path() -> String {
+pub(super) fn default_export_path() -> String {
     dirs::document_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("keyring-backup.okb")
