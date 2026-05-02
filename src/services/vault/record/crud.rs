@@ -11,7 +11,9 @@ use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::record::{CreateRecordParams, DecryptedRecord, StoredRecord, UpdateRecordParams};
 
-use super::helpers::{db_error_to_vault, decrypt_record_name, password_changed};
+use super::helpers::{
+    db_error_to_vault, decrypt_record_name, expires_at_changed, password_changed,
+};
 
 impl VaultService {
     /// Create a new vault record with encryption, tags, and audit logging.
@@ -214,29 +216,32 @@ impl VaultService {
             });
         }
 
-        // 3. If Login and password changed, save old password to history
-        if stored.credential_type == CredentialType::Login {
-            let old_payload = payload::decrypt_payload(
-                &self.crypto,
+        // 3. Decrypt old payload to detect changes
+        let old_payload = payload::decrypt_payload(
+            &self.crypto,
+            &stored.encrypted_data,
+            &stored.nonce,
+            &stored.aad,
+            stored.credential_type,
+            stored.dek_version,
+        )
+        .map_err(VaultError::CryptoError)?;
+
+        // 4. Detect password and expires_at changes for health state management
+        let pw_changed = password_changed(&old_payload, &params.payload);
+        let exp_changed = expires_at_changed(stored.expires_at, params.expires_at);
+
+        // 5. If Login and password changed, save old password to history
+        if stored.credential_type == CredentialType::Login && pw_changed {
+            self._save_password_history(
+                params.id,
                 &stored.encrypted_data,
                 &stored.nonce,
-                &stored.aad,
-                stored.credential_type,
                 stored.dek_version,
-            )
-            .map_err(VaultError::CryptoError)?;
-
-            if password_changed(&old_payload, &params.payload) {
-                self._save_password_history(
-                    params.id,
-                    &stored.encrypted_data,
-                    &stored.nonce,
-                    stored.dek_version,
-                )?;
-            }
+            )?;
         }
 
-        // 4. Encrypt new payload
+        // 6. Encrypt new payload
         let aad = format!("record:{}", params.id);
         let (encrypted_data, nonce) =
             payload::encrypt_payload(&self.crypto, &params.payload, aad.as_bytes())
@@ -262,7 +267,7 @@ impl VaultService {
             tags: params.tags.clone(),
         };
 
-        // 5. Update record in DB (with optimistic locking via WHERE version = ?)
+        // 7. Update record in DB (with optimistic locking via WHERE version = ?)
         let updated = queries::update_record(&self.conn, &updated_record, params.expected_version)
             .map_err(db_error_to_vault)?;
         if !updated {
@@ -272,7 +277,7 @@ impl VaultService {
             });
         }
 
-        // 6. Clear old tag associations and rebuild new ones
+        // 8. Clear old tag associations and rebuild new ones
         queries::detach_all_tags_for_record(&self.conn, &params.id).map_err(db_error_to_vault)?;
         for tag_name in &params.tags {
             let tag =
@@ -280,7 +285,16 @@ impl VaultService {
             queries::attach_tag(&self.conn, &params.id, tag.id).map_err(db_error_to_vault)?;
         }
 
-        // 7. Write audit entry
+        // 9. Health state management (spec section 7 lifecycle rules)
+        if pw_changed || exp_changed {
+            // Password or expires_at changed: delete health state, schedule rescan
+            self.delete_record_health_state(&params.id)?;
+        } else {
+            // Cosmetic change only: carry forward health state to new version
+            self.copy_health_state_to_version(&params.id, new_version)?;
+        }
+
+        // 10. Write audit entry
         let record_name = params.payload.name().to_string();
         queries::insert_audit_entry(
             &self.conn,
@@ -318,6 +332,10 @@ impl VaultService {
 
         queries::soft_delete_record(&self.conn, &id).map_err(db_error_to_vault)?;
 
+        // Delete health state: soft-deleted records should not carry stale health data.
+        // A full health scan will be scheduled by the executor after this operation.
+        self.delete_record_health_state(&id)?;
+
         queries::insert_audit_entry(
             &self.conn,
             AuditOperation::RecordDelete,
@@ -349,6 +367,9 @@ impl VaultService {
 
         queries::restore_record(&self.conn, &id).map_err(db_error_to_vault)?;
 
+        // No explicit health state change on restore — the executor will
+        // schedule a full health scan so the restored record gets evaluated.
+
         queries::insert_audit_entry(
             &self.conn,
             AuditOperation::RecordRestore,
@@ -379,6 +400,10 @@ impl VaultService {
         let record_name = decrypt_record_name(&self.crypto, &stored)?;
 
         queries::hard_delete_record(&self.conn, &id).map_err(db_error_to_vault)?;
+
+        // Health state is cascade-deleted via FK, but delete explicitly in case
+        // the FK constraint is deferred or absent.
+        self.delete_record_health_state(&id)?;
 
         queries::insert_audit_entry(
             &self.conn,

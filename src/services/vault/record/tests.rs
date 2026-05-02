@@ -2090,3 +2090,316 @@ fn decrypt_field_returns_not_found_for_nonexistent_when_unlocked() {
         "expected RecordNotFound"
     );
 }
+
+// =========================================================================
+// Health state lifecycle tests (Task F)
+// =========================================================================
+
+use crate::types::health::RecordHealthState;
+
+/// Helper: insert a health state row for a record at a given version.
+fn insert_health_state(svc: &VaultService, record_id: Uuid, version: u64) {
+    let state = RecordHealthState {
+        record_id,
+        record_version: version,
+        evaluated_at: Some(Utc::now()),
+        weak_password: Some(true),
+        duplicate_group_size: None,
+        compromised: Some(false),
+        expired: Some(false),
+    };
+    svc.upsert_record_health_state(&state)
+        .expect("upsert_record_health_state must succeed");
+}
+
+/// Helper: assert that no health state row exists for the given record.
+fn assert_no_health_state(svc: &VaultService, record_id: Uuid) {
+    let state = queries::get_record_health_state(&svc.conn, &record_id)
+        .expect("get_record_health_state must succeed");
+    assert!(state.is_none(), "expected no health state for record");
+}
+
+/// Helper: assert that a health state row exists at the given version.
+fn assert_health_state_version(svc: &VaultService, record_id: Uuid, expected_version: u64) {
+    let state = queries::get_record_health_state(&svc.conn, &record_id)
+        .expect("get_record_health_state must succeed")
+        .expect("health state must exist");
+    assert_eq!(
+        state.record_version, expected_version,
+        "health state version mismatch"
+    );
+}
+
+// --- update_record: password change deletes health state ---
+
+#[test]
+fn update_record_password_change_deletes_health_state() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    // Insert health state at version 1
+    insert_health_state(&svc, id, 1);
+    assert_health_state_version(&svc, id, 1);
+
+    // Update with a different password
+    let new_payload = EncryptedPayload::Login {
+        name: "TestLogin".to_string(),
+        username: "alice".to_string(),
+        password: SecureStr::new("newP@ssw0rd!".to_string()),
+        url: Some("https://github.com".to_string()),
+        notes: None,
+    };
+
+    svc.update_record(UpdateRecordParams {
+        id,
+        payload: new_payload,
+        tags: vec![],
+        is_favorite: false,
+        expires_at: None,
+        expected_version: 1,
+    })
+    .expect("update_record must succeed");
+
+    // Health state should be deleted
+    assert_no_health_state(&svc, id);
+}
+
+// --- update_record: expires_at change deletes health state ---
+
+#[test]
+fn update_record_expires_at_change_deletes_health_state() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    // Insert health state at version 1
+    insert_health_state(&svc, id, 1);
+
+    // Update with a new expires_at (same password)
+    let now = Utc::now();
+    let new_payload = EncryptedPayload::Login {
+        name: "TestLogin".to_string(),
+        username: "alice".to_string(),
+        password: SecureStr::new("s3cret!".to_string()),
+        url: Some("https://github.com".to_string()),
+        notes: None,
+    };
+
+    svc.update_record(UpdateRecordParams {
+        id,
+        payload: new_payload,
+        tags: vec![],
+        is_favorite: false,
+        expires_at: Some(now + chrono::Duration::days(30)),
+        expected_version: 1,
+    })
+    .expect("update_record must succeed");
+
+    // Health state should be deleted
+    assert_no_health_state(&svc, id);
+}
+
+// --- update_record: cosmetic change carries health state forward ---
+
+#[test]
+fn update_record_cosmetic_change_carries_health_state_version() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    // Insert health state at version 1
+    insert_health_state(&svc, id, 1);
+
+    // Update only name (same password, same expires_at)
+    let new_payload = EncryptedPayload::Login {
+        name: "TestLoginRenamed".to_string(),
+        username: "alice".to_string(),
+        password: SecureStr::new("s3cret!".to_string()),
+        url: Some("https://github.com".to_string()),
+        notes: None,
+    };
+
+    svc.update_record(UpdateRecordParams {
+        id,
+        payload: new_payload,
+        tags: vec![],
+        is_favorite: false,
+        expires_at: None,
+        expected_version: 1,
+    })
+    .expect("update_record must succeed");
+
+    // Health state should still exist at version 2
+    assert_health_state_version(&svc, id, 2);
+}
+
+// --- update_record: cosmetic change preserves health state flags ---
+
+#[test]
+fn update_record_cosmetic_change_preserves_health_flags() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    // Insert health state with specific flags at version 1
+    let state = RecordHealthState {
+        record_id: id,
+        record_version: 1,
+        evaluated_at: Some(Utc::now()),
+        weak_password: Some(true),
+        duplicate_group_size: Some(3),
+        compromised: Some(false),
+        expired: Some(true),
+    };
+    svc.upsert_record_health_state(&state)
+        .expect("upsert must succeed");
+
+    // Update only tags (cosmetic change)
+    let new_payload = EncryptedPayload::Login {
+        name: "TestLogin".to_string(),
+        username: "alice".to_string(),
+        password: SecureStr::new("s3cret!".to_string()),
+        url: Some("https://github.com".to_string()),
+        notes: None,
+    };
+
+    svc.update_record(UpdateRecordParams {
+        id,
+        payload: new_payload,
+        tags: vec!["new-tag".to_string()],
+        is_favorite: true,
+        expires_at: None,
+        expected_version: 1,
+    })
+    .expect("update_record must succeed");
+
+    // Health state should have version 2 and same flags
+    let after = queries::get_record_health_state(&svc.conn, &id)
+        .expect("query must succeed")
+        .expect("health state must exist");
+    assert_eq!(after.record_version, 2);
+    assert_eq!(after.weak_password, Some(true));
+    assert_eq!(after.duplicate_group_size, Some(3));
+    assert_eq!(after.compromised, Some(false));
+    assert_eq!(after.expired, Some(true));
+}
+
+// --- update_record: no prior health state, cosmetic change is no-op ---
+
+#[test]
+fn update_record_cosmetic_change_without_prior_health_state_is_noop() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    // No health state inserted — update should succeed without error
+    let new_payload = EncryptedPayload::Login {
+        name: "TestLoginRenamed".to_string(),
+        username: "alice".to_string(),
+        password: SecureStr::new("s3cret!".to_string()),
+        url: Some("https://github.com".to_string()),
+        notes: None,
+    };
+
+    svc.update_record(UpdateRecordParams {
+        id,
+        payload: new_payload,
+        tags: vec![],
+        is_favorite: false,
+        expires_at: None,
+        expected_version: 1,
+    })
+    .expect("update_record must succeed");
+
+    // No health state should exist (copy to version is a no-op)
+    assert_no_health_state(&svc, id);
+}
+
+// --- soft_delete_record: deletes health state ---
+
+#[test]
+fn soft_delete_record_deletes_health_state() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    // Insert health state
+    insert_health_state(&svc, id, 1);
+    assert_health_state_version(&svc, id, 1);
+
+    svc.soft_delete_record(id)
+        .expect("soft_delete_record must succeed");
+
+    // Health state should be deleted
+    assert_no_health_state(&svc, id);
+}
+
+// --- hard_delete_record: deletes health state ---
+
+#[test]
+fn hard_delete_record_deletes_health_state() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    // Insert health state
+    insert_health_state(&svc, id, 1);
+
+    svc.hard_delete_record(id)
+        .expect("hard_delete_record must succeed");
+
+    // Health state should be gone
+    assert_no_health_state(&svc, id);
+}
+
+// --- update_record: expires_at changing to None deletes health state ---
+
+#[test]
+fn update_record_expires_at_removed_deletes_health_state() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    // Create record with expires_at set
+    let now = Utc::now();
+    let id = svc
+        .create_record(CreateRecordParams {
+            credential_type: CredentialType::Login,
+            payload: EncryptedPayload::Login {
+                name: "Expiring".to_string(),
+                username: "alice".to_string(),
+                password: SecureStr::new("s3cret!".to_string()),
+                url: None,
+                notes: None,
+            },
+            tags: vec![],
+            is_favorite: false,
+            expires_at: Some(now + chrono::Duration::days(30)),
+        })
+        .expect("create_record must succeed");
+
+    // Insert health state
+    insert_health_state(&svc, id, 1);
+
+    // Update: remove expires_at (same password)
+    let new_payload = EncryptedPayload::Login {
+        name: "Expiring".to_string(),
+        username: "alice".to_string(),
+        password: SecureStr::new("s3cret!".to_string()),
+        url: None,
+        notes: None,
+    };
+
+    svc.update_record(UpdateRecordParams {
+        id,
+        payload: new_payload,
+        tags: vec![],
+        is_favorite: false,
+        expires_at: None, // Changed from Some to None
+        expected_version: 1,
+    })
+    .expect("update_record must succeed");
+
+    // Health state should be deleted
+    assert_no_health_state(&svc, id);
+}

@@ -35,6 +35,30 @@ impl VaultService {
         queries::replace_record_health_states(&self.conn, states).map_err(db_error_to_vault)
     }
 
+    /// Delete the health state for a single record.
+    ///
+    /// Used when a password or `expires_at` changes, invalidating the previous
+    /// health evaluation.
+    pub fn delete_record_health_state(&self, record_id: &Uuid) -> Result<(), VaultError> {
+        queries::delete_record_health_state(&self.conn, record_id).map_err(db_error_to_vault)?;
+        Ok(())
+    }
+
+    /// Advance the `record_version` on an existing health state row.
+    ///
+    /// Used when a record is updated *without* a password or `expires_at` change
+    /// (e.g. editing name, notes, tags) so the existing health state carries
+    /// forward to the new version. No-op if no health state row exists.
+    pub fn copy_health_state_to_version(
+        &self,
+        record_id: &Uuid,
+        new_record_version: u64,
+    ) -> Result<(), VaultError> {
+        queries::copy_record_health_state_version(&self.conn, record_id, new_record_version)
+            .map_err(db_error_to_vault)?;
+        Ok(())
+    }
+
     /// Mark a batch of records as pending sync in the `sync_state` table.
     ///
     /// For each record, upserts a row with `sync_status = Pending` and
