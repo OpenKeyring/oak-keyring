@@ -87,10 +87,20 @@ services/import_export/ → parsers/ (bitwarden, keepass, csv, onepassword, okb)
 5. **UI Layer 通过 Command/Message 与 Service 交互** — `tui/` 仅依赖 `commands/`，不直接调用 `services/`
 6. **errors/ 跨层共享** — 所有层均可引用 `errors/`
 
+## File Organization (文件组织规则)
+
+- **`mod.rs`**: 仅包含模块声明和重导出 (`pub use`)，零业务逻辑。
+- **多文件模块**: `module/{mod, [domain files], tests}.rs`
+- **单文件模块 + 测试分离**: `file.rs`（业务逻辑）+ `file_test.rs`（测试），需在父 `mod.rs` 中声明 `#[cfg(test)] mod file_test;`
+- **单文件模块 (无需分离)**: `file.rs`（业务逻辑 + 内联 `#[cfg(test)] mod tests { ... }`）
+
+**分离触发条件**: 当文件超过 ~600 行，或测试代码占比超过 30% 时，应将测试提取到独立文件。
+
 ## Test Conventions
 
-- 单元测试放在实现文件旁 (`#[cfg(test)] mod tests` 或独立 `*_test.rs`)
-- **优先使用独立 `*_test.rs` 文件** — 当文件超过 ~600 行或测试占比高时，将测试提取到同级 `*_test.rs`，保持业务代码文件干净、便于分析
+- **单元测试与业务代码分离为独立文件**，不允许大文件混合。
+  - 目录模块：`module/{mod, domain_files, tests}.rs`
+  - 单文件模块：`file.rs` + `file_test.rs`，触发时执行分离
 - 集合测试: `tests/integration/` (12 个模块)
 - 快照测试: `tests/snapshot_tests/`，快照文件在 `tests/snapshots/`，使用 `insta` (`.insta.toml`)
 - 同步测试: `tests/sync_*_test.rs` (checkpoint/conflict/e2e/pipeline/retry)
