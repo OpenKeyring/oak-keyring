@@ -103,7 +103,9 @@ pub fn initialize_schema(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_record_health_compromised
             ON record_health_state(compromised) WHERE compromised = 1;
         CREATE INDEX IF NOT EXISTS idx_record_health_expired
-            ON record_health_state(expired) WHERE expired = 1;",
+            ON record_health_state(expired) WHERE expired = 1;
+        CREATE INDEX IF NOT EXISTS idx_record_health_weak
+            ON record_health_state(weak_password) WHERE weak_password = 1;",
     )
     .expect("failed to create schema");
 }
