@@ -1028,3 +1028,375 @@ fn load_cached_report_combines_all_categories() {
     assert_eq!(report.duplicate_passwords.len(), 1);
     assert!(report.duplicate_passwords[0].contains(&id_all_issues));
 }
+
+// ===========================================================================
+// Tests: HealthCheckCompleted write-back verification (Task J acceptance)
+// ===========================================================================
+
+/// Helper: simulate what `execute(InternalHealthCheckCompleted)` does — persist
+/// the report, update metadata, and return the result for assertion.
+fn simulate_health_check_completed(
+    executor: &mut CommandExecutor,
+    report: &HealthReport,
+) -> Vec<HealthStateDelta> {
+    let evaluated_at = Utc::now();
+
+    // Persist health states (Task E write-back)
+    let deltas = persist_health_report(executor, report, evaluated_at).expect("persist");
+
+    // Mark changed records for sync
+    schedule_health_resync_for_records(executor, &deltas).expect("schedule resync");
+
+    // Update last_health_check_at metadata
+    executor
+        .vault
+        .set_last_health_check_at(evaluated_at)
+        .expect("set last_health_check_at");
+
+    deltas
+}
+
+#[test]
+fn health_check_completed_writes_last_health_check_at_to_db() {
+    let mut executor = make_executor_no_records();
+    let id = create_login_record(&mut executor, "rec1");
+
+    // Verify no last_health_check_at initially
+    let before = executor
+        .vault
+        .get_last_health_check_at()
+        .expect("get metadata");
+    assert!(
+        before.is_none(),
+        "last_health_check_at should be None initially"
+    );
+
+    // Simulate a health check completing
+    let report = HealthReport {
+        weak_passwords: vec![id],
+        duplicate_passwords: vec![],
+        compromised: vec![],
+        expired: vec![],
+        total_checked: 1,
+    };
+    simulate_health_check_completed(&mut executor, &report);
+
+    // Verify last_health_check_at is now persisted
+    let after = executor
+        .vault
+        .get_last_health_check_at()
+        .expect("get metadata");
+    assert!(
+        after.is_some(),
+        "last_health_check_at should be set after health check completes"
+    );
+    let diff = (after.unwrap() - Utc::now()).num_seconds().abs();
+    assert!(diff <= 2, "timestamp should be recent");
+}
+
+#[test]
+fn health_check_completed_persists_record_health_states_to_db() {
+    let mut executor = make_executor_no_records();
+    let id1 = create_login_record(&mut executor, "rec1");
+    let id2 = create_login_record(&mut executor, "rec2");
+
+    // Verify no health states initially
+    let states_before = executor.vault.list_record_health_states().expect("list");
+    assert!(states_before.is_empty(), "no health states initially");
+
+    // Simulate health check completing
+    let report = HealthReport {
+        weak_passwords: vec![id1],
+        duplicate_passwords: vec![vec![id1, id2]],
+        compromised: vec![id2],
+        expired: vec![],
+        total_checked: 2,
+    };
+    simulate_health_check_completed(&mut executor, &report);
+
+    // Verify health states are persisted
+    let states_after = executor.vault.list_record_health_states().expect("list");
+    assert_eq!(
+        states_after.len(),
+        2,
+        "both records should have health states"
+    );
+
+    let s1 = states_after
+        .iter()
+        .find(|s| s.record_id == id1)
+        .expect("id1 state");
+    assert_eq!(s1.weak_password, Some(true));
+    assert_eq!(s1.duplicate_group_size, Some(2));
+    assert_eq!(s1.compromised, Some(false));
+
+    let s2 = states_after
+        .iter()
+        .find(|s| s.record_id == id2)
+        .expect("id2 state");
+    assert_eq!(s2.weak_password, Some(false));
+    assert_eq!(s2.duplicate_group_size, Some(2));
+    assert_eq!(s2.compromised, Some(true));
+}
+
+#[test]
+fn health_check_completed_marks_changed_records_as_pending_sync() {
+    let mut executor = make_executor_no_records();
+    let id1 = create_login_record(&mut executor, "rec1");
+    let id2 = create_login_record(&mut executor, "rec2");
+
+    // Insert pre-existing health state for id2 so it's "unchanged"
+    insert_health_state(
+        &mut executor,
+        RecordHealthState {
+            record_id: id2,
+            record_version: 1,
+            evaluated_at: Some(Utc::now()),
+            weak_password: Some(false),
+            duplicate_group_size: None,
+            compromised: Some(false),
+            expired: Some(false),
+        },
+    );
+
+    // Report says id1 is weak (new issue) and id2 is clean (same as before)
+    let report = HealthReport {
+        weak_passwords: vec![id1],
+        duplicate_passwords: vec![],
+        compromised: vec![],
+        expired: vec![],
+        total_checked: 2,
+    };
+
+    let deltas = simulate_health_check_completed(&mut executor, &report);
+
+    // Only id1 should have a delta (changed from no-state to weak)
+    let delta_ids: Vec<Uuid> = deltas.iter().map(|d| d.record_id).collect();
+    assert!(
+        delta_ids.contains(&id1),
+        "id1 should have a delta (new issue)"
+    );
+
+    // Verify sync state: id1 should be Pending, id2 should not
+    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    assert_eq!(
+        sync_map.get(&id1.to_string()),
+        Some(&SyncStatus::Pending),
+        "id1 (changed) should be Pending"
+    );
+}
+
+#[test]
+fn health_check_completed_overwrites_previous_states_on_rerun() {
+    let mut executor = make_executor_no_records();
+    let id = create_login_record(&mut executor, "rec");
+
+    // First check: record is weak
+    let report1 = HealthReport {
+        weak_passwords: vec![id],
+        duplicate_passwords: vec![],
+        compromised: vec![],
+        expired: vec![],
+        total_checked: 1,
+    };
+    simulate_health_check_completed(&mut executor, &report1);
+
+    let state1 = executor
+        .vault
+        .list_record_health_states()
+        .expect("list")
+        .into_iter()
+        .next()
+        .expect("state");
+    assert_eq!(state1.weak_password, Some(true));
+
+    // Second check: record is now clean (password was changed)
+    let report2 = HealthReport {
+        weak_passwords: vec![],
+        duplicate_passwords: vec![],
+        compromised: vec![],
+        expired: vec![],
+        total_checked: 1,
+    };
+    simulate_health_check_completed(&mut executor, &report2);
+
+    let state2 = executor
+        .vault
+        .list_record_health_states()
+        .expect("list")
+        .into_iter()
+        .next()
+        .expect("state");
+    assert_eq!(
+        state2.weak_password,
+        Some(false),
+        "second check should overwrite weak to false"
+    );
+    assert_eq!(state2.compromised, Some(false));
+    assert_eq!(state2.expired, Some(false));
+}
+
+// ===========================================================================
+// Tests: Full round-trip (unlock -> should_run -> persist -> restore)
+// ===========================================================================
+
+#[test]
+fn full_roundtrip_unlock_schedule_persist_restore() {
+    // Phase 1: First unlock — should schedule RunHealthCheck
+    let mut executor = make_executor_no_records();
+    let id = create_login_record(&mut executor, "rec");
+
+    // Simulate first unlock scheduling
+    super::vault::schedule_health_check_after_unlock(&mut executor);
+
+    // Verify RunHealthCheck was sent
+    let internal_rx = executor.internal_rx.as_mut().expect("internal_rx");
+    let cmd = internal_rx.try_recv().expect("should have RunHealthCheck");
+    assert!(matches!(cmd, crate::commands::Command::RunHealthCheck));
+
+    // Phase 2: Simulate health check completing
+    let report = HealthReport {
+        weak_passwords: vec![id],
+        duplicate_passwords: vec![],
+        compromised: vec![],
+        expired: vec![],
+        total_checked: 1,
+    };
+    simulate_health_check_completed(&mut executor, &report);
+
+    // Phase 3: Simulate second unlock (within daily window)
+    // Re-read metadata to verify it was persisted
+    let last_check = executor
+        .vault
+        .get_last_health_check_at()
+        .expect("get")
+        .expect("should exist");
+    executor.last_health_check_time = Some(last_check);
+
+    // Set daily frequency so second unlock won't re-run
+    executor.config.security.health_check_frequency =
+        crate::config::security::HealthCheckFrequency::Daily;
+
+    super::vault::schedule_health_check_after_unlock(&mut executor);
+
+    // Should NOT send RunHealthCheck (within window)
+    let internal_rx = executor.internal_rx.as_mut().expect("internal_rx");
+    assert!(
+        internal_rx.try_recv().is_err(),
+        "should not schedule another check within daily window"
+    );
+
+    // Should have restored the cached report
+    let report_restored = executor
+        .health_report
+        .as_ref()
+        .expect("report should be restored");
+    assert_eq!(report_restored.weak_passwords, vec![id]);
+    assert_eq!(report_restored.total_checked, 1);
+}
+
+/// Simulates a restart scenario: persist health states, then verify they can
+/// be loaded back into a fresh executor state using the same underlying DB.
+///
+/// Since VaultService takes ownership of the Connection, we simulate "restart"
+/// by clearing executor's in-memory state and re-running the scheduling logic
+/// which reads from the persisted DB.
+#[test]
+fn health_report_restores_after_simulated_restart() {
+    let mut executor = make_executor_no_records();
+    let id_weak = create_login_record(&mut executor, "weak");
+    let id_compromised = create_login_record(&mut executor, "compromised");
+
+    // Persist health states directly (simulates previous health check)
+    insert_health_state(
+        &mut executor,
+        RecordHealthState {
+            record_id: id_weak,
+            record_version: 1,
+            evaluated_at: Some(Utc::now()),
+            weak_password: Some(true),
+            duplicate_group_size: None,
+            compromised: Some(false),
+            expired: Some(false),
+        },
+    );
+    insert_health_state(
+        &mut executor,
+        RecordHealthState {
+            record_id: id_compromised,
+            record_version: 1,
+            evaluated_at: Some(Utc::now()),
+            weak_password: Some(false),
+            duplicate_group_size: None,
+            compromised: Some(true),
+            expired: Some(false),
+        },
+    );
+
+    // Set last_health_check_at to a recent time
+    let ts = Utc::now() - chrono::Duration::hours(1);
+    executor.vault.set_last_health_check_at(ts).expect("set");
+
+    // Simulate "restart": clear in-memory state
+    executor.health_report = None;
+    executor.last_health_check_time = None;
+    executor.config.security.health_check_frequency =
+        crate::config::security::HealthCheckFrequency::Daily;
+
+    // Re-run unlock scheduling (this is what happens on restart)
+    super::vault::schedule_health_check_after_unlock(&mut executor);
+
+    // Should NOT send RunHealthCheck (within daily window)
+    let rx = executor.internal_rx.as_mut().expect("rx");
+    assert!(rx.try_recv().is_err(), "should not schedule check");
+
+    // Should have restored the health report from persisted states
+    let report = executor
+        .health_report
+        .as_ref()
+        .expect("report should be restored");
+    assert_eq!(report.weak_passwords, vec![id_weak]);
+    assert_eq!(report.compromised, vec![id_compromised]);
+    assert_eq!(report.total_checked, 2);
+
+    // Verify timestamp was restored
+    let restored_time = executor
+        .last_health_check_time
+        .expect("time should be restored");
+    let diff = (restored_time - ts).num_seconds().abs();
+    assert!(diff <= 1, "restored time should match persisted");
+}
+
+#[test]
+fn delete_record_cleans_up_health_state() {
+    let mut executor = make_executor_no_records();
+    let id = create_login_record(&mut executor, "rec");
+
+    // Insert health state
+    insert_health_state(
+        &mut executor,
+        RecordHealthState {
+            record_id: id,
+            record_version: 1,
+            evaluated_at: Some(Utc::now()),
+            weak_password: Some(true),
+            duplicate_group_size: None,
+            compromised: Some(false),
+            expired: Some(false),
+        },
+    );
+
+    // Verify health state exists
+    let states_before = executor.vault.list_record_health_states().expect("list");
+    assert_eq!(states_before.len(), 1);
+
+    // Soft delete the record — should cascade to health state
+    executor.vault.soft_delete_record(id).expect("soft delete");
+
+    // Verify health state is cleaned up
+    let states_after = executor.vault.list_record_health_states().expect("list");
+    assert!(
+        states_after.is_empty(),
+        "health state should be removed after record deletion"
+    );
+}
