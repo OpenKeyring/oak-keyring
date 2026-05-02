@@ -3,11 +3,14 @@
 //! Paths: CreateNew (create vault + recovery key), Restore (recovery key restore),
 //! Import (import from other manager). Each path has its own step sequence.
 
+mod handlers;
 pub mod screen;
 #[cfg(test)]
 pub mod tests;
-pub mod types;
-pub mod views;
+mod types;
+mod views_import;
+mod views_recovery;
+mod views_setup;
 
 pub use screen::OnboardingScreen;
-pub use types::OnboardingPath;
+pub use types::*;
