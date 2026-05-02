@@ -11,9 +11,7 @@ use ratatui::Frame;
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen as ScreenEnum;
 use crate::commands::{Command, Message};
-use crate::tui::state::audit_state::{
-    AuditFocus, AuditLogScreenState, AuditOperationFilter,
-};
+use crate::tui::state::audit_state::{AuditFocus, AuditLogScreenState, AuditOperationFilter};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 
 use super::filter::{FilterState, TIME_RANGES};
