@@ -17,7 +17,10 @@ pub use adapters::{
 };
 pub use metadata::{CloudMetadata, DeviceInfo, RecordVersionInfo};
 pub use provider::{create_cloud_storage, provider_name, ProviderAdapter};
-pub use record::{AadFields, CloudRecord, ConflictPayload, RecordMetadata};
+pub use record::{
+    build_cloud_record, AadFields, CloudRecord, ConflictPayload, RecordHealthMetadata,
+    RecordMetadata,
+};
 pub use schema::*;
 pub use storage::CloudStorage;
 pub use validation::{compute_checksum, validate_aad, validate_uuid};

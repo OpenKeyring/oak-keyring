@@ -449,6 +449,7 @@ mod tests {
                 name: "Test Record".to_string(),
                 tags: vec!["test".to_string()],
                 updated_at: Utc::now().to_rfc3339(),
+                health: None,
             },
             deleted: None,
             deleted_at: None,
