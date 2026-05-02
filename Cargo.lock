@@ -2429,6 +2429,7 @@ dependencies = [
  "keepass",
  "mockall",
  "notify",
+ "oak-keyring",
  "obfstr",
  "opendal",
  "rand 0.9.3",
