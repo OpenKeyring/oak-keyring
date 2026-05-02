@@ -69,4 +69,9 @@ dirs::document_dir()/../Library/Mobile Documents/{user_path}
 2. 实现 `ProviderAdapter` trait
 3. 在 `adapters/mod.rs` 导出
 4. 在 `provider.rs` 的 `create_cloud_storage()` 和 `provider_name()` 添加匹配分支
+
+## File Organization
+
+- **`mod.rs`**: module declarations + re-exports ONLY. Zero business logic.
+- **Tests**: standalone `*_test.rs` files alongside the source file (e.g. `provider.rs` + `provider_test.rs`)
 5. 在 `config::sync.rs` 添加对应的 ProviderConfig variant

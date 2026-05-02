@@ -2,6 +2,11 @@
 
 基于 Tokio 的异步同步引擎，负责本地与云端之间的数据同步。
 
+## File Organization
+
+- **`mod.rs`**: module declarations + re-exports ONLY. Zero business logic.
+- **Tests**: `*_test.rs` files alongside the source file or inside module directories as `tests.rs`
+
 ## State Machine
 
 ```
