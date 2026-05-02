@@ -203,7 +203,7 @@ impl VaultService {
     /// Returns a map from record ID (as hyphenated string) to its `SyncStatus`.
     /// If the `sync_state` table is empty (sync never used), the map will be empty,
     /// which is the correct default — callers get `None` for all records.
-    fn load_sync_status_map(&self) -> std::collections::HashMap<String, SyncStatus> {
+    pub fn load_sync_status_map(&self) -> std::collections::HashMap<String, SyncStatus> {
         crate::db::queries::load_sync_status_map(&self.conn)
     }
 

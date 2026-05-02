@@ -425,7 +425,7 @@ async fn sync_service_lifecycle() {
     let mut svc = SyncService::new(storage);
 
     // Call sync() → should return Ok or Err (not panic)
-    let result = svc.sync().await;
+    let result = svc.sync(None).await;
     assert!(
         result.is_ok() || result.is_err(),
         "sync() should return Ok or Err, not panic"
