@@ -179,7 +179,24 @@ pub fn handle_load_record_list(
                         .iter()
                         .find(|group| group.contains(&record.id))
                         .map(|group| group.len());
+                    // Spec §11: is_expired comes from the persisted health result,
+                    // not from expires_at < now. Falls back to the DB-computed value
+                    // when no health report is available.
+                    record.is_expired = report.expired.contains(&record.id);
                 }
+            }
+
+            // Expired filter: use report.expired instead of expires_at < now.
+            // When no health report is available, the DB-level filtering in
+            // VaultService (expires_at < now) serves as the fallback.
+            if matches!(filter, RecordFilter::Expired) {
+                if let Some(report) = &executor.health_report {
+                    let expired_set: std::collections::HashSet<Uuid> =
+                        report.expired.iter().copied().collect();
+                    records.retain(|r| expired_set.contains(&r.id));
+                }
+                // Without a health report, the vault service already applied
+                // expires_at < now filtering — keep those results as-is.
             }
 
             // HealthIssues filter: the vault service returns all active records;
