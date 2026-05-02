@@ -168,7 +168,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
             self.masked_input()
         };
 
-        let placeholder = match self.mode {
+        let placeholder: String = match self.mode {
             UnlockMode::Password => t!("tui.entry.unlock_prompt").to_string(),
             UnlockMode::RecoveryKey => "Enter your recovery key words\u{2026}".to_string(),
         };
@@ -219,7 +219,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
                 .wrap(Wrap { trim: true })
         });
 
-        // Lockout countdown — two lines: countdown (orange) + failure count (gray)
+        // Lockout countdown + failure count
         let lockout_countdown = match &self.state {
             UnlockPhase::LockedOut { locked_until } => {
                 let remaining = locked_until
@@ -227,7 +227,8 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
                     .as_secs();
                 Some(
                     Paragraph::new(format!(
-                        "\u{23F3} {}",
+                        "{} {}",
+                        theme::ICON_WARNING,
                         t!("tui.entry.lockout_message", seconds = remaining)
                     ))
                     .style(Styles::warning_text())
@@ -238,12 +239,9 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         };
         let lockout_count = match &self.state {
             UnlockPhase::LockedOut { .. } => Some(
-                Paragraph::new(format!(
-                    "{}",
-                    t!("tui.entry.lockout_count", n = self.failed_attempts)
-                ))
-                .style(ratatui::style::Style::default().fg(TEXT_MUTED))
-                .alignment(Alignment::Center),
+                Paragraph::new(t!("tui.entry.lockout_count", n = self.failed_attempts).to_string())
+                    .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+                    .alignment(Alignment::Center),
             ),
             _ => None,
         };
