@@ -1,11 +1,54 @@
 use std::path::PathBuf;
 
-use crate::commands::CommandResult;
+use crate::commands::{Command, CommandResult};
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::SecureStr;
 
 use super::CommandExecutor;
+
+/// Schedule health check after a successful unlock.
+///
+/// Reads the persisted `last_health_check_at` from metadata, evaluates
+/// `should_run`, and either:
+/// - Sends `RunHealthCheck` via the internal channel (non-blocking), or
+/// - Loads the cached health report into `executor.health_report`.
+///
+/// Errors during scheduling are logged and silently ignored — unlock must
+/// never fail due to health check scheduling issues.
+pub(super) fn schedule_health_check_after_unlock(executor: &mut CommandExecutor) {
+    let last_check = match executor.vault.get_last_health_check_at() {
+        Ok(ts) => ts,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to read last_health_check_at, skipping scheduling");
+            return;
+        }
+    };
+
+    let should_run = crate::services::health::should_run(&executor.config.security, last_check);
+
+    if should_run {
+        // Non-blocking: send via internal channel. The executor loop will
+        // pick it up after returning VaultUnlocked to the UI.
+        let _ = executor.internal_tx.try_send(Command::RunHealthCheck);
+        tracing::info!("health check scheduled after unlock");
+    } else {
+        // Restore cached report from persisted health state rows.
+        match super::health::load_cached_health_report(executor) {
+            Ok(Some(report)) => {
+                executor.health_report = Some(report);
+                executor.last_health_check_time = last_check;
+                tracing::debug!("restored cached health report after unlock");
+            }
+            Ok(None) => {
+                tracing::debug!("no cached health report to restore");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to load cached health report");
+            }
+        }
+    }
+}
 
 #[tracing::instrument(skip(executor, master_password))]
 pub async fn handle_unlock(
@@ -13,7 +56,10 @@ pub async fn handle_unlock(
     master_password: SecureStr,
 ) -> CommandResult {
     match executor.vault.unlock(&executor.vault_dir, &master_password) {
-        Ok(()) => CommandResult::VaultUnlocked,
+        Ok(()) => {
+            schedule_health_check_after_unlock(executor);
+            CommandResult::VaultUnlocked
+        }
         Err(_) => CommandResult::VaultUnlockFailed {
             attempts_remaining: None,
         },
@@ -61,6 +107,10 @@ pub async fn handle_unlock_with_recovery_key(
             } else if let CommandResult::Error { .. } = &rotation_result {
                 tracing::warn!("Post-recovery rotation resume failed, vault is still usable");
             }
+
+            // Schedule health check after successful recovery unlock
+            schedule_health_check_after_unlock(executor);
+
             CommandResult::RecoveryKeyUnlocked
         }
         Err(_) => CommandResult::VaultUnlockFailed {
