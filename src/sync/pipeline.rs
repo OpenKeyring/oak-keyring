@@ -222,6 +222,14 @@ impl PipelineContext {
     pub fn health_adapter(&self) -> &dyn HealthSyncAdapter {
         self.health_adapter.as_ref()
     }
+
+    /// Takes ownership of the health adapter, replacing it with a no-op.
+    ///
+    /// Used after pipeline execution to extract a buffering adapter (e.g.
+    /// `VaultHealthSyncAdapter`) so the caller can flush writes to the vault.
+    pub fn take_health_adapter(&mut self) -> Box<dyn HealthSyncAdapter> {
+        std::mem::replace(&mut self.health_adapter, Box::new(NoOpHealthSyncAdapter))
+    }
 }
 
 /// Stage 1: Pull Metadata

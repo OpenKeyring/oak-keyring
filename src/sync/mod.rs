@@ -23,5 +23,5 @@ pub use pipeline::{
 };
 pub use retry::{BackoffTimer, RetryPolicy};
 pub use state_machine::{SyncState, SyncStateMachine, SyncTrigger};
-pub use task::{SyncCommand, SyncEvent, SyncReport, SyncTask};
+pub use task::{SyncCommand, SyncEvent, SyncReport, SyncTask, SyncVaultData};
 pub use watcher::{SyncWatcher, WatchEventKind};

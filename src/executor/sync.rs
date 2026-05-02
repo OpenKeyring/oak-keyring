@@ -4,9 +4,111 @@ use crate::commands::types::ConflictResolution;
 use crate::commands::CommandResult;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::sync::conflict::ResolutionStrategy;
+use crate::sync::task::SyncVaultData;
 use crate::types::SyncStats;
 
 use super::CommandExecutor;
+
+/// Builds a SyncVaultData snapshot from the current vault state.
+///
+/// Reads local records, their sync status, the pending upload CloudRecords
+/// (with health metadata pre-attached), the vault identity token, and the
+/// current metadata version. Returns `None` if the vault is locked or a
+/// required read fails.
+fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData>> {
+    use crate::cloud::record::build_cloud_record;
+    use crate::sync::pipeline::LocalRecordInfo;
+    use base64::Engine;
+
+    // Check vault is unlocked
+    if !executor.vault.is_unlocked() {
+        tracing::warn!("Cannot build sync vault data: vault is locked");
+        return None;
+    }
+
+    // Read local stored records
+    let stored_records = match executor.vault.list_all_stored_records() {
+        Ok(records) => records,
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to list stored records for sync");
+            return None;
+        }
+    };
+
+    // Read sync status map
+    let sync_status_map = executor.vault.load_sync_status_map();
+
+    // Build LocalRecordInfo per active record
+    let local_records: Vec<LocalRecordInfo> = stored_records
+        .iter()
+        .map(|r| {
+            let sync_status = sync_status_map
+                .get(&r.id.to_string())
+                .copied()
+                .unwrap_or(crate::types::sync::SyncStatus::Pending);
+            LocalRecordInfo {
+                record_id: r.id.to_string(),
+                sync_status,
+                version: r.version,
+            }
+        })
+        .collect();
+
+    // Read health states for attaching to upload CloudRecords
+    let health_states = match executor.vault.list_record_health_states() {
+        Ok(list) => list
+            .into_iter()
+            .map(|s| (s.record_id, s))
+            .collect::<std::collections::HashMap<Uuid, crate::types::health::RecordHealthState>>(),
+        Err(_) => std::collections::HashMap::new(),
+    };
+
+    // Build upload CloudRecords for records with pending sync status
+    let uploads: Vec<crate::cloud::CloudRecord> = stored_records
+        .iter()
+        .filter(|r| {
+            sync_status_map
+                .get(&r.id.to_string())
+                .copied()
+                .unwrap_or(crate::types::sync::SyncStatus::Pending)
+                == crate::types::sync::SyncStatus::Pending
+        })
+        .map(|r| {
+            let encrypted_base64 =
+                base64::engine::general_purpose::STANDARD.encode(&r.encrypted_data);
+            let nonce_base64 = base64::engine::general_purpose::STANDARD.encode(r.nonce);
+            let aad = crate::cloud::record::AadFields {
+                record_id: r.id.to_string(),
+                dek_version: r.dek_version,
+            };
+            let health = health_states.get(&r.id);
+            build_cloud_record(r, "", &encrypted_base64, &nonce_base64, aad, health)
+        })
+        .collect();
+
+    // Read metadata version and vault token
+    let metadata_version = executor
+        .vault
+        .get_metadata("metadata_version")
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    let vault_token = executor
+        .vault
+        .get_metadata("vault_identity_token")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    Some(Box::new(SyncVaultData {
+        local_records,
+        uploads,
+        local_metadata_version: metadata_version,
+        local_vault_token: vault_token,
+    }))
+}
 
 #[tracing::instrument(skip_all)]
 pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResult {
@@ -15,6 +117,7 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
     }
 
     let cancel = executor.cancel_token().clone();
+    let vault_data = build_sync_vault_data(executor);
 
     let sync = match executor.sync.as_mut() {
         Some(s) => s,
@@ -28,11 +131,38 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
         }
     };
 
-    match sync.sync_with_cancel(cancel).await {
-        Ok(report) => {
+    match sync.sync_with_cancel(cancel, vault_data).await {
+        Ok(sync_result) => {
             if executor.cancel_token().is_cancelled() {
                 return CommandResult::cancelled("sync");
             }
+
+            // Apply downloaded health states to local vault
+            for state in &sync_result.downloaded_health_states {
+                if let Err(e) = executor.vault.upsert_record_health_state(state) {
+                    tracing::warn!(
+                        record_id = %state.record_id,
+                        error = %e,
+                        "Failed to persist downloaded health state"
+                    );
+                }
+            }
+            if !sync_result.downloaded_health_deleted.is_empty() {
+                if let Err(e) = executor
+                    .vault
+                    .delete_record_health_states(&sync_result.downloaded_health_deleted)
+                {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to delete stale health states after sync"
+                    );
+                }
+            }
+
+            // Reload cached health report so UI reflects downloaded health state
+            let _ = super::health::load_cached_health_report(executor);
+
+            let report = sync_result.report;
             CommandResult::SyncCompleted {
                 stats: SyncStats {
                     total: (report.uploaded + report.downloaded) as i64,
