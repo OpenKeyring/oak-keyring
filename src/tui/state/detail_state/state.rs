@@ -1,0 +1,514 @@
+//! Password detail panel state: record display data, field navigation, password visibility.
+
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
+
+use crate::commands::types::HealthIssue;
+use crate::types::credential::CredentialType as CrateCredentialType;
+
+// ── Field Value ────────────────────────────────────
+
+/// Display value for a detail field (supports mask/reveal for secrets).
+#[derive(Debug, Clone)]
+pub enum FieldValue {
+    /// Plain visible text (username, URL, etc.)
+    Plain(String),
+    /// Masked secret (shows ••••••)
+    Masked,
+    /// Revealed secret (temporarily visible)
+    Revealed(String),
+}
+
+// ── Detail Field ───────────────────────────────────
+
+/// A single displayable field in the detail panel.
+#[derive(Debug, Clone)]
+pub struct DetailField {
+    /// Display label (e.g., "用户名", "密码")
+    pub label: String,
+    /// Current display value
+    pub value: FieldValue,
+    /// Whether this field can be copied (Enter or shortcut)
+    pub copyable: bool,
+    /// Whether this field supports show/hide toggle (passwords)
+    pub toggleable: bool,
+    /// The kind of field (for copy shortcut resolution)
+    pub kind: DetailFieldKind,
+}
+
+/// Identifies which field this is (for keyboard shortcut mapping).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailFieldKind {
+    Username,
+    Password,
+    Url,
+    AppId,
+    SecretKey,
+    PublicKey,
+    PrivateKey,
+    Passphrase,
+    Notes,
+}
+
+impl DetailField {
+    /// Whether this field is interactive (navigable with up/down).
+    pub fn is_interactive(&self) -> bool {
+        self.copyable || self.toggleable
+    }
+
+    /// Get the display string for the value.
+    pub fn display_value(&self) -> String {
+        match &self.value {
+            FieldValue::Plain(s) => s.clone(),
+            FieldValue::Masked => {
+                "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string()
+            }
+            FieldValue::Revealed(s) => s.clone(),
+        }
+    }
+}
+
+// ── Expiry Status ──────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpiryStatus {
+    None,
+    Valid,
+    ExpiringSoon,
+    Expired,
+}
+
+impl ExpiryStatus {
+    pub fn from_date(expires_at: Option<DateTime<Utc>>) -> Self {
+        match expires_at {
+            None => Self::None,
+            Some(dt) => {
+                let now = Utc::now();
+                if dt < now {
+                    Self::Expired
+                } else if dt < now + chrono::Duration::days(30) {
+                    Self::ExpiringSoon
+                } else {
+                    Self::Valid
+                }
+            }
+        }
+    }
+}
+
+// ── Password Strength ──────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordStrength {
+    VeryWeak,
+    Weak,
+    Fair,
+    Strong,
+    VeryStrong,
+}
+
+impl PasswordStrength {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::VeryWeak => "极弱",
+            Self::Weak => "弱",
+            Self::Fair => "中等",
+            Self::Strong => "强",
+            Self::VeryStrong => "极强",
+        }
+    }
+
+    pub fn color(&self) -> ratatui::style::Color {
+        use crate::tui::theme;
+        match self {
+            Self::VeryWeak => theme::ERROR,
+            Self::Weak => theme::WARNING,
+            Self::Fair => theme::BRAND,
+            Self::Strong => theme::PRIMARY,
+            Self::VeryStrong => theme::SUCCESS,
+        }
+    }
+
+    pub fn fraction(&self) -> f32 {
+        match self {
+            Self::VeryWeak => 0.1,
+            Self::Weak => 0.3,
+            Self::Fair => 0.5,
+            Self::Strong => 0.75,
+            Self::VeryStrong => 1.0,
+        }
+    }
+}
+
+// ── Detail View Data ───────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct DetailViewData {
+    pub id: Uuid,
+    pub name: String,
+    pub subtitle: String,
+    pub credential_type: CrateCredentialType,
+    pub is_favorite: bool,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub expiry_status: ExpiryStatus,
+    pub tags: Vec<String>,
+    pub notes: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub fields: Vec<DetailField>,
+    pub password_strength: Option<PasswordStrength>,
+    /// Deletion timestamp (set when record is in trash).
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+// ── Detail Panel State ─────────────────────────────
+
+#[derive(Debug)]
+pub struct DetailPanelState {
+    pub record: Option<DetailViewData>,
+    pub focused_field: usize,
+    pub password_visible: bool,
+    pub health_issue: Option<HealthIssue>,
+    /// Whether the current record is in the trash (deleted).
+    pub is_trash: bool,
+    /// Trash retention days from config (0 = never auto-delete).
+    pub trash_retention_days: u32,
+}
+
+impl Default for DetailPanelState {
+    fn default() -> Self {
+        Self {
+            record: None,
+            focused_field: 0,
+            password_visible: false,
+            health_issue: None,
+            is_trash: false,
+            trash_retention_days: 30,
+        }
+    }
+}
+
+impl DetailPanelState {
+    pub fn with_record(record: DetailViewData) -> Self {
+        Self {
+            record: Some(record),
+            focused_field: 0,
+            password_visible: false,
+            health_issue: None,
+            is_trash: false,
+            trash_retention_days: 30,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.record = None;
+        self.focused_field = 0;
+        self.password_visible = false;
+        self.health_issue = None;
+        self.is_trash = false;
+        self.trash_retention_days = 30;
+    }
+
+    /// Set the trash context for the current detail view.
+    pub fn set_trash_context(&mut self, is_trash: bool, retention_days: u32) {
+        self.is_trash = is_trash;
+        self.trash_retention_days = retention_days;
+    }
+
+    pub fn interactive_fields(&self) -> Vec<(usize, &DetailField)> {
+        self.record
+            .as_ref()
+            .map(|r| {
+                r.fields
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, f)| f.is_interactive())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn current_field(&self) -> Option<&DetailField> {
+        self.record
+            .as_ref()
+            .and_then(|r| r.fields.get(self.focused_field))
+    }
+
+    pub fn move_field_down(&mut self) -> bool {
+        let record = match &self.record {
+            Some(r) => r,
+            None => return false,
+        };
+        let fields = &record.fields;
+        let start = self.focused_field + 1;
+        for (i, field) in fields.iter().enumerate().skip(start) {
+            if field.is_interactive() {
+                self.focused_field = i;
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn move_field_up(&mut self) -> bool {
+        let record = match &self.record {
+            Some(r) => r,
+            None => return false,
+        };
+        let fields = &record.fields;
+        if self.focused_field == 0 {
+            return false;
+        }
+        for i in (0..self.focused_field).rev() {
+            if fields[i].is_interactive() {
+                self.focused_field = i;
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn toggle_password(&mut self) -> bool {
+        if self.password_visible {
+            if let Some(ref mut record) = self.record {
+                for field in &mut record.fields {
+                    if field.toggleable {
+                        if let FieldValue::Revealed(_) = field.value {
+                            field.value = FieldValue::Masked;
+                        }
+                    }
+                }
+            }
+            self.password_visible = false;
+            false
+        } else {
+            self.password_visible = true;
+            true
+        }
+    }
+
+    pub fn password_field(&self) -> Option<&DetailField> {
+        self.record.as_ref().and_then(|r| {
+            r.fields.iter().find(|f| {
+                f.kind == DetailFieldKind::Password
+                    || f.kind == DetailFieldKind::SecretKey
+                    || f.kind == DetailFieldKind::PrivateKey
+            })
+        })
+    }
+
+    pub fn username_field(&self) -> Option<&DetailField> {
+        self.record.as_ref().and_then(|r| {
+            r.fields.iter().find(|f| {
+                matches!(
+                    f.kind,
+                    DetailFieldKind::Username | DetailFieldKind::AppId | DetailFieldKind::PublicKey
+                )
+            })
+        })
+    }
+
+    pub fn build_from_record(record: &crate::types::record::DecryptedRecord) -> DetailViewData {
+        match record {
+            crate::types::record::DecryptedRecord::Login {
+                id,
+                name,
+                username,
+                password: _,
+                url,
+                notes,
+                is_favorite,
+                expires_at,
+                created_at,
+                updated_at,
+                tags,
+                ..
+            } => {
+                let expiry_status = ExpiryStatus::from_date(*expires_at);
+                let subtitle = url.clone().unwrap_or_default();
+                let fields = vec![
+                    DetailField {
+                        label: "用户名".into(),
+                        value: FieldValue::Plain(username.clone()),
+                        copyable: true,
+                        toggleable: false,
+                        kind: DetailFieldKind::Username,
+                    },
+                    DetailField {
+                        label: "密码".into(),
+                        value: FieldValue::Masked,
+                        copyable: true,
+                        toggleable: true,
+                        kind: DetailFieldKind::Password,
+                    },
+                ];
+                let mut all_fields = fields;
+                if let Some(ref u) = url {
+                    all_fields.push(DetailField {
+                        label: "网址".into(),
+                        value: FieldValue::Plain(u.clone()),
+                        copyable: true,
+                        toggleable: false,
+                        kind: DetailFieldKind::Url,
+                    });
+                }
+                if let Some(ref n) = notes {
+                    all_fields.push(DetailField {
+                        label: "备注".into(),
+                        value: FieldValue::Plain(n.clone()),
+                        copyable: true,
+                        toggleable: false,
+                        kind: DetailFieldKind::Notes,
+                    });
+                }
+                DetailViewData {
+                    id: *id,
+                    name: name.clone(),
+                    subtitle,
+                    credential_type: CrateCredentialType::Login,
+                    is_favorite: *is_favorite,
+                    expires_at: *expires_at,
+                    expiry_status,
+                    tags: tags.clone(),
+                    notes: notes.clone(),
+                    created_at: *created_at,
+                    updated_at: *updated_at,
+                    fields: all_fields,
+                    password_strength: None,
+                    deleted_at: None,
+                }
+            }
+            crate::types::record::DecryptedRecord::Api {
+                id,
+                name,
+                app_id,
+                secret_key: _,
+                url,
+                notes,
+                is_favorite,
+                expires_at,
+                created_at,
+                updated_at,
+                tags,
+                ..
+            } => {
+                let expiry_status = ExpiryStatus::from_date(*expires_at);
+                let subtitle = url.clone().unwrap_or_default();
+                let mut fields = vec![
+                    DetailField {
+                        label: "AppID".into(),
+                        value: FieldValue::Plain(app_id.clone()),
+                        copyable: true,
+                        toggleable: false,
+                        kind: DetailFieldKind::AppId,
+                    },
+                    DetailField {
+                        label: "SecretKey".into(),
+                        value: FieldValue::Masked,
+                        copyable: true,
+                        toggleable: true,
+                        kind: DetailFieldKind::SecretKey,
+                    },
+                ];
+                if let Some(ref u) = url {
+                    fields.push(DetailField {
+                        label: "网址".into(),
+                        value: FieldValue::Plain(u.clone()),
+                        copyable: true,
+                        toggleable: false,
+                        kind: DetailFieldKind::Url,
+                    });
+                }
+                if let Some(ref n) = notes {
+                    fields.push(DetailField {
+                        label: "备注".into(),
+                        value: FieldValue::Plain(n.clone()),
+                        copyable: true,
+                        toggleable: false,
+                        kind: DetailFieldKind::Notes,
+                    });
+                }
+                DetailViewData {
+                    id: *id,
+                    name: name.clone(),
+                    subtitle,
+                    credential_type: CrateCredentialType::Api,
+                    is_favorite: *is_favorite,
+                    expires_at: *expires_at,
+                    expiry_status,
+                    tags: tags.clone(),
+                    notes: notes.clone(),
+                    created_at: *created_at,
+                    updated_at: *updated_at,
+                    fields,
+                    password_strength: None,
+                    deleted_at: None,
+                }
+            }
+            crate::types::record::DecryptedRecord::Ssh {
+                id,
+                name,
+                public_key,
+                private_key: _,
+                passphrase: _,
+                notes,
+                is_favorite,
+                expires_at,
+                created_at,
+                updated_at,
+                tags,
+                ..
+            } => {
+                let expiry_status = ExpiryStatus::from_date(*expires_at);
+                let mut fields = vec![
+                    DetailField {
+                        label: "公钥".into(),
+                        value: FieldValue::Plain(public_key.clone()),
+                        copyable: true,
+                        toggleable: false,
+                        kind: DetailFieldKind::PublicKey,
+                    },
+                    DetailField {
+                        label: "私钥".into(),
+                        value: FieldValue::Masked,
+                        copyable: true,
+                        toggleable: true,
+                        kind: DetailFieldKind::PrivateKey,
+                    },
+                ];
+                fields.push(DetailField {
+                    label: "Passphrase".into(),
+                    value: FieldValue::Masked,
+                    copyable: true,
+                    toggleable: true,
+                    kind: DetailFieldKind::Passphrase,
+                });
+                if let Some(ref n) = notes {
+                    fields.push(DetailField {
+                        label: "备注".into(),
+                        value: FieldValue::Plain(n.clone()),
+                        copyable: true,
+                        toggleable: false,
+                        kind: DetailFieldKind::Notes,
+                    });
+                }
+                DetailViewData {
+                    id: *id,
+                    name: name.clone(),
+                    subtitle: String::new(),
+                    credential_type: CrateCredentialType::Ssh,
+                    is_favorite: *is_favorite,
+                    expires_at: *expires_at,
+                    expiry_status,
+                    tags: tags.clone(),
+                    notes: notes.clone(),
+                    created_at: *created_at,
+                    updated_at: *updated_at,
+                    fields,
+                    password_strength: None,
+                    deleted_at: None,
+                }
+            }
+        }
+    }
+}
