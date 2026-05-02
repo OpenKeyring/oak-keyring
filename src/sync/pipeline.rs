@@ -9,6 +9,7 @@ use crate::cloud::{CloudMetadata, CloudRecord, CloudStorage};
 use crate::errors::mapping::sync::SyncError;
 use crate::sync::checkpoint::{PendingConflict, SyncCheckpoint};
 use crate::sync::conflict::{ConflictAction, ConflictManager};
+use crate::types::health::RecordHealthState;
 use crate::types::sync::SyncStatus;
 
 #[derive(Debug)]
@@ -62,6 +63,17 @@ pub struct PipelineContext {
     pub conflict_data_map: HashMap<String, Vec<u8>>,
     /// Local records info for conflict detection.
     pub local_records: Vec<LocalRecordInfo>,
+    /// Health states extracted from downloaded CloudRecords.
+    ///
+    /// Populated by PushStage when downloading records that carry health
+    /// metadata. The caller reads this after the pipeline completes and
+    /// persists the health states to the local DB.
+    pub downloaded_health_states: Vec<RecordHealthState>,
+    /// Record IDs whose downloaded CloudRecord had `metadata.health = None`.
+    ///
+    /// The caller should delete local health states for these records so that
+    /// stale health data from a previous version does not linger.
+    pub downloaded_health_deleted: Vec<Uuid>,
 }
 
 impl PipelineContext {
@@ -88,6 +100,8 @@ impl PipelineContext {
             downloads: HashMap::new(),
             conflict_data_map: HashMap::new(),
             local_records: Vec::new(),
+            downloaded_health_states: Vec::new(),
+            downloaded_health_deleted: Vec::new(),
         }
     }
 
@@ -311,6 +325,16 @@ impl SyncStage for PushStage {
                         if let Ok(id) = Uuid::parse_str(&record_id) {
                             context.checkpoint.record_pull_done(id);
                         }
+
+                        // Extract health metadata from the downloaded record.
+                        if let Some(health_state) = record.to_health_state() {
+                            context.downloaded_health_states.push(health_state);
+                        } else if let Ok(id) = Uuid::parse_str(&record_id) {
+                            // Remote has no health metadata — schedule local deletion
+                            // so stale health data doesn't linger.
+                            context.downloaded_health_deleted.push(id);
+                        }
+
                         context.downloads.insert(record_id, record);
                     }
                     Ok(None) => {}
