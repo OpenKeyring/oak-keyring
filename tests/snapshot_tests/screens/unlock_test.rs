@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
@@ -49,4 +51,36 @@ fn unlock_screen_failed_state() {
     screen.error_message = Some("Wrong password. Please try again.".to_string());
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("unlock_screen_failed_state", backend);
+}
+
+#[test]
+fn unlock_screen_verifying_state() {
+    let mut screen = UnlockScreen::default();
+    screen.mode = UnlockMode::Password;
+    screen.password_input = "secretpassword".to_string();
+    screen.state = UnlockPhase::Verifying;
+    let backend = render_screen(&screen, 80, 24);
+    insta::assert_snapshot!("unlock_screen_verifying_state", backend);
+}
+
+#[test]
+fn unlock_screen_locked_out_state() {
+    let mut screen = UnlockScreen::default();
+    screen.mode = UnlockMode::Password;
+    screen.failed_attempts = 5;
+    screen.state = UnlockPhase::LockedOut {
+        // `as_secs()` floors fractional seconds after render setup; +31s snapshots as 30s.
+        locked_until: Instant::now() + Duration::from_secs(31),
+    };
+    let backend = render_screen(&screen, 80, 24);
+    insta::assert_snapshot!("unlock_screen_locked_out_state", backend);
+}
+
+#[test]
+fn unlock_screen_success_state() {
+    let mut screen = UnlockScreen::default();
+    screen.mode = UnlockMode::Password;
+    screen.state = UnlockPhase::Success;
+    let backend = render_screen(&screen, 80, 24);
+    insta::assert_snapshot!("unlock_screen_success_state", backend);
 }
