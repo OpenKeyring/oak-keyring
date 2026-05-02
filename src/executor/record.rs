@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::commands::types::{FieldSelector, RecordFilter, RecordSort};
-use crate::commands::CommandResult;
+use crate::commands::{Command, CommandResult};
 use crate::crypto::password::{
     generate_memorable_password, generate_pin, generate_random_password,
 };
@@ -20,6 +20,15 @@ fn vault_error(e: crate::errors::mapping::vault::VaultError, msg: &str) -> Comma
         context: ErrorContext::default(),
         message_key: "error.record_operation",
         fallback: format!("{}: {}", msg, e),
+    }
+}
+
+/// Schedule a full health scan by sending `RunHealthCheck` through the
+/// internal command channel. Failures are logged but do not block the
+/// caller — the health scan is advisory.
+fn schedule_health_scan(executor: &CommandExecutor) {
+    if let Err(e) = executor.internal_tx.try_send(Command::RunHealthCheck) {
+        tracing::warn!(error = %e, "Failed to schedule health scan");
     }
 }
 
@@ -68,7 +77,11 @@ pub fn handle_create_record(
     };
 
     match executor.vault.create_record(params) {
-        Ok(id) => CommandResult::RecordCreated { id },
+        Ok(id) => {
+            // New records need a health evaluation — schedule a full scan.
+            schedule_health_scan(executor);
+            CommandResult::RecordCreated { id }
+        }
         Err(e) => vault_error(e, "Failed to create record"),
     }
 }
@@ -93,7 +106,12 @@ pub fn handle_update_record(
     };
 
     match executor.vault.update_record(params) {
-        Ok(()) => CommandResult::RecordUpdated { id },
+        Ok(()) => {
+            // VaultService manages health state internally (delete or carry-forward).
+            // Schedule a health scan so that deleted health states get re-evaluated.
+            schedule_health_scan(executor);
+            CommandResult::RecordUpdated { id }
+        }
         Err(e) => vault_error(e, "Failed to update record"),
     }
 }
@@ -101,7 +119,10 @@ pub fn handle_update_record(
 #[tracing::instrument(skip_all)]
 pub fn handle_soft_delete_record(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
     match executor.vault.soft_delete_record(id) {
-        Ok(()) => CommandResult::RecordDeleted { id },
+        Ok(()) => {
+            schedule_health_scan(executor);
+            CommandResult::RecordDeleted { id }
+        }
         Err(e) => vault_error(e, "Failed to delete record"),
     }
 }
@@ -109,7 +130,10 @@ pub fn handle_soft_delete_record(executor: &mut CommandExecutor, id: Uuid) -> Co
 #[tracing::instrument(skip_all)]
 pub fn handle_restore_record(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
     match executor.vault.restore_record(id) {
-        Ok(()) => CommandResult::RecordRestored { id },
+        Ok(()) => {
+            schedule_health_scan(executor);
+            CommandResult::RecordRestored { id }
+        }
         Err(e) => vault_error(e, "Failed to restore record"),
     }
 }
@@ -117,7 +141,10 @@ pub fn handle_restore_record(executor: &mut CommandExecutor, id: Uuid) -> Comman
 #[tracing::instrument(skip_all)]
 pub fn handle_hard_delete_record(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
     match executor.vault.hard_delete_record(id) {
-        Ok(()) => CommandResult::RecordDestroyed { id },
+        Ok(()) => {
+            schedule_health_scan(executor);
+            CommandResult::RecordDestroyed { id }
+        }
         Err(e) => vault_error(e, "Failed to destroy record"),
     }
 }
