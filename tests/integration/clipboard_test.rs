@@ -87,8 +87,8 @@ fn test_headless_detection() {
     let _ = ClipboardService::is_headless();
 }
 
-#[test]
-fn test_new_safe_graceful_degradation() {
+#[tokio::test]
+async fn test_new_safe_graceful_degradation() {
     let result = ClipboardService::new_safe(30);
     assert!(result.is_ok(), "new_safe should degrade instead of failing");
 
