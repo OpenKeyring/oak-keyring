@@ -1,9 +1,12 @@
 use chrono::Utc;
 use uuid::Uuid;
 
+use std::collections::HashMap;
+
 use super::health::{
     handle_run_health_check, health_state_changed, load_cached_health_report,
-    persist_health_report, project_health_report_to_states, schedule_health_resync_for_records,
+    partition_entries_for_hibp, persist_health_report, project_health_report_to_states,
+    schedule_health_resync_for_records, should_skip_hibp,
 };
 use super::CommandExecutor;
 use crate::commands::types::HealthReport;
@@ -13,7 +16,7 @@ use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::db::queries;
 use crate::executor::config_impl::ServiceNotificationImpl;
 use crate::services::clipboard::{ClipboardService, MockBackend};
-use crate::services::health::HealthService;
+use crate::services::health::{HealthService, PasswordEntry};
 use crate::services::import_export::ImportExportService;
 use crate::services::vault::VaultService;
 use crate::types::health::{HealthStateDelta, RecordHealthState};
@@ -606,6 +609,201 @@ fn schedule_resync_empty_deltas_is_noop() {
 }
 
 // ===========================================================================
+// Tests: version bump on health attribute changes (spec section 10.2)
+// ===========================================================================
+
+#[test]
+fn schedule_resync_bumps_version_for_changed_records() {
+    let mut executor = make_executor_no_records();
+    let id1 = create_login_record(&mut executor, "rec1");
+    let id2 = create_login_record(&mut executor, "rec2");
+
+    // Capture versions before.
+    let v1_before = executor
+        .vault
+        .get_stored_record(id1)
+        .expect("get id1")
+        .version;
+    let v2_before = executor
+        .vault
+        .get_stored_record(id2)
+        .expect("get id2")
+        .version;
+
+    // Only id1 has a delta.
+    let deltas = vec![HealthStateDelta {
+        record_id: id1,
+        before: None,
+        after: None,
+    }];
+
+    schedule_health_resync_for_records(&mut executor, &deltas).expect("schedule");
+
+    // id1 should have version bumped; id2 should be unchanged.
+    let v1_after = executor
+        .vault
+        .get_stored_record(id1)
+        .expect("get id1")
+        .version;
+    let v2_after = executor
+        .vault
+        .get_stored_record(id2)
+        .expect("get id2")
+        .version;
+
+    assert_eq!(
+        v1_after,
+        v1_before + 1,
+        "id1 version should be incremented by 1"
+    );
+    assert_eq!(v2_after, v2_before, "id2 version should be unchanged");
+}
+
+#[test]
+fn schedule_resync_updates_updated_at_for_changed_records() {
+    let mut executor = make_executor_no_records();
+    let id = create_login_record(&mut executor, "rec");
+
+    let rec_before = executor.vault.get_stored_record(id).expect("get");
+    let updated_at_before = rec_before.updated_at;
+    let version_before = rec_before.version;
+
+    let deltas = vec![HealthStateDelta {
+        record_id: id,
+        before: None,
+        after: None,
+    }];
+    schedule_health_resync_for_records(&mut executor, &deltas).expect("schedule");
+
+    let rec_after = executor.vault.get_stored_record(id).expect("get");
+    let updated_at_after = rec_after.updated_at;
+    let version_after = rec_after.version;
+
+    // updated_at is stored as Unix seconds, so the test may run within the
+    // same second. Verify it is at least as recent and that the version was
+    // bumped (proving the UPDATE actually executed).
+    assert!(
+        updated_at_after >= updated_at_before,
+        "updated_at should be at least as recent as before"
+    );
+    assert!(
+        version_after > version_before,
+        "version should be incremented, proving the UPDATE ran"
+    );
+}
+
+#[test]
+fn schedule_resync_updates_updated_by_to_device_id() {
+    let mut executor = make_executor_no_records();
+    let id = create_login_record(&mut executor, "rec");
+
+    let deltas = vec![HealthStateDelta {
+        record_id: id,
+        before: None,
+        after: None,
+    }];
+    schedule_health_resync_for_records(&mut executor, &deltas).expect("schedule");
+
+    let record = executor.vault.get_stored_record(id).expect("get");
+    assert!(
+        !record.updated_by.is_empty(),
+        "updated_by should be set to the device ID"
+    );
+}
+
+#[test]
+fn no_version_bump_when_no_health_deltas() {
+    let mut executor = make_executor_no_records();
+    let id = create_login_record(&mut executor, "rec");
+
+    let version_before = executor.vault.get_stored_record(id).expect("get").version;
+
+    // Empty deltas — no changes.
+    schedule_health_resync_for_records(&mut executor, &[]).expect("schedule");
+
+    let version_after = executor.vault.get_stored_record(id).expect("get").version;
+
+    assert_eq!(
+        version_after, version_before,
+        "version should NOT change when there are no deltas"
+    );
+}
+
+#[test]
+fn full_writeback_only_changed_records_get_version_bump_and_pending_sync() {
+    let mut executor = make_executor_no_records();
+    let id1 = create_login_record(&mut executor, "rec1");
+    let id2 = create_login_record(&mut executor, "rec2");
+
+    // Pre-populate health state for id2 so it is "unchanged" by the report.
+    insert_health_state(
+        &mut executor,
+        RecordHealthState {
+            record_id: id2,
+            record_version: 1,
+            evaluated_at: Some(Utc::now()),
+            weak_password: Some(false),
+            duplicate_group_size: None,
+            compromised: Some(false),
+            expired: Some(false),
+        },
+    );
+
+    let v1_before = executor
+        .vault
+        .get_stored_record(id1)
+        .expect("get id1")
+        .version;
+    let v2_before = executor
+        .vault
+        .get_stored_record(id2)
+        .expect("get id2")
+        .version;
+
+    // Report: id1 is weak (new issue), id2 is clean (unchanged).
+    let report = HealthReport {
+        weak_passwords: vec![id1],
+        duplicate_passwords: vec![],
+        compromised: vec![],
+        expired: vec![],
+        total_checked: 2,
+    };
+
+    let deltas = simulate_health_check_completed(&mut executor, &report);
+
+    // Only id1 should have a delta.
+    let delta_ids: Vec<Uuid> = deltas.iter().map(|d| d.record_id).collect();
+    assert!(delta_ids.contains(&id1), "id1 should have a delta");
+
+    // id1 version should be bumped; id2 unchanged.
+    let v1_after = executor
+        .vault
+        .get_stored_record(id1)
+        .expect("get id1")
+        .version;
+    let v2_after = executor
+        .vault
+        .get_stored_record(id2)
+        .expect("get id2")
+        .version;
+
+    assert_eq!(v1_after, v1_before + 1, "id1 version bumped");
+    assert_eq!(v2_after, v2_before, "id2 version unchanged");
+
+    // Sync state: only id1 is Pending.
+    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    assert_eq!(
+        sync_map.get(&id1.to_string()),
+        Some(&SyncStatus::Pending),
+        "id1 should be Pending"
+    );
+    assert!(
+        !sync_map.contains_key(&id2.to_string()),
+        "id2 should have no sync state"
+    );
+}
+
+// ===========================================================================
 // Tests: health_state_changed (internal logic)
 // ===========================================================================
 
@@ -757,7 +955,7 @@ async fn health_background_cancel_sends_cancelled_result() {
         result_rx
     };
 
-    let started = handle_run_health_check(&mut executor);
+    let started = handle_run_health_check(&mut executor, false);
     assert!(matches!(started, CommandResult::HealthCheckStarted));
     executor.cancel_token().cancel();
 
@@ -771,6 +969,48 @@ async fn health_background_cancel_sends_cancelled_result() {
         Message::CommandCompleted(CommandResult::Cancelled { ref operation, .. })
             if operation == "health_check"
     ));
+}
+
+// ===========================================================================
+// Tests: force semantics for handle_run_health_check
+// ===========================================================================
+
+#[tokio::test]
+async fn force_scan_runs_even_when_should_run_returns_false() {
+    let mut executor = make_executor_with_one_login();
+
+    // Set last_health_check_time to recent and frequency to Daily
+    // so should_run would normally return false.
+    executor.last_health_check_time = Some(chrono::Utc::now());
+    executor.config.security.health_check_frequency =
+        crate::config::security::HealthCheckFrequency::Daily;
+
+    // force=true should bypass the frequency gate and start the scan.
+    let result = handle_run_health_check(&mut executor, true);
+    assert!(
+        matches!(result, CommandResult::HealthCheckStarted),
+        "force=true should bypass frequency gate, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn non_force_scan_respects_should_run_gate() {
+    let mut executor = make_executor_with_one_login();
+
+    // Set last_health_check_time to recent and frequency to Daily
+    // so should_run returns false.
+    executor.last_health_check_time = Some(chrono::Utc::now());
+    executor.config.security.health_check_frequency =
+        crate::config::security::HealthCheckFrequency::Daily;
+
+    // force=false should respect the frequency gate and return skipped.
+    let result = handle_run_health_check(&mut executor, false);
+    assert!(
+        matches!(result, CommandResult::HealthCheckSkipped),
+        "force=false should respect frequency gate, got {:?}",
+        result
+    );
 }
 
 // ===========================================================================
@@ -1252,7 +1492,10 @@ fn full_roundtrip_unlock_schedule_persist_restore() {
     // Verify RunHealthCheck was sent
     let internal_rx = executor.internal_rx.as_mut().expect("internal_rx");
     let cmd = internal_rx.try_recv().expect("should have RunHealthCheck");
-    assert!(matches!(cmd, crate::commands::Command::RunHealthCheck));
+    assert!(matches!(
+        cmd,
+        crate::commands::Command::RunHealthCheck { .. }
+    ));
 
     // Phase 2: Simulate health check completing
     let report = HealthReport {
@@ -1399,4 +1642,189 @@ fn delete_record_cleans_up_health_state() {
         states_after.is_empty(),
         "health state should be removed after record deletion"
     );
+}
+
+// ===========================================================================
+// Tests: should_skip_hibp (spec section 8.2 skip logic)
+// ===========================================================================
+
+fn make_health_state(record_version: u64, compromised: Option<bool>) -> RecordHealthState {
+    RecordHealthState {
+        record_id: Uuid::new_v4(),
+        record_version,
+        evaluated_at: None,
+        weak_password: None,
+        duplicate_group_size: None,
+        compromised,
+        expired: None,
+    }
+}
+
+#[test]
+fn skip_hibp_when_compromised_true_and_version_matches() {
+    let state = make_health_state(3, Some(true));
+    assert!(
+        should_skip_hibp(Some(&state), 3),
+        "compromised=true with matching version should skip HIBP"
+    );
+}
+
+#[test]
+fn no_skip_hibp_when_compromised_true_but_version_differs() {
+    let state = make_health_state(2, Some(true));
+    assert!(
+        !should_skip_hibp(Some(&state), 3),
+        "compromised=true with different version should NOT skip HIBP"
+    );
+}
+
+#[test]
+fn no_skip_hibp_when_compromised_false_even_if_version_matches() {
+    let state = make_health_state(3, Some(false));
+    assert!(
+        !should_skip_hibp(Some(&state), 3),
+        "compromised=false with matching version should NOT skip HIBP"
+    );
+}
+
+#[test]
+fn no_skip_hibp_when_compromised_none_even_if_version_matches() {
+    let state = make_health_state(3, None);
+    assert!(
+        !should_skip_hibp(Some(&state), 3),
+        "compromised=None (not yet evaluated) should NOT skip HIBP"
+    );
+}
+
+#[test]
+fn no_skip_hibp_when_no_health_state() {
+    assert!(
+        !should_skip_hibp(None, 3),
+        "no health state should NOT skip HIBP"
+    );
+}
+
+// ===========================================================================
+// Tests: partition_entries_for_hibp
+// ===========================================================================
+
+fn make_password_entry(id: Uuid) -> PasswordEntry {
+    PasswordEntry {
+        id,
+        password: SecureStr::new("test_password".to_string()),
+    }
+}
+
+#[test]
+fn partition_skips_compromised_with_matching_version() {
+    let id_skip = Uuid::new_v4();
+    let id_check = Uuid::new_v4();
+
+    let entries = vec![make_password_entry(id_skip), make_password_entry(id_check)];
+
+    let record_versions = HashMap::from([(id_skip, 5u64), (id_check, 5u64)]);
+
+    let health_states = HashMap::from([(id_skip, make_health_state(5, Some(true)))]);
+
+    let (skipped, to_check) = partition_entries_for_hibp(entries, &record_versions, &health_states);
+
+    assert_eq!(skipped, vec![id_skip], "should skip the compromised record");
+    assert_eq!(to_check.len(), 1, "should have 1 entry to check");
+    assert_eq!(to_check[0].id, id_check);
+}
+
+#[test]
+fn partition_sends_compromised_with_different_version_to_hibp() {
+    let id = Uuid::new_v4();
+    let entries = vec![make_password_entry(id)];
+
+    // record is now at version 5, but health state was recorded at version 3
+    let record_versions = HashMap::from([(id, 5u64)]);
+    let health_states = HashMap::from([(id, make_health_state(3, Some(true)))]);
+
+    let (skipped, to_check) = partition_entries_for_hibp(entries, &record_versions, &health_states);
+
+    assert!(skipped.is_empty(), "should not skip when version differs");
+    assert_eq!(to_check.len(), 1, "should send to HIBP");
+}
+
+#[test]
+fn partition_sends_compromised_false_to_hibp_even_if_version_matches() {
+    let id = Uuid::new_v4();
+    let entries = vec![make_password_entry(id)];
+
+    let record_versions = HashMap::from([(id, 5u64)]);
+    let health_states = HashMap::from([(id, make_health_state(5, Some(false)))]);
+
+    let (skipped, to_check) = partition_entries_for_hibp(entries, &record_versions, &health_states);
+
+    assert!(skipped.is_empty(), "should not skip when compromised=false");
+    assert_eq!(to_check.len(), 1, "should send to HIBP");
+}
+
+#[test]
+fn partition_sends_no_health_state_to_hibp() {
+    let id = Uuid::new_v4();
+    let entries = vec![make_password_entry(id)];
+
+    let record_versions = HashMap::from([(id, 1u64)]);
+    let health_states = HashMap::new(); // no health state
+
+    let (skipped, to_check) = partition_entries_for_hibp(entries, &record_versions, &health_states);
+
+    assert!(skipped.is_empty(), "should not skip with no health state");
+    assert_eq!(to_check.len(), 1, "should send to HIBP");
+}
+
+#[test]
+fn partition_handles_mixed_entries() {
+    let id_skip1 = Uuid::new_v4(); // compromised=true, version matches
+    let id_skip2 = Uuid::new_v4(); // compromised=true, version matches
+    let id_check1 = Uuid::new_v4(); // compromised=true, version differs
+    let id_check2 = Uuid::new_v4(); // compromised=false, version matches
+    let id_check3 = Uuid::new_v4(); // no health state
+
+    let entries = vec![
+        make_password_entry(id_skip1),
+        make_password_entry(id_skip2),
+        make_password_entry(id_check1),
+        make_password_entry(id_check2),
+        make_password_entry(id_check3),
+    ];
+
+    let record_versions = HashMap::from([
+        (id_skip1, 1u64),
+        (id_skip2, 2u64),
+        (id_check1, 3u64),
+        (id_check2, 4u64),
+        (id_check3, 5u64),
+    ]);
+
+    let health_states = HashMap::from([
+        (id_skip1, make_health_state(1, Some(true))),
+        (id_skip2, make_health_state(2, Some(true))),
+        (id_check1, make_health_state(2, Some(true))), // version mismatch (2 vs 3)
+        (id_check2, make_health_state(4, Some(false))),
+        // id_check3 has no health state
+    ]);
+
+    let (skipped, to_check) = partition_entries_for_hibp(entries, &record_versions, &health_states);
+
+    assert_eq!(skipped.len(), 2, "should skip 2 entries");
+    assert!(skipped.contains(&id_skip1));
+    assert!(skipped.contains(&id_skip2));
+
+    assert_eq!(to_check.len(), 3, "should check 3 entries");
+    let check_ids: Vec<Uuid> = to_check.iter().map(|e| e.id).collect();
+    assert!(check_ids.contains(&id_check1));
+    assert!(check_ids.contains(&id_check2));
+    assert!(check_ids.contains(&id_check3));
+}
+
+#[test]
+fn partition_empty_entries() {
+    let (skipped, to_check) = partition_entries_for_hibp(vec![], &HashMap::new(), &HashMap::new());
+
+    assert!(skipped.is_empty());
+    assert!(to_check.is_empty());
 }
