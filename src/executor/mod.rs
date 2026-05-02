@@ -34,6 +34,9 @@ use crate::config::notification::ServiceNotification;
 use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
 
 #[cfg(test)]
+mod health_test;
+
+#[cfg(test)]
 mod vault_test;
 
 /// Load OAuth2 tokens from TokenStore into the in-memory GoogleDriveConfig.
