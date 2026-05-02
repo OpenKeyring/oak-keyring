@@ -290,3 +290,28 @@ pub fn batch_soft_delete_records(
     let affected = conn.execute(&sql, rusqlite::params_from_iter(params))?;
     Ok(affected)
 }
+
+/// Bump `version`, `updated_at`, and `updated_by` for a single record.
+///
+/// Used by health-check write-back to propagate health-only attribute changes
+/// through the sync pipeline. Per spec section 10.2, health attribute changes
+/// are record attribute changes and MAY advance `records.version`.
+///
+/// Returns `Ok(true)` if the row was updated, `Ok(false)` if the record was
+/// not found.
+pub fn bump_record_version_for_health(
+    conn: &Connection,
+    record_id: &Uuid,
+    device_id: &str,
+) -> Result<bool> {
+    let now = datetime_to_timestamp(&Utc::now());
+    let affected = conn.execute(
+        "UPDATE records SET
+            version = version + 1,
+            updated_at = ?1,
+            updated_by = ?2
+         WHERE id = ?3",
+        rusqlite::params![now, device_id, record_id.to_string()],
+    )?;
+    Ok(affected > 0)
+}
