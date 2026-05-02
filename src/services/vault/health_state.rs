@@ -81,20 +81,6 @@ impl VaultService {
         Ok(())
     }
 
-    /// Bump `version`, `updated_at`, and `updated_by` for records affected by
-    /// a health-check write-back.
-    ///
-    /// Per spec section 10.2, health attribute changes are record attribute
-    /// changes and advance `records.version` so the sync pipeline picks them
-    /// up. The checksum is NOT modified (spec section 10.3).
-    pub fn bump_record_versions_for_health(&self, record_ids: &[Uuid]) -> Result<(), VaultError> {
-        for id in record_ids {
-            queries::bump_record_version_for_health(&self.conn, id, &self.device_id)
-                .map_err(db_error_to_vault)?;
-        }
-        Ok(())
-    }
-
     /// Get a reference to the underlying connection for testing purposes.
     #[cfg(test)]
     pub fn conn_ref(&self) -> &rusqlite::Connection {
