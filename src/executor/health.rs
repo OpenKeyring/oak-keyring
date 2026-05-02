@@ -186,18 +186,13 @@ pub fn persist_health_report(
     Ok(deltas)
 }
 
-/// For records with changed health attributes, bump their version and mark them
-/// as pending sync.
+/// For records with changed health attributes, mark them as pending sync.
 ///
-/// Per spec section 10.2, health attribute changes are record attribute changes.
-/// This function:
-/// 1. Increments `records.version` by 1 (so the sync pipeline sees the change)
-/// 2. Sets `updated_at` to now and `updated_by` to the current device ID
-/// 3. Pushes `sync_state` to `Pending` so the next sync cycle propagates the
-///    updated health attributes to the cloud
-///
-/// The checksum is NOT modified (spec section 10.3: checksum only covers
-/// `encrypted_data`).
+/// Health-only changes set `sync_state = Pending` so the sync pipeline
+/// propagates the updated health attributes to the cloud. The record's
+/// `version` is NOT bumped — health state changes do not represent content
+/// changes, so bumping version would break the HIBP skip logic (the persisted
+/// `record_health_state.record_version` would no longer match `records.version`).
 pub fn schedule_health_resync_for_records(
     executor: &mut CommandExecutor,
     deltas: &[HealthStateDelta],
@@ -208,17 +203,12 @@ pub fn schedule_health_resync_for_records(
 
     let record_ids: Vec<Uuid> = deltas.iter().map(|d| d.record_id).collect();
 
-    // Bump version/updated_at/updated_by so the sync pipeline picks up the change.
-    executor
-        .vault
-        .bump_record_versions_for_health(&record_ids)?;
-
     // Mark sync_state = Pending for the next sync cycle.
     executor.vault.mark_records_pending_sync(&record_ids)?;
 
     tracing::info!(
         count = record_ids.len(),
-        "Bumped version and marked records as pending sync due to health attribute changes"
+        "Marked records as pending sync due to health attribute changes"
     );
 
     Ok(())

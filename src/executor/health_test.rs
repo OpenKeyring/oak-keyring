@@ -609,11 +609,11 @@ fn schedule_resync_empty_deltas_is_noop() {
 }
 
 // ===========================================================================
-// Tests: version bump on health attribute changes (spec section 10.2)
+// Tests: health resync does NOT bump version (fix for HIBP skip bug)
 // ===========================================================================
 
 #[test]
-fn schedule_resync_bumps_version_for_changed_records() {
+fn schedule_resync_does_not_bump_version_for_changed_records() {
     let mut executor = make_executor_no_records();
     let id1 = create_login_record(&mut executor, "rec1");
     let id2 = create_login_record(&mut executor, "rec2");
@@ -639,7 +639,7 @@ fn schedule_resync_bumps_version_for_changed_records() {
 
     schedule_health_resync_for_records(&mut executor, &deltas).expect("schedule");
 
-    // id1 should have version bumped; id2 should be unchanged.
+    // Neither id1 nor id2 should have version changed.
     let v1_after = executor
         .vault
         .get_stored_record(id1)
@@ -652,21 +652,21 @@ fn schedule_resync_bumps_version_for_changed_records() {
         .version;
 
     assert_eq!(
-        v1_after,
-        v1_before + 1,
-        "id1 version should be incremented by 1"
+        v1_after, v1_before,
+        "id1 version should NOT be bumped for health-only changes"
     );
     assert_eq!(v2_after, v2_before, "id2 version should be unchanged");
 }
 
 #[test]
-fn schedule_resync_updates_updated_at_for_changed_records() {
+fn schedule_resync_marks_pending_sync_without_changing_record() {
     let mut executor = make_executor_no_records();
     let id = create_login_record(&mut executor, "rec");
 
     let rec_before = executor.vault.get_stored_record(id).expect("get");
-    let updated_at_before = rec_before.updated_at;
     let version_before = rec_before.version;
+    let updated_at_before = rec_before.updated_at;
+    let updated_by_before = rec_before.updated_by.clone();
 
     let deltas = vec![HealthStateDelta {
         record_id: id,
@@ -676,38 +676,27 @@ fn schedule_resync_updates_updated_at_for_changed_records() {
     schedule_health_resync_for_records(&mut executor, &deltas).expect("schedule");
 
     let rec_after = executor.vault.get_stored_record(id).expect("get");
-    let updated_at_after = rec_after.updated_at;
-    let version_after = rec_after.version;
 
-    // updated_at is stored as Unix seconds, so the test may run within the
-    // same second. Verify it is at least as recent and that the version was
-    // bumped (proving the UPDATE actually executed).
-    assert!(
-        updated_at_after >= updated_at_before,
-        "updated_at should be at least as recent as before"
+    // Record fields should be completely unchanged.
+    assert_eq!(
+        rec_after.version, version_before,
+        "version should NOT change for health-only changes"
     );
-    assert!(
-        version_after > version_before,
-        "version should be incremented, proving the UPDATE ran"
+    assert_eq!(
+        rec_after.updated_at, updated_at_before,
+        "updated_at should NOT change for health-only changes"
     );
-}
+    assert_eq!(
+        rec_after.updated_by, updated_by_before,
+        "updated_by should NOT change for health-only changes"
+    );
 
-#[test]
-fn schedule_resync_updates_updated_by_to_device_id() {
-    let mut executor = make_executor_no_records();
-    let id = create_login_record(&mut executor, "rec");
-
-    let deltas = vec![HealthStateDelta {
-        record_id: id,
-        before: None,
-        after: None,
-    }];
-    schedule_health_resync_for_records(&mut executor, &deltas).expect("schedule");
-
-    let record = executor.vault.get_stored_record(id).expect("get");
-    assert!(
-        !record.updated_by.is_empty(),
-        "updated_by should be set to the device ID"
+    // But sync state should be pending.
+    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    assert_eq!(
+        sync_map.get(&id.to_string()),
+        Some(&SyncStatus::Pending),
+        "record should be marked Pending for sync"
     );
 }
 
@@ -730,7 +719,7 @@ fn no_version_bump_when_no_health_deltas() {
 }
 
 #[test]
-fn full_writeback_only_changed_records_get_version_bump_and_pending_sync() {
+fn full_writeback_does_not_bump_version_but_marks_pending_sync() {
     let mut executor = make_executor_no_records();
     let id1 = create_login_record(&mut executor, "rec1");
     let id2 = create_login_record(&mut executor, "rec2");
@@ -775,7 +764,7 @@ fn full_writeback_only_changed_records_get_version_bump_and_pending_sync() {
     let delta_ids: Vec<Uuid> = deltas.iter().map(|d| d.record_id).collect();
     assert!(delta_ids.contains(&id1), "id1 should have a delta");
 
-    // id1 version should be bumped; id2 unchanged.
+    // Neither id1 nor id2 version should change.
     let v1_after = executor
         .vault
         .get_stored_record(id1)
@@ -787,7 +776,7 @@ fn full_writeback_only_changed_records_get_version_bump_and_pending_sync() {
         .expect("get id2")
         .version;
 
-    assert_eq!(v1_after, v1_before + 1, "id1 version bumped");
+    assert_eq!(v1_after, v1_before, "id1 version should NOT change");
     assert_eq!(v2_after, v2_before, "id2 version unchanged");
 
     // Sync state: only id1 is Pending.
@@ -1827,4 +1816,194 @@ fn partition_empty_entries() {
 
     assert!(skipped.is_empty());
     assert!(to_check.is_empty());
+}
+
+// ===========================================================================
+// Tests: HIBP skip regression (full write-back + should_skip_hibp round-trip)
+//
+// These verify the fix: health write-back must NOT bump records.version,
+// otherwise should_skip_hibp() returns false on the next scan because the
+// persisted record_health_state.record_version no longer matches.
+// ===========================================================================
+
+/// Scenario 1: First scan marks compromised=true -> second scan skips HIBP.
+///
+/// After a full health check that marks a record as compromised, a subsequent
+/// scan should skip the HIBP call because the health state's record_version
+/// still matches the record's version.
+#[test]
+fn hibp_skip_after_full_scan_and_persist() {
+    let mut executor = make_executor_no_records();
+    let id = create_login_record(&mut executor, "rec");
+
+    let version = executor.vault.get_stored_record(id).expect("get").version;
+
+    // Simulate first health check: record is compromised.
+    let report = HealthReport {
+        weak_passwords: vec![],
+        duplicate_passwords: vec![],
+        compromised: vec![id],
+        expired: vec![],
+        total_checked: 1,
+    };
+    simulate_health_check_completed(&mut executor, &report);
+
+    // Verify version was NOT bumped by health write-back.
+    let version_after = executor.vault.get_stored_record(id).expect("get").version;
+    assert_eq!(
+        version_after, version,
+        "health write-back must NOT bump version"
+    );
+
+    // Load the persisted health state and verify should_skip_hibp returns true.
+    let health_state = executor
+        .vault
+        .get_record_health_state(&id)
+        .expect("get state");
+    let state = health_state.expect("health state should exist");
+    assert_eq!(state.compromised, Some(true));
+    assert_eq!(state.record_version, version_after);
+
+    assert!(
+        should_skip_hibp(Some(&state), version_after),
+        "second scan should skip HIBP: version matches and compromised=true"
+    );
+}
+
+/// Scenario 2: After health write-back, record version is UNCHANGED.
+#[test]
+fn health_writeback_does_not_change_record_version() {
+    let mut executor = make_executor_no_records();
+    let id1 = create_login_record(&mut executor, "rec1");
+    let id2 = create_login_record(&mut executor, "rec2");
+
+    let v1_before = executor.vault.get_stored_record(id1).expect("get").version;
+    let v2_before = executor.vault.get_stored_record(id2).expect("get").version;
+
+    // Report: id1 is compromised, id2 is clean.
+    let report = HealthReport {
+        weak_passwords: vec![id1],
+        duplicate_passwords: vec![],
+        compromised: vec![id2],
+        expired: vec![],
+        total_checked: 2,
+    };
+    simulate_health_check_completed(&mut executor, &report);
+
+    let v1_after = executor.vault.get_stored_record(id1).expect("get").version;
+    let v2_after = executor.vault.get_stored_record(id2).expect("get").version;
+
+    assert_eq!(
+        v1_after, v1_before,
+        "health write-back must not change id1 version"
+    );
+    assert_eq!(
+        v2_after, v2_before,
+        "health write-back must not change id2 version"
+    );
+}
+
+/// Scenario 3: After password change, health state is deleted -> next scan
+/// calls HIBP again.
+#[test]
+fn password_change_deletes_health_state_and_hibp_not_skipped() {
+    let mut executor = make_executor_no_records();
+    let id = create_login_record(&mut executor, "rec");
+
+    let version = executor.vault.get_stored_record(id).expect("get").version;
+
+    // Simulate first health check: record is compromised.
+    let report = HealthReport {
+        weak_passwords: vec![],
+        duplicate_passwords: vec![],
+        compromised: vec![id],
+        expired: vec![],
+        total_checked: 1,
+    };
+    simulate_health_check_completed(&mut executor, &report);
+
+    // Verify health state exists.
+    let state_before = executor
+        .vault
+        .get_record_health_state(&id)
+        .expect("get state");
+    assert!(
+        state_before.is_some(),
+        "health state should exist after first check"
+    );
+
+    // Simulate password change: delete health state (this is what VaultService
+    // does when the password changes).
+    executor
+        .vault
+        .delete_record_health_state(&id)
+        .expect("delete");
+
+    // Verify health state is gone.
+    let state_after = executor
+        .vault
+        .get_record_health_state(&id)
+        .expect("get state");
+    assert!(
+        state_after.is_none(),
+        "health state should be deleted after password change"
+    );
+
+    // should_skip_hibp should return false (no health state).
+    assert!(
+        !should_skip_hibp(state_after.as_ref(), version),
+        "next scan should call HIBP: health state was deleted by password change"
+    );
+}
+
+/// Scenario 4: After cosmetic update (name/notes change), health state is
+/// carried to the new version -> HIBP skip still works with new version.
+#[test]
+fn cosmetic_update_carries_health_state_and_hibp_skip_works() {
+    let mut executor = make_executor_no_records();
+    let id = create_login_record(&mut executor, "rec");
+
+    let version = executor.vault.get_stored_record(id).expect("get").version;
+
+    // Simulate first health check: record is compromised.
+    let report = HealthReport {
+        weak_passwords: vec![],
+        duplicate_passwords: vec![],
+        compromised: vec![id],
+        expired: vec![],
+        total_checked: 1,
+    };
+    simulate_health_check_completed(&mut executor, &report);
+
+    // Simulate cosmetic update: bump record version and copy health state.
+    let new_version = version + 1;
+    executor
+        .vault
+        .copy_health_state_to_version(&id, new_version)
+        .expect("copy health state");
+
+    // Load health state at new version.
+    let state = executor
+        .vault
+        .get_record_health_state(&id)
+        .expect("get state")
+        .expect("should exist");
+
+    assert_eq!(
+        state.record_version, new_version,
+        "health state should be at new version"
+    );
+    assert_eq!(state.compromised, Some(true));
+
+    // HIBP skip should still work with the new version.
+    assert!(
+        should_skip_hibp(Some(&state), new_version),
+        "HIBP skip should work after cosmetic update: version matches and compromised=true"
+    );
+
+    // But not with the old version.
+    assert!(
+        !should_skip_hibp(Some(&state), version),
+        "HIBP skip should NOT work with old version after cosmetic update"
+    );
 }
