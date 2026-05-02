@@ -54,6 +54,16 @@ impl VaultService {
         Ok(())
     }
 
+    /// Delete health states for multiple records in a single operation.
+    ///
+    /// Used by the sync download path to remove stale health states for records
+    /// whose cloud record carries no health metadata. An empty `record_ids`
+    /// slice is a no-op.
+    pub fn delete_record_health_states(&self, record_ids: &[Uuid]) -> Result<(), VaultError> {
+        queries::delete_record_health_states(&self.conn, record_ids).map_err(db_error_to_vault)?;
+        Ok(())
+    }
+
     /// Advance the `record_version` on an existing health state row.
     ///
     /// Used when a record is updated *without* a password or `expires_at` change
@@ -82,7 +92,7 @@ impl VaultService {
     }
 
     /// Get a reference to the underlying connection for testing purposes.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-helpers"))]
     pub fn conn_ref(&self) -> &rusqlite::Connection {
         &self.conn
     }
