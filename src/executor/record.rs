@@ -27,7 +27,10 @@ fn vault_error(e: crate::errors::mapping::vault::VaultError, msg: &str) -> Comma
 /// internal command channel. Failures are logged but do not block the
 /// caller — the health scan is advisory.
 fn schedule_health_scan(executor: &CommandExecutor) {
-    if let Err(e) = executor.internal_tx.try_send(Command::RunHealthCheck) {
+    if let Err(e) = executor
+        .internal_tx
+        .try_send(Command::RunHealthCheck { force: true })
+    {
         tracing::warn!(error = %e, "Failed to schedule health scan");
     }
 }
@@ -169,7 +172,10 @@ pub fn handle_load_record_list(
 ) -> CommandResult {
     match executor.vault.list_records(&filter, &sort) {
         Ok(mut records) => {
-            // Spec Compliance: Populate health fields from cached health_report
+            // Spec Compliance: Populate health fields from cached health_report.
+            // When no health report exists, is_expired stays false (set by vault
+            // service) — we do NOT fall back to expires_at < now. Per spec §11.2,
+            // "已过期" depends solely on persisted health state.
             if let Some(report) = &executor.health_report {
                 for record in &mut records {
                     record.has_weak_password = report.weak_passwords.contains(&record.id);
@@ -179,24 +185,22 @@ pub fn handle_load_record_list(
                         .iter()
                         .find(|group| group.contains(&record.id))
                         .map(|group| group.len());
-                    // Spec §11: is_expired comes from the persisted health result,
-                    // not from expires_at < now. Falls back to the DB-computed value
-                    // when no health report is available.
                     record.is_expired = report.expired.contains(&record.id);
                 }
             }
 
             // Expired filter: use report.expired instead of expires_at < now.
-            // When no health report is available, the DB-level filtering in
-            // VaultService (expires_at < now) serves as the fallback.
+            // When no health report is available, no records appear in the
+            // expired category — per spec §11.2.
             if matches!(filter, RecordFilter::Expired) {
                 if let Some(report) = &executor.health_report {
                     let expired_set: std::collections::HashSet<Uuid> =
                         report.expired.iter().copied().collect();
                     records.retain(|r| expired_set.contains(&r.id));
+                } else {
+                    // No health report — no expired records to show.
+                    records.clear();
                 }
-                // Without a health report, the vault service already applied
-                // expires_at < now filtering — keep those results as-is.
             }
 
             // HealthIssues filter: the vault service returns all active records;
