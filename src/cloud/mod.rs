@@ -3,6 +3,8 @@ pub mod credentials;
 pub mod metadata;
 pub mod oauth2;
 pub mod provider;
+#[cfg(test)]
+mod provider_test;
 pub mod providers;
 pub mod record;
 pub mod schema;

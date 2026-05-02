@@ -34,24 +34,31 @@ User Input → Message → Screen::update() → Command → Executor → Command
      └──────── Message::CommandCompleted ←───────────────────────────────┘
 ```
 
+## File Organization Convention
+
+- **`mod.rs`**: module declarations + re-exports ONLY. Zero business logic.
+- **Multi-file module**: `{name}/{mod, [domain files], tests}.rs`
+- **Single-file with tests**: `file.rs` (business) + `file_test.rs` (tests) as siblings
+- **State files** follow the same pattern: `{state_name}/{mod, state, tests}.rs`
+
 ## Screens
 
 | Spec | Screen | File |
 |------|--------|------|
 | U1 | UnlockScreen | `unlock.rs` |
-| U1 | OnboardingScreen | `onboarding.rs` |
+| U1 | OnboardingScreen | `onboarding/{mod,types,screen,handlers,views_setup,views_recovery,views_import,tests}.rs` |
 | U1 | RecoveryKeyScreen | `recovery_key.rs` |
 | U1 | SetPasswordScreen | `set_password.rs` |
 | U1 | ChangeMasterPasswordScreen | `change_master_password.rs` |
-| U2 | MainScreen | `main/mod.rs`, `main/layout.rs` |
-| U3 | ListPanel | `main/list.rs` |
+| U2 | MainScreen | `main/{mod,layout,list/,detail,sidebar,status_bar,overlay/}` |
+| U3 | ListPanel | `main/list/{mod,items,bar,empty,tests}.rs` |
 | U4 | DetailPanel | `main/detail.rs` |
 | U5 | OverlayManager | `main/overlay/` (help/confirm/password_history/batch_tag/error_dialog/generator) |
 | U6 | PasswordGeneratorScreen | `password_generator.rs` |
 | U7 | CreateRecord / EditRecord | `create_record.rs`, `edit_record.rs`, `form/` |
-| U8 | ConfigScreen | `config_screen.rs`, `config_screen/config/` (about/general/security/sync/render) |
-| U9 | ImportExportScreen | `import_export.rs` |
-| U10 | AuditLogScreen | `audit_log.rs` |
+| U8 | ConfigScreen | `config_screen/{mod,screen,handlers,overlay,tests}.rs`, `config_screen/config/` (about/general/security/sync/render) |
+| U9 | ImportExportScreen | `import_export/{mod,types,screen,import_views,export_views,tests}.rs` |
+| U10 | AuditLogScreen | `audit_log/{mod,filter,screen,views,tests}.rs` |
 | U10 | SyncConflictScreen | `sync_conflict.rs` |
 
 ## State Management
@@ -66,8 +73,8 @@ AppState
 ```
 
 Per-screen state 文件:
-`main_state.rs`, `list_state.rs`, `detail_state.rs`, `form_state.rs`,
-`generator_state.rs`, `config_state.rs`, `audit_state.rs`, `sync_ui_state.rs`,
+`main_state/{mod,state,tests}.rs`, `list_state/{mod,state,tests}.rs`, `detail_state/{mod,state,tests}.rs`, `form_state.rs`,
+`generator_state.rs`, `config_state/{mod,state,tests}.rs`, `audit_state.rs`, `sync_ui_state.rs`,
 `tag_management.rs`, `overlay_state.rs`
 
 ## Components (13 个)
