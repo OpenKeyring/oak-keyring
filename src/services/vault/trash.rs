@@ -22,7 +22,6 @@ impl VaultService {
 
         let stored_records =
             queries::list_deleted_records(&self.conn).map_err(db_error_to_vault)?;
-        let now = Utc::now();
 
         let mut tui_records: Vec<TuiRecord> = Vec::with_capacity(stored_records.len());
         for stored in &stored_records {
@@ -46,15 +45,13 @@ impl VaultService {
             )
             .map_err(VaultError::CryptoError)?;
 
-            let is_expired = stored.expires_at.is_some_and(|t| t < now);
-
             tui_records.push(TuiRecord {
                 id: stored.id,
                 credential_type: stored.credential_type,
                 name,
                 subtitle,
                 is_favorite: stored.is_favorite,
-                is_expired,
+                is_expired: false, // populated by executor from health_report
                 expires_at: stored.expires_at,
                 has_weak_password: false,
                 is_compromised: false,

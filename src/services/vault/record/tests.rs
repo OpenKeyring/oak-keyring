@@ -1475,17 +1475,17 @@ fn list_records_tag_filter_returns_matching_records() {
     assert!(none.is_empty(), "non-existent tag should return empty");
 }
 
-// --- list_records: Expired filter returns only expired records ---
+// --- list_records: Expired filter returns all active records (executor filters) ---
 
 #[test]
-fn list_records_expired_returns_only_expired() {
+fn list_records_expired_returns_all_active_for_executor_filtering() {
     let mut svc = setup_service();
     unlock_service(&mut svc);
 
     let now = Utc::now();
 
     // Create an expired record (expires_at in the past)
-    let id_expired = svc
+    let _id_expired = svc
         .create_record(CreateRecordParams {
             credential_type: CredentialType::Login,
             payload: EncryptedPayload::Login {
@@ -1526,13 +1526,24 @@ fn list_records_expired_returns_only_expired() {
         direction: SortDirection::Desc,
     };
 
-    let expired = svc
+    // Per spec §11.2, the vault service returns ALL active records for Expired
+    // filter; the executor filters using the health report. is_expired is false
+    // by default — the executor sets it from the health report.
+    let records = svc
         .list_records(&RecordFilter::Expired, &sort)
         .expect("list_records must succeed");
 
-    assert_eq!(expired.len(), 1, "only expired record returned");
-    assert_eq!(expired[0].id, id_expired);
-    assert!(expired[0].is_expired);
+    assert_eq!(
+        records.len(),
+        3,
+        "vault returns all active records for Expired filter"
+    );
+    for record in &records {
+        assert!(
+            !record.is_expired,
+            "is_expired defaults to false at vault service level"
+        );
+    }
 }
 
 // --- list_records: Trash filter returns soft-deleted records ---
