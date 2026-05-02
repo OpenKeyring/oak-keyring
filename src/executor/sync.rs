@@ -137,6 +137,18 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
                 return CommandResult::cancelled("sync");
             }
 
+            // Apply downloaded CloudRecords to local vault before health states,
+            // so FK constraints on record_health_state.record_id are satisfied.
+            for record in &sync_result.downloaded_records {
+                if let Err(e) = executor.vault.apply_downloaded_cloud_record(record) {
+                    tracing::warn!(
+                        record_id = %record.id,
+                        error = %e,
+                        "Failed to apply downloaded record"
+                    );
+                }
+            }
+
             // Apply downloaded health states to local vault
             for state in &sync_result.downloaded_health_states {
                 if let Err(e) = executor.vault.upsert_record_health_state(state) {
@@ -159,8 +171,12 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
                 }
             }
 
-            // Reload cached health report so UI reflects downloaded health state
-            let _ = super::health::load_cached_health_report(executor);
+            // Reload cached health report so UI reflects downloaded health state.
+            match super::health::load_cached_health_report(executor) {
+                Ok(Some(report)) => executor.health_report = Some(report),
+                Ok(None) => executor.health_report = None,
+                Err(e) => tracing::warn!(error = %e, "Failed to reload health report after sync"),
+            }
 
             let report = sync_result.report;
             CommandResult::SyncCompleted {

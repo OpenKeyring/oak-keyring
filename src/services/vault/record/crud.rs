@@ -441,4 +441,82 @@ impl VaultService {
 
         Ok(())
     }
+
+    /// Apply a downloaded `CloudRecord` to the local vault.
+    ///
+    /// Decodes the base64-encoded encrypted data and nonce, constructs a
+    /// `StoredRecord`, and upserts it (INSERT OR REPLACE). This is used by
+    /// the sync download path to persist record bodies before health states,
+    /// so FK constraints on `record_health_state.record_id` are satisfied.
+    ///
+    /// Returns `true` if a new record was inserted, `false` if an existing one
+    /// was replaced.
+    pub fn apply_downloaded_cloud_record(
+        &self,
+        cloud_record: &crate::cloud::CloudRecord,
+    ) -> Result<bool, VaultError> {
+        use base64::Engine;
+
+        let id = Uuid::parse_str(&cloud_record.id)
+            .map_err(|e| VaultError::CryptoError(format!("invalid record id: {}", e)))?;
+
+        let encrypted_data = base64::engine::general_purpose::STANDARD
+            .decode(&cloud_record.encrypted_data)
+            .map_err(|e| {
+                VaultError::CryptoError(format!("invalid encrypted_data base64: {}", e))
+            })?;
+
+        let nonce_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&cloud_record.nonce)
+            .map_err(|e| VaultError::CryptoError(format!("invalid nonce base64: {}", e)))?;
+        let nonce: [u8; 24] = nonce_bytes
+            .try_into()
+            .map_err(|_| VaultError::CryptoError("nonce must be 24 bytes".to_string()))?;
+
+        let existing =
+            crate::db::queries::get_record(&self.conn, &id).map_err(db_error_to_vault)?;
+        let is_new = existing.is_none();
+
+        let aad: Vec<u8> = format!("record:{}", id).into_bytes();
+
+        let now = chrono::Utc::now();
+        let deleted = cloud_record.deleted.unwrap_or(false);
+        let deleted_at = if deleted {
+            cloud_record
+                .deleted_at
+                .as_deref()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        } else {
+            None
+        };
+
+        let stored = crate::types::record::StoredRecord {
+            id,
+            credential_type: crate::types::credential::CredentialType::Login,
+            encrypted_data,
+            nonce,
+            dek_version: cloud_record.dek_version,
+            aad,
+            is_favorite: false,
+            expires_at: None,
+            created_at: existing.as_ref().map_or(now, |r| r.created_at),
+            updated_at: now,
+            updated_by: "sync".to_string(),
+            version: cloud_record.version,
+            deleted,
+            deleted_at,
+            tags: cloud_record.metadata.tags.clone(),
+        };
+
+        if is_new {
+            crate::db::queries::insert_record(&self.conn, &stored).map_err(db_error_to_vault)?;
+        } else {
+            let local_version = existing.as_ref().map_or(0, |r| r.version);
+            crate::db::queries::update_record(&self.conn, &stored, local_version)
+                .map_err(db_error_to_vault)?;
+        }
+
+        Ok(is_new)
+    }
 }
