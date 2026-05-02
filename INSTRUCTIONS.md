@@ -90,6 +90,7 @@ services/import_export/ → parsers/ (bitwarden, keepass, csv, onepassword, okb)
 ## Test Conventions
 
 - 单元测试放在实现文件旁 (`#[cfg(test)] mod tests` 或独立 `*_test.rs`)
+- **优先使用独立 `*_test.rs` 文件** — 当文件超过 ~600 行或测试占比高时，将测试提取到同级 `*_test.rs`，保持业务代码文件干净、便于分析
 - 集合测试: `tests/integration/` (12 个模块)
 - 快照测试: `tests/snapshot_tests/`，快照文件在 `tests/snapshots/`，使用 `insta` (`.insta.toml`)
 - 同步测试: `tests/sync_*_test.rs` (checkpoint/conflict/e2e/pipeline/retry)
