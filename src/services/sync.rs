@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use uuid::Uuid;
 
-use crate::cloud::{CloudMetadata, CloudStorage};
+use crate::cloud::{CloudMetadata, CloudRecord, CloudStorage};
 use crate::errors::mapping::sync::SyncError;
 use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::state_machine::SyncStateMachine;
@@ -27,12 +27,13 @@ const PAUSE_TIMEOUT: Duration = Duration::from_secs(30);
 const RESUME_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Result of a sync operation, bundling the report with health state vectors
-/// extracted from downloaded CloudRecords.
+/// and downloaded CloudRecords extracted from the pipeline.
 #[derive(Debug)]
 pub struct SyncResult {
     pub report: SyncReport,
     pub downloaded_health_states: Vec<RecordHealthState>,
     pub downloaded_health_deleted: Vec<Uuid>,
+    pub downloaded_records: Vec<CloudRecord>,
 }
 
 /// Public interface to the sync subsystem.
@@ -136,11 +137,14 @@ impl SyncService {
             .await?;
 
         match event {
-            SyncEvent::Completed(report, health_states, health_deleted) => Ok(SyncResult {
-                report,
-                downloaded_health_states: health_states,
-                downloaded_health_deleted: health_deleted,
-            }),
+            SyncEvent::Completed(report, health_states, health_deleted, records) => {
+                Ok(SyncResult {
+                    report,
+                    downloaded_health_states: health_states,
+                    downloaded_health_deleted: health_deleted,
+                    downloaded_records: records,
+                })
+            }
             SyncEvent::Failed { error, state: _ } => Err(SyncError::ProviderError {
                 provider: "sync".to_string(),
                 message: error,

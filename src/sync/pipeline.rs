@@ -528,6 +528,23 @@ impl SyncStage for PushStage {
                 .delete_health_states(&context.downloaded_health_deleted);
         }
 
+        // Update remote metadata so other devices can detect uploaded records.
+        // A provider-level failure (e.g. Memory backend not supporting atomic
+        // rename) is logged but does not block the sync — the metadata will be
+        // retried on the next sync cycle.
+        if !context.uploads.is_empty() {
+            if let Err(e) = Self::push_updated_metadata(context).await {
+                if matches!(&e, SyncError::ProviderError { .. }) {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to push updated metadata (provider error), will retry next sync"
+                    );
+                } else {
+                    return StageOutcome::Error(Box::new(e));
+                }
+            }
+        }
+
         if !context.conflicts.is_empty() {
             return StageOutcome::ConflictDetected {
                 conflict_ids: context.conflicts.clone(),
@@ -535,6 +552,50 @@ impl SyncStage for PushStage {
         }
 
         StageOutcome::Continue
+    }
+}
+
+impl PushStage {
+    /// Build updated CloudMetadata from successfully uploaded records and push
+    /// atomically so remote devices can detect the new versions.
+    async fn push_updated_metadata(context: &mut PipelineContext) -> Result<(), SyncError> {
+        use crate::cloud::RecordVersionInfo;
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let device_id = "local-device".to_string();
+
+        // Start from existing remote metadata or create new one.
+        let (mut updated_meta, expected_version) = if let Some(ref remote) = context.remote_metadata
+        {
+            (remote.clone(), remote.metadata_version)
+        } else {
+            (CloudMetadata::new(context.local_vault_token.clone()), 0)
+        };
+
+        // Add successfully uploaded records to metadata
+        for record in &context.uploads {
+            if context.failed_ids.contains(&record.id) {
+                continue;
+            }
+            let checksum = compute_checksum(&record.encrypted_data)?;
+            updated_meta.upsert_record(
+                record.id.clone(),
+                RecordVersionInfo {
+                    version: record.version,
+                    updated_at: now.clone(),
+                    updated_by: device_id.clone(),
+                    checksum,
+                    deleted: record.deleted.unwrap_or(false),
+                },
+            );
+        }
+
+        updated_meta.increment_version();
+
+        context
+            .storage
+            .push_metadata_atomic(&updated_meta, expected_version)
+            .await
     }
 }
 

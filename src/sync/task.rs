@@ -70,7 +70,12 @@ pub enum SyncCommand {
 #[derive(Debug)]
 pub enum SyncEvent {
     /// Sync cycle completed successfully with a report and downloaded health states.
-    Completed(SyncReport, Vec<RecordHealthState>, Vec<Uuid>),
+    Completed(
+        SyncReport,
+        Vec<RecordHealthState>,
+        Vec<Uuid>,
+        Vec<CloudRecord>,
+    ),
     /// Sync cycle failed with an error and current state.
     Failed { error: String, state: SyncState },
     /// A single conflict was resolved.
@@ -266,9 +271,17 @@ impl SyncTask {
 
         // Execute the sync pipeline
         let start = Instant::now();
-        let (result, health_adapter, health_states, health_deleted) = self.execute_pipeline().await;
-        self.handle_pipeline_result(result, health_adapter, health_states, health_deleted, start)
-            .await;
+        let (result, health_adapter, health_states, health_deleted, downloaded) =
+            self.execute_pipeline().await;
+        self.handle_pipeline_result(
+            result,
+            health_adapter,
+            health_states,
+            health_deleted,
+            downloaded,
+            start,
+        )
+        .await;
     }
 
     /// Handles PullOnly command.
@@ -310,9 +323,17 @@ impl SyncTask {
 
         // Execute the sync pipeline (same as trigger sync for now)
         let start = Instant::now();
-        let (result, health_adapter, health_states, health_deleted) = self.execute_pipeline().await;
-        self.handle_pipeline_result(result, health_adapter, health_states, health_deleted, start)
-            .await;
+        let (result, health_adapter, health_states, health_deleted, downloaded) =
+            self.execute_pipeline().await;
+        self.handle_pipeline_result(
+            result,
+            health_adapter,
+            health_states,
+            health_deleted,
+            downloaded,
+            start,
+        )
+        .await;
     }
 
     /// Handles ResolveConflict command.
@@ -430,6 +451,7 @@ impl SyncTask {
         Option<Box<dyn HealthSyncAdapter>>,
         Vec<RecordHealthState>,
         Vec<Uuid>,
+        Vec<CloudRecord>,
     ) {
         let checkpoint = SyncCheckpoint::new(std::env::temp_dir());
 
@@ -463,6 +485,8 @@ impl SyncTask {
         let result = self.pipeline.execute(&mut context).await;
         let downloaded_health_states = std::mem::take(&mut context.downloaded_health_states);
         let downloaded_health_deleted = std::mem::take(&mut context.downloaded_health_deleted);
+        let downloaded_records: Vec<CloudRecord> =
+            context.downloads.drain().map(|(_, v)| v).collect();
         let adapter = context.take_health_adapter();
 
         (
@@ -470,6 +494,7 @@ impl SyncTask {
             Some(adapter),
             downloaded_health_states,
             downloaded_health_deleted,
+            downloaded_records,
         )
     }
 
@@ -480,9 +505,15 @@ impl SyncTask {
         _health_adapter: Option<Box<dyn HealthSyncAdapter>>,
         downloaded_health_states: Vec<RecordHealthState>,
         downloaded_health_deleted: Vec<Uuid>,
+        downloaded_records: Vec<CloudRecord>,
         start: Instant,
     ) {
         let duration_ms = start.elapsed().as_millis() as u64;
+        let uploaded_count = self
+            .vault_data
+            .as_ref()
+            .map_or(0, |d| d.uploads.len() as u32);
+        let downloaded_count = downloaded_records.len() as u32;
 
         match result {
             PipelineResult::Completed => {
@@ -498,8 +529,8 @@ impl SyncTask {
                     .await;
 
                 let report = SyncReport {
-                    uploaded: 0,
-                    downloaded: 0,
+                    uploaded: uploaded_count,
+                    downloaded: downloaded_count,
                     conflicts: 0,
                     failed: 0,
                     duration_ms,
@@ -510,6 +541,7 @@ impl SyncTask {
                         report,
                         downloaded_health_states,
                         downloaded_health_deleted,
+                        downloaded_records,
                     ))
                     .await;
             }
@@ -538,6 +570,7 @@ impl SyncTask {
                         report,
                         downloaded_health_states,
                         downloaded_health_deleted,
+                        downloaded_records,
                     ))
                     .await;
             }
@@ -556,8 +589,8 @@ impl SyncTask {
                     .await;
 
                 let report = SyncReport {
-                    uploaded: 0,
-                    downloaded: 0,
+                    uploaded: uploaded_count,
+                    downloaded: downloaded_count,
                     conflicts: conflict_ids.len() as u32,
                     failed: 0,
                     duration_ms,
@@ -568,6 +601,7 @@ impl SyncTask {
                         report,
                         downloaded_health_states,
                         downloaded_health_deleted,
+                        downloaded_records,
                     ))
                     .await;
             }
@@ -927,8 +961,8 @@ mod tests {
         }
 
         match final_event {
-            Some(SyncEvent::Completed(report, health_states, health_deleted)) => {
-                assert_eq!(report.uploaded, 0);
+            Some(SyncEvent::Completed(report, health_states, health_deleted, _downloaded)) => {
+                assert_eq!(report.uploaded, 2);
                 // No downloads since cloud storage is empty
                 assert!(health_states.is_empty());
                 assert!(health_deleted.is_empty());
