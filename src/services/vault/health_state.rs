@@ -10,6 +10,16 @@ use crate::types::health::RecordHealthState;
 use super::record::db_error_to_vault;
 
 impl VaultService {
+    /// Get the health state for a single record.
+    ///
+    /// Returns `None` when no health state row exists for the given record.
+    pub fn get_record_health_state(
+        &self,
+        record_id: &Uuid,
+    ) -> Result<Option<RecordHealthState>, VaultError> {
+        queries::get_record_health_state(&self.conn, record_id).map_err(db_error_to_vault)
+    }
+
     /// List all persisted health states from the `record_health_state` table.
     ///
     /// Returns an empty vector when no rows exist.
@@ -67,6 +77,20 @@ impl VaultService {
     pub fn mark_records_pending_sync(&self, record_ids: &[Uuid]) -> Result<(), VaultError> {
         for id in record_ids {
             queries::upsert_sync_state_pending(&self.conn, id).map_err(db_error_to_vault)?;
+        }
+        Ok(())
+    }
+
+    /// Bump `version`, `updated_at`, and `updated_by` for records affected by
+    /// a health-check write-back.
+    ///
+    /// Per spec section 10.2, health attribute changes are record attribute
+    /// changes and advance `records.version` so the sync pipeline picks them
+    /// up. The checksum is NOT modified (spec section 10.3).
+    pub fn bump_record_versions_for_health(&self, record_ids: &[Uuid]) -> Result<(), VaultError> {
+        for id in record_ids {
+            queries::bump_record_version_for_health(&self.conn, id, &self.device_id)
+                .map_err(db_error_to_vault)?;
         }
         Ok(())
     }
