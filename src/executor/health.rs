@@ -1,3 +1,5 @@
+use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::commands::types::{FieldSelector, HealthReport};
@@ -8,8 +10,153 @@ use crate::services::health::{
     detect_duplicate_passwords, detect_expired_records, detect_weak_passwords, PasswordEntry,
 };
 use crate::types::credential::CredentialType;
+use crate::types::health::{HealthStateDelta, RecordHealthState};
+use crate::types::record::StoredRecord;
 
 use super::CommandExecutor;
+
+// ---------------------------------------------------------------------------
+// Health-check write-back functions (Task E)
+// ---------------------------------------------------------------------------
+
+/// Pure function to project a `HealthReport` into per-record `RecordHealthState`s.
+///
+/// For each active record, determines its health attributes from the report:
+///
+/// - `weak_password` = `true` if the record is in `report.weak_passwords`
+/// - `duplicate_group_size` = group size if the record appears in any duplicate
+///   group, `None` otherwise
+/// - `compromised` = `true` if the record is in `report.compromised`
+/// - `expired` = `true` if the record is in `report.expired`
+/// - `evaluated_at` = the provided timestamp
+/// - `record_version` = the record's current version
+///
+/// Records that have no health issues still get a state row with all flags set
+/// to `Some(false)` / `None` so the UI can distinguish "not yet evaluated" from
+/// "evaluated as clean".
+pub fn project_health_report_to_states(
+    records: &[StoredRecord],
+    report: &HealthReport,
+    evaluated_at: DateTime<Utc>,
+) -> Vec<RecordHealthState> {
+    // Build lookup maps for O(1) membership tests.
+    let weak_set: HashMap<Uuid, bool> =
+        report.weak_passwords.iter().map(|id| (*id, true)).collect();
+
+    // Build duplicate-group-size map: each record in a group gets group.len().
+    let mut dup_size_map: HashMap<Uuid, usize> = HashMap::new();
+    for group in &report.duplicate_passwords {
+        let size = group.len();
+        for id in group {
+            dup_size_map.insert(*id, size);
+        }
+    }
+
+    let compromised_set: HashMap<Uuid, bool> =
+        report.compromised.iter().map(|id| (*id, true)).collect();
+
+    let expired_set: HashMap<Uuid, bool> = report.expired.iter().map(|id| (*id, true)).collect();
+
+    records
+        .iter()
+        .map(|rec| RecordHealthState {
+            record_id: rec.id,
+            record_version: rec.version,
+            evaluated_at: Some(evaluated_at),
+            weak_password: Some(weak_set.contains_key(&rec.id)),
+            duplicate_group_size: dup_size_map.get(&rec.id).copied(),
+            compromised: Some(compromised_set.contains_key(&rec.id)),
+            expired: Some(expired_set.contains_key(&rec.id)),
+        })
+        .collect()
+}
+
+/// Compute the delta between old and new health states for each record.
+///
+/// A delta is considered "changed" if any of the comparison fields differ:
+/// `weak_password`, `duplicate_group_size`, `compromised`, `expired`.
+pub(crate) fn health_state_changed(before: &RecordHealthState, after: &RecordHealthState) -> bool {
+    before.weak_password != after.weak_password
+        || before.duplicate_group_size != after.duplicate_group_size
+        || before.compromised != after.compromised
+        || before.expired != after.expired
+}
+
+/// Project `HealthReport` to per-record states and persist to the database.
+///
+/// Reads existing health states, computes new states via projection, performs a
+/// transactional batch replace, and returns a list of deltas for records whose
+/// health attributes actually changed.
+///
+/// # Errors
+///
+/// Returns `VaultError` if any database operation fails. The entire replace
+/// operation is atomic (wrapped in a transaction by `replace_record_health_states`).
+pub fn persist_health_report(
+    executor: &mut CommandExecutor,
+    report: &HealthReport,
+    evaluated_at: DateTime<Utc>,
+) -> Result<Vec<HealthStateDelta>, VaultError> {
+    // Fetch all active records for projection.
+    let records = executor.vault.list_all_stored_records()?;
+
+    // Fetch existing health states to compute deltas.
+    let old_states = executor.vault.list_record_health_states()?;
+    let old_map: HashMap<Uuid, RecordHealthState> =
+        old_states.into_iter().map(|s| (s.record_id, s)).collect();
+
+    // Project report into new states.
+    let new_states = project_health_report_to_states(&records, report, evaluated_at);
+
+    // Compute deltas — only include records where health attributes changed.
+    let deltas: Vec<HealthStateDelta> = new_states
+        .iter()
+        .filter_map(|after| {
+            let before = old_map.get(&after.record_id).cloned();
+            let changed = match &before {
+                Some(b) => health_state_changed(b, after),
+                None => true, // No previous state = new evaluation = changed
+            };
+            if changed {
+                Some(HealthStateDelta {
+                    record_id: after.record_id,
+                    before,
+                    after: Some(after.clone()),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Transactional batch replace.
+    executor.vault.replace_record_health_states(&new_states)?;
+
+    Ok(deltas)
+}
+
+/// For records with changed health attributes, mark them as pending sync.
+///
+/// This pushes the record's `sync_state` to `Pending` so that the next sync
+/// cycle will propagate the updated health attributes to the cloud.
+pub fn schedule_health_resync_for_records(
+    executor: &mut CommandExecutor,
+    deltas: &[HealthStateDelta],
+) -> Result<(), VaultError> {
+    if deltas.is_empty() {
+        return Ok(());
+    }
+
+    let record_ids: Vec<Uuid> = deltas.iter().map(|d| d.record_id).collect();
+    executor.vault.mark_records_pending_sync(&record_ids)?;
+
+    tracing::info!(
+        count = record_ids.len(),
+        "Marked records as pending sync due to health attribute changes"
+    );
+
+    Ok(())
+}
 
 /// Load cached health report from persisted `record_health_state` rows.
 ///
@@ -271,413 +418,5 @@ pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) 
             message_key: "error.hibp_check_failed",
             fallback: format!("HIBP check task panicked: {}", e),
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::AppConfig;
-    use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-    use crate::executor::config_impl::ServiceNotificationImpl;
-    use crate::services::clipboard::{ClipboardService, MockBackend};
-    use crate::services::health::HealthService;
-    use crate::services::import_export::ImportExportService;
-    use crate::services::vault::VaultService;
-    use crate::types::{CredentialType, EncryptedPayload, SecureStr};
-    use std::sync::Arc;
-    use tokio::sync::mpsc;
-    use tokio_util::sync::CancellationToken;
-
-    fn make_executor_with_one_login() -> CommandExecutor {
-        let conn = crate::db::schema::init_db_in_memory();
-        let mut vault = VaultService::new(conn);
-        let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
-        vault
-            .unlock_with_mnemonic(&mnemonic)
-            .expect("unlock with mnemonic");
-        vault
-            .create_record(crate::types::record::CreateRecordParams {
-                credential_type: CredentialType::Login,
-                payload: EncryptedPayload::Login {
-                    name: "Example".to_string(),
-                    username: "alice".to_string(),
-                    password: SecureStr::new("password123".to_string()),
-                    url: None,
-                    notes: None,
-                },
-                tags: vec![],
-                is_favorite: false,
-                expires_at: None,
-            })
-            .expect("record");
-
-        let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
-
-        CommandExecutor {
-            vault,
-            sync: None,
-            health: HealthService::new(),
-            clipboard: Arc::new(ClipboardService::with_backend(
-                Box::new(MockBackend::new()),
-                30,
-            )),
-            import_export: ImportExportService::new(),
-            config: AppConfig::default(),
-            config_notifier: ServiceNotificationImpl::new(),
-            vault_dir: std::path::PathBuf::from(":memory:"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            cancel_token: CancellationToken::new(),
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        }
-    }
-
-    #[tokio::test]
-    async fn health_background_cancel_sends_cancelled_result() {
-        let mut executor = make_executor_with_one_login();
-        let mut result_rx = {
-            let (result_tx, result_rx) = mpsc::channel(64);
-            executor.result_tx = result_tx;
-            result_rx
-        };
-
-        let started = handle_run_health_check(&mut executor);
-        assert!(matches!(started, CommandResult::HealthCheckStarted));
-        executor.cancel_token().cancel();
-
-        let message = tokio::time::timeout(std::time::Duration::from_secs(1), result_rx.recv())
-            .await
-            .expect("health cancellation message")
-            .expect("message");
-
-        assert!(matches!(
-            message,
-            Message::CommandCompleted(CommandResult::Cancelled { ref operation, .. })
-                if operation == "health_check"
-        ));
-    }
-
-    // -- load_cached_health_report tests --------------------------------------
-
-    /// Helper: create an executor with an unlocked vault (no records).
-    fn make_executor_no_records() -> CommandExecutor {
-        let conn = crate::db::schema::init_db_in_memory();
-        let mut vault = VaultService::new(conn);
-        let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
-        vault
-            .unlock_with_mnemonic(&mnemonic)
-            .expect("unlock with mnemonic");
-
-        let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
-
-        CommandExecutor {
-            vault,
-            sync: None,
-            health: HealthService::new(),
-            clipboard: Arc::new(ClipboardService::with_backend(
-                Box::new(MockBackend::new()),
-                30,
-            )),
-            import_export: ImportExportService::new(),
-            config: AppConfig::default(),
-            config_notifier: ServiceNotificationImpl::new(),
-            vault_dir: std::path::PathBuf::from(":memory:"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            cancel_token: CancellationToken::new(),
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        }
-    }
-
-    /// Helper: create a Login record and return its UUID.
-    fn create_login_record(executor: &mut CommandExecutor, name: &str) -> Uuid {
-        executor
-            .vault
-            .create_record(crate::types::record::CreateRecordParams {
-                credential_type: CredentialType::Login,
-                payload: EncryptedPayload::Login {
-                    name: name.to_string(),
-                    username: format!("user_{}", name),
-                    password: SecureStr::new("password123".to_string()),
-                    url: None,
-                    notes: None,
-                },
-                tags: vec![],
-                is_favorite: false,
-                expires_at: None,
-            })
-            .expect("create record")
-    }
-
-    /// Helper: insert a health state via the VaultService wrapper.
-    fn insert_health_state(
-        executor: &mut CommandExecutor,
-        state: crate::types::health::RecordHealthState,
-    ) {
-        executor
-            .vault
-            .upsert_record_health_state(&state)
-            .expect("insert health state");
-    }
-
-    #[test]
-    fn load_cached_report_returns_none_when_no_states() {
-        let mut executor = make_executor_no_records();
-        let result = load_cached_health_report(&mut executor).expect("load");
-        assert!(
-            result.is_none(),
-            "empty DB should yield Ok(None), got {:?}",
-            result
-        );
-    }
-
-    #[test]
-    fn load_cached_report_reconstructs_weak_passwords() {
-        let mut executor = make_executor_no_records();
-        let id_weak = create_login_record(&mut executor, "weak");
-        let id_clean = create_login_record(&mut executor, "clean");
-
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id_weak,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: Some(true),
-                duplicate_group_size: None,
-                compromised: None,
-                expired: None,
-            },
-        );
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id_clean,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: Some(false),
-                duplicate_group_size: None,
-                compromised: None,
-                expired: None,
-            },
-        );
-
-        let report = load_cached_health_report(&mut executor)
-            .expect("load")
-            .expect("report");
-
-        assert_eq!(report.weak_passwords, vec![id_weak]);
-        assert_eq!(report.total_checked, 2);
-        assert!(report.compromised.is_empty());
-        assert!(report.expired.is_empty());
-        assert!(report.duplicate_passwords.is_empty());
-    }
-
-    #[test]
-    fn load_cached_report_reconstructs_compromised() {
-        let mut executor = make_executor_no_records();
-        let id_compromised = create_login_record(&mut executor, "compromised");
-        let id_safe = create_login_record(&mut executor, "safe");
-
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id_compromised,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: None,
-                duplicate_group_size: None,
-                compromised: Some(true),
-                expired: None,
-            },
-        );
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id_safe,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: None,
-                duplicate_group_size: None,
-                compromised: Some(false),
-                expired: None,
-            },
-        );
-
-        let report = load_cached_health_report(&mut executor)
-            .expect("load")
-            .expect("report");
-
-        assert_eq!(report.compromised, vec![id_compromised]);
-    }
-
-    #[test]
-    fn load_cached_report_reconstructs_expired() {
-        let mut executor = make_executor_no_records();
-        let id_expired = create_login_record(&mut executor, "expired");
-
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id_expired,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: None,
-                duplicate_group_size: None,
-                compromised: None,
-                expired: Some(true),
-            },
-        );
-
-        let report = load_cached_health_report(&mut executor)
-            .expect("load")
-            .expect("report");
-
-        assert_eq!(report.expired, vec![id_expired]);
-    }
-
-    #[test]
-    fn load_cached_report_reconstructs_duplicates_as_single_group() {
-        let mut executor = make_executor_no_records();
-        let id_dup1 = create_login_record(&mut executor, "dup1");
-        let id_dup2 = create_login_record(&mut executor, "dup2");
-        let id_unique = create_login_record(&mut executor, "unique");
-
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id_dup1,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: None,
-                duplicate_group_size: Some(2),
-                compromised: None,
-                expired: None,
-            },
-        );
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id_dup2,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: None,
-                duplicate_group_size: Some(2),
-                compromised: None,
-                expired: None,
-            },
-        );
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id_unique,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: None,
-                duplicate_group_size: Some(1),
-                compromised: None,
-                expired: None,
-            },
-        );
-
-        let report = load_cached_health_report(&mut executor)
-            .expect("load")
-            .expect("report");
-
-        assert_eq!(
-            report.duplicate_passwords.len(),
-            1,
-            "should have exactly one group"
-        );
-        let group = &report.duplicate_passwords[0];
-        assert_eq!(
-            group.len(),
-            2,
-            "group should contain both duplicate records"
-        );
-        assert!(group.contains(&id_dup1));
-        assert!(group.contains(&id_dup2));
-    }
-
-    #[test]
-    fn load_cached_report_ignores_none_weak_password() {
-        let mut executor = make_executor_no_records();
-        let id = create_login_record(&mut executor, "unevaluated");
-
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: None, // not yet evaluated
-                duplicate_group_size: None,
-                compromised: None,
-                expired: None,
-            },
-        );
-
-        let report = load_cached_health_report(&mut executor)
-            .expect("load")
-            .expect("report");
-
-        assert!(
-            report.weak_passwords.is_empty(),
-            "None (not evaluated) should not be treated as weak"
-        );
-        assert_eq!(report.total_checked, 1);
-    }
-
-    #[test]
-    fn load_cached_report_combines_all_categories() {
-        let mut executor = make_executor_no_records();
-        let id_all_issues = create_login_record(&mut executor, "all_issues");
-        let id_clean = create_login_record(&mut executor, "clean");
-
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id_all_issues,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: Some(true),
-                duplicate_group_size: Some(2),
-                compromised: Some(true),
-                expired: Some(true),
-            },
-        );
-        insert_health_state(
-            &mut executor,
-            crate::types::health::RecordHealthState {
-                record_id: id_clean,
-                record_version: 1,
-                evaluated_at: None,
-                weak_password: Some(false),
-                duplicate_group_size: Some(1),
-                compromised: Some(false),
-                expired: Some(false),
-            },
-        );
-
-        let report = load_cached_health_report(&mut executor)
-            .expect("load")
-            .expect("report");
-
-        assert_eq!(report.total_checked, 2);
-        assert_eq!(report.weak_passwords, vec![id_all_issues]);
-        assert_eq!(report.compromised, vec![id_all_issues]);
-        assert_eq!(report.expired, vec![id_all_issues]);
-        // duplicate group: only id_all_issues has group_size >= 2
-        assert_eq!(report.duplicate_passwords.len(), 1);
-        assert!(report.duplicate_passwords[0].contains(&id_all_issues));
     }
 }

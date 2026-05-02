@@ -1,5 +1,7 @@
 // Health state query wrappers for VaultService.
 
+use uuid::Uuid;
+
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 use crate::services::vault::VaultService;
@@ -19,5 +21,35 @@ impl VaultService {
     /// health-check completion to persist results).
     pub fn upsert_record_health_state(&self, state: &RecordHealthState) -> Result<(), VaultError> {
         queries::upsert_record_health_state(&self.conn, state).map_err(db_error_to_vault)
+    }
+
+    /// Atomically replace all health states in a single transaction.
+    ///
+    /// Deletes every existing row, then inserts the provided slice. Use this
+    /// after a full health-check pass to atomically swap the old states for new
+    /// ones.
+    pub fn replace_record_health_states(
+        &self,
+        states: &[RecordHealthState],
+    ) -> Result<(), VaultError> {
+        queries::replace_record_health_states(&self.conn, states).map_err(db_error_to_vault)
+    }
+
+    /// Mark a batch of records as pending sync in the `sync_state` table.
+    ///
+    /// For each record, upserts a row with `sync_status = Pending` and
+    /// `local_updated_at = now`. Existing rows are overwritten; new rows are
+    /// created if no prior sync state exists.
+    pub fn mark_records_pending_sync(&self, record_ids: &[Uuid]) -> Result<(), VaultError> {
+        for id in record_ids {
+            queries::upsert_sync_state_pending(&self.conn, id).map_err(db_error_to_vault)?;
+        }
+        Ok(())
+    }
+
+    /// Get a reference to the underlying connection for testing purposes.
+    #[cfg(test)]
+    pub fn conn_ref(&self) -> &rusqlite::Connection {
+        &self.conn
     }
 }
