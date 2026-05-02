@@ -86,7 +86,24 @@ pub fn initialize_schema(conn: &Connection) {
         CREATE TABLE IF NOT EXISTS metadata (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
-        );",
+        );
+
+        CREATE TABLE IF NOT EXISTS record_health_state (
+            record_id             TEXT PRIMARY KEY,
+            record_version        INTEGER NOT NULL,
+            evaluated_at          INTEGER,
+            weak_password         INTEGER,
+            duplicate_group_size  INTEGER,
+            compromised           INTEGER,
+            expired               INTEGER,
+            FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_record_health_version
+            ON record_health_state(record_version);
+        CREATE INDEX IF NOT EXISTS idx_record_health_compromised
+            ON record_health_state(compromised) WHERE compromised = 1;
+        CREATE INDEX IF NOT EXISTS idx_record_health_expired
+            ON record_health_state(expired) WHERE expired = 1;",
     )
     .expect("failed to create schema");
 }

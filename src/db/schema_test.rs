@@ -43,11 +43,11 @@ fn metadata_value(conn: &Connection, key: &str) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1: Schema creates all 7 tables
+// Test 1: Schema creates all 8 tables
 // ---------------------------------------------------------------------------
 
 #[test]
-fn schema_creates_all_seven_tables() {
+fn schema_creates_all_eight_tables() {
     let db = fresh_db();
     let tables = table_names(&db);
 
@@ -56,6 +56,7 @@ fn schema_creates_all_seven_tables() {
         "audit_log",
         "metadata",
         "password_history",
+        "record_health_state",
         "record_tags",
         "records",
         "sync_state",
@@ -373,5 +374,93 @@ fn cascade_delete_removes_sync_state() {
     assert_eq!(
         count_after, 0,
         "sync_state should be empty after cascade delete"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: record_health_state table has all required columns
+// ---------------------------------------------------------------------------
+
+#[test]
+fn record_health_state_table_has_all_required_columns() {
+    let db = fresh_db();
+    let columns = column_names(&db, "record_health_state");
+
+    let expected = vec![
+        "record_id",
+        "record_version",
+        "evaluated_at",
+        "weak_password",
+        "duplicate_group_size",
+        "compromised",
+        "expired",
+    ];
+
+    for col in &expected {
+        assert!(
+            columns.contains(&col.to_string()),
+            "record_health_state table missing column: {col}"
+        );
+    }
+    assert_eq!(
+        columns.len(),
+        expected.len(),
+        "record_health_state table has unexpected columns: {:?}",
+        columns
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: Cascade delete works (record -> record_health_state)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cascade_delete_removes_record_health_state() {
+    let db = fresh_db();
+
+    // Insert a minimal record.
+    db.execute(
+        "INSERT INTO records (id, credential_type, encrypted_data, nonce, created_at, updated_at, updated_by)
+         VALUES ('rec-hs', 'login', X'DEAD', X'BEEF', 1000, 1000, 'test')",
+        [],
+    )
+    .unwrap();
+
+    // Insert health state.
+    db.execute(
+        "INSERT INTO record_health_state
+            (record_id, record_version, evaluated_at, weak_password,
+             duplicate_group_size, compromised, expired)
+         VALUES ('rec-hs', 1, 1700000000, 1, 3, 0, NULL)",
+        [],
+    )
+    .unwrap();
+
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM record_health_state WHERE record_id = 'rec-hs'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        count, 1,
+        "record_health_state should contain 1 row before delete"
+    );
+
+    // Delete the record — should cascade to record_health_state.
+    db.execute("DELETE FROM records WHERE id = 'rec-hs'", [])
+        .unwrap();
+
+    let count_after: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM record_health_state WHERE record_id = 'rec-hs'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        count_after, 0,
+        "record_health_state should be empty after cascade delete"
     );
 }

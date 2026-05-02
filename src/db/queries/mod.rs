@@ -19,6 +19,7 @@ pub(crate) type Result<T> = std::result::Result<T, DbError>;
 // ---------------------------------------------------------------------------
 
 mod audit;
+mod health_state;
 mod metadata;
 mod password_history;
 mod record;
@@ -33,6 +34,7 @@ mod tests;
 // ---------------------------------------------------------------------------
 
 pub use audit::*;
+pub use health_state::*;
 pub use metadata::*;
 pub use password_history::*;
 pub use record::*;
