@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/unlock_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                   OpenKeyring                                  "
+"                          Secure  •  Private  •  Yours                          "
+"                                                                                "
+"                        ─────────────────────────────────                       "
+"                                                                                "
+"    ┌────────────────────────── MASTER PASSWORD ───────────────────────────┐    "
+"    │                                                                      │    "
+"    │ 🔐  ••••••••••••••                                                   │    " Hidden by multi-width symbols: [(7, " ")]
+"    │                                                                      │    "
+"    └──────────────────────────────────────────────────────────────────────┘    "
+"                                                                                "
+"                Your master password unlocks your encrypted data                "
+"                                                                                "
+"                        ─────────────────────────────────                       "
+"                                                                                "
+"                                  Unlocking...                                  "
+"                                                                                "
+"                     [ Tab ]   Press Tab to use recovery key                    "
+"                                                                                "
+"                                                                                "
+"                                                                                "
