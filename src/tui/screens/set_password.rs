@@ -516,6 +516,7 @@ mod tests {
 
     // ── Key behavior tests (Issue #8 regression) ──────────────────────────────
 
+    #[allow(static_mut_refs)]
     fn dummy_ctx() -> ScreenContext<'static> {
         static ONCE: std::sync::Once = std::sync::Once::new();
         static mut TX: Option<tokio::sync::mpsc::Sender<Command>> = None;
