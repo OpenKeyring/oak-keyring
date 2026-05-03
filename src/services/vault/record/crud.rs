@@ -480,6 +480,22 @@ impl VaultService {
         let aad: Vec<u8> = format!("record:{}", id).into_bytes();
 
         let now = chrono::Utc::now();
+
+        // Restore the remote updated_at to preserve sorting/display semantics.
+        // Falls back to now for malformed or legacy timestamps.
+        let remote_updated_at =
+            chrono::DateTime::parse_from_rfc3339(&cloud_record.metadata.updated_at)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|e| {
+                    tracing::warn!(
+                        record_id = %id,
+                        error = %e,
+                        raw = %cloud_record.metadata.updated_at,
+                        "Failed to parse metadata.updated_at, using current time"
+                    );
+                    now
+                });
+
         let deleted = cloud_record.deleted.unwrap_or(false);
         let deleted_at = if deleted {
             cloud_record
@@ -520,7 +536,7 @@ impl VaultService {
             is_favorite,
             expires_at,
             created_at: existing.as_ref().map_or(now, |r| r.created_at),
-            updated_at: now,
+            updated_at: remote_updated_at,
             updated_by,
             version: cloud_record.version,
             deleted,

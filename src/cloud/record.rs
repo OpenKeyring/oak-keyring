@@ -71,7 +71,12 @@ pub struct RecordMetadata {
     #[serde(default)]
     pub tags: Vec<String>,
     pub updated_at: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "ser_optional_credential_type",
+        deserialize_with = "de_optional_credential_type"
+    )]
     pub credential_type: Option<crate::types::credential::CredentialType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_favorite: Option<bool>,
@@ -81,6 +86,35 @@ pub struct RecordMetadata {
     pub updated_by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health: Option<RecordHealthMetadata>,
+}
+
+fn ser_optional_credential_type<S>(
+    val: &Option<crate::types::credential::CredentialType>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match val {
+        Some(ct) => serializer.serialize_some(ct.to_db_str()),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn de_optional_credential_type<'de, D>(
+    deserializer: D,
+) -> Result<Option<crate::types::credential::CredentialType>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    let s: Option<String> = Option::deserialize(deserializer)?;
+    match s {
+        Some(ref v) => crate::types::credential::CredentialType::from_db_str(v)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        None => Ok(None),
+    }
 }
 
 /// Cloud record structure matching the cloud-storage-schema-arch §5.2.
@@ -964,5 +998,72 @@ mod tests {
 
         assert_eq!(cloud.deleted, Some(true));
         assert!(cloud.deleted_at.is_some());
+    }
+
+    #[test]
+    fn test_credential_type_serde_lowercase() {
+        use crate::types::credential::CredentialType;
+
+        // Serialize: PascalCase enum → lowercase JSON
+        let meta = RecordMetadata {
+            name: "test".to_string(),
+            tags: vec![],
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            credential_type: Some(CredentialType::Api),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(
+            json.contains("\"api\""),
+            "expected lowercase 'api' in: {}",
+            json
+        );
+        assert!(
+            !json.contains("\"Api\""),
+            "should not contain PascalCase: {}",
+            json
+        );
+
+        // Deserialize: lowercase JSON → CredentialType
+        let parsed: RecordMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.credential_type, Some(CredentialType::Api));
+
+        // Ssh round-trip
+        let meta2 = RecordMetadata {
+            name: "ssh-test".to_string(),
+            tags: vec![],
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            credential_type: Some(CredentialType::Ssh),
+            ..Default::default()
+        };
+        let json2 = serde_json::to_string(&meta2).unwrap();
+        assert!(
+            json2.contains("\"ssh\""),
+            "expected lowercase 'ssh' in: {}",
+            json2
+        );
+        let parsed2: RecordMetadata = serde_json::from_str(&json2).unwrap();
+        assert_eq!(parsed2.credential_type, Some(CredentialType::Ssh));
+
+        // None round-trip
+        let meta3 = RecordMetadata {
+            name: "none-test".to_string(),
+            tags: vec![],
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            ..Default::default()
+        };
+        let json3 = serde_json::to_string(&meta3).unwrap();
+        assert!(
+            !json3.contains("credential_type"),
+            "None should be omitted: {}",
+            json3
+        );
+        let parsed3: RecordMetadata = serde_json::from_str(&json3).unwrap();
+        assert_eq!(parsed3.credential_type, None);
+
+        // Backward compat: deserialize old JSON without credential_type field
+        let old_json = r#"{"name":"old","tags":[],"updated_at":"2026-01-01T00:00:00Z"}"#;
+        let parsed4: RecordMetadata = serde_json::from_str(old_json).unwrap();
+        assert_eq!(parsed4.credential_type, None);
     }
 }
