@@ -56,6 +56,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         }
     }
 
+    // Render global notification overlay (on top of screen content).
+    if let Some(ref msg) = app.state.shared.notification.current_message {
+        crate::tui::components::notification::render_notification(frame, area, msg);
+    }
+
     // Apply active animation effect to the frame buffer.
     let area = frame.area();
     if let Some(active) = app.state.shared.animation.active_effect.as_mut() {
