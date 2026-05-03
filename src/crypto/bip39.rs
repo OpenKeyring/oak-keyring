@@ -46,6 +46,15 @@ impl MnemonicLanguage {
             MnemonicLanguage::ChineseSimplified,
         ]
     }
+
+    /// Resolve a config language string (e.g. "zh-CN", "zh-TW", "en") to a
+    /// MnemonicLanguage. Returns English for unrecognized values.
+    pub fn from_config_language(config_language: &str) -> Self {
+        match config_language {
+            "zh-CN" | "zh-TW" | "zh" => Self::ChineseSimplified,
+            _ => Self::English,
+        }
+    }
 }
 
 pub struct Passkey {
