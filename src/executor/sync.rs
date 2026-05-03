@@ -63,7 +63,9 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
         Err(_) => std::collections::HashMap::new(),
     };
 
-    // Build upload CloudRecords for records with pending sync status
+    // Build upload CloudRecords for records with pending sync status.
+    // Decrypt each record's name so that CloudRecord::validate() passes on
+    // the remote side. Records whose name cannot be decrypted are skipped.
     let uploads: Vec<crate::cloud::CloudRecord> = stored_records
         .iter()
         .filter(|r| {
@@ -73,7 +75,18 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
                 .unwrap_or(crate::types::sync::SyncStatus::Pending)
                 == crate::types::sync::SyncStatus::Pending
         })
-        .map(|r| {
+        .filter_map(|r| {
+            let name = match executor.vault.decrypt_record_name_for_sync(r) {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!(
+                        record_id = %r.id,
+                        error = %e,
+                        "Failed to decrypt record name for sync upload, skipping"
+                    );
+                    return None;
+                }
+            };
             let encrypted_base64 =
                 base64::engine::general_purpose::STANDARD.encode(&r.encrypted_data);
             let nonce_base64 = base64::engine::general_purpose::STANDARD.encode(r.nonce);
@@ -82,9 +95,28 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
                 dek_version: r.dek_version,
             };
             let health = health_states.get(&r.id);
-            build_cloud_record(r, "", &encrypted_base64, &nonce_base64, aad, health)
+            Some(build_cloud_record(
+                r,
+                &name,
+                &encrypted_base64,
+                &nonce_base64,
+                aad,
+                health,
+            ))
         })
         .collect();
+
+    // Validate each upload CloudRecord; a structurally invalid record would
+    // be rejected by the remote side on download, silently breaking sync.
+    for record in &uploads {
+        if let Err(e) = record.validate() {
+            tracing::error!(
+                record_id = %record.id,
+                error = %e,
+                "Upload CloudRecord failed validation — this is a bug"
+            );
+        }
+    }
 
     // Read metadata version and vault token
     let metadata_version = executor
