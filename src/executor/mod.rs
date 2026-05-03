@@ -274,9 +274,10 @@ impl CommandExecutor {
 
     /// Execute an internal command from a background task.
     ///
-    /// Internal commands bypass pre-check (no vault-lock gate) and
-    /// post-hook logging since they are system-level signals, not
-    /// user actions.
+    /// All internal commands bypass `pre_check` (no vault-lock gate).
+    /// `HealthCheckCompleted` handles cache updates internally.
+    /// `ScheduleHealthCheck` delegates to `post_hook` for error logging
+    /// and cache refresh.
     async fn execute_internal(&mut self, cmd: InternalCommand) {
         match cmd {
             InternalCommand::HealthCheckCompleted { report } => {
