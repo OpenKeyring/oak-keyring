@@ -171,7 +171,9 @@ pub enum CommandResult {
     ConfigLoaded {
         config: AppConfig,
     },
-    ConfigSaved,
+    ConfigSaved {
+        warnings: Vec<String>,
+    },
     SyncConnectionTested {
         success: bool,
         message: String,
@@ -299,7 +301,7 @@ mod exhaustive_tests {
                 CommandResult::RotationTriggerChecked { .. } => {}
                 // Config Results
                 CommandResult::ConfigLoaded { .. } => {}
-                CommandResult::ConfigSaved => {}
+                CommandResult::ConfigSaved { .. } => {}
                 CommandResult::SyncConnectionTested { .. } => {}
                 CommandResult::OAuth2Authorized { .. } => {}
                 CommandResult::OAuth2Failed { .. } => {}
