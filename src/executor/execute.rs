@@ -49,7 +49,6 @@ impl CommandExecutor {
                 | Command::UnlockWithRecoveryKey { .. }
                 | Command::InitializeVault { .. }
                 | Command::LoadConfig
-                | Command::InternalHealthCheckCompleted { .. }
         );
 
         if needs_unlock && !self.vault.is_unlocked() {
@@ -66,7 +65,7 @@ impl CommandExecutor {
     /// Post-hook: log errors for observability.
     ///
     /// Records command execution failures as warnings in the structured log.
-    fn post_hook(&mut self, result: &CommandResult) {
+    pub(super) fn post_hook(&mut self, result: &CommandResult) {
         if let CommandResult::Error { code, fallback, .. } = result {
             tracing::warn!(error_code = ?code, message = %fallback, "Command execution failed");
         }
@@ -284,39 +283,47 @@ impl CommandExecutor {
             // ── DEK Rotation ─────────────────────────────
             Command::TriggerRotation => rotation::handle_trigger_rotation(self).await,
             Command::CheckRotationTrigger => rotation::handle_check_rotation_trigger(self),
-            // ── Internal ─────────────────────────────────
-            Command::InternalHealthCheckCompleted { report } => {
-                let evaluated_at = chrono::Utc::now();
-
-                // Task E: Write-back loop — persist health states to DB.
-                match health::persist_health_report(self, &report, evaluated_at) {
-                    Ok(deltas) => {
-                        // Mark changed records as pending sync.
-                        if let Err(e) = health::schedule_health_resync_for_records(self, &deltas) {
-                            tracing::warn!(
-                                error = %e,
-                                "Failed to mark health-changed records for sync"
-                            );
-                        }
-
-                        // Update last_health_check_at metadata.
-                        if let Err(e) = self.vault.set_last_health_check_at(evaluated_at) {
-                            tracing::warn!(
-                                error = %e,
-                                "Failed to persist last_health_check_at"
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            "Failed to persist health report — caching in-memory only"
-                        );
-                    }
-                }
-
-                CommandResult::HealthCheckCompleted { report }
-            }
         }
     }
+}
+
+/// Handle the internal `HealthCheckCompleted` signal from a background task.
+///
+/// Persists the health report to DB, marks changed records for sync, and
+/// updates cached metadata. Returns a `CommandResult` for the UI.
+pub fn handle_internal_health_check_completed(
+    executor: &mut CommandExecutor,
+    report: crate::commands::types::HealthReport,
+) -> CommandResult {
+    let evaluated_at = chrono::Utc::now();
+
+    match health::persist_health_report(executor, &report, evaluated_at) {
+        Ok(deltas) => {
+            if let Err(e) = health::schedule_health_resync_for_records(executor, &deltas) {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to mark health-changed records for sync"
+                );
+            }
+
+            if let Err(e) = executor.vault.set_last_health_check_at(evaluated_at) {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to persist last_health_check_at"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "Failed to persist health report — caching in-memory only"
+            );
+        }
+    }
+
+    // Update cached health report on the executor.
+    executor.health_report = Some(report.clone());
+    executor.last_health_check_time = Some(chrono::Utc::now());
+
+    CommandResult::HealthCheckCompleted { report }
 }

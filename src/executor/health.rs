@@ -455,7 +455,7 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor, force: bool) -> C
         // Spec Compliance S5: Send internal signal to Executor to update its cache
         // This will also trigger the UI message via the Executor's standard execute flow.
         let _ = self_tx
-            .send(crate::commands::Command::InternalHealthCheckCompleted { report })
+            .send(crate::commands::InternalCommand::HealthCheckCompleted { report })
             .await;
     });
 

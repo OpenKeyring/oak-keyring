@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::commands::types::{FieldSelector, RecordFilter, RecordSort};
-use crate::commands::{Command, CommandResult};
+use crate::commands::{CommandResult, InternalCommand};
 use crate::crypto::password::{
     generate_memorable_password, generate_pin, generate_random_password,
 };
@@ -29,7 +29,7 @@ fn vault_error(e: crate::errors::mapping::vault::VaultError, msg: &str) -> Comma
 fn schedule_health_scan(executor: &CommandExecutor) {
     if let Err(e) = executor
         .internal_tx
-        .try_send(Command::RunHealthCheck { force: true })
+        .try_send(InternalCommand::ScheduleHealthCheck { force: true })
     {
         tracing::warn!(error = %e, "Failed to schedule health scan");
     }

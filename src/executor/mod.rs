@@ -21,7 +21,7 @@ use tracing::info;
 use crate::cloud::oauth2::TokenStore;
 use crate::cloud::provider::create_cloud_storage;
 use crate::commands::types::HealthReport;
-use crate::commands::{Command, Message};
+use crate::commands::{Command, InternalCommand, Message};
 use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::AppConfig;
 use crate::db::schema::init_db;
@@ -93,11 +93,11 @@ pub struct CommandExecutor {
     pub(super) last_health_check_time: Option<chrono::DateTime<chrono::Utc>>,
     /// Channel for sending messages (results) back to the UI layer.
     pub(super) result_tx: mpsc::Sender<Message>,
-    /// Internal channel for background tasks to talk back to the executor.
+    /// Internal channel for background tasks to send system-level signals.
     /// This prevents closure issues on the main command_rx.
-    pub(super) internal_tx: mpsc::Sender<Command>,
+    pub(super) internal_tx: mpsc::Sender<InternalCommand>,
     /// Internal receiver (temporary storage until run() is called).
-    internal_rx: Option<mpsc::Receiver<Command>>,
+    internal_rx: Option<mpsc::Receiver<InternalCommand>>,
     /// Cancellation token for graceful shutdown and operation cancellation.
     cancel_token: CancellationToken,
     /// OAuth2 token store for Google Drive authorization.
@@ -244,9 +244,8 @@ impl CommandExecutor {
 
                 // Priority 3: Internal command processing (background tasks)
                 cmd = internal_rx.recv() => {
-                    if let Some(command) = cmd {
-                        self.execute(command).await;
-                        // No need to reset auto-lock for internal commands
+                    if let Some(internal_cmd) = cmd {
+                        self.execute_internal(internal_cmd).await;
                     }
                 }
 
@@ -271,6 +270,27 @@ impl CommandExecutor {
         }
 
         info!("CommandExecutor stopped");
+    }
+
+    /// Execute an internal command from a background task.
+    ///
+    /// All internal commands bypass `pre_check` (no vault-lock gate).
+    /// `HealthCheckCompleted` handles cache updates internally.
+    /// `ScheduleHealthCheck` delegates to `post_hook` for error logging
+    /// and cache refresh.
+    async fn execute_internal(&mut self, cmd: InternalCommand) {
+        match cmd {
+            InternalCommand::HealthCheckCompleted { report } => {
+                let result =
+                    crate::executor::execute::handle_internal_health_check_completed(self, report);
+                let _ = self.result_tx.send(Message::CommandCompleted(result)).await;
+            }
+            InternalCommand::ScheduleHealthCheck { force } => {
+                let result = health::handle_run_health_check(self, force);
+                self.post_hook(&result);
+                let _ = self.result_tx.send(Message::CommandCompleted(result)).await;
+            }
+        }
     }
 
     // execute(), pre_check(), post_hook(), and dispatch() are defined in execute.rs
