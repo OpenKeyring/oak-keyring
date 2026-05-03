@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
+use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
@@ -54,7 +54,14 @@ pub fn run(
         if has_event {
             match event::read()? {
                 CrosstermEvent::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                    if handle_message(app, Message::KeyEvent(key_event))? == LoopControl::Exit {
+                    // Ctrl+X: dismiss active notification.
+                    if key_event.modifiers.contains(KeyModifiers::CONTROL)
+                        && key_event.code == KeyCode::Char('x')
+                    {
+                        app.state.shared.notification.clear();
+                    } else if handle_message(app, Message::KeyEvent(key_event))?
+                        == LoopControl::Exit
+                    {
                         return Ok(());
                     }
                 }
@@ -156,11 +163,17 @@ fn handle_message(
             use crate::tui::state::notification::StatusMessage;
 
             match result {
-                CommandResult::ConfigSaved => {
+                CommandResult::ConfigSaved { warnings } => {
                     app.state
                         .shared
                         .notification
                         .enqueue(StatusMessage::success("Configuration saved".into()));
+                    for w in warnings {
+                        app.state
+                            .shared
+                            .notification
+                            .enqueue(StatusMessage::warning(w.clone()));
+                    }
                 }
                 CommandResult::ConfigLoaded { config } => {
                     // Language change

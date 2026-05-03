@@ -21,14 +21,14 @@ pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> 
 
     match config.save(&executor.vault_dir) {
         Ok(()) => {
-            apply_config_changes(executor, &changed, &config);
+            let warnings = apply_config_changes(executor, &changed, &config);
             executor.config = config;
 
             if !changed.is_empty() {
-                tracing::info!(changed_fields = ?changed, "Config saved and changes applied");
+                tracing::info!(changed_fields = ?changed, warnings = warnings.len(), "Config saved and changes applied");
             }
 
-            CommandResult::ConfigSaved
+            CommandResult::ConfigSaved { warnings }
         }
         Err(e) => CommandResult::Error {
             code: ErrorCode::Config(e.to_string()),
@@ -80,7 +80,13 @@ fn detect_changed_fields(old: &AppConfig, new: &AppConfig) -> Vec<&'static str> 
 }
 
 /// Apply runtime config changes that take effect immediately.
-fn apply_config_changes(executor: &mut CommandExecutor, changed: &[&str], new_config: &AppConfig) {
+fn apply_config_changes(
+    executor: &mut CommandExecutor,
+    changed: &[&str],
+    new_config: &AppConfig,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+
     if !changed.is_empty() {
         let results = executor
             .config_notifier
@@ -88,6 +94,7 @@ fn apply_config_changes(executor: &mut CommandExecutor, changed: &[&str], new_co
         for result in &results {
             if let Err(e) = result {
                 tracing::error!(error = %e, "Service failed to reload config");
+                warnings.push(format!("Service reload failed: {}", e));
             }
         }
     }
@@ -108,15 +115,19 @@ fn apply_config_changes(executor: &mut CommandExecutor, changed: &[&str], new_co
                     Err(e) => {
                         tracing::warn!(error = %e, "SyncService rebuild failed — sync disabled");
                         executor.sync = None;
+                        warnings.push(format!("Sync service rebuild failed: {}", e));
                     }
                 }
             }
             "general.vault_path" => {
                 tracing::warn!("vault_path changed — requires application restart");
+                warnings.push("vault_path changed — requires application restart".to_string());
             }
             _ => {}
         }
     }
+
+    warnings
 }
 
 #[tracing::instrument(skip_all)]
@@ -241,7 +252,7 @@ pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor
 
     // Fire-and-forget: the actual result comes back via the spawned task.
     // Return a neutral result so the UI doesn't prematurely set Authorized state.
-    CommandResult::ConfigSaved
+    CommandResult::ConfigSaved { warnings: vec![] }
 }
 
 #[tracing::instrument(skip_all)]
@@ -363,5 +374,68 @@ mod tests {
             result,
             CommandResult::Cancelled { ref operation, .. } if operation == "sync_connection_test"
         ));
+    }
+
+    #[test]
+    fn apply_config_changes_returns_empty_warnings_on_success() {
+        let mut executor = make_executor_with_clipboard(30);
+        let mut new_config = AppConfig::default();
+        new_config.general.clipboard_clear_seconds = 90;
+
+        let warnings = apply_config_changes(
+            &mut executor,
+            &["general.clipboard_clear_seconds"],
+            &new_config,
+        );
+
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn apply_config_changes_returns_warning_on_vault_path_change() {
+        let mut executor = make_executor_with_clipboard(30);
+        let new_config = AppConfig::default();
+
+        let warnings = apply_config_changes(&mut executor, &["general.vault_path"], &new_config);
+
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("requires application restart")));
+    }
+
+    #[test]
+    fn handle_save_config_includes_warnings_in_result() {
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let mut executor = make_executor_with_clipboard(30);
+        executor.vault_dir = tmp.path().to_path_buf();
+        let mut new_config = AppConfig::default();
+        new_config.general.clipboard_clear_seconds = 90;
+
+        let result = handle_save_config(&mut executor, new_config);
+        match result {
+            CommandResult::ConfigSaved { warnings } => {
+                assert!(warnings.is_empty());
+            }
+            _ => panic!("Expected ConfigSaved"),
+        }
+    }
+
+    #[test]
+    fn handle_save_config_includes_vault_path_warning() {
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let mut executor = make_executor_with_clipboard(30);
+        executor.vault_dir = tmp.path().to_path_buf();
+        let mut new_config = AppConfig::default();
+        new_config.general.vault_path = std::path::PathBuf::from("/totally/different/path");
+
+        let result = handle_save_config(&mut executor, new_config);
+        match result {
+            CommandResult::ConfigSaved { warnings } => {
+                assert!(warnings
+                    .iter()
+                    .any(|w| w.contains("requires application restart")));
+            }
+            _ => panic!("Expected ConfigSaved"),
+        }
     }
 }

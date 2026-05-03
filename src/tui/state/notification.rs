@@ -1,9 +1,9 @@
 //! Status bar notification state with priority queue and auto-dismiss.
 
-/// Duration in ticks (1 tick ~ 50ms, so 40 ticks ~ 2s, 100 ticks ~ 5s).
+/// Duration in ticks (1 tick ~ 50ms, so 40 ticks ~ 2s, 300 ticks ~ 15s).
 const SUCCESS_TTL: u32 = 40; // 2s
-const ERROR_TTL: u32 = 100; // 5s
-const WARNING_TTL: u32 = 100; // 5s
+const ERROR_TTL: u32 = 300; // 15s
+const WARNING_TTL: u32 = 300; // 15s
 const OPERATION_TTL: u32 = 0; // Until completed (no auto-expire)
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,7 +186,7 @@ mod tests {
         // Error preempts success, success goes to pending
         assert!(ns.current_message.as_ref().unwrap().is_error());
         // Expire the error
-        for _ in 0..100 {
+        for _ in 0..300 {
             ns.tick();
         }
         // Pending success should now be current
