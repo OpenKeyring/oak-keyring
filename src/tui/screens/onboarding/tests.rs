@@ -1398,3 +1398,90 @@ fn dummy_ctx() -> ScreenContext<'static> {
         config,
     }
 }
+
+// ── returning_from_set_password guard tests ────────────────────────────
+
+#[test]
+fn on_mount_returning_from_set_password_preserves_state() {
+    use crate::tui::traits::screen::Screen;
+
+    let mut screen = OnboardingScreen {
+        returning_from_set_password: true,
+        selected_path: Some(OnboardingPath::CreateNew),
+        current_step: OnboardingStep::SetPassword,
+        path_input: "/custom/vault/path".to_string(),
+        welcome_selected: 1,
+        recovery_confirmed: true,
+        recovery_words: vec!["word".to_string(); 24],
+        ..Default::default()
+    };
+
+    screen.on_mount(&mut dummy_ctx());
+
+    // Step should be SetPassword, all other state preserved
+    assert_eq!(screen.current_step, OnboardingStep::SetPassword);
+    assert_eq!(screen.selected_path, Some(OnboardingPath::CreateNew));
+    assert_eq!(screen.path_input, "/custom/vault/path");
+    assert_eq!(screen.welcome_selected, 1);
+    assert!(screen.recovery_confirmed);
+    assert_eq!(screen.recovery_words.len(), 24);
+    // Flag must be consumed
+    assert!(!screen.returning_from_set_password);
+}
+
+#[test]
+fn on_mount_returning_from_set_password_consumes_flag() {
+    use crate::tui::traits::screen::Screen;
+
+    let mut screen = OnboardingScreen {
+        returning_from_set_password: true,
+        ..Default::default()
+    };
+
+    screen.on_mount(&mut dummy_ctx());
+    assert!(!screen.returning_from_set_password);
+
+    // Second mount without the flag should reset everything
+    screen.on_mount(&mut dummy_ctx());
+    assert_eq!(screen.current_step, OnboardingStep::Welcome);
+    assert!(screen.selected_path.is_none());
+}
+
+#[test]
+fn on_mount_without_flag_resets_state() {
+    use crate::tui::traits::screen::Screen;
+
+    let mut screen = OnboardingScreen {
+        returning_from_set_password: false,
+        selected_path: Some(OnboardingPath::CreateNew),
+        current_step: OnboardingStep::SetPassword,
+        path_input: "/should/be/cleared".to_string(),
+        ..Default::default()
+    };
+
+    screen.on_mount(&mut dummy_ctx());
+
+    // Without the flag, everything resets to defaults
+    assert_eq!(screen.current_step, OnboardingStep::Welcome);
+    assert!(screen.selected_path.is_none());
+    assert!(screen.path_input.is_empty());
+}
+
+#[test]
+fn on_mount_returning_from_import_takes_precedence_over_set_password() {
+    use crate::tui::traits::screen::Screen;
+
+    // If both flags are set, returning_from_import is checked first
+    let mut screen = OnboardingScreen {
+        returning_from_import: true,
+        returning_from_set_password: true,
+        ..Default::default()
+    };
+
+    screen.on_mount(&mut dummy_ctx());
+
+    assert_eq!(screen.current_step, OnboardingStep::VaultPath);
+    assert!(!screen.returning_from_import);
+    // returning_from_set_password remains set since the import guard returned first
+    assert!(screen.returning_from_set_password);
+}
