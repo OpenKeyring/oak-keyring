@@ -34,6 +34,11 @@ pub enum Command {
     InitializeVault {
         vault_path: PathBuf,
         master_password: SecureStr,
+        /// Pre-generated BIP39 recovery words. When provided, the executor
+        /// reconstructs the Passkey from these words instead of generating
+        /// a new mnemonic. This ensures the words shown to the user match
+        /// the key material stored on disk.
+        recovery_words: Option<Vec<String>>,
     },
 
     // ── Record CRUD ──────────────────────────────

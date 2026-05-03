@@ -110,7 +110,11 @@ impl CommandExecutor {
             Command::InitializeVault {
                 vault_path,
                 master_password,
-            } => vault::handle_initialize_vault(self, vault_path, master_password).await,
+                recovery_words,
+            } => {
+                vault::handle_initialize_vault(self, vault_path, master_password, recovery_words)
+                    .await
+            }
 
             // ── Record CRUD ──────────────────────────────
             Command::CreateRecord {
