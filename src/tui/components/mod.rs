@@ -3,6 +3,7 @@ pub mod empty_state;
 pub mod generator_panel;
 pub mod inline_validation;
 pub mod length_slider;
+pub mod notification;
 pub mod progress_bar;
 pub mod spinner;
 pub mod strength_bar;
