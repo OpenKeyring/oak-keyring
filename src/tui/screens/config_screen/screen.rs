@@ -74,7 +74,7 @@ impl ConfigScreen {
                     .load_from_config_preserving_restored_navigation(&config);
                 ScreenResult::Continue
             }
-            CommandResult::ConfigSaved => {
+            CommandResult::ConfigSaved { .. } => {
                 self.state.clear_changes();
                 ScreenResult::Continue
             }

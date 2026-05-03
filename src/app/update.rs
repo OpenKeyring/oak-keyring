@@ -156,11 +156,17 @@ fn handle_message(
             use crate::tui::state::notification::StatusMessage;
 
             match result {
-                CommandResult::ConfigSaved => {
+                CommandResult::ConfigSaved { warnings } => {
                     app.state
                         .shared
                         .notification
                         .enqueue(StatusMessage::success("Configuration saved".into()));
+                    for w in warnings {
+                        app.state
+                            .shared
+                            .notification
+                            .enqueue(StatusMessage::warning(w.clone()));
+                    }
                 }
                 CommandResult::ConfigLoaded { config } => {
                     // Language change
