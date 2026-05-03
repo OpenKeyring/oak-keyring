@@ -323,13 +323,25 @@ mod tests {
     }
 
     #[test]
-    fn apply_config_changes_ignores_non_service_fields() {
+    fn apply_config_changes_preserves_clipboard_timeout_for_unrelated_field_changes() {
         let mut executor = make_executor_with_clipboard(30);
 
         let new_config = AppConfig::default();
         apply_config_changes(&mut executor, &["general.auto_lock_seconds"], &new_config);
 
-        assert_eq!(executor.clipboard.clear_timeout(), 30); // unchanged
+        assert_eq!(executor.clipboard.clear_timeout(), 30);
+    }
+
+    #[test]
+    fn apply_config_changes_notifies_all_services_on_any_field_change() {
+        let mut executor = make_executor_with_clipboard(30);
+
+        let mut new_config = AppConfig::default();
+        new_config.general.clipboard_clear_seconds = 90;
+
+        apply_config_changes(&mut executor, &["general.auto_lock_seconds"], &new_config);
+
+        assert_eq!(executor.clipboard.clear_timeout(), 90);
     }
 
     #[tokio::test]
