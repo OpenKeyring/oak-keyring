@@ -453,7 +453,13 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         Screen::Onboarding => state.screens.onboarding.on_unmount(),
         Screen::Config => state.screens.config.on_unmount(),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
-        Screen::SetNewMasterPassword => state.screens.set_new_master_password.on_unmount(),
+        Screen::SetNewMasterPassword => {
+            // Signal onboarding if returning from SetNewMasterPassword
+            if state.screen_history.last().map(|s| s.screen) == Some(Screen::Onboarding) {
+                state.screens.onboarding.returning_from_set_password = true;
+            }
+            state.screens.set_new_master_password.on_unmount()
+        }
         Screen::ImportExport => {
             // Signal onboarding if returning from import (AC18)
             if matches!(
