@@ -171,24 +171,39 @@ pub fn handle_change_master_password(
     }
 }
 
-#[tracing::instrument(skip(executor, master_password))]
+#[tracing::instrument(skip(executor, master_password, recovery_words))]
 pub async fn handle_initialize_vault(
     executor: &mut CommandExecutor,
     vault_path: PathBuf,
     master_password: SecureStr,
+    recovery_words: Option<Vec<String>>,
 ) -> CommandResult {
-    // Step 1: Generate recovery key (24-word BIP39 mnemonic)
+    // Step 1: Obtain Passkey — either from pre-generated recovery words or
+    // by generating a fresh mnemonic.
     let language = resolve_mnemonic_language(&executor.config.general.language);
-    let passkey = match Passkey::generate(24, language) {
-        Ok(pk) => pk,
-        Err(e) => {
-            return CommandResult::Error {
-                code: ErrorCode::Crypto(format!("passkey_generation_failed: {}", e)),
-                context: ErrorContext::default(),
-                message_key: "error.passkey_generation_failed",
-                fallback: format!("Failed to generate recovery key: {}", e),
-            };
-        }
+    let passkey = match recovery_words {
+        Some(words) => match reconstruct_passkey(&words) {
+            Ok(pk) => pk,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::Crypto(format!("passkey_reconstruction_failed: {}", e)),
+                    context: ErrorContext::default(),
+                    message_key: "error.passkey_reconstruction_failed",
+                    fallback: format!("Failed to reconstruct recovery key: {}", e),
+                };
+            }
+        },
+        None => match Passkey::generate(24, language) {
+            Ok(pk) => pk,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::Crypto(format!("passkey_generation_failed: {}", e)),
+                    context: ErrorContext::default(),
+                    message_key: "error.passkey_generation_failed",
+                    fallback: format!("Failed to generate recovery key: {}", e),
+                };
+            }
+        },
     };
 
     // Step 2: Derive secret key from mnemonic seed
@@ -235,6 +250,16 @@ pub async fn handle_initialize_vault(
             CommandResult::VaultInitialized { recovery_words }
         }
     }
+}
+
+/// Reconstruct a Passkey from pre-generated recovery words.
+/// Tries English first, then Chinese Simplified.
+fn reconstruct_passkey(words: &[String]) -> Result<Passkey, String> {
+    let english = Passkey::from_words(words, MnemonicLanguage::English);
+    if english.is_ok() {
+        return english;
+    }
+    Passkey::from_words(words, MnemonicLanguage::ChineseSimplified)
 }
 
 /// Resolve the configured language string to a MnemonicLanguage enum.

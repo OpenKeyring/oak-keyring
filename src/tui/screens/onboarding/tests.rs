@@ -527,7 +527,7 @@ fn onboarding_recovery_display_copy_skipped_when_empty() {
 }
 
 #[test]
-fn onboarding_recovery_display_regenerate_sends_initialize_vault() {
+fn onboarding_recovery_display_regenerate_generates_new_words_locally() {
     let original_words: Vec<String> = (0..24).map(|i| format!("word{}", i)).collect();
     let mut screen = OnboardingScreen {
         selected_path: Some(OnboardingPath::CreateNew),
@@ -547,10 +547,9 @@ fn onboarding_recovery_display_regenerate_sends_initialize_vault() {
     // Confirm and clipboard state should be reset immediately
     assert!(!screen.recovery_confirmed);
     assert!(!screen.clipboard_copied);
-    // Words are NOT regenerated locally — a command is sent to the executor
-    // which will asynchronously return new words via VaultInitialized.
-    // The local words stay unchanged until that result arrives.
-    assert_eq!(screen.recovery_words, original_words);
+    // Words are regenerated locally — new BIP39 mnemonic replaces the old ones
+    assert_ne!(screen.recovery_words, original_words);
+    assert_eq!(screen.recovery_words.len(), 24);
 }
 
 #[test]
@@ -568,8 +567,8 @@ fn onboarding_recovery_display_regenerate_sends_command_even_with_empty_words() 
         &mut dummy_ctx(),
     );
 
-    // Should still send the command (no early return) — the vault will
-    // be re-initialized and new words returned.
+    // Should still regenerate locally (no early return) — new words
+    // are generated and stored immediately.
     assert!(matches!(result, ScreenResult::Continue));
 }
 

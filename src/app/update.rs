@@ -396,7 +396,9 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                     Some(crate::tui::screens::onboarding::OnboardingPath::Restore) => {
                         crate::tui::screens::set_password::SetPasswordContext::OnboardingRestore
                     }
-                    _ => crate::tui::screens::set_password::SetPasswordContext::OnboardingCreate,
+                    _ => crate::tui::screens::set_password::SetPasswordContext::OnboardingCreate {
+                        recovery_words: state.screens.onboarding.recovery_words.clone(),
+                    },
                 },
             };
             let vault_path = if !state.screens.onboarding.path_input.is_empty() {

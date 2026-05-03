@@ -143,7 +143,9 @@ fn recovery_key_grid_default() {
 
 #[test]
 fn set_password_screen_new() {
-    let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+    let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+        recovery_words: Vec::new(),
+    });
     assert!(screen.new_password.is_empty());
     assert!(screen.confirm_password.is_empty());
     assert!(screen.strength.is_none());
@@ -229,14 +231,23 @@ fn set_password_context_from_onboarding_create_path() {
         Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
         _ => match state.screens.onboarding.selected_path {
             Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate,
+            _ => SetPasswordContext::OnboardingCreate {
+                recovery_words: Vec::new(),
+            },
         },
     };
-    assert_eq!(context, SetPasswordContext::OnboardingCreate);
+    assert_eq!(
+        context,
+        SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new()
+        }
+    );
     state.screens.set_new_master_password = SetPasswordScreen::new(context);
     assert_eq!(
         state.screens.set_new_master_password.context,
-        SetPasswordContext::OnboardingCreate
+        SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new()
+        }
     );
 }
 
@@ -252,7 +263,9 @@ fn set_password_context_from_onboarding_restore_path() {
         Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
         _ => match state.screens.onboarding.selected_path {
             Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate,
+            _ => SetPasswordContext::OnboardingCreate {
+                recovery_words: Vec::new(),
+            },
         },
     };
     assert_eq!(context, SetPasswordContext::OnboardingRestore);
@@ -271,10 +284,17 @@ fn set_password_context_from_onboarding_import_path() {
         Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
         _ => match state.screens.onboarding.selected_path {
             Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate,
+            _ => SetPasswordContext::OnboardingCreate {
+                recovery_words: Vec::new(),
+            },
         },
     };
-    assert_eq!(context, SetPasswordContext::OnboardingCreate);
+    assert_eq!(
+        context,
+        SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new()
+        }
+    );
 }
 
 #[test]
@@ -288,7 +308,9 @@ fn set_password_context_from_unlock_post_recovery() {
         Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
         _ => match state.screens.onboarding.selected_path {
             Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate,
+            _ => SetPasswordContext::OnboardingCreate {
+                recovery_words: Vec::new(),
+            },
         },
     };
     assert_eq!(context, SetPasswordContext::PostRecovery);
@@ -300,6 +322,8 @@ fn set_password_screen_in_screen_states() {
     // Verify SetNewMasterPassword screen is registered in ScreenStates
     assert_eq!(
         state.screens.set_new_master_password.context,
-        SetPasswordContext::OnboardingCreate
+        SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new()
+        }
     );
 }
