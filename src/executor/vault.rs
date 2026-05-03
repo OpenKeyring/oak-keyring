@@ -180,7 +180,7 @@ pub async fn handle_initialize_vault(
 ) -> CommandResult {
     // Step 1: Obtain Passkey — either from pre-generated recovery words or
     // by generating a fresh mnemonic.
-    let language = resolve_mnemonic_language(&executor.config.general.language);
+    let language = MnemonicLanguage::from_config_language(&executor.config.general.language);
     let passkey = match recovery_words {
         Some(words) => match reconstruct_passkey(&words) {
             Ok(pk) => pk,
@@ -260,12 +260,4 @@ fn reconstruct_passkey(words: &[String]) -> Result<Passkey, String> {
         return english;
     }
     Passkey::from_words(words, MnemonicLanguage::ChineseSimplified)
-}
-
-/// Resolve the configured language string to a MnemonicLanguage enum.
-fn resolve_mnemonic_language(config_language: &str) -> MnemonicLanguage {
-    match config_language {
-        "zh-CN" | "zh-TW" | "zh" => MnemonicLanguage::ChineseSimplified,
-        _ => MnemonicLanguage::English,
-    }
 }
