@@ -1,7 +1,5 @@
 // Record listing, filtering, and sorting
 
-use chrono::Utc;
-
 use crate::commands::types::{RecordFilter, RecordSort, SortField};
 use crate::crypto::payload;
 use crate::db::queries;
@@ -22,7 +20,7 @@ impl VaultService {
     /// # Filter behavior
     /// - `All` — all active (non-deleted) records
     /// - `Favorites` — active records where `is_favorite = true`
-    /// - `Expired` — active records where `expires_at < now`
+    /// - `Expired` — returns all active records; executor filters using health_report
     /// - `Trash` — soft-deleted records
     /// - `Tag(name)` — active records with the specified tag
     /// - `Search(query)` — delegates to search module for filtering
@@ -79,15 +77,13 @@ impl VaultService {
                     )
                     .map_err(VaultError::CryptoError)?;
 
-                    let is_expired = stored.expires_at.is_some_and(|t| t < Utc::now());
-
                     tui_records.push(TuiRecord {
                         id: stored.id,
                         credential_type: stored.credential_type,
                         name,
                         subtitle,
                         is_favorite: stored.is_favorite,
-                        is_expired,
+                        is_expired: false, // populated by executor from health_report
                         expires_at: stored.expires_at,
                         has_weak_password: false, // populated by executor from health_report
                         is_compromised: false,    // populated by executor from health_report
@@ -119,7 +115,6 @@ impl VaultService {
             }
         };
 
-        let now = Utc::now();
         let sync_map = self.load_sync_status_map();
 
         // Decrypt and build TuiRecords, applying application-layer filters
@@ -130,13 +125,8 @@ impl VaultService {
                 continue;
             }
 
-            // Application-layer filter for Expired
-            if matches!(filter, RecordFilter::Expired) {
-                let is_expired = stored.expires_at.is_some_and(|t| t < now);
-                if !is_expired {
-                    continue;
-                }
-            }
+            // Expired filtering is handled by the executor using the health report,
+            // not by DB-level expires_at < now. See spec §11.2.
 
             // Application-layer filter for Tag
             if let RecordFilter::Tag(tag_name) = filter {
@@ -166,15 +156,15 @@ impl VaultService {
             )
             .map_err(VaultError::CryptoError)?;
 
-            let is_expired = stored.expires_at.is_some_and(|t| t < now);
-
+            // is_expired defaults to false; the executor overrides it from the
+            // health report. We do NOT compute it from expires_at < now here.
             tui_records.push(TuiRecord {
                 id: stored.id,
                 credential_type: stored.credential_type,
                 name,
                 subtitle,
                 is_favorite: stored.is_favorite,
-                is_expired,
+                is_expired: false,
                 expires_at: stored.expires_at,
                 has_weak_password: false,
                 is_compromised: false,
@@ -208,12 +198,31 @@ impl VaultService {
         queries::list_active_records(&self.conn).map_err(db_error_to_vault)
     }
 
+    /// Decrypt the name field from a `StoredRecord`.
+    ///
+    /// Used by the sync upload path to produce a valid `CloudRecord.metadata.name`
+    /// without decrypting the full payload.
+    pub fn decrypt_record_name_for_sync(
+        &self,
+        stored: &crate::types::record::StoredRecord,
+    ) -> Result<String, VaultError> {
+        let aad = format!("record:{}", stored.id);
+        crate::crypto::payload::decrypt_name_only(
+            &self.crypto,
+            &stored.encrypted_data,
+            &stored.nonce,
+            aad.as_bytes(),
+            stored.dek_version,
+        )
+        .map_err(VaultError::CryptoError)
+    }
+
     /// Load all sync statuses from the `sync_state` table in a single query.
     ///
     /// Returns a map from record ID (as hyphenated string) to its `SyncStatus`.
     /// If the `sync_state` table is empty (sync never used), the map will be empty,
     /// which is the correct default — callers get `None` for all records.
-    fn load_sync_status_map(&self) -> std::collections::HashMap<String, SyncStatus> {
+    pub fn load_sync_status_map(&self) -> std::collections::HashMap<String, SyncStatus> {
         crate::db::queries::load_sync_status_map(&self.conn)
     }
 

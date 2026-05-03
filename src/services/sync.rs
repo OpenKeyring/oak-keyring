@@ -8,11 +8,14 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::cloud::{CloudMetadata, CloudStorage};
+use uuid::Uuid;
+
+use crate::cloud::{CloudMetadata, CloudRecord, CloudStorage};
 use crate::errors::mapping::sync::SyncError;
 use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::state_machine::SyncStateMachine;
-use crate::sync::task::{SyncCommand, SyncEvent, SyncReport, SyncTask};
+use crate::sync::task::{SyncCommand, SyncEvent, SyncReport, SyncTask, SyncVaultData};
+use crate::types::health::RecordHealthState;
 
 /// Channel capacity for command and event queues.
 const CHANNEL_CAPACITY: usize = 16;
@@ -22,6 +25,16 @@ const SYNC_TIMEOUT: Duration = Duration::from_secs(60);
 const CONFLICT_TIMEOUT: Duration = Duration::from_secs(30);
 const PAUSE_TIMEOUT: Duration = Duration::from_secs(30);
 const RESUME_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Result of a sync operation, bundling the report with health state vectors
+/// and downloaded CloudRecords extracted from the pipeline.
+#[derive(Debug)]
+pub struct SyncResult {
+    pub report: SyncReport,
+    pub downloaded_health_states: Vec<RecordHealthState>,
+    pub downloaded_health_deleted: Vec<Uuid>,
+    pub downloaded_records: Vec<CloudRecord>,
+}
 
 /// Public interface to the sync subsystem.
 ///
@@ -89,15 +102,20 @@ impl SyncService {
     /// Returns `SyncError` if:
     /// - Timeout (60s) expires before `Completed` or `Failed` event
     /// - `Failed` event is received
-    pub async fn sync(&mut self) -> Result<SyncReport, SyncError> {
-        self.sync_with_cancel(CancellationToken::new()).await
+    pub async fn sync(
+        &mut self,
+        vault_data: Option<Box<SyncVaultData>>,
+    ) -> Result<SyncResult, SyncError> {
+        self.sync_with_cancel(CancellationToken::new(), vault_data)
+            .await
     }
 
     /// Triggers a full sync cycle and returns promptly if `cancel` is triggered.
     pub async fn sync_with_cancel(
         &mut self,
         cancel: CancellationToken,
-    ) -> Result<SyncReport, SyncError> {
+        vault_data: Option<Box<SyncVaultData>>,
+    ) -> Result<SyncResult, SyncError> {
         if cancel.is_cancelled() {
             return Err(SyncError::Cancelled {
                 operation: "sync".to_string(),
@@ -105,7 +123,7 @@ impl SyncService {
         }
 
         self.cmd_tx
-            .send(SyncCommand::TriggerSync)
+            .send(SyncCommand::TriggerSync(vault_data))
             .await
             .map_err(|_| SyncError::ProviderError {
                 provider: "sync".to_string(),
@@ -114,12 +132,19 @@ impl SyncService {
 
         let event = self
             .wait_for_event_or_cancel(SYNC_TIMEOUT, cancel, "sync", |event| {
-                matches!(event, SyncEvent::Completed(_) | SyncEvent::Failed { .. })
+                matches!(event, SyncEvent::Completed(..) | SyncEvent::Failed { .. })
             })
             .await?;
 
         match event {
-            SyncEvent::Completed(report) => Ok(report),
+            SyncEvent::Completed(report, health_states, health_deleted, records) => {
+                Ok(SyncResult {
+                    report,
+                    downloaded_health_states: health_states,
+                    downloaded_health_deleted: health_deleted,
+                    downloaded_records: records,
+                })
+            }
             SyncEvent::Failed { error, state: _ } => Err(SyncError::ProviderError {
                 provider: "sync".to_string(),
                 message: error,
@@ -470,7 +495,7 @@ mod tests {
 
         // sync() may return Completed or Failed depending on whether
         // the pipeline has data to work with. Both are acceptable.
-        let result = svc.sync().await;
+        let result = svc.sync(None).await;
         assert!(
             result.is_ok(),
             "sync() should return Ok result, got: {:?}",
@@ -488,7 +513,7 @@ mod tests {
         let cancel = tokio_util::sync::CancellationToken::new();
         cancel.cancel();
 
-        let result = svc.sync_with_cancel(cancel).await;
+        let result = svc.sync_with_cancel(cancel, None).await;
 
         assert!(matches!(result, Err(SyncError::Cancelled { .. })));
     }

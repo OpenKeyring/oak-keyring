@@ -2,8 +2,10 @@ use chrono::{DateTime, TimeZone, Utc};
 use rusqlite::Row;
 use uuid::Uuid;
 
+use crate::db::queries::DbError;
 use crate::types::audit::{AuditEntry, AuditOperation};
 use crate::types::credential::{CredentialType, DataError};
+use crate::types::health::{HealthStateDelta, RecordHealthState};
 use crate::types::record::StoredRecord;
 use crate::types::sync::{SyncState, SyncStatus};
 use crate::types::tag::Tag;
@@ -225,5 +227,79 @@ impl SyncStateRow {
             sync_status,
             conflict_data: self.conflict_data,
         })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RecordHealthStateRow
+// ---------------------------------------------------------------------------
+
+/// Row model for the `record_health_state` table.
+pub(crate) struct RecordHealthStateRow {
+    pub(crate) record_id: String,
+    pub(crate) record_version: i64,
+    pub(crate) evaluated_at: Option<i64>,
+    pub(crate) weak_password: Option<i64>,
+    pub(crate) duplicate_group_size: Option<i64>,
+    pub(crate) compromised: Option<i64>,
+    pub(crate) expired: Option<i64>,
+}
+
+impl RecordHealthStateRow {
+    pub(crate) fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(RecordHealthStateRow {
+            record_id: row.get("record_id")?,
+            record_version: row.get("record_version")?,
+            evaluated_at: row.get("evaluated_at")?,
+            weak_password: row.get("weak_password")?,
+            duplicate_group_size: row.get("duplicate_group_size")?,
+            compromised: row.get("compromised")?,
+            expired: row.get("expired")?,
+        })
+    }
+
+    /// Convert into the domain `RecordHealthState`.
+    ///
+    /// Uses `bool_from_int` helper to bridge the SQLite INTEGER ↔ Rust `Option<bool>` gap.
+    #[allow(clippy::wrong_self_convention)]
+    pub(crate) fn to_health_state(self) -> Result<RecordHealthState, DbError> {
+        let record_id = Uuid::parse_str(&self.record_id).map_err(DbError::Uuid)?;
+
+        Ok(RecordHealthState {
+            record_id,
+            record_version: self.record_version as u64,
+            evaluated_at: self.evaluated_at.map(timestamp_to_datetime),
+            weak_password: self.weak_password.map(bool_from_int),
+            duplicate_group_size: self.duplicate_group_size.map(|v| v as usize),
+            compromised: self.compromised.map(bool_from_int),
+            expired: self.expired.map(bool_from_int),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Int <-> Bool conversion helpers
+// ---------------------------------------------------------------------------
+
+/// Convert an SQLite INTEGER (0/1) to a Rust `bool`.
+fn bool_from_int(v: i64) -> bool {
+    v != 0
+}
+
+// ---------------------------------------------------------------------------
+// HealthStateDelta helpers
+// ---------------------------------------------------------------------------
+
+/// Build a `HealthStateDelta` from optional before/after snapshots.
+#[allow(dead_code)]
+pub(crate) fn build_health_delta(
+    record_id: Uuid,
+    before: Option<RecordHealthState>,
+    after: Option<RecordHealthState>,
+) -> HealthStateDelta {
+    HealthStateDelta {
+        record_id,
+        before,
+        after,
     }
 }

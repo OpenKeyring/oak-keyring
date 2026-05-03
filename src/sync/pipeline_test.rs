@@ -40,6 +40,8 @@ mod tests {
                 name: format!("Test Record {}", id),
                 tags: vec!["test".to_string()],
                 updated_at: Utc::now().to_rfc3339(),
+                health: None,
+                ..Default::default()
             },
             deleted: None,
             deleted_at: None,
@@ -541,5 +543,332 @@ mod tests {
         let result = pipeline.execute(&mut context).await;
 
         assert!(matches!(result, PipelineResult::Completed));
+    }
+
+    // ===== Health State Sync Tests =====
+
+    fn create_test_cloud_record_with_health(
+        id: &str,
+        version: u64,
+        weak: Option<bool>,
+        dup_size: Option<u32>,
+    ) -> CloudRecord {
+        use crate::cloud::record::RecordHealthMetadata;
+
+        CloudRecord {
+            id: id.to_string(),
+            version,
+            encrypted_data: "dGVzdCBkYXRh".to_string(),
+            nonce: "bm9uY2U".to_string(),
+            dek_version: 1,
+            aad: AadFields {
+                record_id: id.to_string(),
+                dek_version: 1,
+            },
+            metadata: RecordMetadata {
+                name: format!("Test Record {}", id),
+                tags: vec!["test".to_string()],
+                updated_at: Utc::now().to_rfc3339(),
+                health: Some(RecordHealthMetadata {
+                    evaluated_at: Some("2026-04-05T12:00:00Z".to_string()),
+                    weak_password: weak,
+                    duplicate_group_size: dup_size,
+                    compromised: Some(false),
+                    expired: None,
+                }),
+                ..Default::default()
+            },
+            deleted: None,
+            deleted_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn download_extracts_health_state_from_cloud_record() {
+        let (storage, _temp_dir) = create_test_storage();
+        let checkpoint = create_test_checkpoint();
+
+        let record_id = "550e8400-e29b-41d4-a716-446655440000";
+        let record = create_test_cloud_record_with_health(record_id, 2, Some(true), Some(3));
+        let correct_checksum = record.compute_checksum().unwrap();
+        storage.upload_record(record_id, &record).await.unwrap();
+
+        let mut metadata = create_test_metadata_with_records("test_token", 1, vec![(record_id, 2)]);
+        metadata.upsert_record(
+            record_id.to_string(),
+            RecordVersionInfo {
+                version: 2,
+                updated_at: Utc::now().to_rfc3339(),
+                updated_by: "device-1".to_string(),
+                checksum: correct_checksum,
+                deleted: false,
+            },
+        );
+
+        let mut context = PipelineContext::new(
+            storage,
+            ConflictManager::new(),
+            checkpoint,
+            1,
+            "test_token".to_string(),
+        );
+
+        context.remote_metadata = Some(metadata);
+        context.to_download.push(record_id.to_string());
+
+        let stage = PushStage::new();
+        let outcome = stage.execute(&mut context).await;
+
+        assert!(matches!(outcome, StageOutcome::Continue));
+        assert!(context.downloads.contains_key(record_id));
+
+        // Verify health state was extracted
+        assert_eq!(context.downloaded_health_states.len(), 1);
+        let health = &context.downloaded_health_states[0];
+        assert_eq!(health.record_id.to_string(), record_id);
+        assert_eq!(health.record_version, 2);
+        assert_eq!(health.weak_password, Some(true));
+        assert_eq!(health.duplicate_group_size, Some(3));
+        assert!(health.evaluated_at.is_some());
+        assert!(context.downloaded_health_deleted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn download_schedules_health_deletion_when_no_health_metadata() {
+        let (storage, _temp_dir) = create_test_storage();
+        let checkpoint = create_test_checkpoint();
+
+        let record_id = "550e8400-e29b-41d4-a716-446655440001";
+        // Record without health metadata (old-format or uploaded by older client)
+        let record = create_test_cloud_record(record_id, 2);
+        let correct_checksum = record.compute_checksum().unwrap();
+        storage.upload_record(record_id, &record).await.unwrap();
+
+        let mut metadata = create_test_metadata_with_records("test_token", 1, vec![(record_id, 2)]);
+        metadata.upsert_record(
+            record_id.to_string(),
+            RecordVersionInfo {
+                version: 2,
+                updated_at: Utc::now().to_rfc3339(),
+                updated_by: "device-1".to_string(),
+                checksum: correct_checksum,
+                deleted: false,
+            },
+        );
+
+        let mut context = PipelineContext::new(
+            storage,
+            ConflictManager::new(),
+            checkpoint,
+            1,
+            "test_token".to_string(),
+        );
+
+        context.remote_metadata = Some(metadata);
+        context.to_download.push(record_id.to_string());
+
+        let stage = PushStage::new();
+        let outcome = stage.execute(&mut context).await;
+
+        assert!(matches!(outcome, StageOutcome::Continue));
+
+        // No health states extracted
+        assert!(context.downloaded_health_states.is_empty());
+        // But the record ID should be scheduled for deletion
+        assert_eq!(context.downloaded_health_deleted.len(), 1);
+        assert_eq!(context.downloaded_health_deleted[0].to_string(), record_id);
+    }
+
+    #[tokio::test]
+    async fn upload_preserves_health_metadata_in_cloud_record() {
+        let (storage, _temp_dir) = create_test_storage();
+        let checkpoint = create_test_checkpoint();
+
+        let record_id = "550e8400-e29b-41d4-a716-446655440002";
+        let record = create_test_cloud_record_with_health(record_id, 1, Some(false), None);
+
+        let mut context = PipelineContext::new(
+            storage.clone(),
+            ConflictManager::new(),
+            checkpoint,
+            1,
+            "test_token".to_string(),
+        );
+
+        context.to_upload.push(record_id.to_string());
+        context.set_uploads(vec![record.clone()]);
+
+        let stage = PushStage::new();
+        let outcome = stage.execute(&mut context).await;
+
+        assert!(matches!(outcome, StageOutcome::Continue));
+        assert!(context.failed_ids.is_empty());
+
+        // Download the uploaded record and verify health metadata survived
+        let downloaded = storage.download_record(record_id).await.unwrap().unwrap();
+        assert!(downloaded.metadata.health.is_some());
+        let health = downloaded.metadata.health.unwrap();
+        assert_eq!(health.weak_password, Some(false));
+        assert_eq!(health.compromised, Some(false));
+    }
+
+    #[tokio::test]
+    async fn round_trip_health_state_via_pipeline() {
+        let (storage, _temp_dir) = create_test_storage();
+
+        // ── Device A: Upload ──────────────────────────────────────
+        let record_id = "550e8400-e29b-41d4-a716-446655440003";
+        let record_a = create_test_cloud_record_with_health(record_id, 1, Some(true), Some(5));
+
+        let checkpoint_a = create_test_checkpoint();
+        let mut context_a = PipelineContext::new(
+            storage.clone(),
+            ConflictManager::new(),
+            checkpoint_a,
+            0,
+            "test_token".to_string(),
+        );
+
+        context_a.set_local_records(vec![LocalRecordInfo {
+            record_id: record_id.to_string(),
+            sync_status: SyncStatus::Pending,
+            version: 1,
+        }]);
+        context_a.set_uploads(vec![record_a]);
+
+        let pipeline_a = SyncPipeline::new();
+        let result_a = pipeline_a.execute(&mut context_a).await;
+        assert!(matches!(result_a, PipelineResult::Completed));
+
+        // ── Device B: Download ─────────────────────────────────────
+        // First, upload metadata so Device B can see remote changes.
+        let mut metadata = CloudMetadata::new("test_token".to_string());
+        metadata.metadata_version = 1;
+        metadata.add_device(DeviceInfo {
+            device_id: "device-b".to_string(),
+            platform: "macos".to_string(),
+            device_name: "MacBook Air".to_string(),
+            last_seen: Utc::now().to_rfc3339(),
+            sync_count: 1,
+        });
+        // Need to compute the checksum of the uploaded record
+        let uploaded_record = storage.download_record(record_id).await.unwrap().unwrap();
+        let checksum = uploaded_record.compute_checksum().unwrap();
+        metadata.upsert_record(
+            record_id.to_string(),
+            RecordVersionInfo {
+                version: 1,
+                updated_at: Utc::now().to_rfc3339(),
+                updated_by: "device-a".to_string(),
+                checksum,
+                deleted: false,
+            },
+        );
+        storage.upload_metadata(&metadata).await.unwrap();
+
+        let checkpoint_b = create_test_checkpoint();
+        let mut context_b = PipelineContext::new(
+            storage,
+            ConflictManager::new(),
+            checkpoint_b,
+            0,
+            "test_token".to_string(),
+        );
+
+        context_b.set_local_records(vec![LocalRecordInfo {
+            record_id: record_id.to_string(),
+            sync_status: SyncStatus::Synced,
+            version: 0, // Behind remote
+        }]);
+
+        let pipeline_b = SyncPipeline::new();
+        let result_b = pipeline_b.execute(&mut context_b).await;
+        assert!(matches!(result_b, PipelineResult::Completed));
+
+        // Verify health state was extracted on Device B
+        assert_eq!(context_b.downloaded_health_states.len(), 1);
+        let health = &context_b.downloaded_health_states[0];
+        assert_eq!(health.weak_password, Some(true));
+        assert_eq!(health.duplicate_group_size, Some(5));
+        assert!(health.evaluated_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn mixed_download_with_and_without_health() {
+        let (storage, _temp_dir) = create_test_storage();
+        let checkpoint = create_test_checkpoint();
+
+        let record_with_health = "550e8400-e29b-41d4-a716-446655440010";
+        let record_without_health = "550e8400-e29b-41d4-a716-446655440011";
+
+        let rec_a = create_test_cloud_record_with_health(record_with_health, 2, Some(true), None);
+        let rec_b = create_test_cloud_record(record_without_health, 2);
+
+        storage
+            .upload_record(record_with_health, &rec_a)
+            .await
+            .unwrap();
+        storage
+            .upload_record(record_without_health, &rec_b)
+            .await
+            .unwrap();
+
+        let checksum_a = rec_a.compute_checksum().unwrap();
+        let checksum_b = rec_b.compute_checksum().unwrap();
+
+        let mut metadata = create_test_metadata_with_records(
+            "test_token",
+            1,
+            vec![(record_with_health, 2), (record_without_health, 2)],
+        );
+        metadata.upsert_record(
+            record_with_health.to_string(),
+            RecordVersionInfo {
+                version: 2,
+                updated_at: Utc::now().to_rfc3339(),
+                updated_by: "device-1".to_string(),
+                checksum: checksum_a,
+                deleted: false,
+            },
+        );
+        metadata.upsert_record(
+            record_without_health.to_string(),
+            RecordVersionInfo {
+                version: 2,
+                updated_at: Utc::now().to_rfc3339(),
+                updated_by: "device-1".to_string(),
+                checksum: checksum_b,
+                deleted: false,
+            },
+        );
+
+        let mut context = PipelineContext::new(
+            storage,
+            ConflictManager::new(),
+            checkpoint,
+            1,
+            "test_token".to_string(),
+        );
+
+        context.remote_metadata = Some(metadata);
+        context.to_download.push(record_with_health.to_string());
+        context.to_download.push(record_without_health.to_string());
+
+        let stage = PushStage::new();
+        let outcome = stage.execute(&mut context).await;
+
+        assert!(matches!(outcome, StageOutcome::Continue));
+
+        // One health state extracted, one deletion scheduled
+        assert_eq!(context.downloaded_health_states.len(), 1);
+        assert_eq!(
+            context.downloaded_health_states[0].record_id.to_string(),
+            record_with_health
+        );
+        assert_eq!(context.downloaded_health_deleted.len(), 1);
+        assert_eq!(
+            context.downloaded_health_deleted[0].to_string(),
+            record_without_health
+        );
     }
 }

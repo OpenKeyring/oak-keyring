@@ -214,7 +214,7 @@ impl CommandExecutor {
             Command::GeneratePin { length } => record::handle_generate_pin(self, length),
 
             // ── Health Check ──────────────────────────────
-            Command::RunHealthCheck => health::handle_run_health_check(self),
+            Command::RunHealthCheck { force } => health::handle_run_health_check(self, force),
             Command::CheckHibp { record_id } => health::handle_check_hibp(self, record_id).await,
 
             // ── Sync Operations ──────────────────────────
@@ -282,6 +282,35 @@ impl CommandExecutor {
             Command::CheckRotationTrigger => rotation::handle_check_rotation_trigger(self),
             // ── Internal ─────────────────────────────────
             Command::InternalHealthCheckCompleted { report } => {
+                let evaluated_at = chrono::Utc::now();
+
+                // Task E: Write-back loop — persist health states to DB.
+                match health::persist_health_report(self, &report, evaluated_at) {
+                    Ok(deltas) => {
+                        // Mark changed records as pending sync.
+                        if let Err(e) = health::schedule_health_resync_for_records(self, &deltas) {
+                            tracing::warn!(
+                                error = %e,
+                                "Failed to mark health-changed records for sync"
+                            );
+                        }
+
+                        // Update last_health_check_at metadata.
+                        if let Err(e) = self.vault.set_last_health_check_at(evaluated_at) {
+                            tracing::warn!(
+                                error = %e,
+                                "Failed to persist last_health_check_at"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Failed to persist health report — caching in-memory only"
+                        );
+                    }
+                }
+
                 CommandResult::HealthCheckCompleted { report }
             }
         }

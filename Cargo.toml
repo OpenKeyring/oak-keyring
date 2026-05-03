@@ -93,6 +93,11 @@ insta = "1"
 mockall = "0.13"
 tempfile = "3"
 anyhow = "1"
+oak-keyring = { path = ".", features = ["test-helpers"] }
+
+[features]
+default = []
+test-helpers = []
 
 [build-dependencies]
 

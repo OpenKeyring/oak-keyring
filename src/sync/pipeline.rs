@@ -1,6 +1,7 @@
 //! SyncPipeline - 4-stage sync orchestration.
 
 use std::collections::HashMap;
+use std::fmt;
 
 use uuid::Uuid;
 
@@ -9,6 +10,7 @@ use crate::cloud::{CloudMetadata, CloudRecord, CloudStorage};
 use crate::errors::mapping::sync::SyncError;
 use crate::sync::checkpoint::{PendingConflict, SyncCheckpoint};
 use crate::sync::conflict::{ConflictAction, ConflictManager};
+use crate::types::health::RecordHealthState;
 use crate::types::sync::SyncStatus;
 
 #[derive(Debug)]
@@ -31,8 +33,59 @@ pub struct LocalRecordInfo {
     pub version: u64,
 }
 
+/// Adapter trait that bridges the sync pipeline to the vault's health state
+/// storage. The pipeline calls these methods to read/write health states
+/// without depending on VaultService directly.
+///
+/// Implementations are provided by the caller (SyncTask or a bridge layer)
+/// at pipeline construction time.
+pub trait HealthSyncAdapter: Send + Sync {
+    /// Look up the persisted health state for a record about to be uploaded.
+    ///
+    /// Returns `None` when no health state exists for the given record.
+    /// The pipeline attaches the returned state to the `CloudRecord` before
+    /// uploading so that remote devices can restore it on download.
+    fn get_health_state(&self, record_id: &Uuid) -> Option<RecordHealthState>;
+
+    /// Persist downloaded health states into the local store.
+    ///
+    /// Called once after the Push stage completes with all health states
+    /// extracted from downloaded CloudRecords. Each state is upserted so
+    /// that local health report reflects the remote evaluation.
+    fn persist_health_states(&self, states: &[RecordHealthState]);
+
+    /// Delete local health states for records whose CloudRecord carried no
+    /// health metadata (e.g. uploaded by an older client version).
+    fn delete_health_states(&self, record_ids: &[Uuid]);
+
+    /// Support downcasting for adapter-specific operations (e.g. flush).
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+/// A no-op adapter used when no vault is available (e.g. standalone tests).
+pub struct NoOpHealthSyncAdapter;
+
+impl HealthSyncAdapter for NoOpHealthSyncAdapter {
+    fn get_health_state(&self, _record_id: &Uuid) -> Option<RecordHealthState> {
+        None
+    }
+
+    fn persist_health_states(&self, _states: &[RecordHealthState]) {}
+
+    fn delete_health_states(&self, _record_ids: &[Uuid]) {}
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl fmt::Debug for NoOpHealthSyncAdapter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoOpHealthSyncAdapter").finish()
+    }
+}
+
 /// Shared context passed between pipeline stages.
-#[derive(Debug)]
 pub struct PipelineContext {
     /// Cloud storage for remote operations.
     pub storage: CloudStorage,
@@ -62,16 +115,77 @@ pub struct PipelineContext {
     pub conflict_data_map: HashMap<String, Vec<u8>>,
     /// Local records info for conflict detection.
     pub local_records: Vec<LocalRecordInfo>,
+    /// Health states extracted from downloaded CloudRecords.
+    ///
+    /// Populated by PushStage when downloading records that carry health
+    /// metadata. The caller reads this after the pipeline completes and
+    /// persists the health states to the local DB.
+    pub downloaded_health_states: Vec<RecordHealthState>,
+    /// Record IDs whose downloaded CloudRecord had `metadata.health = None`.
+    ///
+    /// The caller should delete local health states for these records so that
+    /// stale health data from a previous version does not linger.
+    pub downloaded_health_deleted: Vec<Uuid>,
+    /// Health sync adapter for reading/writing health states from/to the
+    /// local vault. Set to `NoOpHealthSyncAdapter` when no vault is available.
+    health_adapter: Box<dyn HealthSyncAdapter>,
+}
+
+impl fmt::Debug for PipelineContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PipelineContext")
+            .field("local_metadata_version", &self.local_metadata_version)
+            .field("local_vault_token", &self.local_vault_token)
+            .field("to_upload", &self.to_upload.len())
+            .field("to_download", &self.to_download.len())
+            .field("conflicts", &self.conflicts.len())
+            .field("failed_ids", &self.failed_ids.len())
+            .field("uploads", &self.uploads.len())
+            .field("downloads", &self.downloads.len())
+            .field(
+                "downloaded_health_states",
+                &self.downloaded_health_states.len(),
+            )
+            .field(
+                "downloaded_health_deleted",
+                &self.downloaded_health_deleted.len(),
+            )
+            .field("health_adapter", &"<adapter>")
+            .finish()
+    }
 }
 
 impl PipelineContext {
-    /// Creates a new PipelineContext with the given parameters.
+    /// Creates a new PipelineContext with the given parameters and a no-op
+    /// health adapter. Used in tests and when no vault is available.
     pub fn new(
         storage: CloudStorage,
         conflict_manager: ConflictManager,
         checkpoint: SyncCheckpoint,
         local_metadata_version: u64,
         local_vault_token: String,
+    ) -> Self {
+        Self::with_health_adapter(
+            storage,
+            conflict_manager,
+            checkpoint,
+            local_metadata_version,
+            local_vault_token,
+            Box::new(NoOpHealthSyncAdapter),
+        )
+    }
+
+    /// Creates a new PipelineContext with a custom health adapter.
+    ///
+    /// Use this constructor when a vault is available and health states should
+    /// be read/written during the sync pipeline.
+    pub fn with_health_adapter(
+        storage: CloudStorage,
+        conflict_manager: ConflictManager,
+        checkpoint: SyncCheckpoint,
+        local_metadata_version: u64,
+        local_vault_token: String,
+        health_adapter: Box<dyn HealthSyncAdapter>,
     ) -> Self {
         Self {
             storage,
@@ -88,6 +202,9 @@ impl PipelineContext {
             downloads: HashMap::new(),
             conflict_data_map: HashMap::new(),
             local_records: Vec::new(),
+            downloaded_health_states: Vec::new(),
+            downloaded_health_deleted: Vec::new(),
+            health_adapter,
         }
     }
 
@@ -99,6 +216,19 @@ impl PipelineContext {
     /// Sets the records to upload.
     pub fn set_uploads(&mut self, records: Vec<CloudRecord>) {
         self.uploads = records;
+    }
+
+    /// Returns a reference to the health adapter.
+    pub fn health_adapter(&self) -> &dyn HealthSyncAdapter {
+        self.health_adapter.as_ref()
+    }
+
+    /// Takes ownership of the health adapter, replacing it with a no-op.
+    ///
+    /// Used after pipeline execution to extract a buffering adapter (e.g.
+    /// `VaultHealthSyncAdapter`) so the caller can flush writes to the vault.
+    pub fn take_health_adapter(&mut self) -> Box<dyn HealthSyncAdapter> {
+        std::mem::replace(&mut self.health_adapter, Box::new(NoOpHealthSyncAdapter))
     }
 }
 
@@ -247,6 +377,19 @@ impl Default for PushStage {
 
 impl SyncStage for PushStage {
     async fn execute(&self, context: &mut PipelineContext) -> StageOutcome {
+        // Upload path: attach health states from the adapter to CloudRecords
+        // that do not already carry health metadata.
+        for record in &mut context.uploads {
+            if record.metadata.health.is_none() {
+                if let Ok(id) = Uuid::parse_str(&record.id) {
+                    if let Some(state) = context.health_adapter.get_health_state(&id) {
+                        record.metadata.health =
+                            Some(crate::cloud::RecordHealthMetadata::from_state(&state));
+                    }
+                }
+            }
+        }
+
         for record in &context.uploads {
             match context.storage.upload_record(&record.id, record).await {
                 Ok(()) => {
@@ -311,6 +454,16 @@ impl SyncStage for PushStage {
                         if let Ok(id) = Uuid::parse_str(&record_id) {
                             context.checkpoint.record_pull_done(id);
                         }
+
+                        // Extract health metadata from the downloaded record.
+                        if let Some(health_state) = record.to_health_state() {
+                            context.downloaded_health_states.push(health_state);
+                        } else if let Ok(id) = Uuid::parse_str(&record_id) {
+                            // Remote has no health metadata — schedule local deletion
+                            // so stale health data doesn't linger.
+                            context.downloaded_health_deleted.push(id);
+                        }
+
                         context.downloads.insert(record_id, record);
                     }
                     Ok(None) => {}
@@ -363,6 +516,25 @@ impl SyncStage for PushStage {
             }
         }
 
+        // Download path: persist health states via the adapter.
+        if !context.downloaded_health_states.is_empty() {
+            context
+                .health_adapter
+                .persist_health_states(&context.downloaded_health_states);
+        }
+        if !context.downloaded_health_deleted.is_empty() {
+            context
+                .health_adapter
+                .delete_health_states(&context.downloaded_health_deleted);
+        }
+
+        // Update remote metadata so other devices can detect uploaded records.
+        if !context.uploads.is_empty() {
+            if let Err(e) = Self::push_updated_metadata(context).await {
+                return StageOutcome::Error(Box::new(e));
+            }
+        }
+
         if !context.conflicts.is_empty() {
             return StageOutcome::ConflictDetected {
                 conflict_ids: context.conflicts.clone(),
@@ -370,6 +542,50 @@ impl SyncStage for PushStage {
         }
 
         StageOutcome::Continue
+    }
+}
+
+impl PushStage {
+    /// Build updated CloudMetadata from successfully uploaded records and push
+    /// atomically so remote devices can detect the new versions.
+    async fn push_updated_metadata(context: &mut PipelineContext) -> Result<(), SyncError> {
+        use crate::cloud::RecordVersionInfo;
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let device_id = "local-device".to_string();
+
+        // Start from existing remote metadata or create new one.
+        let (mut updated_meta, expected_version) = if let Some(ref remote) = context.remote_metadata
+        {
+            (remote.clone(), remote.metadata_version)
+        } else {
+            (CloudMetadata::new(context.local_vault_token.clone()), 0)
+        };
+
+        // Add successfully uploaded records to metadata
+        for record in &context.uploads {
+            if context.failed_ids.contains(&record.id) {
+                continue;
+            }
+            let checksum = compute_checksum(&record.encrypted_data)?;
+            updated_meta.upsert_record(
+                record.id.clone(),
+                RecordVersionInfo {
+                    version: record.version,
+                    updated_at: now.clone(),
+                    updated_by: device_id.clone(),
+                    checksum,
+                    deleted: record.deleted.unwrap_or(false),
+                },
+            );
+        }
+
+        updated_meta.increment_version();
+
+        context
+            .storage
+            .push_metadata_atomic(&updated_meta, expected_version)
+            .await
     }
 }
 

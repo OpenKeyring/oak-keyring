@@ -1,9 +1,17 @@
 // Metadata operations (get/set/delete metadata)
 
+use chrono::{DateTime, Utc};
+
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 
 use super::VaultService;
+
+/// Metadata key for the last successful health check timestamp.
+const LAST_HEALTH_CHECK_AT_KEY: &str = "last_health_check_at";
+
+/// Metadata key for the timestamp when HIBP entered degraded mode.
+const LAST_HIBP_DEGRADED_AT_KEY: &str = "last_hibp_degraded_at";
 
 impl VaultService {
     /// Retrieve a metadata value by key.
@@ -37,6 +45,65 @@ impl VaultService {
             other => VaultError::CryptoError(other.to_string()),
         })?;
         Ok(())
+    }
+
+    /// Get the timestamp of the last successful health check.
+    ///
+    /// Returns `Ok(None)` if the key does not exist.
+    /// If the stored value is corrupted (not a valid RFC 3339 timestamp),
+    /// logs a warning and returns `Ok(None)` instead of erroring.
+    pub fn get_last_health_check_at(&self) -> Result<Option<DateTime<Utc>>, VaultError> {
+        match self.get_metadata(LAST_HEALTH_CHECK_AT_KEY)? {
+            Some(raw) => match raw.parse::<DateTime<Utc>>() {
+                Ok(dt) => Ok(Some(dt)),
+                Err(e) => {
+                    tracing::warn!(
+                        key = LAST_HEALTH_CHECK_AT_KEY,
+                        error = %e,
+                        raw_value = %raw,
+                        "corrupted metadata value, treating as missing"
+                    );
+                    Ok(None)
+                }
+            },
+            None => Ok(None),
+        }
+    }
+
+    /// Set the timestamp of the last successful health check.
+    ///
+    /// The timestamp is stored as UTC RFC 3339.
+    pub fn set_last_health_check_at(&mut self, at: DateTime<Utc>) -> Result<(), VaultError> {
+        self.set_metadata(LAST_HEALTH_CHECK_AT_KEY, &at.to_rfc3339())
+    }
+
+    /// Get the timestamp when HIBP last entered degraded mode.
+    ///
+    /// Returns `Ok(None)` if the key does not exist.
+    /// Corrupted values are treated as missing with a warning.
+    pub fn get_last_hibp_degraded_at(&self) -> Result<Option<DateTime<Utc>>, VaultError> {
+        match self.get_metadata(LAST_HIBP_DEGRADED_AT_KEY)? {
+            Some(raw) => match raw.parse::<DateTime<Utc>>() {
+                Ok(dt) => Ok(Some(dt)),
+                Err(e) => {
+                    tracing::warn!(
+                        key = LAST_HIBP_DEGRADED_AT_KEY,
+                        error = %e,
+                        raw_value = %raw,
+                        "corrupted metadata value, treating as missing"
+                    );
+                    Ok(None)
+                }
+            },
+            None => Ok(None),
+        }
+    }
+
+    /// Set the timestamp when HIBP entered degraded mode.
+    ///
+    /// The timestamp is stored as UTC RFC 3339.
+    pub fn set_last_hibp_degraded_at(&mut self, at: DateTime<Utc>) -> Result<(), VaultError> {
+        self.set_metadata(LAST_HIBP_DEGRADED_AT_KEY, &at.to_rfc3339())
     }
 }
 
@@ -186,5 +253,144 @@ mod tests {
         // Deleting a key that does not exist should succeed silently.
         svc.delete_metadata("ghost_key")
             .expect("delete_metadata must succeed for nonexistent key");
+    }
+
+    // =========================================================================
+    // get_last_health_check_at / set_last_health_check_at tests
+    // =========================================================================
+
+    // --- round-trip: set then get preserves the timestamp ---
+
+    #[test]
+    fn last_health_check_round_trip() {
+        let mut svc = setup_service();
+        let ts = Utc::now();
+
+        svc.set_last_health_check_at(ts)
+            .expect("set_last_health_check_at must succeed");
+
+        let result = svc
+            .get_last_health_check_at()
+            .expect("get_last_health_check_at must succeed");
+        assert!(result.is_some(), "should return Some after set");
+        // RFC 3339 round-trip may lose sub-second precision, compare within 1s.
+        let stored = result.unwrap();
+        let diff = (stored - ts).num_seconds().abs();
+        assert!(
+            diff <= 1,
+            "round-tripped timestamp should be within 1s, got diff={diff}"
+        );
+    }
+
+    // --- missing key returns None ---
+
+    #[test]
+    fn last_health_check_returns_none_when_missing() {
+        let svc = setup_service();
+
+        let result = svc
+            .get_last_health_check_at()
+            .expect("get_last_health_check_at must succeed");
+        assert!(
+            result.is_none(),
+            "should return None when key has never been set"
+        );
+    }
+
+    // --- corrupted value returns None (not error) ---
+
+    #[test]
+    fn last_health_check_returns_none_on_corrupted_value() {
+        let mut svc = setup_service();
+        // Write garbage directly via set_metadata.
+        svc.set_metadata("last_health_check_at", "not-a-valid-timestamp")
+            .expect("set_metadata must succeed");
+
+        let result = svc
+            .get_last_health_check_at()
+            .expect("get_last_health_check_at must succeed on corrupted value");
+        assert!(
+            result.is_none(),
+            "corrupted value should be treated as missing"
+        );
+    }
+
+    // --- set overwrites previous value ---
+
+    #[test]
+    fn last_health_check_overwrites_previous() {
+        let mut svc = setup_service();
+        let ts1 = Utc::now() - chrono::Duration::hours(1);
+        let ts2 = Utc::now();
+
+        svc.set_last_health_check_at(ts1)
+            .expect("first set must succeed");
+        svc.set_last_health_check_at(ts2)
+            .expect("second set must succeed");
+
+        let result = svc
+            .get_last_health_check_at()
+            .expect("get must succeed")
+            .expect("should be Some");
+        let diff = (result - ts2).num_seconds().abs();
+        assert!(diff <= 1, "should return the second (latest) timestamp");
+    }
+
+    // =========================================================================
+    // get_last_hibp_degraded_at / set_last_hibp_degraded_at tests
+    // =========================================================================
+
+    // --- round-trip: set then get preserves the timestamp ---
+
+    #[test]
+    fn last_hibp_degraded_round_trip() {
+        let mut svc = setup_service();
+        let ts = Utc::now();
+
+        svc.set_last_hibp_degraded_at(ts)
+            .expect("set_last_hibp_degraded_at must succeed");
+
+        let result = svc
+            .get_last_hibp_degraded_at()
+            .expect("get_last_hibp_degraded_at must succeed");
+        assert!(result.is_some(), "should return Some after set");
+        let stored = result.unwrap();
+        let diff = (stored - ts).num_seconds().abs();
+        assert!(
+            diff <= 1,
+            "round-tripped timestamp should be within 1s, got diff={diff}"
+        );
+    }
+
+    // --- missing key returns None ---
+
+    #[test]
+    fn last_hibp_degraded_returns_none_when_missing() {
+        let svc = setup_service();
+
+        let result = svc
+            .get_last_hibp_degraded_at()
+            .expect("get_last_hibp_degraded_at must succeed");
+        assert!(
+            result.is_none(),
+            "should return None when key has never been set"
+        );
+    }
+
+    // --- corrupted value returns None (not error) ---
+
+    #[test]
+    fn last_hibp_degraded_returns_none_on_corrupted_value() {
+        let mut svc = setup_service();
+        svc.set_metadata("last_hibp_degraded_at", "garbage!!!")
+            .expect("set_metadata must succeed");
+
+        let result = svc
+            .get_last_hibp_degraded_at()
+            .expect("get_last_hibp_degraded_at must succeed on corrupted value");
+        assert!(
+            result.is_none(),
+            "corrupted value should be treated as missing"
+        );
     }
 }

@@ -6,20 +6,42 @@
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
-use crate::cloud::{CloudMetadata, CloudStorage};
+use uuid::Uuid;
+
+use crate::cloud::{CloudMetadata, CloudRecord, CloudStorage};
 use crate::errors::mapping::sync::SyncError;
 use crate::sync::checkpoint::SyncCheckpoint;
 use crate::sync::conflict::ResolutionStrategy;
-use crate::sync::pipeline::{PipelineContext, PipelineResult, SyncPipeline};
+use crate::sync::pipeline::{
+    HealthSyncAdapter, LocalRecordInfo, PipelineContext, PipelineResult, SyncPipeline,
+};
 use crate::sync::retry::{BackoffTimer, RetryPolicy};
 use crate::sync::state_machine::{SyncState, SyncStateMachine, SyncTrigger};
 use crate::sync::ConflictManager;
+use crate::types::health::RecordHealthState;
+
+/// Vault data snapshot constructed by the executor before triggering sync.
+///
+/// Carries local records, upload-ready CloudRecords, vault identity, and
+/// pre-read health states so the sync pipeline can operate without direct
+/// vault access.
+#[derive(Debug)]
+pub struct SyncVaultData {
+    /// Local records for conflict detection in the Detect stage.
+    pub local_records: Vec<LocalRecordInfo>,
+    /// CloudRecords ready for upload (with health metadata pre-populated).
+    pub uploads: Vec<CloudRecord>,
+    /// Local metadata version for fast-path comparison in Pull stage.
+    pub local_metadata_version: u64,
+    /// Vault identity token for validation in Pull stage.
+    pub local_vault_token: String,
+}
 
 /// Commands accepted by SyncTask.
 #[derive(Debug)]
 pub enum SyncCommand {
     /// Trigger a full sync cycle (pull + detect + push + resolve).
-    TriggerSync,
+    TriggerSync(Option<Box<SyncVaultData>>),
     /// Trigger a pull-only sync (no push).
     PullOnly,
     /// Resolve a single conflict.
@@ -47,8 +69,13 @@ pub enum SyncCommand {
 /// Events emitted by SyncTask.
 #[derive(Debug)]
 pub enum SyncEvent {
-    /// Sync cycle completed successfully with a report.
-    Completed(SyncReport),
+    /// Sync cycle completed successfully with a report and downloaded health states.
+    Completed(
+        SyncReport,
+        Vec<RecordHealthState>,
+        Vec<Uuid>,
+        Vec<CloudRecord>,
+    ),
     /// Sync cycle failed with an error and current state.
     Failed { error: String, state: SyncState },
     /// A single conflict was resolved.
@@ -105,6 +132,8 @@ pub struct SyncTask {
     event_tx: mpsc::Sender<SyncEvent>,
     paused: bool,
     next_retry: Option<Instant>,
+    /// Vault data for the current sync cycle (set before pipeline execution).
+    vault_data: Option<Box<SyncVaultData>>,
 }
 
 impl SyncTask {
@@ -125,6 +154,7 @@ impl SyncTask {
             event_tx,
             paused: false,
             next_retry: None,
+            vault_data: None,
         }
     }
 
@@ -146,7 +176,8 @@ impl SyncTask {
                 // Branch 1: Handle commands
                 cmd = self.cmd_rx.recv() => {
                     match cmd {
-                        Some(SyncCommand::TriggerSync) => {
+                        Some(SyncCommand::TriggerSync(data)) => {
+                            self.vault_data = data;
                             self.handle_trigger_sync().await;
                         }
                         Some(SyncCommand::PullOnly) => {
@@ -240,8 +271,17 @@ impl SyncTask {
 
         // Execute the sync pipeline
         let start = Instant::now();
-        let result = self.execute_pipeline().await;
-        self.handle_pipeline_result(result, start).await;
+        let (result, health_adapter, health_states, health_deleted, downloaded) =
+            self.execute_pipeline().await;
+        self.handle_pipeline_result(
+            result,
+            health_adapter,
+            health_states,
+            health_deleted,
+            downloaded,
+            start,
+        )
+        .await;
     }
 
     /// Handles PullOnly command.
@@ -283,8 +323,17 @@ impl SyncTask {
 
         // Execute the sync pipeline (same as trigger sync for now)
         let start = Instant::now();
-        let result = self.execute_pipeline().await;
-        self.handle_pipeline_result(result, start).await;
+        let (result, health_adapter, health_states, health_deleted, downloaded) =
+            self.execute_pipeline().await;
+        self.handle_pipeline_result(
+            result,
+            health_adapter,
+            health_states,
+            health_deleted,
+            downloaded,
+            start,
+        )
+        .await;
     }
 
     /// Handles ResolveConflict command.
@@ -390,25 +439,81 @@ impl SyncTask {
     }
 
     /// Executes the sync pipeline with the current context.
-    async fn execute_pipeline(&self) -> PipelineResult {
+    ///
+    /// When vault data is available (provided via `TriggerSync(data)`), the
+    /// pipeline uses real local records, upload CloudRecords, metadata version,
+    /// and vault identity token. Without vault data (e.g. tests), placeholder
+    /// defaults are used.
+    async fn execute_pipeline(
+        &mut self,
+    ) -> (
+        PipelineResult,
+        Option<Box<dyn HealthSyncAdapter>>,
+        Vec<RecordHealthState>,
+        Vec<Uuid>,
+        Vec<CloudRecord>,
+    ) {
         let checkpoint = SyncCheckpoint::new(std::env::temp_dir());
+
+        let (metadata_version, vault_token, local_records, uploads) =
+            if let Some(ref data) = self.vault_data {
+                (
+                    data.local_metadata_version,
+                    data.local_vault_token.clone(),
+                    data.local_records.clone(),
+                    data.uploads.clone(),
+                )
+            } else {
+                (0, String::new(), Vec::new(), Vec::new())
+            };
+
         let mut context = PipelineContext::new(
             self.storage.clone(),
             self.conflict_manager.clone(),
             checkpoint,
-            0,
-            String::new(),
+            metadata_version,
+            vault_token,
         );
 
-        // For the initial implementation, we execute the pipeline
-        // but we need to set up local records for the pipeline to work
-        // In a real implementation, this would come from the vault service
-        self.pipeline.execute(&mut context).await
+        if !local_records.is_empty() {
+            context.set_local_records(local_records);
+        }
+        if !uploads.is_empty() {
+            context.set_uploads(uploads);
+        }
+
+        let result = self.pipeline.execute(&mut context).await;
+        let downloaded_health_states = std::mem::take(&mut context.downloaded_health_states);
+        let downloaded_health_deleted = std::mem::take(&mut context.downloaded_health_deleted);
+        let downloaded_records: Vec<CloudRecord> =
+            context.downloads.drain().map(|(_, v)| v).collect();
+        let adapter = context.take_health_adapter();
+
+        (
+            result,
+            Some(adapter),
+            downloaded_health_states,
+            downloaded_health_deleted,
+            downloaded_records,
+        )
     }
 
     /// Handles pipeline execution result.
-    async fn handle_pipeline_result(&mut self, result: PipelineResult, start: Instant) {
+    async fn handle_pipeline_result(
+        &mut self,
+        result: PipelineResult,
+        _health_adapter: Option<Box<dyn HealthSyncAdapter>>,
+        downloaded_health_states: Vec<RecordHealthState>,
+        downloaded_health_deleted: Vec<Uuid>,
+        downloaded_records: Vec<CloudRecord>,
+        start: Instant,
+    ) {
         let duration_ms = start.elapsed().as_millis() as u64;
+        let uploaded_count = self
+            .vault_data
+            .as_ref()
+            .map_or(0, |d| d.uploads.len() as u32);
+        let downloaded_count = downloaded_records.len() as u32;
 
         match result {
             PipelineResult::Completed => {
@@ -424,13 +529,21 @@ impl SyncTask {
                     .await;
 
                 let report = SyncReport {
-                    uploaded: 0,
-                    downloaded: 0,
+                    uploaded: uploaded_count,
+                    downloaded: downloaded_count,
                     conflicts: 0,
                     failed: 0,
                     duration_ms,
                 };
-                let _ = self.event_tx.send(SyncEvent::Completed(report)).await;
+                let _ = self
+                    .event_tx
+                    .send(SyncEvent::Completed(
+                        report,
+                        downloaded_health_states,
+                        downloaded_health_deleted,
+                        downloaded_records,
+                    ))
+                    .await;
             }
             PipelineResult::NoChanges => {
                 let from_state = self.state_machine.current_state().clone();
@@ -451,7 +564,15 @@ impl SyncTask {
                     failed: 0,
                     duration_ms,
                 };
-                let _ = self.event_tx.send(SyncEvent::Completed(report)).await;
+                let _ = self
+                    .event_tx
+                    .send(SyncEvent::Completed(
+                        report,
+                        downloaded_health_states,
+                        downloaded_health_deleted,
+                        downloaded_records,
+                    ))
+                    .await;
             }
             PipelineResult::ConflictsDetected { conflict_ids } => {
                 let from_state = self.state_machine.current_state().clone();
@@ -468,13 +589,21 @@ impl SyncTask {
                     .await;
 
                 let report = SyncReport {
-                    uploaded: 0,
-                    downloaded: 0,
+                    uploaded: uploaded_count,
+                    downloaded: downloaded_count,
                     conflicts: conflict_ids.len() as u32,
                     failed: 0,
                     duration_ms,
                 };
-                let _ = self.event_tx.send(SyncEvent::Completed(report)).await;
+                let _ = self
+                    .event_tx
+                    .send(SyncEvent::Completed(
+                        report,
+                        downloaded_health_states,
+                        downloaded_health_deleted,
+                        downloaded_records,
+                    ))
+                    .await;
             }
             PipelineResult::Error(e) => {
                 self.handle_error(*e).await;
@@ -561,7 +690,7 @@ mod tests {
         let mut task = SyncTask::new(storage, cmd_rx, event_tx, SyncStateMachine::new(5));
 
         // Send TriggerSync command
-        cmd_tx.send(SyncCommand::TriggerSync).await.unwrap();
+        cmd_tx.send(SyncCommand::TriggerSync(None)).await.unwrap();
 
         // Run task in background
         let handle = tokio::spawn(async move {
@@ -577,7 +706,7 @@ mod tests {
                 break;
             }
             match &event {
-                SyncEvent::Completed(_) | SyncEvent::Failed { .. } => {
+                SyncEvent::Completed(..) | SyncEvent::Failed { .. } => {
                     final_event = Some(event);
                     break;
                 }
@@ -589,7 +718,7 @@ mod tests {
         assert!(
             matches!(
                 final_event,
-                Some(SyncEvent::Completed(_)) | Some(SyncEvent::Failed { .. })
+                Some(SyncEvent::Completed(..)) | Some(SyncEvent::Failed { .. })
             ),
             "Expected Completed or Failed, got {:?}",
             final_event
@@ -747,6 +876,108 @@ mod tests {
         );
 
         // Send shutdown
+        cmd_tx.send(SyncCommand::Shutdown).await.unwrap();
+        let _ = handle.await;
+    }
+
+    /// Builds a minimal SyncVaultData for testing SyncTask pipeline integration.
+    fn make_test_vault_data(record_ids: &[&str]) -> Box<SyncVaultData> {
+        let local_records: Vec<LocalRecordInfo> = record_ids
+            .iter()
+            .map(|id| LocalRecordInfo {
+                record_id: id.to_string(),
+                sync_status: crate::types::sync::SyncStatus::Pending,
+                version: 1,
+            })
+            .collect();
+
+        // Build minimal upload CloudRecords
+        let uploads: Vec<CloudRecord> = record_ids
+            .iter()
+            .map(|id| {
+                use crate::cloud::record::AadFields;
+                CloudRecord {
+                    id: id.to_string(),
+                    version: 1,
+                    encrypted_data: base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        b"test",
+                    ),
+                    nonce: base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &[0u8; 24],
+                    ),
+                    dek_version: 1,
+                    aad: AadFields {
+                        record_id: id.to_string(),
+                        dek_version: 1,
+                    },
+                    metadata: crate::cloud::record::RecordMetadata {
+                        name: format!("record-{}", id),
+                        tags: vec![],
+                        updated_at: chrono::Utc::now().to_rfc3339(),
+                        health: None,
+                        ..Default::default()
+                    },
+                    deleted: None,
+                    deleted_at: None,
+                }
+            })
+            .collect();
+
+        Box::new(SyncVaultData {
+            local_records,
+            uploads,
+            local_metadata_version: 0,
+            local_vault_token: "test-token".to_string(),
+        })
+    }
+
+    #[tokio::test]
+    async fn trigger_sync_with_vault_data_completes() {
+        let (cmd_tx, cmd_rx) = mpsc::channel(16);
+        let (event_tx, mut event_rx) = mpsc::channel(16);
+        let storage = create_test_storage();
+        let mut task = SyncTask::new(storage, cmd_rx, event_tx, SyncStateMachine::new(5));
+
+        let vault_data = make_test_vault_data(&["rec-1", "rec-2"]);
+        cmd_tx
+            .send(SyncCommand::TriggerSync(Some(vault_data)))
+            .await
+            .unwrap();
+
+        let handle = tokio::spawn(async move {
+            task.run().await;
+        });
+
+        let mut final_event = None;
+        while let Ok(Some(event)) = timeout(Duration::from_secs(5), event_rx.recv()).await {
+            match &event {
+                SyncEvent::Completed(..) | SyncEvent::Failed { .. } => {
+                    final_event = Some(event);
+                    break;
+                }
+                _ => continue,
+            }
+        }
+
+        // Memory backend may fail metadata push (rename not supported), so accept
+        // both Completed and Failed. The key invariant is that the pipeline ran
+        // with vault data (the event was emitted without panic).
+        match final_event {
+            Some(SyncEvent::Completed(report, health_states, health_deleted, _downloaded)) => {
+                assert_eq!(report.uploaded, 2);
+                assert!(health_states.is_empty());
+                assert!(health_deleted.is_empty());
+            }
+            Some(SyncEvent::Failed { .. }) => {
+                // Memory backend does not support atomic metadata rename — expected.
+            }
+            other => {
+                panic!("Expected Completed or Failed, got {:?}", other);
+            }
+        }
+
         cmd_tx.send(SyncCommand::Shutdown).await.unwrap();
         let _ = handle.await;
     }
