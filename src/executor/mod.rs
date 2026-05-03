@@ -175,6 +175,8 @@ impl CommandExecutor {
 
         info!("CommandExecutor initialized successfully");
 
+        let operation_cancel_token = shutdown_token.child_token();
+
         Ok(Self {
             vault,
             sync,
@@ -190,7 +192,7 @@ impl CommandExecutor {
             internal_tx,
             internal_rx: Some(internal_rx),
             shutdown_token,
-            operation_cancel_token: CancellationToken::new(),
+            operation_cancel_token,
             timer_rebuild_pending: false,
             oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
         })
@@ -232,6 +234,7 @@ impl CommandExecutor {
                 biased;
 
                 _ = self.shutdown_token.cancelled() => {
+                    self.operation_cancel_token.cancel();
                     info!("Executor received shutdown signal, shutting down");
                     break;
                 }
@@ -308,4 +311,19 @@ impl CommandExecutor {
     }
 
     // execute(), pre_check(), post_hook(), and dispatch() are defined in execute.rs
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use tokio_util::sync::CancellationToken;
+
+    #[tokio::test]
+    async fn shutdown_token_cancels_operation_token() {
+        let shutdown = CancellationToken::new();
+        let operation = shutdown.child_token();
+
+        assert!(!operation.is_cancelled());
+        shutdown.cancel();
+        assert!(operation.is_cancelled());
+    }
 }

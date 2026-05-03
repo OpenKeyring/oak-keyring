@@ -96,8 +96,8 @@ impl CommandExecutor {
                 // Security: Cancel all in-flight operations holding decrypted data.
                 // Does NOT cancel shutdown_token — the executor loop stays alive.
                 self.operation_cancel_token.cancel();
-                // Replace with a fresh token for the next unlock session.
-                self.operation_cancel_token = tokio_util::sync::CancellationToken::new();
+                // Replace with a fresh child token for the next unlock session.
+                self.operation_cancel_token = self.shutdown_token.child_token();
                 vault::handle_lock(self)
             }
             Command::VerifyMasterPassword { password } => {
