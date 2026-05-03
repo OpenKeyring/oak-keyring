@@ -24,10 +24,10 @@ pub enum PasswordField {
 }
 
 /// Context in which the set-password screen is shown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SetPasswordContext {
     PostRecovery,
-    OnboardingCreate,
+    OnboardingCreate { recovery_words: Vec<String> },
     OnboardingRestore,
 }
 
@@ -48,7 +48,9 @@ pub struct SetPasswordScreen {
 
 impl Default for SetPasswordScreen {
     fn default() -> Self {
-        Self::new(SetPasswordContext::OnboardingCreate)
+        Self::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        })
     }
 }
 
@@ -331,9 +333,16 @@ impl SetPasswordScreen {
                     .vault_path
                     .clone()
                     .unwrap_or_else(|| ctx.config.general.vault_path.join("vault.db"));
+                let recovery_words = match &self.context {
+                    SetPasswordContext::OnboardingCreate { recovery_words } => {
+                        Some(recovery_words.clone())
+                    }
+                    _ => None,
+                };
                 let cmd = Command::InitializeVault {
                     vault_path,
                     master_password: SecureStr::new(password),
+                    recovery_words,
                 };
                 let _ = ctx.command_tx.try_send(cmd);
                 ScreenResult::Continue
@@ -392,11 +401,18 @@ mod tests {
 
     #[test]
     fn set_password_screen_new() {
-        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
         assert!(screen.new_password.is_empty());
         assert!(screen.confirm_password.is_empty());
         assert_eq!(screen.focused, PasswordField::New);
-        assert_eq!(screen.context, SetPasswordContext::OnboardingCreate);
+        assert_eq!(
+            screen.context,
+            SetPasswordContext::OnboardingCreate {
+                recovery_words: Vec::new()
+            }
+        );
         assert!(screen.strength.is_none());
         assert!(screen.error.is_none());
         assert!(!screen.password_visible);
@@ -442,7 +458,9 @@ mod tests {
 
     #[test]
     fn tab_toggles_focus() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
         assert_eq!(screen.focused, PasswordField::New);
 
         screen.focused = PasswordField::Confirm;
@@ -454,7 +472,9 @@ mod tests {
 
     #[test]
     fn display_password_masked_by_default() {
-        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
         let displayed = screen.display_password("hello");
         assert_eq!(displayed, "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}");
         assert!(!displayed.contains('h'));
@@ -462,7 +482,9 @@ mod tests {
 
     #[test]
     fn display_password_visible_when_toggled() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
         screen.password_visible = true;
         let displayed = screen.display_password("hello");
         assert_eq!(displayed, "hello");
@@ -494,7 +516,9 @@ mod tests {
 
     #[test]
     fn on_unmount_zeroizes() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
         screen.new_password = "sensitive123".to_string();
         screen.confirm_password = "sensitive123".to_string();
         ScreenTrait::on_unmount(&mut screen);
@@ -507,8 +531,15 @@ mod tests {
         let s1 = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         assert_eq!(s1.context, SetPasswordContext::PostRecovery);
 
-        let s2 = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
-        assert_eq!(s2.context, SetPasswordContext::OnboardingCreate);
+        let s2 = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
+        assert_eq!(
+            s2.context,
+            SetPasswordContext::OnboardingCreate {
+                recovery_words: Vec::new()
+            }
+        );
 
         let s3 = SetPasswordScreen::new(SetPasswordContext::OnboardingRestore);
         assert_eq!(s3.context, SetPasswordContext::OnboardingRestore);
@@ -538,7 +569,9 @@ mod tests {
 
     #[test]
     fn esc_returns_pop_screen() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
         let mut ctx = dummy_ctx();
         let result = screen.update(
             Message::KeyEvent(KeyEvent::new(
@@ -555,7 +588,9 @@ mod tests {
 
     #[test]
     fn enter_rejects_short_password() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
         let mut ctx = dummy_ctx();
         // Type a 5-character password
         for ch in "short".chars() {
@@ -600,7 +635,9 @@ mod tests {
 
     #[test]
     fn enter_rejects_mismatched_passwords() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
         let mut ctx = dummy_ctx();
         // Type password in new field
         for ch in "longpassword".chars() {
@@ -642,7 +679,9 @@ mod tests {
 
     #[test]
     fn vault_initialized_navigates_to_main() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
         let result = screen.handle_command_result(CommandResult::VaultInitialized {
             recovery_words: vec![],
         });
@@ -651,7 +690,9 @@ mod tests {
 
     #[test]
     fn command_error_sets_error_message() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate);
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        });
         let result = screen.handle_command_result(CommandResult::Error {
             code: crate::errors::ErrorCode::Crypto("test".to_string()),
             context: crate::errors::ErrorContext::new(),
@@ -665,15 +706,22 @@ mod tests {
     #[test]
     fn default_impl_uses_onboarding_create_context() {
         let screen = SetPasswordScreen::default();
-        assert_eq!(screen.context, SetPasswordContext::OnboardingCreate);
+        assert_eq!(
+            screen.context,
+            SetPasswordContext::OnboardingCreate {
+                recovery_words: Vec::new()
+            }
+        );
         assert!(screen.new_password.is_empty());
     }
 
     #[test]
     fn with_vault_path_sets_path() {
         let custom = std::path::PathBuf::from("/tmp/custom/vault.db");
-        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate)
-            .with_vault_path(custom.clone());
+        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        })
+        .with_vault_path(custom.clone());
         assert_eq!(screen.vault_path.as_deref(), Some(custom.as_path()));
     }
 
@@ -687,8 +735,10 @@ mod tests {
         };
 
         let custom_path = std::path::PathBuf::from("/tmp/my-custom/vault.db");
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate)
-            .with_vault_path(custom_path.clone());
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: Vec::new(),
+        })
+        .with_vault_path(custom_path.clone());
 
         // Type matching 8+ char passwords
         for ch in "longpassword".chars() {

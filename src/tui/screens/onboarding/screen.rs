@@ -2,10 +2,18 @@ use zeroize::Zeroize;
 
 use crate::commands::types::ImportPreview;
 use crate::commands::Message;
+use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 
 use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
+
+fn resolve_mnemonic_language(config_language: &str) -> MnemonicLanguage {
+    match config_language {
+        "zh-CN" | "zh-TW" | "zh" => MnemonicLanguage::ChineseSimplified,
+        _ => MnemonicLanguage::English,
+    }
+}
 
 // ── OnboardingScreen ──────────────────────────────────────────────────────
 
@@ -90,6 +98,20 @@ impl Default for OnboardingScreen {
 }
 
 impl OnboardingScreen {
+    /// Generate a fresh 24-word BIP39 recovery key and store in `recovery_words`.
+    pub(crate) fn generate_recovery_words(&mut self, config_language: &str) {
+        let language = resolve_mnemonic_language(config_language);
+        match Passkey::generate(24, language) {
+            Ok(pk) => {
+                self.recovery_words = pk.to_words();
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "failed to generate recovery words");
+                self.error = Some(format!("Failed to generate recovery key: {}", e));
+            }
+        }
+    }
+
     /// Generate 4 random positions for recovery verification.
     pub(crate) fn generate_verify_positions(&mut self) {
         use std::collections::HashSet;

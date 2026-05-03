@@ -149,24 +149,13 @@ impl OnboardingScreen {
     }
 
     fn advance_from_vault_path(&mut self, ctx: &mut ScreenContext) {
-        // Resolve the actual path to use (default if input is empty)
-        let vault_path = self.resolved_vault_pathbuf();
-
         match self.selected_path {
-            Some(OnboardingPath::CreateNew) => {
-                let password = SecureStr::new(String::new());
-                let cmd = Command::InitializeVault {
-                    vault_path,
-                    master_password: password,
-                };
-                let _ = ctx.command_tx.try_send(cmd);
-                // Stay on VaultPath until VaultInitialized result arrives
+            Some(OnboardingPath::CreateNew) | Some(OnboardingPath::Import) => {
+                self.generate_recovery_words(&ctx.config.general.language);
+                self.current_step = OnboardingStep::RecoveryDisplay;
             }
             Some(OnboardingPath::Restore) => {
                 self.current_step = OnboardingStep::SecurityAdvisory;
-            }
-            Some(OnboardingPath::Import) => {
-                self.current_step = OnboardingStep::RecoveryDisplay;
             }
             None => {}
         }
@@ -208,16 +197,9 @@ impl OnboardingScreen {
                     ScreenResult::Continue
                 }
                 RecoveryFocus::RegenerateButton => {
-                    // Re-initialize the vault with new recovery words so the
-                    // displayed words match the actual vault's recovery key.
-                    let vault_path = self.resolved_vault_pathbuf();
+                    self.generate_recovery_words(&ctx.config.general.language);
                     self.recovery_confirmed = false;
                     self.clipboard_copied = false;
-                    let cmd = Command::InitializeVault {
-                        vault_path,
-                        master_password: SecureStr::new(String::new()),
-                    };
-                    let _ = ctx.command_tx.try_send(cmd);
                     ScreenResult::Continue
                 }
                 RecoveryFocus::ConfirmCheckbox => {
