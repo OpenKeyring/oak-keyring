@@ -65,12 +65,20 @@ impl RecordHealthMetadata {
 }
 
 /// Metadata associated with a cloud record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RecordMetadata {
     pub name: String,
     #[serde(default)]
     pub tags: Vec<String>,
     pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_type: Option<crate::types::credential::CredentialType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_favorite: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health: Option<RecordHealthMetadata>,
 }
@@ -226,6 +234,10 @@ pub fn build_cloud_record(
             name: name.to_string(),
             tags: record.tags.clone(),
             updated_at: record.updated_at.to_rfc3339(),
+            credential_type: Some(record.credential_type),
+            is_favorite: Some(record.is_favorite),
+            expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
+            updated_by: Some(record.updated_by.clone()),
             health: health.map(RecordHealthMetadata::from_state),
         },
         deleted: if record.deleted { Some(true) } else { None },
@@ -297,6 +309,7 @@ mod tests {
                 tags: vec!["dev".to_string(), "work".to_string()],
                 updated_at: "2026-04-05T12:00:00Z".to_string(),
                 health: None,
+                ..Default::default()
             },
             deleted: None,
             deleted_at: None,
@@ -463,6 +476,7 @@ mod tests {
                 tags: vec![],
                 updated_at: "2026-04-05T12:00:00Z".to_string(),
                 health: None,
+                ..Default::default()
             },
             deleted: None,
             deleted_at: None,

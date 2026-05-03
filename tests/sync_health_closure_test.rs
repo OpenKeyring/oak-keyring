@@ -88,10 +88,15 @@ fn create_cloud_record(
             dek_version: 1,
         },
         metadata: RecordMetadata {
-            name: format!("Test Record {}", id),
+            name: format!(
+                "Test Record {
+        }",
+                id
+            ),
             tags: vec!["test".to_string()],
             updated_at: Utc::now().to_rfc3339(),
             health,
+            ..Default::default()
         },
         deleted: None,
         deleted_at: None,
