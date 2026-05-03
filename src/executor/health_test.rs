@@ -74,7 +74,9 @@ fn make_executor_with_one_login() -> CommandExecutor {
         result_tx,
         internal_tx,
         internal_rx: Some(internal_rx),
-        cancel_token: CancellationToken::new(),
+        shutdown_token: CancellationToken::new(),
+        operation_cancel_token: CancellationToken::new(),
+        timer_rebuild_pending: false,
         oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
     }
 }
@@ -108,7 +110,9 @@ fn make_executor_no_records() -> CommandExecutor {
         result_tx,
         internal_tx,
         internal_rx: Some(internal_rx),
-        cancel_token: CancellationToken::new(),
+        shutdown_token: CancellationToken::new(),
+        operation_cancel_token: CancellationToken::new(),
+        timer_rebuild_pending: false,
         oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
     }
 }
