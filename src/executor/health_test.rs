@@ -1262,7 +1262,7 @@ fn load_cached_report_combines_all_categories() {
 // Tests: HealthCheckCompleted write-back verification (Task J acceptance)
 // ===========================================================================
 
-/// Helper: simulate what `execute(InternalHealthCheckCompleted)` does — persist
+/// Helper: simulate what `execute_internal(HealthCheckCompleted)` does — persist
 /// the report, update metadata, and return the result for assertion.
 fn simulate_health_check_completed(
     executor: &mut CommandExecutor,
@@ -1478,12 +1478,14 @@ fn full_roundtrip_unlock_schedule_persist_restore() {
     // Simulate first unlock scheduling
     super::vault::schedule_health_check_after_unlock(&mut executor);
 
-    // Verify RunHealthCheck was sent
+    // Verify ScheduleHealthCheck was sent
     let internal_rx = executor.internal_rx.as_mut().expect("internal_rx");
-    let cmd = internal_rx.try_recv().expect("should have RunHealthCheck");
+    let cmd = internal_rx
+        .try_recv()
+        .expect("should have ScheduleHealthCheck");
     assert!(matches!(
         cmd,
-        crate::commands::Command::RunHealthCheck { .. }
+        crate::commands::InternalCommand::ScheduleHealthCheck { .. }
     ));
 
     // Phase 2: Simulate health check completing
