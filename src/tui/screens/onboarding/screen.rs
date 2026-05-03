@@ -33,6 +33,9 @@ pub struct OnboardingScreen {
     /// Signals that onboarding is returning from ImportExportScreen.
     /// When true, skip ImportSource step and go directly to VaultPath.
     pub returning_from_import: bool,
+    /// Signals that onboarding is returning from SetNewMasterPassword.
+    /// When true, skip reset and restore to SetPassword step.
+    pub returning_from_set_password: bool,
     // Import state for ImportSource/ImportPreview steps
     pub selected_source_idx: usize,
     pub import_file_path: String,
@@ -74,6 +77,7 @@ impl Default for OnboardingScreen {
             verify_positions: [0; 4],
             verify_focus_index: 0,
             returning_from_import: false,
+            returning_from_set_password: false,
             selected_source_idx: 0,
             import_file_path: String::new(),
             import_password: String::new(),
@@ -286,6 +290,12 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         if self.returning_from_import {
             self.returning_from_import = false;
             self.current_step = OnboardingStep::VaultPath;
+            return;
+        }
+        // If returning from SetNewMasterPassword, resume at SetPassword step
+        if self.returning_from_set_password {
+            self.returning_from_set_password = false;
+            self.current_step = OnboardingStep::SetPassword;
             return;
         }
         self.current_step = OnboardingStep::Welcome;
