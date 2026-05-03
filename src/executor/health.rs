@@ -310,9 +310,9 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor, force: bool) -> C
         Ok(r) => r,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Vault(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.list_records_failed",
+                code: ErrorCode::VaultDatabaseIoError,
+                context: ErrorContext::new(),
+                message_key: "tui.error.vault_database_io_error",
                 fallback: format!("Failed to list records for health check: {}", e),
             }
         }
@@ -477,9 +477,9 @@ pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) 
         Ok(s) => s,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Vault(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.decrypt_field_failed",
+                code: ErrorCode::CryptoDecryptionFailed,
+                context: ErrorContext::new().record_id(record_id),
+                message_key: "tui.error.crypto_decryption_failed",
                 fallback: format!("Failed to decrypt password for HIBP check: {}", e),
             }
         }
@@ -496,15 +496,15 @@ pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) 
             compromised: c,
         },
         Ok(Err(e)) => CommandResult::Error {
-            code: ErrorCode::Health(e.to_string()),
-            context: ErrorContext::default(),
-            message_key: "error.hibp_check_failed",
+            code: ErrorCode::HealthHibpApiError,
+            context: ErrorContext::new().record_id(record_id),
+            message_key: "tui.error.health_hibp_api_error",
             fallback: format!("HIBP check failed: {}", e),
         },
         Err(e) => CommandResult::Error {
-            code: ErrorCode::Health(e.to_string()),
-            context: ErrorContext::default(),
-            message_key: "error.hibp_check_failed",
+            code: ErrorCode::HealthHibpApiError,
+            context: ErrorContext::new().record_id(record_id),
+            message_key: "tui.error.health_hibp_api_error",
             fallback: format!("HIBP check task panicked: {}", e),
         },
     }

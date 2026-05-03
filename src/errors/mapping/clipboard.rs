@@ -1,5 +1,5 @@
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorContext, ErrorLevel};
+use crate::errors::{ErrorCode, ErrorContext};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClipboardError {
@@ -26,30 +26,32 @@ pub enum ClipboardError {
 }
 
 impl ServiceError for ClipboardError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::Clipboard(self.to_string())
+    fn to_error_code(&self) -> ErrorCode {
+        match self {
+            ClipboardError::AccessDenied => ErrorCode::ClipboardUnavailable,
+            ClipboardError::ContentTooLong { .. } => ErrorCode::ClipboardCopyFailed,
+            ClipboardError::ContentMismatch => ErrorCode::ClipboardClearFailed,
+            ClipboardError::PlatformUnavailable(_) => ErrorCode::ClipboardUnavailable,
+            ClipboardError::LockPoisoned => ErrorCode::ClipboardUnavailable,
+            ClipboardError::Io(_) => ErrorCode::ClipboardCopyFailed,
+        }
     }
 
-    fn error_context(&self) -> Option<ErrorContext> {
+    fn to_error_context(&self) -> ErrorContext {
         match self {
-            Self::PlatformUnavailable(reason) => Some(ErrorContext::new().with("reason", reason)),
-            Self::ContentTooLong {
+            ClipboardError::PlatformUnavailable(reason) => ErrorContext::new().field_name(reason),
+            ClipboardError::ContentTooLong {
                 max_bytes,
                 actual_bytes,
-            } => Some(
-                ErrorContext::new()
-                    .with("max_bytes", &max_bytes.to_string())
-                    .with("actual_bytes", &actual_bytes.to_string()),
-            ),
-            _ => None,
+            } => ErrorContext::new()
+                .expected_version(*max_bytes as u64)
+                .actual_version(*actual_bytes as u64),
+            _ => ErrorContext::new(),
         }
     }
 
-    fn error_level(&self) -> ErrorLevel {
-        match self {
-            Self::ContentMismatch => ErrorLevel::Warning,
-            _ => ErrorLevel::Error,
-        }
+    fn to_fallback_message(&self) -> String {
+        self.to_string()
     }
 }
 
@@ -62,14 +64,15 @@ impl From<ClipboardError> for crate::errors::ServiceErrorBox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors::service_error::ServiceError;
-    use crate::errors::{ErrorCode, ErrorLevel};
 
     #[test]
     fn clipboard_error_access_denied() {
         let err = ClipboardError::AccessDenied;
-        assert!(matches!(err.error_code(), ErrorCode::Clipboard(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code(), ErrorCode::ClipboardUnavailable);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
     }
 
     #[test]
@@ -78,26 +81,36 @@ mod tests {
             max_bytes: 1024,
             actual_bytes: 2048,
         };
-        assert!(matches!(err.error_code(), ErrorCode::Clipboard(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.to_string().contains("1024"));
-        assert!(err.to_string().contains("2048"));
+        assert_eq!(err.to_error_code(), ErrorCode::ClipboardCopyFailed);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
+        assert!(err.to_fallback_message().contains("1024"));
+        assert!(err.to_fallback_message().contains("2048"));
     }
 
     #[test]
     fn clipboard_error_platform_unavailable() {
         let err = ClipboardError::PlatformUnavailable("headless".to_string());
-        assert!(matches!(err.error_code(), ErrorCode::Clipboard(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.to_string().contains("headless"));
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::ClipboardUnavailable);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
+        assert!(err.to_fallback_message().contains("headless"));
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.field_name, Some("headless".to_string()));
     }
 
     #[test]
-    fn clipboard_error_content_mismatch_is_warning() {
+    fn clipboard_error_content_mismatch_is_clear_failed() {
         let err = ClipboardError::ContentMismatch;
-        assert!(matches!(err.error_code(), ErrorCode::Clipboard(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
+        assert_eq!(err.to_error_code(), ErrorCode::ClipboardClearFailed);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
     }
 
     #[test]

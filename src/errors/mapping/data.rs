@@ -1,60 +1,55 @@
 use crate::db::DbError;
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorContext, ErrorLevel};
+use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::credential::DataError;
 
 impl ServiceError for DbError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::Db(self.to_string())
-    }
-
-    fn error_context(&self) -> Option<ErrorContext> {
+    fn to_error_code(&self) -> ErrorCode {
         match self {
-            DbError::Data(data_err) => data_error_context(data_err),
-            DbError::Sqlite(_) | DbError::Uuid(_) => None,
+            DbError::Sqlite(_) => ErrorCode::VaultDatabaseIoError,
+            DbError::Data(data_err) => data_error_to_code(data_err),
+            DbError::Uuid(_) => ErrorCode::DataInvalidUuid,
         }
     }
 
-    fn error_level(&self) -> ErrorLevel {
+    fn to_error_context(&self) -> ErrorContext {
         match self {
-            DbError::Sqlite(_) => ErrorLevel::Error,
-            DbError::Data(_) => ErrorLevel::Warning,
-            DbError::Uuid(_) => ErrorLevel::Warning,
+            DbError::Sqlite(_) => ErrorContext::new(),
+            DbError::Data(data_err) => data_error_to_context(data_err),
+            DbError::Uuid(_) => ErrorContext::new(),
         }
+    }
+
+    fn to_fallback_message(&self) -> String {
+        self.to_string()
     }
 }
 
-fn data_error_context(err: &DataError) -> Option<ErrorContext> {
+fn data_error_to_code(err: &DataError) -> ErrorCode {
     match err {
-        DataError::FieldTooLong { field, max, actual } => Some(
-            ErrorContext::new()
-                .with("field_name", field)
-                .with("max", &max.to_string())
-                .with("actual", &actual.to_string()),
-        ),
+        DataError::FieldTooLong { .. } => ErrorCode::DataFieldTooLong,
+        DataError::MissingField(_) => ErrorCode::DataMissingField,
+        DataError::EmptyField(_) => ErrorCode::DataEmptyField,
+        DataError::InvalidCredentialType(_) => ErrorCode::DataInvalidCredentialType,
+        DataError::InvalidAuditOperation(_) => ErrorCode::DataInvalidAuditOperation,
+        DataError::InvalidUuid(_) => ErrorCode::DataInvalidUuid,
+        DataError::InvalidSyncStatus(_) => ErrorCode::DataInvalidCredentialType,
+    }
+}
+
+fn data_error_to_context(err: &DataError) -> ErrorContext {
+    match err {
+        DataError::FieldTooLong { field, max, actual } => ErrorContext::new()
+            .field_name(field.to_string())
+            .expected_version(*max as u64)
+            .actual_version(*actual as u64),
         DataError::MissingField(field) | DataError::EmptyField(field) => {
-            Some(ErrorContext::new().with("field_name", field))
+            ErrorContext::new().field_name(field.to_string())
         }
-        DataError::InvalidCredentialType(t) => Some(
-            ErrorContext::new()
-                .with("field_name", "credential_type")
-                .with("value", t),
-        ),
-        DataError::InvalidAuditOperation(op) => Some(
-            ErrorContext::new()
-                .with("field_name", "audit_operation")
-                .with("value", op),
-        ),
-        DataError::InvalidSyncStatus(v) => Some(
-            ErrorContext::new()
-                .with("field_name", "sync_status")
-                .with("value", &v.to_string()),
-        ),
-        DataError::InvalidUuid(s) => Some(
-            ErrorContext::new()
-                .with("field_name", "uuid")
-                .with("value", s),
-        ),
+        DataError::InvalidCredentialType(t) => ErrorContext::new().field_name(t.to_string()),
+        DataError::InvalidAuditOperation(op) => ErrorContext::new().field_name(op.to_string()),
+        DataError::InvalidUuid(s) => ErrorContext::new().field_name(s.to_string()),
+        DataError::InvalidSyncStatus(v) => ErrorContext::new().field_name(v.to_string()),
     }
 }
 
@@ -69,24 +64,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sqlite_error_maps_to_error_level() {
+    fn sqlite_error_maps_to_vault_database_io_error() {
         let err = DbError::Sqlite(rusqlite::Error::InvalidColumnIndex(99));
-        assert!(matches!(err.error_code(), ErrorCode::Db(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code(), ErrorCode::VaultDatabaseIoError);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Fatal
+        );
     }
 
     #[test]
-    fn data_error_maps_to_warning() {
+    fn data_error_maps_to_minor_level() {
         let err = DbError::Data(DataError::MissingField("test"));
-        assert!(matches!(err.error_code(), ErrorCode::Db(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
     }
 
     #[test]
-    fn uuid_error_maps_to_warning() {
+    fn uuid_error_maps_to_minor_level() {
         let err = DbError::Uuid(uuid::Uuid::parse_str("not-a-uuid").unwrap_err());
-        assert!(matches!(err.error_code(), ErrorCode::Db(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
+        assert_eq!(err.to_error_code(), ErrorCode::DataInvalidUuid);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
     }
 
     #[test]
@@ -94,27 +97,32 @@ mod tests {
         let sqlite_err = rusqlite::Error::InvalidColumnIndex(42);
         let err: DbError = sqlite_err.into();
         assert!(matches!(err, DbError::Sqlite(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code(), ErrorCode::VaultDatabaseIoError);
     }
 
     #[test]
     fn db_error_converts_to_service_error_box() {
         let err = DbError::Sqlite(rusqlite::Error::InvalidColumnIndex(1));
         let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert!(matches!(boxed.error_code(), ErrorCode::Db(_)));
-        assert_eq!(boxed.error_level(), ErrorLevel::Error);
+        assert_eq!(boxed.to_error_code(), ErrorCode::VaultDatabaseIoError);
+        assert_eq!(
+            boxed.to_error_code().level(),
+            crate::errors::ErrorLevel::Fatal
+        );
     }
 
     #[test]
-    fn sqlite_error_context_is_none() {
+    fn sqlite_error_context_is_empty() {
         let err = DbError::Sqlite(rusqlite::Error::InvalidColumnIndex(1));
-        assert!(err.error_context().is_none());
+        let ctx = err.to_error_context();
+        assert!(ctx.field_name.is_none());
     }
 
     #[test]
-    fn uuid_error_context_is_none() {
+    fn uuid_error_context_is_empty() {
         let err = DbError::Uuid(uuid::Uuid::parse_str("bad").unwrap_err());
-        assert!(err.error_context().is_none());
+        let ctx = err.to_error_context();
+        assert!(ctx.field_name.is_none());
     }
 
     #[test]
@@ -124,39 +132,39 @@ mod tests {
             max: 100,
             actual: 200,
         });
-        let ctx = err.error_context().expect("expected context");
-        assert_eq!(ctx.fields.get("field_name").unwrap(), "title");
-        assert_eq!(ctx.fields.get("max").unwrap(), "100");
-        assert_eq!(ctx.fields.get("actual").unwrap(), "200");
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.field_name, Some("title".to_string()));
+        assert_eq!(ctx.expected_version, Some(100));
+        assert_eq!(ctx.actual_version, Some(200));
     }
 
     #[test]
     fn data_error_missing_field_has_context() {
         let err = DbError::Data(DataError::MissingField("username"));
-        let ctx = err.error_context().expect("expected context");
-        assert_eq!(ctx.fields.get("field_name").unwrap(), "username");
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.field_name, Some("username".to_string()));
     }
 
     #[test]
     fn data_error_empty_field_has_context() {
         let err = DbError::Data(DataError::EmptyField("password"));
-        let ctx = err.error_context().expect("expected context");
-        assert_eq!(ctx.fields.get("field_name").unwrap(), "password");
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.field_name, Some("password".to_string()));
     }
 
     #[test]
     fn data_error_invalid_credential_type_has_context() {
         let err = DbError::Data(DataError::InvalidCredentialType("unknown".into()));
-        let ctx = err.error_context().expect("expected context");
-        assert_eq!(ctx.fields.get("field_name").unwrap(), "credential_type");
-        assert_eq!(ctx.fields.get("value").unwrap(), "unknown");
+        assert_eq!(err.to_error_code(), ErrorCode::DataInvalidCredentialType);
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.field_name, Some("unknown".to_string()));
     }
 
     #[test]
     fn data_error_invalid_uuid_has_context() {
         let err = DbError::Data(DataError::InvalidUuid("not-a-uuid".into()));
-        let ctx = err.error_context().expect("expected context");
-        assert_eq!(ctx.fields.get("field_name").unwrap(), "uuid");
-        assert_eq!(ctx.fields.get("value").unwrap(), "not-a-uuid");
+        assert_eq!(err.to_error_code(), ErrorCode::DataInvalidUuid);
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.field_name, Some("not-a-uuid".to_string()));
     }
 }

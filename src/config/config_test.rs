@@ -108,20 +108,20 @@ mod tests {
             "not found",
         ));
         assert!(matches!(
-            err.error_code(),
-            crate::errors::ErrorCode::Config(_)
+            err.to_error_code(),
+            crate::errors::ErrorCode::VaultDatabaseIoError
         ));
 
         let err = ConfigError::Parse("bad toml".into());
         assert!(matches!(
-            err.error_code(),
-            crate::errors::ErrorCode::Config(_)
+            err.to_error_code(),
+            crate::errors::ErrorCode::ImportFileFormatInvalid
         ));
 
         let err = ConfigError::Validation("invalid provider".into());
         assert!(matches!(
-            err.error_code(),
-            crate::errors::ErrorCode::Config(_)
+            err.to_error_code(),
+            crate::errors::ErrorCode::ImportColumnMappingInvalid
         ));
     }
 

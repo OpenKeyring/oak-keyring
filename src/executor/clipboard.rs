@@ -18,9 +18,9 @@ pub async fn handle_copy_to_clipboard(
         Ok(s) => s,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Vault(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.decrypt_field_failed",
+                code: ErrorCode::CryptoDecryptionFailed,
+                context: ErrorContext::new().record_id(id),
+                message_key: "tui.error.crypto_decryption_failed",
                 fallback: format!("Failed to decrypt field: {}", e),
             }
         }
@@ -31,9 +31,11 @@ pub async fn handle_copy_to_clipboard(
         Ok(secs) => secs,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Clipboard(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.clipboard_copy_failed",
+                code: ErrorCode::ClipboardCopyFailed,
+                context: ErrorContext::new()
+                    .record_id(id)
+                    .field_name(format!("{:?}", field)),
+                message_key: "tui.error.clipboard_copy_failed",
                 fallback: format!("Failed to copy to clipboard: {}", e),
             }
         }
@@ -55,9 +57,9 @@ pub async fn handle_copy_raw_to_clipboard(
         Ok(secs) => secs,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Clipboard(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.clipboard_copy_failed",
+                code: ErrorCode::ClipboardCopyFailed,
+                context: ErrorContext::new(),
+                message_key: "tui.error.clipboard_copy_failed",
                 fallback: format!("Failed to copy to clipboard: {}", e),
             }
         }
@@ -79,9 +81,9 @@ pub async fn handle_copy_history_password(
         Ok(s) => s,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Vault(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.decrypt_history_failed",
+                code: ErrorCode::CryptoDecryptionFailed,
+                context: ErrorContext::new(),
+                message_key: "tui.error.crypto_decryption_failed",
                 fallback: format!("Failed to decrypt history password: {}", e),
             }
         }
@@ -91,9 +93,9 @@ pub async fn handle_copy_history_password(
         Ok(secs) => secs,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Clipboard(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.clipboard_copy_failed",
+                code: ErrorCode::ClipboardCopyFailed,
+                context: ErrorContext::new(),
+                message_key: "tui.error.clipboard_copy_failed",
                 fallback: format!("Failed to copy to clipboard: {}", e),
             }
         }

@@ -7,6 +7,7 @@ use crate::crypto::password::{
     generate_memorable_password, generate_pin, generate_random_password,
 };
 use crate::crypto::strength::evaluate_strength;
+use crate::errors::service_error::ServiceError;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::record::{CreateRecordParams, UpdateRecordParams};
 use crate::types::{CredentialType, EncryptedPayload, PasswordHistoryView, SecureStr};
@@ -16,10 +17,10 @@ use super::CommandExecutor;
 /// Helper: build a standard error CommandResult from a VaultError.
 fn vault_error(e: crate::errors::mapping::vault::VaultError, msg: &str) -> CommandResult {
     CommandResult::Error {
-        code: ErrorCode::Vault(e.to_string()),
-        context: ErrorContext::default(),
-        message_key: "error.record_operation",
-        fallback: format!("{}: {}", msg, e),
+        code: e.to_error_code(),
+        context: e.to_error_context(),
+        message_key: e.to_error_code().message_key(),
+        fallback: format!("{}: {}", msg, e.to_fallback_message()),
     }
 }
 
@@ -396,9 +397,9 @@ pub fn handle_generate_password(
             CommandResult::PasswordGenerated { password, strength }
         }
         Err(e) => CommandResult::Error {
-            code: ErrorCode::Crypto(e.clone()),
-            context: ErrorContext::default(),
-            message_key: "error.password_generation",
+            code: ErrorCode::CryptoKeyDerivationFailed,
+            context: ErrorContext::new(),
+            message_key: "tui.error.crypto_key_derivation_failed",
             fallback: format!("Failed to generate password: {}", e),
         },
     }
@@ -415,9 +416,9 @@ pub fn handle_generate_memorable_password(
             CommandResult::PasswordGenerated { password, strength }
         }
         Err(e) => CommandResult::Error {
-            code: ErrorCode::Crypto(e.clone()),
-            context: ErrorContext::default(),
-            message_key: "error.password_generation",
+            code: ErrorCode::CryptoKeyDerivationFailed,
+            context: ErrorContext::new(),
+            message_key: "tui.error.crypto_key_derivation_failed",
             fallback: format!("Failed to generate memorable password: {}", e),
         },
     }
@@ -431,9 +432,9 @@ pub fn handle_generate_pin(_executor: &mut CommandExecutor, length: usize) -> Co
             CommandResult::PasswordGenerated { password, strength }
         }
         Err(e) => CommandResult::Error {
-            code: ErrorCode::Crypto(e.clone()),
-            context: ErrorContext::default(),
-            message_key: "error.password_generation",
+            code: ErrorCode::CryptoKeyDerivationFailed,
+            context: ErrorContext::new(),
+            message_key: "tui.error.crypto_key_derivation_failed",
             fallback: format!("Failed to generate PIN: {}", e),
         },
     }

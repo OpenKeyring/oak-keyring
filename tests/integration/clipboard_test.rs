@@ -11,10 +11,10 @@ fn skip_in_ci() -> bool {
 #[test]
 fn test_error_propagation_chain() {
     let err = ClipboardError::AccessDenied;
-    assert!(matches!(err.error_code(), ErrorCode::Clipboard(_)));
-    assert_eq!(err.error_level(), ErrorLevel::Error);
+    assert_eq!(err.to_error_code(), ErrorCode::ClipboardUnavailable);
+    assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     let warn = ClipboardError::ContentMismatch;
-    assert_eq!(warn.error_level(), ErrorLevel::Warning);
+    assert_eq!(warn.to_error_code().level(), ErrorLevel::Minor);
 }
 
 #[tokio::test]

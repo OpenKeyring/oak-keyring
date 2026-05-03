@@ -1,5 +1,5 @@
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorContext, ErrorLevel};
+use crate::errors::{ErrorCode, ErrorContext};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RotationError {
@@ -37,26 +37,47 @@ pub enum RotationError {
 }
 
 impl ServiceError for RotationError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::Rotation(self.to_string())
-    }
-
-    fn error_context(&self) -> Option<ErrorContext> {
-        None
-    }
-
-    fn error_level(&self) -> ErrorLevel {
+    fn to_error_code(&self) -> ErrorCode {
         match self {
-            RotationError::Offline => ErrorLevel::Warning,
-            RotationError::SyncBusy => ErrorLevel::Error,
-            RotationError::ConflictDetected { .. } => ErrorLevel::Warning,
-            RotationError::RecordMigrationFailed { .. } => ErrorLevel::Error,
-            RotationError::PushFailed(_) => ErrorLevel::Error,
-            RotationError::CheckpointCorrupted(_) => ErrorLevel::Fatal,
-            RotationError::MaxVersionExceeded { .. } => ErrorLevel::Fatal,
-            RotationError::VaultNotUnlocked => ErrorLevel::Fatal,
-            RotationError::Internal(_) => ErrorLevel::Error,
+            // Offline/SyncBusy are sync-related issues
+            RotationError::Offline => ErrorCode::SyncNetworkUnreachable,
+            RotationError::SyncBusy => ErrorCode::SyncProviderError,
+            RotationError::ConflictDetected { .. } => ErrorCode::SyncConflictDetected,
+
+            // Migration/encryption failures are crypto errors
+            RotationError::RecordMigrationFailed { .. } => ErrorCode::CryptoEncryptionFailed,
+            RotationError::PushFailed(_) => ErrorCode::CryptoEncryptionFailed,
+
+            // Checkpoint/MaxVersion are fatal crypto errors
+            RotationError::CheckpointCorrupted(_) => ErrorCode::CryptoEncryptionFailed,
+            RotationError::MaxVersionExceeded { .. } => ErrorCode::CryptoEncryptionFailed,
+
+            // Vault not unlocked is executor error
+            RotationError::VaultNotUnlocked => ErrorCode::ExecutorVaultLocked,
+            RotationError::Internal(_) => ErrorCode::CryptoEncryptionFailed,
         }
+    }
+
+    fn to_error_context(&self) -> ErrorContext {
+        match self {
+            RotationError::ConflictDetected {
+                cloud_version,
+                local_version,
+            } => ErrorContext::new()
+                .expected_version(*local_version as u64)
+                .actual_version(*cloud_version as u64),
+            RotationError::RecordMigrationFailed { record_id, .. } => {
+                ErrorContext::new().field_name(record_id)
+            }
+            RotationError::MaxVersionExceeded { current, max } => ErrorContext::new()
+                .actual_version(*current as u64)
+                .expected_version(*max as u64),
+            _ => ErrorContext::new(),
+        }
+    }
+
+    fn to_fallback_message(&self) -> String {
+        self.to_string()
     }
 }
 
@@ -71,42 +92,106 @@ mod tests {
     use super::*;
 
     #[test]
-    fn offline_error_level_is_warning() {
+    fn offline_is_sync_network_unreachable() {
         let err = RotationError::Offline;
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
+        assert_eq!(err.to_error_code(), ErrorCode::SyncNetworkUnreachable);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
     }
 
     #[test]
-    fn sync_busy_error_level_is_error() {
+    fn sync_busy_is_sync_provider_error() {
         let err = RotationError::SyncBusy;
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code(), ErrorCode::SyncProviderError);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
     }
 
     #[test]
-    fn checkpoint_corrupted_error_level_is_fatal() {
+    fn conflict_detected_is_sync_conflict_detected() {
+        let err = RotationError::ConflictDetected {
+            cloud_version: 7,
+            local_version: 5,
+        };
+        assert_eq!(err.to_error_code(), ErrorCode::SyncConflictDetected);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Operation
+        );
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.expected_version, Some(5));
+        assert_eq!(ctx.actual_version, Some(7));
+    }
+
+    #[test]
+    fn record_migration_failed_is_crypto_encryption_failed() {
+        let err = RotationError::RecordMigrationFailed {
+            record_id: "rec_001".to_string(),
+            reason: "bad key".to_string(),
+        };
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoEncryptionFailed);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Fatal
+        );
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.field_name, Some("rec_001".to_string()));
+    }
+
+    #[test]
+    fn checkpoint_corrupted_is_fatal() {
         let err = RotationError::CheckpointCorrupted("json parse error".into());
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoEncryptionFailed);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Fatal
+        );
     }
 
     #[test]
-    fn max_version_exceeded_error_level_is_fatal() {
+    fn max_version_exceeded_is_fatal() {
         let err = RotationError::MaxVersionExceeded {
             current: 9999,
             max: 10000,
         };
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoEncryptionFailed);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Fatal
+        );
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.actual_version, Some(9999));
+        assert_eq!(ctx.expected_version, Some(10000));
+    }
+
+    #[test]
+    fn vault_not_unlocked_is_executor_vault_locked() {
+        let err = RotationError::VaultNotUnlocked;
+        assert_eq!(err.to_error_code(), ErrorCode::ExecutorVaultLocked);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Operation
+        );
     }
 
     #[test]
     fn rotation_error_converts_to_service_error_box() {
         let err = RotationError::Offline;
         let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert_eq!(boxed.error_level(), ErrorLevel::Warning);
+        assert_eq!(boxed.to_error_code(), ErrorCode::SyncNetworkUnreachable);
     }
 
     #[test]
-    fn rotation_error_code_is_rotation_variant() {
+    fn internal_error_is_crypto_encryption_failed() {
         let err = RotationError::Internal("test".into());
-        assert!(matches!(err.error_code(), ErrorCode::Rotation(_)));
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoEncryptionFailed);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Fatal
+        );
     }
 }

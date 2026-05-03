@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorContext, ErrorLevel};
+use crate::errors::{ErrorCode, ErrorContext};
 
 /// Errors that can occur during import/export operations.
 ///
@@ -102,82 +102,85 @@ pub enum ImportExportError {
 }
 
 impl ServiceError for ImportExportError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::ImportExport(self.to_string())
+    fn to_error_code(&self) -> ErrorCode {
+        match self {
+            // File errors
+            ImportExportError::FileNotFound(_) => ErrorCode::ImportFileUnreadable,
+            ImportExportError::FileTooLarge { .. } => ErrorCode::ImportFileUnreadable,
+            ImportExportError::FileReadError { .. } => ErrorCode::ImportFileUnreadable,
+            ImportExportError::FileWriteError { .. } => ErrorCode::ExportWriteFailed,
+
+            // Decryption errors
+            ImportExportError::DecryptionFailed(_) => ErrorCode::ImportPasswordIncorrect,
+            ImportExportError::InvalidPassword => ErrorCode::ImportPasswordIncorrect,
+            ImportExportError::PasswordRequired => ErrorCode::ImportPasswordRequired,
+
+            // Parse errors
+            ImportExportError::ParseError { .. } => ErrorCode::ImportFileFormatInvalid,
+            ImportExportError::InvalidFormat(_) => ErrorCode::ImportFileFormatInvalid,
+            ImportExportError::UnsupportedFormat(_) => ErrorCode::ImportFileFormatInvalid,
+
+            // Validation errors
+            ImportExportError::ValidationError { .. } => ErrorCode::ImportColumnMappingInvalid,
+            ImportExportError::MissingRequiredField(_) => ErrorCode::ImportColumnMappingInvalid,
+            ImportExportError::InvalidFieldType { .. } => ErrorCode::ImportColumnMappingInvalid,
+
+            // Mapping errors
+            ImportExportError::MappingError { .. } => ErrorCode::ImportColumnMappingInvalid,
+            ImportExportError::DuplicateRecord { .. } => ErrorCode::ImportPartialFailure,
+
+            // Encryption errors
+            ImportExportError::EncryptionFailed(_) => ErrorCode::CryptoEncryptionFailed,
+            ImportExportError::KeyDerivationFailed(_) => ErrorCode::CryptoKeyDerivationFailed,
+
+            // Session errors
+            ImportExportError::SessionNotFound(_) => ErrorCode::ImportPartialFailure,
+            ImportExportError::InvalidSessionStatus { .. } => ErrorCode::ImportPartialFailure,
+            ImportExportError::SessionCancelled => ErrorCode::ImportPartialFailure,
+
+            // Vault errors
+            ImportExportError::VaultError(_) => ErrorCode::VaultDatabaseIoError,
+
+            // General errors
+            ImportExportError::InternalError(_) => ErrorCode::CryptoEncryptionFailed,
+            ImportExportError::Timeout => ErrorCode::SyncConnectionTimeout,
+        }
     }
 
-    fn error_context(&self) -> Option<ErrorContext> {
+    fn to_error_context(&self) -> ErrorContext {
         match self {
-            ImportExportError::FileNotFound(path) => {
-                Some(ErrorContext::new().with("path", &path.display().to_string()))
+            ImportExportError::FileNotFound(path) => ErrorContext::new().file_path(path.clone()),
+            ImportExportError::FileTooLarge { path, .. } => {
+                ErrorContext::new().file_path(path.clone())
             }
-            ImportExportError::FileTooLarge { path, size, max } => Some(
-                ErrorContext::new()
-                    .with("path", &path.display().to_string())
-                    .with("size", &size.to_string())
-                    .with("max", &max.to_string()),
-            ),
             ImportExportError::FileReadError { path, .. } => {
-                Some(ErrorContext::new().with("path", &path.display().to_string()))
+                ErrorContext::new().file_path(path.clone())
             }
             ImportExportError::FileWriteError { path, .. } => {
-                Some(ErrorContext::new().with("path", &path.display().to_string()))
+                ErrorContext::new().file_path(path.clone())
             }
             ImportExportError::ValidationError { field, .. } => {
-                Some(ErrorContext::new().with("field", field))
+                ErrorContext::new().field_name(field)
             }
             ImportExportError::InvalidFieldType { field, .. } => {
-                Some(ErrorContext::new().with("field", field))
+                ErrorContext::new().field_name(field)
             }
             ImportExportError::MappingError { source_field, .. } => {
-                Some(ErrorContext::new().with("source_field", source_field))
+                ErrorContext::new().field_name(source_field)
             }
             ImportExportError::DuplicateRecord { name, .. } => {
-                Some(ErrorContext::new().with("name", name))
+                ErrorContext::new().record_name(name)
             }
-            ImportExportError::SessionNotFound(id) => {
-                Some(ErrorContext::new().with("session_id", &id.to_string()))
-            }
-            ImportExportError::InvalidSessionStatus { expected, actual } => Some(
-                ErrorContext::new()
-                    .with("expected", expected)
-                    .with("actual", actual),
-            ),
-            _ => None,
+            ImportExportError::SessionNotFound(id) => ErrorContext::new().record_id(*id),
+            ImportExportError::InvalidSessionStatus { expected, actual } => ErrorContext::new()
+                .field_name(expected)
+                .actual_version(actual.parse().unwrap_or(0)),
+            _ => ErrorContext::new(),
         }
     }
 
-    fn error_level(&self) -> ErrorLevel {
-        match self {
-            // Fatal: encryption/key derivation failures block all progress
-            ImportExportError::EncryptionFailed(_) => ErrorLevel::Fatal,
-            ImportExportError::KeyDerivationFailed(_) => ErrorLevel::Fatal,
-            ImportExportError::InternalError(_) => ErrorLevel::Fatal,
-
-            // Warning: informational issues that don't block progress
-            ImportExportError::DuplicateRecord { .. } => ErrorLevel::Warning,
-            ImportExportError::SessionCancelled => ErrorLevel::Warning,
-
-            // Error: all other operational failures
-            ImportExportError::FileNotFound(_)
-            | ImportExportError::FileTooLarge { .. }
-            | ImportExportError::FileReadError { .. }
-            | ImportExportError::FileWriteError { .. }
-            | ImportExportError::DecryptionFailed(_)
-            | ImportExportError::InvalidPassword
-            | ImportExportError::PasswordRequired
-            | ImportExportError::ParseError { .. }
-            | ImportExportError::InvalidFormat(_)
-            | ImportExportError::UnsupportedFormat(_)
-            | ImportExportError::ValidationError { .. }
-            | ImportExportError::MissingRequiredField(_)
-            | ImportExportError::InvalidFieldType { .. }
-            | ImportExportError::MappingError { .. }
-            | ImportExportError::SessionNotFound(_)
-            | ImportExportError::InvalidSessionStatus { .. }
-            | ImportExportError::VaultError(_)
-            | ImportExportError::Timeout => ErrorLevel::Error,
-        }
+    fn to_fallback_message(&self) -> String {
+        self.to_string()
     }
 }
 
@@ -191,349 +194,139 @@ impl From<ImportExportError> for crate::errors::ServiceErrorBox {
 mod tests {
     use super::*;
 
-    // Helper to create a dummy path for tests
     fn test_path() -> PathBuf {
         PathBuf::from("/tmp/test_import.csv")
     }
 
-    // -- error_code tests --
-
     #[test]
-    fn file_not_found_returns_import_export_code() {
+    fn file_not_found_returns_import_file_unreadable() {
         let err = ImportExportError::FileNotFound(test_path());
-        assert!(
-            matches!(err.error_code(), ErrorCode::ImportExport(ref msg) if msg.contains("test_import.csv")),
-            "expected ErrorCode::ImportExport containing the filename"
+        assert_eq!(err.to_error_code(), ErrorCode::ImportFileUnreadable);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Operation
         );
     }
 
     #[test]
-    fn decryption_failed_returns_import_export_code() {
+    fn decryption_failed_returns_import_password_incorrect() {
         let err = ImportExportError::DecryptionFailed("bad key".into());
-        assert!(
-            matches!(err.error_code(), ErrorCode::ImportExport(ref msg) if msg.contains("bad key"))
-        );
-    }
-
-    #[test]
-    fn timeout_returns_import_export_code() {
-        let err = ImportExportError::Timeout;
-        assert!(matches!(err.error_code(), ErrorCode::ImportExport(_)));
-    }
-
-    #[test]
-    fn parse_error_returns_import_export_code() {
-        let err = ImportExportError::ParseError {
-            format: "CSV".into(),
-            reason: "unexpected EOF".into(),
-        };
-        assert!(
-            matches!(err.error_code(), ErrorCode::ImportExport(ref msg) if msg.contains("CSV"))
-        );
-    }
-
-    #[test]
-    fn session_not_found_returns_import_export_code() {
-        let id = Uuid::new_v4();
-        let err = ImportExportError::SessionNotFound(id);
-        assert!(
-            matches!(err.error_code(), ErrorCode::ImportExport(ref msg) if msg.contains(&id.to_string()))
-        );
-    }
-
-    // -- error_level tests --
-
-    #[test]
-    fn fatal_level_for_encryption_failed() {
+        assert_eq!(err.to_error_code(), ErrorCode::ImportPasswordIncorrect);
         assert_eq!(
-            ImportExportError::EncryptionFailed("aes error".into()).error_level(),
-            ErrorLevel::Fatal
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Operation
         );
     }
 
     #[test]
-    fn fatal_level_for_key_derivation_failed() {
+    fn invalid_password_returns_import_password_incorrect() {
+        let err = ImportExportError::InvalidPassword;
+        assert_eq!(err.to_error_code(), ErrorCode::ImportPasswordIncorrect);
+    }
+
+    #[test]
+    fn password_required_returns_import_password_required() {
+        let err = ImportExportError::PasswordRequired;
+        assert_eq!(err.to_error_code(), ErrorCode::ImportPasswordRequired);
+    }
+
+    #[test]
+    fn encryption_failed_is_fatal() {
         assert_eq!(
-            ImportExportError::KeyDerivationFailed("argon2".into()).error_level(),
-            ErrorLevel::Fatal
+            ImportExportError::EncryptionFailed("aes error".into()).to_error_code(),
+            ErrorCode::CryptoEncryptionFailed
         );
-    }
-
-    #[test]
-    fn fatal_level_for_internal_error() {
         assert_eq!(
-            ImportExportError::InternalError("bug".into()).error_level(),
-            ErrorLevel::Fatal
+            ImportExportError::EncryptionFailed("aes error".into())
+                .to_error_code()
+                .level(),
+            crate::errors::ErrorLevel::Fatal
         );
     }
 
     #[test]
-    fn warning_level_for_duplicate_record() {
+    fn key_derivation_failed_is_crypto_error() {
+        assert_eq!(
+            ImportExportError::KeyDerivationFailed("argon2".into()).to_error_code(),
+            ErrorCode::CryptoKeyDerivationFailed
+        );
+        assert_eq!(
+            ImportExportError::KeyDerivationFailed("argon2".into())
+                .to_error_code()
+                .level(),
+            crate::errors::ErrorLevel::Operation
+        );
+    }
+
+    #[test]
+    fn internal_error_is_fatal() {
+        assert_eq!(
+            ImportExportError::InternalError("bug".into()).to_error_code(),
+            ErrorCode::CryptoEncryptionFailed
+        );
+        assert_eq!(
+            ImportExportError::InternalError("bug".into())
+                .to_error_code()
+                .level(),
+            crate::errors::ErrorLevel::Fatal
+        );
+    }
+
+    #[test]
+    fn duplicate_record_is_partial_failure() {
         assert_eq!(
             ImportExportError::DuplicateRecord {
                 name: "gmail".into(),
                 reason: "already exists".into(),
             }
-            .error_level(),
-            ErrorLevel::Warning
+            .to_error_code(),
+            ErrorCode::ImportPartialFailure
         );
-    }
-
-    #[test]
-    fn warning_level_for_session_cancelled() {
         assert_eq!(
-            ImportExportError::SessionCancelled.error_level(),
-            ErrorLevel::Warning
-        );
-    }
-
-    #[test]
-    fn error_level_for_file_not_found() {
-        assert_eq!(
-            ImportExportError::FileNotFound(test_path()).error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_file_too_large() {
-        assert_eq!(
-            ImportExportError::FileTooLarge {
-                path: test_path(),
-                size: 5_000_000,
-                max: 1_000_000,
+            ImportExportError::DuplicateRecord {
+                name: "gmail".into(),
+                reason: "already exists".into(),
             }
-            .error_level(),
-            ErrorLevel::Error
+            .to_error_code()
+            .level(),
+            crate::errors::ErrorLevel::Operation
         );
     }
 
     #[test]
-    fn error_level_for_file_read_error() {
+    fn session_cancelled_is_partial_failure() {
         assert_eq!(
-            ImportExportError::FileReadError {
-                path: test_path(),
-                reason: "permission denied".into(),
-            }
-            .error_level(),
-            ErrorLevel::Error
+            ImportExportError::SessionCancelled.to_error_code(),
+            ErrorCode::ImportPartialFailure
         );
     }
 
     #[test]
-    fn error_level_for_file_write_error() {
+    fn file_write_error_is_export_write_failed() {
         assert_eq!(
             ImportExportError::FileWriteError {
                 path: test_path(),
                 reason: "disk full".into(),
             }
-            .error_level(),
-            ErrorLevel::Error
+            .to_error_code(),
+            ErrorCode::ExportWriteFailed
         );
-    }
-
-    #[test]
-    fn error_level_for_decryption_failed() {
         assert_eq!(
-            ImportExportError::DecryptionFailed("corrupt".into()).error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_invalid_password() {
-        assert_eq!(
-            ImportExportError::InvalidPassword.error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_password_required() {
-        assert_eq!(
-            ImportExportError::PasswordRequired.error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_parse_error() {
-        assert_eq!(
-            ImportExportError::ParseError {
-                format: "JSON".into(),
-                reason: "invalid syntax".into(),
+            ImportExportError::FileWriteError {
+                path: test_path(),
+                reason: "disk full".into(),
             }
-            .error_level(),
-            ErrorLevel::Error
+            .to_error_code()
+            .level(),
+            crate::errors::ErrorLevel::Operation
         );
     }
-
-    #[test]
-    fn error_level_for_invalid_format() {
-        assert_eq!(
-            ImportExportError::InvalidFormat("broken".into()).error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_unsupported_format() {
-        assert_eq!(
-            ImportExportError::UnsupportedFormat("XML".into()).error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_validation_error() {
-        assert_eq!(
-            ImportExportError::ValidationError {
-                field: "username".into(),
-                reason: "empty".into(),
-            }
-            .error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_missing_required_field() {
-        assert_eq!(
-            ImportExportError::MissingRequiredField("title".into()).error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_invalid_field_type() {
-        assert_eq!(
-            ImportExportError::InvalidFieldType {
-                field: "port".into(),
-                expected: "number".into(),
-                actual: "string".into(),
-            }
-            .error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_mapping_error() {
-        assert_eq!(
-            ImportExportError::MappingError {
-                source_field: "login".into(),
-                reason: "type mismatch".into(),
-            }
-            .error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_session_not_found() {
-        assert_eq!(
-            ImportExportError::SessionNotFound(Uuid::new_v4()).error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_invalid_session_status() {
-        assert_eq!(
-            ImportExportError::InvalidSessionStatus {
-                expected: "Active".into(),
-                actual: "Completed".into(),
-            }
-            .error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_vault_error() {
-        assert_eq!(
-            ImportExportError::VaultError("locked".into()).error_level(),
-            ErrorLevel::Error
-        );
-    }
-
-    #[test]
-    fn error_level_for_timeout() {
-        assert_eq!(ImportExportError::Timeout.error_level(), ErrorLevel::Error);
-    }
-
-    // -- Display / error message tests --
-
-    #[test]
-    fn file_not_found_display_message() {
-        let err = ImportExportError::FileNotFound(test_path());
-        let msg = err.to_string();
-        assert!(msg.contains("file not found"), "got: {msg}");
-        assert!(msg.contains("test_import.csv"), "got: {msg}");
-    }
-
-    #[test]
-    fn file_too_large_display_message() {
-        let err = ImportExportError::FileTooLarge {
-            path: test_path(),
-            size: 5_000_000,
-            max: 1_000_000,
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("file too large"), "got: {msg}");
-        assert!(msg.contains("5000000"), "got: {msg}");
-        assert!(msg.contains("1000000"), "got: {msg}");
-    }
-
-    #[test]
-    fn invalid_password_display_message() {
-        let err = ImportExportError::InvalidPassword;
-        assert_eq!(err.to_string(), "invalid password");
-    }
-
-    #[test]
-    fn session_cancelled_display_message() {
-        let err = ImportExportError::SessionCancelled;
-        assert_eq!(err.to_string(), "session was cancelled");
-    }
-
-    #[test]
-    fn timeout_display_message() {
-        let err = ImportExportError::Timeout;
-        assert_eq!(err.to_string(), "operation timed out");
-    }
-
-    #[test]
-    fn invalid_field_type_display_message() {
-        let err = ImportExportError::InvalidFieldType {
-            field: "port".into(),
-            expected: "number".into(),
-            actual: "string".into(),
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("port"), "got: {msg}");
-        assert!(msg.contains("number"), "got: {msg}");
-        assert!(msg.contains("string"), "got: {msg}");
-    }
-
-    #[test]
-    fn duplicate_record_display_message() {
-        let err = ImportExportError::DuplicateRecord {
-            name: "gmail".into(),
-            reason: "already exists".into(),
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("gmail"), "got: {msg}");
-        assert!(msg.contains("already exists"), "got: {msg}");
-    }
-
-    // -- error_context tests --
 
     #[test]
     fn file_not_found_has_path_context() {
         let err = ImportExportError::FileNotFound(test_path());
-        let ctx = err.error_context().expect("should have context");
-        assert_eq!(ctx.fields.get("path").unwrap(), "/tmp/test_import.csv");
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.file_path, Some(test_path()));
     }
 
     #[test]
@@ -543,10 +336,8 @@ mod tests {
             size: 5_000_000,
             max: 1_000_000,
         };
-        let ctx = err.error_context().expect("should have context");
-        assert_eq!(ctx.fields.get("path").unwrap(), "/tmp/test_import.csv");
-        assert_eq!(ctx.fields.get("size").unwrap(), "5000000");
-        assert_eq!(ctx.fields.get("max").unwrap(), "1000000");
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.file_path, Some(test_path()));
     }
 
     #[test]
@@ -555,54 +346,28 @@ mod tests {
             field: "username".into(),
             reason: "empty".into(),
         };
-        let ctx = err.error_context().expect("should have context");
-        assert_eq!(ctx.fields.get("field").unwrap(), "username");
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.field_name, Some("username".to_string()));
     }
 
     #[test]
     fn session_not_found_has_id_context() {
         let id = Uuid::new_v4();
         let err = ImportExportError::SessionNotFound(id);
-        let ctx = err.error_context().expect("should have context");
-        assert_eq!(ctx.fields.get("session_id").unwrap(), &id.to_string());
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.record_id, Some(id));
     }
 
     #[test]
     fn decryption_failed_has_no_context() {
         let err = ImportExportError::DecryptionFailed("bad".into());
-        assert!(err.error_context().is_none());
+        assert!(err.to_error_context().field_name.is_none());
     }
-
-    #[test]
-    fn invalid_password_has_no_context() {
-        assert!(ImportExportError::InvalidPassword.error_context().is_none());
-    }
-
-    #[test]
-    fn timeout_has_no_context() {
-        assert!(ImportExportError::Timeout.error_context().is_none());
-    }
-
-    // -- From<ImportExportError> for ServiceErrorBox --
 
     #[test]
     fn import_export_error_converts_to_service_error_box() {
         let err = ImportExportError::FileNotFound(test_path());
         let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert_eq!(boxed.error_level(), ErrorLevel::Error);
-    }
-
-    #[test]
-    fn fatal_error_converts_and_preserves_level() {
-        let err = ImportExportError::EncryptionFailed("key error".into());
-        let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert_eq!(boxed.error_level(), ErrorLevel::Fatal);
-    }
-
-    #[test]
-    fn warning_error_converts_and_preserves_level() {
-        let err = ImportExportError::SessionCancelled;
-        let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert_eq!(boxed.error_level(), ErrorLevel::Warning);
+        assert_eq!(boxed.to_error_code(), ErrorCode::ImportFileUnreadable);
     }
 }

@@ -36,9 +36,9 @@ pub fn handle_validate_import_file(
         Ok(id) => id,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::ImportExport(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.import_session_create_failed",
+                code: ErrorCode::ImportFileUnreadable,
+                context: ErrorContext::new(),
+                message_key: "tui.error.import_file_unreadable",
                 fallback: format!("Failed to create import session: {}", e),
             };
         }
@@ -48,9 +48,9 @@ pub fn handle_validate_import_file(
     match executor.import_export.validate_import_file(session_id) {
         Ok(preview) => CommandResult::ImportValidated { preview },
         Err(e) => CommandResult::Error {
-            code: ErrorCode::ImportExport(e.to_string()),
-            context: ErrorContext::default(),
-            message_key: "error.import_validate_failed",
+            code: ErrorCode::ImportFileFormatInvalid,
+            context: ErrorContext::new(),
+            message_key: "tui.error.import_file_format_invalid",
             fallback: format!("Failed to validate import file: {}", e),
         },
     }
@@ -80,9 +80,9 @@ pub fn handle_execute_import(
         Ok(id) => id,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::ImportExport(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.import_session_create_failed",
+                code: ErrorCode::ImportFileUnreadable,
+                context: ErrorContext::new(),
+                message_key: "tui.error.import_file_unreadable",
                 fallback: format!("Failed to create import session: {}", e),
             };
         }
@@ -91,9 +91,9 @@ pub fn handle_execute_import(
     // Step 2: Validate the file first (session must be Validated before import).
     if let Err(e) = executor.import_export.validate_import_file(session_id) {
         return CommandResult::Error {
-            code: ErrorCode::ImportExport(e.to_string()),
-            context: ErrorContext::default(),
-            message_key: "error.import_validate_failed",
+            code: ErrorCode::ImportFileFormatInvalid,
+            context: ErrorContext::new(),
+            message_key: "tui.error.import_file_format_invalid",
             fallback: format!("Failed to validate import file: {}", e),
         };
     }
@@ -135,9 +135,9 @@ pub fn handle_execute_import(
                 return CommandResult::cancelled("import_execute");
             }
             return CommandResult::Error {
-                code: ErrorCode::ImportExport(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.import_execute_failed",
+                code: ErrorCode::ImportPartialFailure,
+                context: ErrorContext::new(),
+                message_key: "tui.error.import_partial_failure",
                 fallback: format!("Failed to execute import: {}", e),
             };
         }
@@ -190,9 +190,9 @@ pub fn handle_execute_export(
     // Step 1: Verify master password.
     if crate::crypto::keystore::KeyStore::unlock(&executor.vault_dir, &master_password).is_err() {
         return CommandResult::Error {
-            code: ErrorCode::Vault(String::from("password_verification_failed")),
-            context: ErrorContext::default(),
-            message_key: "error.password_verification_failed",
+            code: ErrorCode::CryptoKeyDerivationFailed,
+            context: ErrorContext::new(),
+            message_key: "tui.error.crypto_key_derivation_failed",
             fallback: String::from("Master password verification failed."),
         };
     }
@@ -207,9 +207,9 @@ pub fn handle_execute_export(
             Ok(id) => id,
             Err(e) => {
                 return CommandResult::Error {
-                    code: ErrorCode::ImportExport(e.to_string()),
-                    context: ErrorContext::default(),
-                    message_key: "error.export_session_create_failed",
+                    code: ErrorCode::ExportSessionCreateFailed,
+                    context: ErrorContext::new(),
+                    message_key: "tui.error.export_session_create_failed",
                     fallback: format!("Failed to create export session: {}", e),
                 };
             }
@@ -260,9 +260,9 @@ pub fn handle_execute_export(
                 return CommandResult::cancelled("export_execute");
             }
             return CommandResult::Error {
-                code: ErrorCode::ImportExport(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.export_execute_failed",
+                code: ErrorCode::ExportWriteFailed,
+                context: ErrorContext::new(),
+                message_key: "tui.error.export_write_failed",
                 fallback: format!("Failed to execute export: {}", e),
             };
         }

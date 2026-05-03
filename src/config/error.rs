@@ -1,5 +1,5 @@
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorContext, ErrorLevel};
+use crate::errors::{ErrorCode, ErrorContext};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -26,23 +26,19 @@ impl From<toml::ser::Error> for ConfigError {
 }
 
 impl ServiceError for ConfigError {
-    fn error_code(&self) -> ErrorCode {
+    fn to_error_code(&self) -> ErrorCode {
         match self {
-            ConfigError::Io(e) => ErrorCode::Config(format!("IO: {e}")),
-            ConfigError::Parse(msg) => ErrorCode::Config(format!("PARSE: {msg}")),
-            ConfigError::Validation(msg) => ErrorCode::Config(format!("VALIDATION: {msg}")),
+            ConfigError::Io(_) => ErrorCode::VaultDatabaseIoError,
+            ConfigError::Parse(_) => ErrorCode::ImportFileFormatInvalid,
+            ConfigError::Validation(_) => ErrorCode::ImportColumnMappingInvalid,
         }
     }
 
-    fn error_context(&self) -> Option<ErrorContext> {
-        None
+    fn to_error_context(&self) -> ErrorContext {
+        ErrorContext::new()
     }
 
-    fn error_level(&self) -> ErrorLevel {
-        match self {
-            ConfigError::Io(_) => ErrorLevel::Error,
-            ConfigError::Parse(_) => ErrorLevel::Error,
-            ConfigError::Validation(_) => ErrorLevel::Warning,
-        }
+    fn to_fallback_message(&self) -> String {
+        self.to_string()
     }
 }

@@ -1,5 +1,5 @@
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorContext, ErrorLevel};
+use crate::errors::{ErrorCode, ErrorContext};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SyncError {
@@ -79,102 +79,80 @@ pub enum SyncError {
 }
 
 impl ServiceError for SyncError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::Sync(self.to_string())
-    }
-
-    fn error_context(&self) -> Option<ErrorContext> {
+    fn to_error_code(&self) -> ErrorCode {
         match self {
-            Self::ChecksumMismatch {
-                expected,
-                actual,
-                record_id,
-            } => Some(
-                ErrorContext::new()
-                    .with("expected", expected)
-                    .with("actual", actual)
-                    .with("record_id", record_id),
-            ),
-            Self::AadInconsistent {
-                field,
-                expected,
-                actual,
-            } => Some(
-                ErrorContext::new()
-                    .with("field", field)
-                    .with("expected", expected)
-                    .with("actual", actual),
-            ),
-            Self::InvalidStateTransition { from, to } => {
-                Some(ErrorContext::new().with("from", from).with("to", to))
+            SyncError::NetworkTimeout { .. } => ErrorCode::SyncConnectionTimeout,
+            SyncError::NetworkUnreachable { .. } => ErrorCode::SyncNetworkUnreachable,
+            SyncError::ConnectionRefused { .. } => ErrorCode::SyncConnectionTimeout,
+            SyncError::AuthenticationFailed { .. } | SyncError::TokenExpired => {
+                ErrorCode::SyncAuthenticationFailed
             }
-            Self::VaultIdentityMismatch {
-                local_token,
-                remote_token,
-            } => Some(
-                ErrorContext::new()
-                    .with("local_token", local_token)
-                    .with("remote_token", remote_token),
-            ),
-            Self::MetadataVersionConflict { local, remote } => Some(
-                ErrorContext::new()
-                    .with("local", &local.to_string())
-                    .with("remote", &remote.to_string()),
-            ),
-            Self::RecordNotFound { record_id } => {
-                Some(ErrorContext::new().with("record_id", record_id))
+            SyncError::ChecksumMismatch { .. } | SyncError::AadInconsistent { .. } => {
+                ErrorCode::SyncMetadataCorrupted
             }
-            Self::PermissionDenied { path } => Some(ErrorContext::new().with("path", path)),
-            Self::NetworkTimeout { message } => Some(ErrorContext::new().with("message", message)),
-            Self::NetworkUnreachable { message } => {
-                Some(ErrorContext::new().with("message", message))
+            SyncError::SerializationFailed { .. } | SyncError::DeserializationFailed { .. } => {
+                ErrorCode::SyncMetadataCorrupted
             }
-            Self::ConnectionRefused { endpoint } => {
-                Some(ErrorContext::new().with("endpoint", endpoint))
+            SyncError::InvalidStateTransition { .. } => ErrorCode::SyncProviderError,
+            SyncError::LockAcquireFailed { .. } | SyncError::LockReleaseFailed { .. } => {
+                ErrorCode::SyncProviderError
             }
-            Self::AuthenticationFailed { reason } => {
-                Some(ErrorContext::new().with("reason", reason))
+            SyncError::ProviderNotSupported { .. } | SyncError::ProviderError { .. } => {
+                ErrorCode::SyncProviderError
             }
-            Self::LockAcquireFailed { reason } => Some(ErrorContext::new().with("reason", reason)),
-            Self::LockReleaseFailed { reason } => Some(ErrorContext::new().with("reason", reason)),
-            Self::ProviderNotSupported { provider } => {
-                Some(ErrorContext::new().with("provider", provider))
-            }
-            Self::ProviderError { provider, message } => Some(
-                ErrorContext::new()
-                    .with("provider", provider)
-                    .with("message", message),
-            ),
-            Self::ConfigValidationFailed { field, reason } => Some(
-                ErrorContext::new()
-                    .with("field", field)
-                    .with("reason", reason),
-            ),
-            Self::QuotaExceeded { provider } => {
-                Some(ErrorContext::new().with("provider", provider))
-            }
-            Self::Cancelled { operation } => Some(ErrorContext::new().with("operation", operation)),
-            Self::TokenExpired => None,
-            Self::SerializationFailed { message } => {
-                Some(ErrorContext::new().with("message", message))
-            }
-            Self::DeserializationFailed { message } => {
-                Some(ErrorContext::new().with("message", message))
-            }
+            SyncError::ConfigValidationFailed { .. } => ErrorCode::SyncProviderError,
+            SyncError::VaultIdentityMismatch { .. } => ErrorCode::SyncVaultIdentityMismatch,
+            SyncError::MetadataVersionConflict { .. } => ErrorCode::SyncConflictDetected,
+            SyncError::RecordNotFound { .. } => ErrorCode::VaultRecordNotFound,
+            SyncError::PermissionDenied { .. } => ErrorCode::VaultDatabaseIoError,
+            SyncError::QuotaExceeded { .. } => ErrorCode::SyncDiskFull,
+            SyncError::Cancelled { .. } => ErrorCode::SyncProviderError,
         }
     }
 
-    fn error_level(&self) -> ErrorLevel {
+    fn to_error_context(&self) -> ErrorContext {
         match self {
-            Self::NetworkTimeout { .. } => ErrorLevel::Warning,
-            Self::NetworkUnreachable { .. } => ErrorLevel::Warning,
-            Self::ConnectionRefused { .. } => ErrorLevel::Warning,
-            Self::MetadataVersionConflict { .. } => ErrorLevel::Warning,
-            Self::RecordNotFound { .. } => ErrorLevel::Warning,
-            Self::Cancelled { .. } => ErrorLevel::Warning,
-            Self::VaultIdentityMismatch { .. } => ErrorLevel::Fatal,
-            _ => ErrorLevel::Error,
+            SyncError::NetworkTimeout { .. }
+            | SyncError::NetworkUnreachable { .. }
+            | SyncError::ConnectionRefused { .. } => ErrorContext::new(),
+            SyncError::AuthenticationFailed { .. } | SyncError::TokenExpired => ErrorContext::new(),
+            SyncError::ChecksumMismatch { record_id, .. } => {
+                ErrorContext::new().field_name(record_id.clone())
+            }
+            SyncError::AadInconsistent { field, .. } => {
+                ErrorContext::new().field_name(field.clone())
+            }
+            SyncError::SerializationFailed { .. } | SyncError::DeserializationFailed { .. } => {
+                ErrorContext::new()
+            }
+            SyncError::InvalidStateTransition { .. } => ErrorContext::new(),
+            SyncError::LockAcquireFailed { .. } | SyncError::LockReleaseFailed { .. } => {
+                ErrorContext::new()
+            }
+            SyncError::ProviderNotSupported { provider }
+            | SyncError::ProviderError { provider, .. } => {
+                ErrorContext::new().provider_name(provider.clone())
+            }
+            SyncError::ConfigValidationFailed { .. } => ErrorContext::new(),
+            SyncError::VaultIdentityMismatch { .. } => ErrorContext::new(),
+            SyncError::MetadataVersionConflict { local, remote } => ErrorContext::new()
+                .expected_version(*local)
+                .actual_version(*remote),
+            SyncError::RecordNotFound { record_id } => {
+                ErrorContext::new().field_name(record_id.clone())
+            }
+            SyncError::PermissionDenied { path } => {
+                ErrorContext::new().file_path(std::path::PathBuf::from(path))
+            }
+            SyncError::QuotaExceeded { provider } => {
+                ErrorContext::new().provider_name(provider.clone())
+            }
+            SyncError::Cancelled { .. } => ErrorContext::new(),
         }
+    }
+
+    fn to_fallback_message(&self) -> String {
+        self.to_string()
     }
 }
 
@@ -187,18 +165,15 @@ impl From<SyncError> for crate::errors::ServiceErrorBox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors::service_error::ServiceError;
-    use crate::errors::{ErrorCode, ErrorLevel};
+    use crate::errors::ErrorLevel;
 
     #[test]
     fn sync_error_network_timeout() {
         let err = SyncError::NetworkTimeout {
             message: "connection timed out".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
-        assert!(err.error_context().is_some());
-        assert!(err.to_string().contains("connection timed out"));
+        assert_eq!(err.to_error_code(), ErrorCode::SyncConnectionTimeout);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -206,9 +181,8 @@ mod tests {
         let err = SyncError::NetworkUnreachable {
             message: "host unreachable".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncNetworkUnreachable);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -216,9 +190,8 @@ mod tests {
         let err = SyncError::ConnectionRefused {
             endpoint: "localhost:8080".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncConnectionTimeout);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -226,17 +199,15 @@ mod tests {
         let err = SyncError::AuthenticationFailed {
             reason: "invalid credentials".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncAuthenticationFailed);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
     fn sync_error_token_expired() {
         let err = SyncError::TokenExpired;
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_none());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncAuthenticationFailed);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -246,13 +217,8 @@ mod tests {
             actual: "def456".to_string(),
             record_id: "rec_001".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
-        let ctx = err.error_context().unwrap();
-        assert_eq!(ctx.fields.get("expected"), Some(&"abc123".to_string()));
-        assert_eq!(ctx.fields.get("actual"), Some(&"def456".to_string()));
-        assert_eq!(ctx.fields.get("record_id"), Some(&"rec_001".to_string()));
+        assert_eq!(err.to_error_code(), ErrorCode::SyncMetadataCorrupted);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
@@ -262,11 +228,8 @@ mod tests {
             expected: "v1".to_string(),
             actual: "v2".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
-        let ctx = err.error_context().unwrap();
-        assert_eq!(ctx.fields.get("field"), Some(&"password".to_string()));
+        assert_eq!(err.to_error_code(), ErrorCode::SyncMetadataCorrupted);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
@@ -274,9 +237,8 @@ mod tests {
         let err = SyncError::SerializationFailed {
             message: "JSON error".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncMetadataCorrupted);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
@@ -284,9 +246,8 @@ mod tests {
         let err = SyncError::DeserializationFailed {
             message: "JSON error".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncMetadataCorrupted);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
@@ -295,12 +256,8 @@ mod tests {
             from: "syncing".to_string(),
             to: "locked".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
-        let ctx = err.error_context().unwrap();
-        assert_eq!(ctx.fields.get("from"), Some(&"syncing".to_string()));
-        assert_eq!(ctx.fields.get("to"), Some(&"locked".to_string()));
+        assert_eq!(err.to_error_code(), ErrorCode::SyncProviderError);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -308,9 +265,8 @@ mod tests {
         let err = SyncError::LockAcquireFailed {
             reason: "timeout".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncProviderError);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -318,9 +274,8 @@ mod tests {
         let err = SyncError::LockReleaseFailed {
             reason: "not locked".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncProviderError);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -328,9 +283,10 @@ mod tests {
         let err = SyncError::ProviderNotSupported {
             provider: "unknown".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncProviderError);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.provider_name, Some("unknown".to_string()));
     }
 
     #[test]
@@ -339,9 +295,10 @@ mod tests {
             provider: "s3".to_string(),
             message: "access denied".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncProviderError);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.provider_name, Some("s3".to_string()));
     }
 
     #[test]
@@ -350,9 +307,8 @@ mod tests {
             field: "endpoint".to_string(),
             reason: "invalid URL".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncProviderError);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -361,18 +317,8 @@ mod tests {
             local_token: "local_abc".to_string(),
             remote_token: "remote_xyz".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
-        assert!(err.error_context().is_some());
-        let ctx = err.error_context().unwrap();
-        assert_eq!(
-            ctx.fields.get("local_token"),
-            Some(&"local_abc".to_string())
-        );
-        assert_eq!(
-            ctx.fields.get("remote_token"),
-            Some(&"remote_xyz".to_string())
-        );
+        assert_eq!(err.to_error_code(), ErrorCode::SyncVaultIdentityMismatch);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Fatal);
     }
 
     #[test]
@@ -381,12 +327,11 @@ mod tests {
             local: 5,
             remote: 7,
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
-        assert!(err.error_context().is_some());
-        let ctx = err.error_context().unwrap();
-        assert_eq!(ctx.fields.get("local"), Some(&"5".to_string()));
-        assert_eq!(ctx.fields.get("remote"), Some(&"7".to_string()));
+        assert_eq!(err.to_error_code(), ErrorCode::SyncConflictDetected);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.expected_version, Some(5));
+        assert_eq!(ctx.actual_version, Some(7));
     }
 
     #[test]
@@ -394,11 +339,8 @@ mod tests {
         let err = SyncError::RecordNotFound {
             record_id: "rec_999".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
-        assert!(err.error_context().is_some());
-        let ctx = err.error_context().unwrap();
-        assert_eq!(ctx.fields.get("record_id"), Some(&"rec_999".to_string()));
+        assert_eq!(err.to_error_code(), ErrorCode::VaultRecordNotFound);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
@@ -406,9 +348,8 @@ mod tests {
         let err = SyncError::PermissionDenied {
             path: "/vault/records".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::VaultDatabaseIoError);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Fatal);
     }
 
     #[test]
@@ -416,9 +357,10 @@ mod tests {
         let err = SyncError::QuotaExceeded {
             provider: "dropbox".to_string(),
         };
-        assert!(matches!(err.error_code(), ErrorCode::Sync(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-        assert!(err.error_context().is_some());
+        assert_eq!(err.to_error_code(), ErrorCode::SyncDiskFull);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.provider_name, Some("dropbox".to_string()));
     }
 
     #[test]

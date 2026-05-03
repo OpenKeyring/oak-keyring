@@ -89,9 +89,9 @@ where
     if let Some(sync_svc) = &mut executor.sync {
         if let Err(e) = sync_svc.pause().await {
             return CommandResult::Error {
-                code: ErrorCode::Sync(e.to_string()),
-                context: ErrorContext::default(),
-                message_key: "error.sync_pause_failed",
+                code: ErrorCode::SyncPauseFailed,
+                context: ErrorContext::new(),
+                message_key: "tui.error.sync_pause_failed",
                 fallback: format!("Failed to pause sync for {}: {}", label, e),
             };
         }
@@ -107,9 +107,9 @@ where
                     let _ = sync_svc.resume().await;
                 }
                 return CommandResult::Error {
-                    code: ErrorCode::Sync(e.to_string()),
-                    context: ErrorContext::default(),
-                    message_key: "error.download_metadata_failed",
+                    code: ErrorCode::SyncProviderError,
+                    context: ErrorContext::new(),
+                    message_key: "tui.error.sync_provider_error",
                     fallback: format!("Failed to download cloud metadata for {}: {}", label, e),
                 };
             }
@@ -154,18 +154,11 @@ where
 
                             return match alignment {
                                 Ok(cloud_dek) => CommandResult::Error {
-                                    code: ErrorCode::Sync(format!(
-                                        "CAS conflict during {} v{} -> v{}: {}. \
-                                         Cloud DEK version: {}. Local records are aligned \
-                                         and will sync on next cycle.",
-                                        label,
-                                        res.old_dek_version,
-                                        res.new_dek_version,
-                                        cas_err,
-                                        cloud_dek
-                                    )),
-                                    context: ErrorContext::default(),
-                                    message_key: "error.rotation_cas_conflict",
+                                    code: ErrorCode::SyncConflictDetected,
+                                    context: ErrorContext::new()
+                                        .expected_version(u64::from(res.old_dek_version))
+                                        .actual_version(u64::from(res.new_dek_version)),
+                                    message_key: "tui.error.sync_conflict_detected",
                                     fallback: format!(
                                         "DEK {} v{} -> v{} completed locally but \
                                          another device updated cloud simultaneously. \
@@ -174,18 +167,12 @@ where
                                         label, res.old_dek_version, res.new_dek_version, cloud_dek
                                     ),
                                 },
-                                Err(align_err) => CommandResult::Error {
-                                    code: ErrorCode::Sync(format!(
-                                        "CAS conflict during {} v{} -> v{}: {}. \
-                                         Alignment check failed: {}",
-                                        label,
-                                        res.old_dek_version,
-                                        res.new_dek_version,
-                                        cas_err,
-                                        align_err
-                                    )),
-                                    context: ErrorContext::default(),
-                                    message_key: "error.rotation_cas_conflict",
+                                Err(_align_err) => CommandResult::Error {
+                                    code: ErrorCode::SyncConflictDetected,
+                                    context: ErrorContext::new()
+                                        .expected_version(u64::from(res.old_dek_version))
+                                        .actual_version(u64::from(res.new_dek_version)),
+                                    message_key: "tui.error.sync_conflict_detected",
                                     fallback: format!(
                                         "DEK {} v{} -> v{} completed locally but \
                                          cloud push failed: {}. Alignment check also failed. \
@@ -218,8 +205,8 @@ where
         Err(e) => {
             tracing::warn!(error = %e, "DEK {} failed", label);
             CommandResult::Error {
-                code: ErrorCode::Rotation(e.to_string()),
-                context: ErrorContext::default(),
+                code: ErrorCode::DekRotationFailed,
+                context: ErrorContext::new(),
                 message_key: rotation_error_key,
                 fallback: format!("DEK {} failed: {}", label, e),
             }
@@ -285,11 +272,11 @@ pub async fn handle_resume_rotation(executor: &mut CommandExecutor) -> CommandRe
 pub fn handle_check_rotation_trigger(executor: &mut CommandExecutor) -> CommandResult {
     let config = match load_rotation_config(&executor.vault) {
         Ok(c) => c,
-        Err(e) => {
+        Err(_e) => {
             return CommandResult::Error {
-                code: ErrorCode::Rotation(e),
-                context: ErrorContext::default(),
-                message_key: "error.rotation_config_load_failed",
+                code: ErrorCode::DekRotationFailed,
+                context: ErrorContext::new(),
+                message_key: "tui.error.rotation_config_load_failed",
                 fallback: String::from("Failed to load rotation config"),
             };
         }

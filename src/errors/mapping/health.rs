@@ -1,5 +1,5 @@
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorContext, ErrorLevel};
+use crate::errors::{ErrorCode, ErrorContext};
 
 #[derive(Debug, thiserror::Error)]
 pub enum HealthError {
@@ -23,23 +23,26 @@ pub enum HealthError {
 }
 
 impl ServiceError for HealthError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::Health(self.to_string())
-    }
-
-    fn error_context(&self) -> Option<ErrorContext> {
-        None
-    }
-
-    fn error_level(&self) -> ErrorLevel {
+    fn to_error_code(&self) -> ErrorCode {
         match self {
-            HealthError::VaultNotUnlocked => ErrorLevel::Fatal,
-            HealthError::Disabled => ErrorLevel::Warning,
-            HealthError::HibpApiError(_) => ErrorLevel::Warning,
-            HealthError::HibpRateLimited => ErrorLevel::Warning,
-            HealthError::DecryptionFailed(_) => ErrorLevel::Error,
-            HealthError::Internal(_) => ErrorLevel::Error,
+            HealthError::VaultNotUnlocked => ErrorCode::ExecutorVaultLocked,
+            HealthError::DecryptionFailed(_) => ErrorCode::CryptoDecryptionFailed,
+            HealthError::HibpApiError(_) => ErrorCode::HealthHibpApiError,
+            HealthError::HibpRateLimited => ErrorCode::HealthHibpRateLimited,
+            HealthError::Disabled => ErrorCode::HealthCheckFailed,
+            HealthError::Internal(_) => ErrorCode::HealthCheckFailed,
         }
+    }
+
+    fn to_error_context(&self) -> ErrorContext {
+        match self {
+            HealthError::DecryptionFailed(name) => ErrorContext::new().record_name(name),
+            _ => ErrorContext::new(),
+        }
+    }
+
+    fn to_fallback_message(&self) -> String {
+        self.to_string()
     }
 }
 
@@ -54,39 +57,75 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vault_not_unlocked_error_level_is_fatal() {
+    fn vault_not_unlocked_error_code_is_executor_vault_locked() {
         let err = HealthError::VaultNotUnlocked;
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code(), ErrorCode::ExecutorVaultLocked);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Operation
+        );
     }
 
     #[test]
-    fn hibp_api_error_level_is_warning() {
+    fn hibp_api_error_is_minor() {
         let err = HealthError::HibpApiError("timeout".into());
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
+        assert_eq!(err.to_error_code(), ErrorCode::HealthHibpApiError);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
     }
 
     #[test]
-    fn disabled_error_level_is_warning() {
+    fn hibp_rate_limited_is_minor() {
+        let err = HealthError::HibpRateLimited;
+        assert_eq!(err.to_error_code(), ErrorCode::HealthHibpRateLimited);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
+    }
+
+    #[test]
+    fn disabled_is_minor() {
         let err = HealthError::Disabled;
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
+        assert_eq!(err.to_error_code(), ErrorCode::HealthCheckFailed);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
     }
 
     #[test]
-    fn decryption_failed_error_level_is_error() {
+    fn decryption_failed_is_operation() {
         let err = HealthError::DecryptionFailed("bad key".into());
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoDecryptionFailed);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Operation
+        );
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.record_name, Some("bad key".to_string()));
     }
 
     #[test]
     fn health_error_converts_to_service_error_box() {
         let err = HealthError::HibpRateLimited;
         let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert_eq!(boxed.error_level(), ErrorLevel::Warning);
+        assert_eq!(boxed.to_error_code(), ErrorCode::HealthHibpRateLimited);
+        assert_eq!(
+            boxed.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
     }
 
     #[test]
-    fn health_error_code_is_health_variant() {
+    fn internal_error_is_minor() {
         let err = HealthError::Internal("test".into());
-        assert!(matches!(err.error_code(), ErrorCode::Health(_)));
+        assert_eq!(err.to_error_code(), ErrorCode::HealthCheckFailed);
+        assert_eq!(
+            err.to_error_code().level(),
+            crate::errors::ErrorLevel::Minor
+        );
     }
 }

@@ -31,9 +31,9 @@ pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> 
             CommandResult::ConfigSaved
         }
         Err(e) => CommandResult::Error {
-            code: ErrorCode::Config(e.to_string()),
-            context: ErrorContext::default(),
-            message_key: "error.config_save_failed",
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::new(),
+            message_key: "tui.error.vault_database_io_error",
             fallback: format!("Failed to save config: {}", e),
         },
     }
@@ -172,9 +172,9 @@ pub async fn handle_test_sync_connection(
         Some(s) => s,
         None => {
             return CommandResult::Error {
-                code: ErrorCode::Sync(String::from("not_configured")),
-                context: ErrorContext::default(),
-                message_key: "error.sync_not_configured",
+                code: ErrorCode::SyncNotConfigured,
+                context: ErrorContext::new(),
+                message_key: "tui.error.sync_not_configured",
                 fallback: String::from("Sync is not configured."),
             };
         }
@@ -262,9 +262,9 @@ pub fn handle_load_audit_log(executor: &mut CommandExecutor, filter: AuditFilter
     match executor.vault.query_audit_log(&filter) {
         Ok((entries, total)) => CommandResult::AuditLogLoaded { entries, total },
         Err(e) => CommandResult::Error {
-            code: ErrorCode::Vault(e.to_string()),
-            context: ErrorContext::default(),
-            message_key: "error.audit_log_failed",
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::new(),
+            message_key: "tui.error.vault_database_io_error",
             fallback: format!("Failed to load audit log: {}", e),
         },
     }

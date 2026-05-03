@@ -54,9 +54,9 @@ impl CommandExecutor {
 
         if needs_unlock && !self.vault.is_unlocked() {
             return Some(CommandResult::Error {
-                code: ErrorCode::Vault(String::from("locked")),
-                context: crate::errors::ErrorContext::default(),
-                message_key: "error.vault_locked",
+                code: ErrorCode::ExecutorVaultLocked,
+                context: crate::errors::ErrorContext::new(),
+                message_key: "tui.error.executor_vault_locked",
                 fallback: String::from("Vault is locked. Please unlock first."),
             });
         }
