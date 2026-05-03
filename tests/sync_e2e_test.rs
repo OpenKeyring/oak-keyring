@@ -47,9 +47,15 @@ fn create_test_cloud_record(id: &str, version: u64) -> CloudRecord {
             dek_version: 1,
         },
         metadata: oak_keyring::cloud::RecordMetadata {
-            name: format!("Test Record {}", id),
+            name: format!(
+                "Test Record {
+        }",
+                id
+            ),
             tags: vec!["test".to_string()],
             updated_at: Utc::now().to_rfc3339(),
+            health: None,
+            ..Default::default()
         },
         deleted: None,
         deleted_at: None,
@@ -424,7 +430,7 @@ async fn sync_service_lifecycle() {
     let mut svc = SyncService::new(storage);
 
     // Call sync() → should return Ok or Err (not panic)
-    let result = svc.sync().await;
+    let result = svc.sync(None).await;
     assert!(
         result.is_ok() || result.is_err(),
         "sync() should return Ok or Err, not panic"

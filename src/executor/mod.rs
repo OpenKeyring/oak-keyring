@@ -33,6 +33,12 @@ use crate::services::vault::VaultService;
 use crate::config::notification::ServiceNotification;
 use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
 
+#[cfg(test)]
+mod health_test;
+
+#[cfg(test)]
+mod vault_test;
+
 /// Load OAuth2 tokens from TokenStore into the in-memory GoogleDriveConfig.
 /// TokenStore is the single source of truth — config.toml never stores tokens.
 fn load_oauth2_tokens_into_config(config: &mut AppConfig) {

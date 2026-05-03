@@ -17,10 +17,11 @@ pub use conflict::{
 pub use lock::{LockFileData, SyncLock};
 pub use nonce_validator::{IdentityAction, NonceValidator};
 pub use pipeline::{
-    DetectStage, LocalRecordInfo, PipelineContext, PipelineResult, PullMetadataStage, PushStage,
-    ResolveStage, StageOutcome, SyncPipeline, SyncStage,
+    DetectStage, HealthSyncAdapter, LocalRecordInfo, NoOpHealthSyncAdapter, PipelineContext,
+    PipelineResult, PullMetadataStage, PushStage, ResolveStage, StageOutcome, SyncPipeline,
+    SyncStage,
 };
 pub use retry::{BackoffTimer, RetryPolicy};
 pub use state_machine::{SyncState, SyncStateMachine, SyncTrigger};
-pub use task::{SyncCommand, SyncEvent, SyncReport, SyncTask};
+pub use task::{SyncCommand, SyncEvent, SyncReport, SyncTask, SyncVaultData};
 pub use watcher::{SyncWatcher, WatchEventKind};

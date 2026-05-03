@@ -11,7 +11,9 @@ use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::record::{CreateRecordParams, DecryptedRecord, StoredRecord, UpdateRecordParams};
 
-use super::helpers::{db_error_to_vault, decrypt_record_name, password_changed};
+use super::helpers::{
+    db_error_to_vault, decrypt_record_name, expires_at_changed, password_changed,
+};
 
 impl VaultService {
     /// Create a new vault record with encryption, tags, and audit logging.
@@ -214,29 +216,32 @@ impl VaultService {
             });
         }
 
-        // 3. If Login and password changed, save old password to history
-        if stored.credential_type == CredentialType::Login {
-            let old_payload = payload::decrypt_payload(
-                &self.crypto,
+        // 3. Decrypt old payload to detect changes
+        let old_payload = payload::decrypt_payload(
+            &self.crypto,
+            &stored.encrypted_data,
+            &stored.nonce,
+            &stored.aad,
+            stored.credential_type,
+            stored.dek_version,
+        )
+        .map_err(VaultError::CryptoError)?;
+
+        // 4. Detect password and expires_at changes for health state management
+        let pw_changed = password_changed(&old_payload, &params.payload);
+        let exp_changed = expires_at_changed(stored.expires_at, params.expires_at);
+
+        // 5. If Login and password changed, save old password to history
+        if stored.credential_type == CredentialType::Login && pw_changed {
+            self._save_password_history(
+                params.id,
                 &stored.encrypted_data,
                 &stored.nonce,
-                &stored.aad,
-                stored.credential_type,
                 stored.dek_version,
-            )
-            .map_err(VaultError::CryptoError)?;
-
-            if password_changed(&old_payload, &params.payload) {
-                self._save_password_history(
-                    params.id,
-                    &stored.encrypted_data,
-                    &stored.nonce,
-                    stored.dek_version,
-                )?;
-            }
+            )?;
         }
 
-        // 4. Encrypt new payload
+        // 6. Encrypt new payload
         let aad = format!("record:{}", params.id);
         let (encrypted_data, nonce) =
             payload::encrypt_payload(&self.crypto, &params.payload, aad.as_bytes())
@@ -262,7 +267,7 @@ impl VaultService {
             tags: params.tags.clone(),
         };
 
-        // 5. Update record in DB (with optimistic locking via WHERE version = ?)
+        // 7. Update record in DB (with optimistic locking via WHERE version = ?)
         let updated = queries::update_record(&self.conn, &updated_record, params.expected_version)
             .map_err(db_error_to_vault)?;
         if !updated {
@@ -272,7 +277,7 @@ impl VaultService {
             });
         }
 
-        // 6. Clear old tag associations and rebuild new ones
+        // 8. Clear old tag associations and rebuild new ones
         queries::detach_all_tags_for_record(&self.conn, &params.id).map_err(db_error_to_vault)?;
         for tag_name in &params.tags {
             let tag =
@@ -280,7 +285,16 @@ impl VaultService {
             queries::attach_tag(&self.conn, &params.id, tag.id).map_err(db_error_to_vault)?;
         }
 
-        // 7. Write audit entry
+        // 9. Health state management (spec section 7 lifecycle rules)
+        if pw_changed || exp_changed {
+            // Password or expires_at changed: delete health state, schedule rescan
+            self.delete_record_health_state(&params.id)?;
+        } else {
+            // Cosmetic change only: carry forward health state to new version
+            self.copy_health_state_to_version(&params.id, new_version)?;
+        }
+
+        // 10. Write audit entry
         let record_name = params.payload.name().to_string();
         queries::insert_audit_entry(
             &self.conn,
@@ -318,6 +332,10 @@ impl VaultService {
 
         queries::soft_delete_record(&self.conn, &id).map_err(db_error_to_vault)?;
 
+        // Delete health state: soft-deleted records should not carry stale health data.
+        // A full health scan will be scheduled by the executor after this operation.
+        self.delete_record_health_state(&id)?;
+
         queries::insert_audit_entry(
             &self.conn,
             AuditOperation::RecordDelete,
@@ -349,6 +367,9 @@ impl VaultService {
 
         queries::restore_record(&self.conn, &id).map_err(db_error_to_vault)?;
 
+        // No explicit health state change on restore — the executor will
+        // schedule a full health scan so the restored record gets evaluated.
+
         queries::insert_audit_entry(
             &self.conn,
             AuditOperation::RecordRestore,
@@ -379,6 +400,10 @@ impl VaultService {
         let record_name = decrypt_record_name(&self.crypto, &stored)?;
 
         queries::hard_delete_record(&self.conn, &id).map_err(db_error_to_vault)?;
+
+        // Health state is cascade-deleted via FK, but delete explicitly in case
+        // the FK constraint is deferred or absent.
+        self.delete_record_health_state(&id)?;
 
         queries::insert_audit_entry(
             &self.conn,
@@ -415,5 +440,118 @@ impl VaultService {
             .map_err(VaultError::DatabaseError)?;
 
         Ok(())
+    }
+
+    /// Apply a downloaded `CloudRecord` to the local vault.
+    ///
+    /// Decodes the base64-encoded encrypted data and nonce, constructs a
+    /// `StoredRecord`, and upserts it (INSERT OR REPLACE). This is used by
+    /// the sync download path to persist record bodies before health states,
+    /// so FK constraints on `record_health_state.record_id` are satisfied.
+    ///
+    /// Returns `true` if a new record was inserted, `false` if an existing one
+    /// was replaced.
+    pub fn apply_downloaded_cloud_record(
+        &self,
+        cloud_record: &crate::cloud::CloudRecord,
+    ) -> Result<bool, VaultError> {
+        use base64::Engine;
+
+        let id = Uuid::parse_str(&cloud_record.id)
+            .map_err(|e| VaultError::CryptoError(format!("invalid record id: {}", e)))?;
+
+        let encrypted_data = base64::engine::general_purpose::STANDARD
+            .decode(&cloud_record.encrypted_data)
+            .map_err(|e| {
+                VaultError::CryptoError(format!("invalid encrypted_data base64: {}", e))
+            })?;
+
+        let nonce_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&cloud_record.nonce)
+            .map_err(|e| VaultError::CryptoError(format!("invalid nonce base64: {}", e)))?;
+        let nonce: [u8; 24] = nonce_bytes
+            .try_into()
+            .map_err(|_| VaultError::CryptoError("nonce must be 24 bytes".to_string()))?;
+
+        let existing =
+            crate::db::queries::get_record(&self.conn, &id).map_err(db_error_to_vault)?;
+        let is_new = existing.is_none();
+
+        let aad: Vec<u8> = format!("record:{}", id).into_bytes();
+
+        let now = chrono::Utc::now();
+
+        // Restore the remote updated_at to preserve sorting/display semantics.
+        // Falls back to now for malformed or legacy timestamps.
+        let remote_updated_at =
+            chrono::DateTime::parse_from_rfc3339(&cloud_record.metadata.updated_at)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|e| {
+                    tracing::warn!(
+                        record_id = %id,
+                        error = %e,
+                        raw = %cloud_record.metadata.updated_at,
+                        "Failed to parse metadata.updated_at, using current time"
+                    );
+                    now
+                });
+
+        let deleted = cloud_record.deleted.unwrap_or(false);
+        let deleted_at = if deleted {
+            cloud_record
+                .deleted_at
+                .as_deref()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        } else {
+            None
+        };
+
+        // Preserve record attributes from cloud metadata; use safe defaults for
+        // older cloud records that don't carry these fields (backward compat).
+        let credential_type = cloud_record
+            .metadata
+            .credential_type
+            .unwrap_or(crate::types::credential::CredentialType::Login);
+        let is_favorite = cloud_record.metadata.is_favorite.unwrap_or(false);
+        let expires_at = cloud_record
+            .metadata
+            .expires_at
+            .as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc));
+        let updated_by = cloud_record
+            .metadata
+            .updated_by
+            .clone()
+            .unwrap_or_else(|| "sync".to_string());
+
+        let stored = crate::types::record::StoredRecord {
+            id,
+            credential_type,
+            encrypted_data,
+            nonce,
+            dek_version: cloud_record.dek_version,
+            aad,
+            is_favorite,
+            expires_at,
+            created_at: existing.as_ref().map_or(now, |r| r.created_at),
+            updated_at: remote_updated_at,
+            updated_by,
+            version: cloud_record.version,
+            deleted,
+            deleted_at,
+            tags: cloud_record.metadata.tags.clone(),
+        };
+
+        if is_new {
+            crate::db::queries::insert_record(&self.conn, &stored).map_err(db_error_to_vault)?;
+        } else {
+            let local_version = existing.as_ref().map_or(0, |r| r.version);
+            crate::db::queries::update_record(&self.conn, &stored, local_version)
+                .map_err(db_error_to_vault)?;
+        }
+
+        Ok(is_new)
     }
 }

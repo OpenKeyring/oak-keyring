@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod credential;
+pub mod health;
 pub mod history;
 pub mod record;
 pub mod rotation;
@@ -9,6 +10,7 @@ pub mod tag;
 
 pub use audit::{AuditEntry, AuditOperation};
 pub use credential::{CredentialType, DataError, EncryptedPayload};
+pub use health::{HealthStateDelta, RecordHealthState};
 pub use history::{PasswordHistory, PasswordHistoryView};
 pub use record::{
     CreateRecordParams, DecryptedRecord, StoredRecord, TuiRecord, UpdateRecordParams,

@@ -6,6 +6,7 @@ use super::queries::*;
 use super::schema::init_db_in_memory;
 use crate::types::audit::AuditOperation;
 use crate::types::credential::CredentialType;
+use crate::types::health::RecordHealthState;
 use crate::types::record::StoredRecord;
 
 fn fresh_db() -> Connection {
@@ -287,4 +288,263 @@ fn metadata_get_set() {
     // Nonexistent key returns None
     let missing = get_metadata(&db, "no_such_key").unwrap();
     assert!(missing.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Health state helpers
+// ---------------------------------------------------------------------------
+
+/// Build a test `StoredRecord` with minimal defaults (no tags).
+fn make_test_record(id: &Uuid, version: u64) -> StoredRecord {
+    StoredRecord {
+        id: *id,
+        credential_type: CredentialType::Login,
+        encrypted_data: vec![1, 2, 3, 4],
+        nonce: [0u8; 24],
+        dek_version: 1,
+        aad: vec![],
+        is_favorite: false,
+        expires_at: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        updated_by: "test".to_string(),
+        version,
+        deleted: false,
+        deleted_at: None,
+        tags: vec![],
+    }
+}
+
+fn make_health_state(record_id: &Uuid, record_version: u64) -> RecordHealthState {
+    RecordHealthState {
+        record_id: *record_id,
+        record_version,
+        evaluated_at: Some(Utc.timestamp_opt(1700000000, 0).single().unwrap()),
+        weak_password: Some(true),
+        duplicate_group_size: Some(3),
+        compromised: Some(false),
+        expired: Some(true),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Health state query tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn upsert_and_get_record_health_state() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    insert_record(&db, &make_test_record(&id, 1)).unwrap();
+
+    let state = make_health_state(&id, 1);
+    upsert_record_health_state(&db, &state).unwrap();
+
+    let fetched = get_record_health_state(&db, &id).unwrap().unwrap();
+    assert_eq!(fetched.record_id, id);
+    assert_eq!(fetched.record_version, 1);
+    assert_eq!(fetched.weak_password, Some(true));
+    assert_eq!(fetched.duplicate_group_size, Some(3));
+    assert_eq!(fetched.compromised, Some(false));
+    assert_eq!(fetched.expired, Some(true));
+    assert!(fetched.evaluated_at.is_some());
+}
+
+#[test]
+fn get_record_health_state_returns_none_when_not_found() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    let result = get_record_health_state(&db, &id).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
+fn upsert_record_health_state_updates_existing() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    insert_record(&db, &make_test_record(&id, 1)).unwrap();
+
+    let mut state = make_health_state(&id, 1);
+    upsert_record_health_state(&db, &state).unwrap();
+
+    // Update the state
+    state.weak_password = Some(false);
+    state.record_version = 2;
+    upsert_record_health_state(&db, &state).unwrap();
+
+    let fetched = get_record_health_state(&db, &id).unwrap().unwrap();
+    assert_eq!(fetched.weak_password, Some(false));
+    assert_eq!(fetched.record_version, 2);
+}
+
+#[test]
+fn list_record_health_states_returns_all() {
+    let db = fresh_db();
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
+    insert_record(&db, &make_test_record(&id1, 1)).unwrap();
+    insert_record(&db, &make_test_record(&id2, 1)).unwrap();
+
+    upsert_record_health_state(&db, &make_health_state(&id1, 1)).unwrap();
+    upsert_record_health_state(&db, &make_health_state(&id2, 1)).unwrap();
+
+    let states = list_record_health_states(&db).unwrap();
+    assert_eq!(states.len(), 2);
+
+    let ids: Vec<Uuid> = states.iter().map(|s| s.record_id).collect();
+    assert!(ids.contains(&id1));
+    assert!(ids.contains(&id2));
+}
+
+#[test]
+fn list_record_health_states_returns_empty_when_none() {
+    let db = fresh_db();
+    let states = list_record_health_states(&db).unwrap();
+    assert!(states.is_empty());
+}
+
+#[test]
+fn replace_record_health_states_swaps_all() {
+    let db = fresh_db();
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
+    let id3 = Uuid::new_v4();
+    insert_record(&db, &make_test_record(&id1, 1)).unwrap();
+    insert_record(&db, &make_test_record(&id2, 1)).unwrap();
+    insert_record(&db, &make_test_record(&id3, 1)).unwrap();
+
+    // Insert initial states for id1 and id2
+    upsert_record_health_state(&db, &make_health_state(&id1, 1)).unwrap();
+    upsert_record_health_state(&db, &make_health_state(&id2, 1)).unwrap();
+    assert_eq!(list_record_health_states(&db).unwrap().len(), 2);
+
+    // Replace with states for id2 and id3 only
+    let new_states = vec![make_health_state(&id2, 2), make_health_state(&id3, 1)];
+    replace_record_health_states(&db, &new_states).unwrap();
+
+    let states = list_record_health_states(&db).unwrap();
+    assert_eq!(states.len(), 2);
+
+    // id1 should be gone
+    assert!(get_record_health_state(&db, &id1).unwrap().is_none());
+    // id2 should have version 2
+    let s2 = get_record_health_state(&db, &id2).unwrap().unwrap();
+    assert_eq!(s2.record_version, 2);
+    // id3 should exist
+    assert!(get_record_health_state(&db, &id3).unwrap().is_some());
+}
+
+#[test]
+fn replace_record_health_states_with_empty_clears_all() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    insert_record(&db, &make_test_record(&id, 1)).unwrap();
+    upsert_record_health_state(&db, &make_health_state(&id, 1)).unwrap();
+    assert_eq!(list_record_health_states(&db).unwrap().len(), 1);
+
+    replace_record_health_states(&db, &[]).unwrap();
+    assert!(list_record_health_states(&db).unwrap().is_empty());
+}
+
+#[test]
+fn delete_record_health_state_removes_single() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    insert_record(&db, &make_test_record(&id, 1)).unwrap();
+    upsert_record_health_state(&db, &make_health_state(&id, 1)).unwrap();
+
+    let result = delete_record_health_state(&db, &id).unwrap();
+    assert!(result, "should return true when row exists");
+
+    assert!(get_record_health_state(&db, &id).unwrap().is_none());
+}
+
+#[test]
+fn delete_record_health_state_returns_false_when_not_found() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    let result = delete_record_health_state(&db, &id).unwrap();
+    assert!(!result, "should return false when no row exists");
+}
+
+#[test]
+fn delete_record_health_states_batch() {
+    let db = fresh_db();
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
+    let id3 = Uuid::new_v4();
+    insert_record(&db, &make_test_record(&id1, 1)).unwrap();
+    insert_record(&db, &make_test_record(&id2, 1)).unwrap();
+    insert_record(&db, &make_test_record(&id3, 1)).unwrap();
+
+    upsert_record_health_state(&db, &make_health_state(&id1, 1)).unwrap();
+    upsert_record_health_state(&db, &make_health_state(&id2, 1)).unwrap();
+    upsert_record_health_state(&db, &make_health_state(&id3, 1)).unwrap();
+
+    let affected = delete_record_health_states(&db, &[id1, id3]).unwrap();
+    assert_eq!(affected, 2);
+
+    assert!(get_record_health_state(&db, &id1).unwrap().is_none());
+    assert!(get_record_health_state(&db, &id2).unwrap().is_some());
+    assert!(get_record_health_state(&db, &id3).unwrap().is_none());
+}
+
+#[test]
+fn delete_record_health_states_handles_empty_ids() {
+    let db = fresh_db();
+    let affected = delete_record_health_states(&db, &[]).unwrap();
+    assert_eq!(affected, 0);
+}
+
+#[test]
+fn copy_record_health_state_version_advances_version() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    insert_record(&db, &make_test_record(&id, 1)).unwrap();
+    upsert_record_health_state(&db, &make_health_state(&id, 1)).unwrap();
+
+    let result = copy_record_health_state_version(&db, &id, 5).unwrap();
+    assert!(result, "should return true when row exists");
+
+    let fetched = get_record_health_state(&db, &id).unwrap().unwrap();
+    assert_eq!(fetched.record_version, 5);
+    // Other fields should be preserved
+    assert_eq!(fetched.weak_password, Some(true));
+    assert_eq!(fetched.duplicate_group_size, Some(3));
+}
+
+#[test]
+fn copy_record_health_state_version_returns_false_when_not_found() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    let result = copy_record_health_state_version(&db, &id, 2).unwrap();
+    assert!(!result, "should return false when no row exists");
+}
+
+#[test]
+fn health_state_null_fields_round_trip() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    insert_record(&db, &make_test_record(&id, 1)).unwrap();
+
+    // All tri-state fields are None — "not yet evaluated"
+    let state = RecordHealthState {
+        record_id: id,
+        record_version: 1,
+        evaluated_at: None,
+        weak_password: None,
+        duplicate_group_size: None,
+        compromised: None,
+        expired: None,
+    };
+    upsert_record_health_state(&db, &state).unwrap();
+
+    let fetched = get_record_health_state(&db, &id).unwrap().unwrap();
+    assert_eq!(fetched.record_id, id);
+    assert_eq!(fetched.record_version, 1);
+    assert!(fetched.evaluated_at.is_none());
+    assert!(fetched.weak_password.is_none());
+    assert!(fetched.duplicate_group_size.is_none());
+    assert!(fetched.compromised.is_none());
+    assert!(fetched.expired.is_none());
 }

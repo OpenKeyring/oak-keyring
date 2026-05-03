@@ -155,6 +155,16 @@ pub fn handle_execute_import(
         tracing::warn!(error = %e, "Failed to write import audit log");
     }
 
+    // Schedule a full health scan to evaluate newly imported records.
+    if imported_count > 0 {
+        if let Err(e) = executor
+            .internal_tx
+            .try_send(crate::commands::Command::RunHealthCheck { force: true })
+        {
+            tracing::warn!(error = %e, "Failed to schedule post-import health scan");
+        }
+    }
+
     CommandResult::ImportCompleted {
         imported_count,
         skipped_count: result.skipped,

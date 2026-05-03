@@ -35,9 +35,15 @@ fn create_test_cloud_record(id: &str, version: u64) -> CloudRecord {
             dek_version: 1,
         },
         metadata: oak_keyring::cloud::RecordMetadata {
-            name: format!("Test Record {}", id),
+            name: format!(
+                "Test Record {
+        }",
+                id
+            ),
             tags: vec!["test".to_string()],
             updated_at: Utc::now().to_rfc3339(),
+            health: None,
+            ..Default::default()
         },
         deleted: None,
         deleted_at: None,

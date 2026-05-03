@@ -181,6 +181,14 @@ pub(super) fn password_changed(old: &EncryptedPayload, new: &EncryptedPayload) -
     }
 }
 
+/// Check whether `expires_at` changed between two optional timestamps.
+pub(super) fn expires_at_changed(
+    old: Option<chrono::DateTime<chrono::Utc>>,
+    new: Option<chrono::DateTime<chrono::Utc>>,
+) -> bool {
+    old != new
+}
+
 /// Map DbError to VaultError, preserving the rusqlite error when possible.
 pub(crate) fn db_error_to_vault(e: queries::DbError) -> VaultError {
     match e {

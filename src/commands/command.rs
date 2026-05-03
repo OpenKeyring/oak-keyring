@@ -155,7 +155,9 @@ pub enum Command {
     },
 
     // ── Health Check ──────────────────────────────
-    RunHealthCheck,
+    RunHealthCheck {
+        force: bool,
+    },
 
     CheckHibp {
         record_id: Uuid,
@@ -281,7 +283,7 @@ mod exhaustive_tests {
                 Command::GenerateMemorablePassword { .. } => {}
                 Command::GeneratePin { .. } => {}
                 // Health Check
-                Command::RunHealthCheck => {}
+                Command::RunHealthCheck { .. } => {}
                 Command::CheckHibp { .. } => {}
                 // Sync Operations
                 Command::TriggerSync => {}
