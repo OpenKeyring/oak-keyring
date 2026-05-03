@@ -41,6 +41,7 @@ mod tests {
                 tags: vec!["test".to_string()],
                 updated_at: Utc::now().to_rfc3339(),
                 health: None,
+                ..Default::default()
             },
             deleted: None,
             deleted_at: None,
@@ -575,6 +576,7 @@ mod tests {
                     compromised: Some(false),
                     expired: None,
                 }),
+                ..Default::default()
             },
             deleted: None,
             deleted_at: None,

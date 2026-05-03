@@ -257,6 +257,7 @@ mod tests {
                 tags: vec!["dev".to_string()],
                 updated_at: "2026-04-05T12:00:00Z".to_string(),
                 health: None,
+                ..Default::default()
             },
             deleted: None,
             deleted_at: None,

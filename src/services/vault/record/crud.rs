@@ -491,18 +491,37 @@ impl VaultService {
             None
         };
 
+        // Preserve record attributes from cloud metadata; use safe defaults for
+        // older cloud records that don't carry these fields (backward compat).
+        let credential_type = cloud_record
+            .metadata
+            .credential_type
+            .unwrap_or(crate::types::credential::CredentialType::Login);
+        let is_favorite = cloud_record.metadata.is_favorite.unwrap_or(false);
+        let expires_at = cloud_record
+            .metadata
+            .expires_at
+            .as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc));
+        let updated_by = cloud_record
+            .metadata
+            .updated_by
+            .clone()
+            .unwrap_or_else(|| "sync".to_string());
+
         let stored = crate::types::record::StoredRecord {
             id,
-            credential_type: crate::types::credential::CredentialType::Login,
+            credential_type,
             encrypted_data,
             nonce,
             dek_version: cloud_record.dek_version,
             aad,
-            is_favorite: false,
-            expires_at: None,
+            is_favorite,
+            expires_at,
             created_at: existing.as_ref().map_or(now, |r| r.created_at),
             updated_at: now,
-            updated_by: "sync".to_string(),
+            updated_by,
             version: cloud_record.version,
             deleted,
             deleted_at,

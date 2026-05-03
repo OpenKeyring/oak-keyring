@@ -529,19 +529,9 @@ impl SyncStage for PushStage {
         }
 
         // Update remote metadata so other devices can detect uploaded records.
-        // A provider-level failure (e.g. Memory backend not supporting atomic
-        // rename) is logged but does not block the sync — the metadata will be
-        // retried on the next sync cycle.
         if !context.uploads.is_empty() {
             if let Err(e) = Self::push_updated_metadata(context).await {
-                if matches!(&e, SyncError::ProviderError { .. }) {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to push updated metadata (provider error), will retry next sync"
-                    );
-                } else {
-                    return StageOutcome::Error(Box::new(e));
-                }
+                return StageOutcome::Error(Box::new(e));
             }
         }
 
