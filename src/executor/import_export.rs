@@ -159,7 +159,7 @@ pub fn handle_execute_import(
     if imported_count > 0 {
         if let Err(e) = executor
             .internal_tx
-            .try_send(crate::commands::Command::RunHealthCheck { force: true })
+            .try_send(crate::commands::InternalCommand::ScheduleHealthCheck { force: true })
         {
             tracing::warn!(error = %e, "Failed to schedule post-import health scan");
         }

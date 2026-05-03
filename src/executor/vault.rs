@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::commands::{Command, CommandResult};
+use crate::commands::{CommandResult, InternalCommand};
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::SecureStr;
@@ -32,7 +32,7 @@ pub(super) fn schedule_health_check_after_unlock(executor: &mut CommandExecutor)
         // pick it up after returning VaultUnlocked to the UI.
         let _ = executor
             .internal_tx
-            .try_send(Command::RunHealthCheck { force: false });
+            .try_send(InternalCommand::ScheduleHealthCheck { force: false });
         tracing::info!("health check scheduled after unlock");
     } else {
         // Restore cached report from persisted health state rows.

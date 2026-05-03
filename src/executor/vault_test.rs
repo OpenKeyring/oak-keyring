@@ -92,14 +92,17 @@ fn schedules_run_health_check_when_no_previous_check() {
 
     schedule_health_check_after_unlock(&mut executor);
 
-    // Verify RunHealthCheck was sent to the internal channel
+    // Verify ScheduleHealthCheck was sent to the internal channel
     let internal_rx = executor.internal_rx.as_mut().expect("internal_rx");
     let cmd = internal_rx
         .try_recv()
         .expect("should have a command in internal channel");
     assert!(
-        matches!(cmd, crate::commands::Command::RunHealthCheck { .. }),
-        "expected RunHealthCheck command, got {:?}",
+        matches!(
+            cmd,
+            crate::commands::InternalCommand::ScheduleHealthCheck { .. }
+        ),
+        "expected ScheduleHealthCheck command, got {:?}",
         cmd
     );
 
@@ -142,7 +145,7 @@ fn loads_cached_report_when_check_not_due() {
     let internal_rx = executor.internal_rx.as_mut().expect("internal_rx");
     assert!(
         internal_rx.try_recv().is_err(),
-        "internal channel should be empty — no RunHealthCheck sent"
+        "internal channel should be empty — no ScheduleHealthCheck sent"
     );
 
     // Should have loaded cached report
@@ -191,12 +194,14 @@ fn handles_missing_metadata_gracefully() {
 
     schedule_health_check_after_unlock(&mut executor);
 
-    // RunHealthCheck should have been sent
+    // ScheduleHealthCheck should have been sent
     let internal_rx = executor.internal_rx.as_mut().expect("internal_rx");
-    let cmd = internal_rx.try_recv().expect("should have RunHealthCheck");
+    let cmd = internal_rx
+        .try_recv()
+        .expect("should have ScheduleHealthCheck");
     assert!(matches!(
         cmd,
-        crate::commands::Command::RunHealthCheck { .. }
+        crate::commands::InternalCommand::ScheduleHealthCheck { .. }
     ));
 }
 
@@ -246,10 +251,12 @@ fn schedules_check_when_daily_frequency_expired() {
     schedule_health_check_after_unlock(&mut executor);
 
     let internal_rx = executor.internal_rx.as_mut().expect("internal_rx");
-    let cmd = internal_rx.try_recv().expect("should have RunHealthCheck");
+    let cmd = internal_rx
+        .try_recv()
+        .expect("should have ScheduleHealthCheck");
     assert!(matches!(
         cmd,
-        crate::commands::Command::RunHealthCheck { .. }
+        crate::commands::InternalCommand::ScheduleHealthCheck { .. }
     ));
 }
 

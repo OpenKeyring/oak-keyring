@@ -230,13 +230,6 @@ pub enum Command {
     TriggerRotation,
     /// Check if rotation should be triggered
     CheckRotationTrigger,
-
-    // ── Internal (Hidden) ──────────────────────────
-    /// Internal signal that background health check completed.
-    /// Used to update Executor's internal cache.
-    InternalHealthCheckCompleted {
-        report: HealthReport,
-    },
 }
 
 #[cfg(test)]
@@ -309,8 +302,6 @@ mod exhaustive_tests {
                 // DEK Rotation
                 Command::TriggerRotation => {}
                 Command::CheckRotationTrigger => {}
-                // Internal
-                Command::InternalHealthCheckCompleted { .. } => {}
             }
         }
     }
