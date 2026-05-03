@@ -726,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_uses_custom_vault_path_when_set() {
+    fn enter_passes_recovery_words_in_initialize_vault_command() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(16);
         let config = crate::config::AppConfig::default();
         let mut ctx = ScreenContext {
@@ -734,9 +734,10 @@ mod tests {
             config: &config,
         };
 
+        let test_words: Vec<String> = (0..24).map(|i| format!("word{}", i)).collect();
         let custom_path = std::path::PathBuf::from("/tmp/my-custom/vault.db");
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
+            recovery_words: test_words.clone(),
         })
         .with_vault_path(custom_path.clone());
 
@@ -774,13 +775,24 @@ mod tests {
             &mut ctx,
         );
 
-        // Verify the command was sent with the custom path
+        // Verify the command carries both vault_path and recovery_words
         let cmd = rx.try_recv().expect("Command should be sent");
         match cmd {
-            Command::InitializeVault { vault_path, .. } => {
+            Command::InitializeVault {
+                vault_path,
+                recovery_words,
+                ..
+            } => {
                 assert_eq!(
                     vault_path, custom_path,
                     "Should use custom vault_path, not hardcoded"
+                );
+                let words =
+                    recovery_words.expect("recovery_words should be Some for OnboardingCreate");
+                assert_eq!(words.len(), 24, "Should carry 24 recovery words");
+                assert_eq!(
+                    words, test_words,
+                    "Should carry the exact words from context"
                 );
             }
             _ => panic!("Expected InitializeVault command"),

@@ -567,9 +567,17 @@ fn onboarding_recovery_display_regenerate_sends_command_even_with_empty_words() 
         &mut dummy_ctx(),
     );
 
-    // Should still regenerate locally (no early return) — new words
-    // are generated and stored immediately.
+    // Should regenerate locally — words are no longer empty
     assert!(matches!(result, ScreenResult::Continue));
+    assert!(
+        !screen.recovery_words.is_empty(),
+        "recovery_words should be populated after regenerate"
+    );
+    assert_eq!(
+        screen.recovery_words.len(),
+        24,
+        "should generate exactly 24 words"
+    );
 }
 
 #[test]
@@ -881,24 +889,6 @@ fn onboarding_import_preview_backtab_toggles_focus() {
         &mut ctx,
     );
     assert!(screen.import_preview_checkbox_focused);
-}
-
-#[test]
-fn onboarding_command_result_vault_initialized() {
-    let mut screen = OnboardingScreen {
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::VaultPath,
-        ..Default::default()
-    };
-
-    let words: Vec<String> = (0..24).map(|i| format!("word{}", i)).collect();
-    let result = screen.handle_command_result(CommandResult::VaultInitialized {
-        recovery_words: words.clone(),
-    });
-
-    assert!(matches!(result, ScreenResult::Continue));
-    assert_eq!(screen.current_step, OnboardingStep::RecoveryDisplay);
-    assert_eq!(screen.recovery_words, words);
 }
 
 #[test]

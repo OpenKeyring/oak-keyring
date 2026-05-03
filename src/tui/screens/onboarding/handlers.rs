@@ -504,11 +504,6 @@ impl OnboardingScreen {
 
     pub(crate) fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
-            CommandResult::VaultInitialized { recovery_words } => {
-                self.recovery_words = recovery_words;
-                self.current_step = OnboardingStep::RecoveryDisplay;
-                ScreenResult::Continue
-            }
             CommandResult::RecoveryKeyUnlocked => {
                 // Recovery key was accepted — already moved to VaultPath
                 ScreenResult::Continue
