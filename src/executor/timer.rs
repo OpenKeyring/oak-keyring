@@ -2,6 +2,7 @@
 
 use tokio::time::{interval, Duration, Interval};
 
+use crate::config::sync::{SyncMode, SyncProvider};
 use crate::config::AppConfig;
 
 pub struct ExecutorTimers {
@@ -9,8 +10,6 @@ pub struct ExecutorTimers {
     pub sync_interval: Option<Interval>,
     /// Auto-lock interval (None if auto_lock_seconds == 0)
     pub auto_lock_interval: Option<Interval>,
-    /// Clipboard clear interval
-    pub clipboard_clear_interval: Option<Interval>,
     /// Whether auto-sync is active
     pub sync_active: bool,
     /// Whether auto-lock is active
@@ -18,8 +17,13 @@ pub struct ExecutorTimers {
 }
 
 impl ExecutorTimers {
-    pub fn new(config: &AppConfig) -> Self {
-        let sync_interval = if config.sync.auto_interval_seconds > 0 {
+    pub fn new(config: &AppConfig, sync_service_available: bool) -> Self {
+        let sync_enabled = sync_service_available
+            && config.sync.provider != SyncProvider::Disabled
+            && config.sync.sync_mode == SyncMode::Auto
+            && config.sync.auto_interval_seconds > 0;
+
+        let sync_interval = if sync_enabled {
             Some(interval(Duration::from_secs(
                 config.sync.auto_interval_seconds,
             )))
@@ -35,20 +39,11 @@ impl ExecutorTimers {
             None
         };
 
-        let clipboard_clear_interval = if config.general.clipboard_clear_seconds > 0 {
-            Some(interval(Duration::from_secs(
-                config.general.clipboard_clear_seconds,
-            )))
-        } else {
-            None
-        };
-
         Self {
             sync_active: sync_interval.is_some(),
             auto_lock_active: auto_lock_interval.is_some(),
             sync_interval,
             auto_lock_interval,
-            clipboard_clear_interval,
         }
     }
 
@@ -58,8 +53,8 @@ impl ExecutorTimers {
         }
     }
 
-    pub fn rebuild(&mut self, config: &AppConfig) {
-        *self = Self::new(config);
+    pub fn rebuild(&mut self, config: &AppConfig, sync_service_available: bool) {
+        *self = Self::new(config, sync_service_available);
     }
 }
 

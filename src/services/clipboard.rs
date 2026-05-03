@@ -364,6 +364,13 @@ impl ClipboardService {
 
     pub fn set_clear_timeout(&self, seconds: u64) {
         self.clear_timeout.store(seconds, Ordering::Relaxed);
+        let has_tracked = self.last_hash.lock().map(|h| h.is_some()).unwrap_or(false);
+        if has_tracked {
+            self.cancel_timer();
+            if seconds > 0 {
+                self.start_clear_timer();
+            }
+        }
     }
 
     #[allow(dead_code)]

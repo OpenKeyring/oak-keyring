@@ -37,6 +37,9 @@ use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
 mod health_test;
 
 #[cfg(test)]
+mod timer_test;
+
+#[cfg(test)]
 mod vault_test;
 
 /// Load OAuth2 tokens from TokenStore into the in-memory GoogleDriveConfig.
@@ -98,8 +101,12 @@ pub struct CommandExecutor {
     pub(super) internal_tx: mpsc::Sender<InternalCommand>,
     /// Internal receiver (temporary storage until run() is called).
     internal_rx: Option<mpsc::Receiver<InternalCommand>>,
-    /// Cancellation token for graceful shutdown and operation cancellation.
-    cancel_token: CancellationToken,
+    /// Token for graceful executor shutdown (app exit). Only run() listens to this.
+    shutdown_token: CancellationToken,
+    /// Token for cancelling in-flight operations (LockVault, sync, health, etc.).
+    operation_cancel_token: CancellationToken,
+    /// Set by apply_config_changes when timer intervals changed and need rebuilding.
+    timer_rebuild_pending: bool,
     /// OAuth2 token store for Google Drive authorization.
     oauth2_token_store: Arc<tokio::sync::Mutex<Option<crate::cloud::oauth2::TokenStore>>>,
 }
@@ -114,7 +121,7 @@ impl CommandExecutor {
     /// * `config` — Application configuration
     /// * `vault_dir` — Path to the vault directory
     /// * `result_tx` — Channel sender for dispatching messages to the UI
-    /// * `cancel_token` — Token for cooperative cancellation / shutdown
+    /// * `shutdown_token` — Token for graceful executor shutdown
     ///
     /// # Errors
     /// Returns an error if the database cannot be opened.
@@ -122,12 +129,12 @@ impl CommandExecutor {
     /// Clipboard initialization degrades to a disabled backend when the
     /// platform clipboard is unavailable, so executor startup remains usable
     /// in headless and CI environments.
-    #[tracing::instrument(skip(result_tx, cancel_token))]
+    #[tracing::instrument(skip(result_tx, shutdown_token))]
     pub fn new(
         mut config: AppConfig,
         vault_dir: PathBuf,
         result_tx: mpsc::Sender<Message>,
-        cancel_token: CancellationToken,
+        shutdown_token: CancellationToken,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         info!(vault_dir = %vault_dir.display(), "initializing CommandExecutor");
 
@@ -182,7 +189,9 @@ impl CommandExecutor {
             result_tx,
             internal_tx,
             internal_rx: Some(internal_rx),
-            cancel_token,
+            shutdown_token,
+            operation_cancel_token: CancellationToken::new(),
+            timer_rebuild_pending: false,
             oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
@@ -192,9 +201,9 @@ impl CommandExecutor {
         self.vault.is_unlocked()
     }
 
-    /// Get a reference to the cancellation token.
+    /// Get a reference to the operation cancellation token.
     pub fn cancel_token(&self) -> &CancellationToken {
-        &self.cancel_token
+        &self.operation_cancel_token
     }
 
     /// Main executor run loop.
@@ -206,7 +215,7 @@ impl CommandExecutor {
         info!("CommandExecutor started");
 
         let mut internal_rx = self.internal_rx.take().expect("internal_rx must be set");
-        let mut timers = timer::ExecutorTimers::new(&self.config);
+        let mut timers = timer::ExecutorTimers::new(&self.config, self.sync.is_some());
 
         loop {
             // Destructure into individual fields so tokio::select! can take
@@ -214,7 +223,6 @@ impl CommandExecutor {
             let timer::ExecutorTimers {
                 ref mut sync_interval,
                 ref mut auto_lock_interval,
-                ref mut clipboard_clear_interval,
                 sync_active,
                 auto_lock_active,
             } = timers;
@@ -223,8 +231,8 @@ impl CommandExecutor {
                 // Priority 1: Cancellation signal
                 biased;
 
-                _ = self.cancel_token.cancelled() => {
-                    info!("Executor received cancellation signal, shutting down");
+                _ = self.shutdown_token.cancelled() => {
+                    info!("Executor received shutdown signal, shutting down");
                     break;
                 }
 
@@ -245,7 +253,11 @@ impl CommandExecutor {
                 // Priority 3: Internal command processing (background tasks)
                 cmd = internal_rx.recv() => {
                     if let Some(internal_cmd) = cmd {
+                        let resets_lock = internal_cmd.resets_auto_lock();
                         self.execute_internal(internal_cmd).await;
+                        if resets_lock {
+                            timers.reset_auto_lock();
+                        }
                     }
                 }
 
@@ -261,11 +273,13 @@ impl CommandExecutor {
                     self.execute(Command::LockVault).await;
                 }
 
-                // Priority 6: Clipboard clear timer
-                _ = timer::tick_opt(clipboard_clear_interval) => {
-                    info!("Clipboard clear timer triggered");
-                    let _ = self.clipboard.clear();
-                }
+            }
+
+            // Rebuild timers if config changed since last iteration.
+            // Must happen after select! — destructure borrows are released here.
+            if self.timer_rebuild_pending {
+                timers.rebuild(&self.config, self.sync.is_some());
+                self.timer_rebuild_pending = false;
             }
         }
 

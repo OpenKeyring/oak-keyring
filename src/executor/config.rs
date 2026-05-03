@@ -103,9 +103,11 @@ fn apply_config_changes(
     for &field in changed {
         match field {
             "general.auto_lock_seconds" => {
+                executor.timer_rebuild_pending = true;
                 tracing::info!("Auto-lock config changed — timer will rebuild on next tick");
             }
             "sync" => {
+                executor.timer_rebuild_pending = true;
                 use crate::cloud::provider::create_cloud_storage;
                 match create_cloud_storage(&new_config.sync) {
                     Ok(storage) => {
@@ -311,7 +313,9 @@ mod tests {
             result_tx,
             internal_tx,
             internal_rx: Some(internal_rx),
-            cancel_token: CancellationToken::new(),
+            shutdown_token: CancellationToken::new(),
+            operation_cancel_token: CancellationToken::new(),
+            timer_rebuild_pending: false,
             oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }

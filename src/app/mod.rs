@@ -78,7 +78,7 @@ impl App {
                 self.config.clone(),
                 self.vault_dir.clone(),
                 self.result_tx.clone(),
-                self.cancel_token.clone(),
+                self.cancel_token.clone(), // shutdown_token for executor run loop
             )?;
 
             tokio::spawn(async move {

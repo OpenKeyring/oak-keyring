@@ -14,12 +14,30 @@ pub enum InternalCommand {
     ScheduleHealthCheck { force: bool },
 }
 
+impl InternalCommand {
+    /// Returns true if this command represents user activity and should
+    /// reset the auto-lock timer.
+    ///
+    /// `ScheduleHealthCheck` is a follow-up signal from a preceding external
+    /// command (UnlockVault, CreateRecord, ExecuteImport) that already called
+    /// `timers.reset_auto_lock()`. Resetting again would mask real inactivity.
+    ///
+    /// `HealthCheckCompleted` is a background callback and must not extend
+    /// the session.
+    pub fn resets_auto_lock(&self) -> bool {
+        match self {
+            InternalCommand::HealthCheckCompleted { .. } => false,
+            InternalCommand::ScheduleHealthCheck { .. } => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod exhaustive_tests {
     use super::*;
 
     /// Compile-time exhaustiveness check.
-    /// Adding a new InternalCommand variant without updating this match will
+    /// Adding a new InternalCommand variant without updating these matches will
     /// cause a compile error.
     #[test]
     fn internal_command_exhaustive_match() {
@@ -29,5 +47,26 @@ mod exhaustive_tests {
                 InternalCommand::ScheduleHealthCheck { .. } => {}
             }
         }
+        fn _assert_resets(cmd: InternalCommand) {
+            let _ = cmd.resets_auto_lock();
+        }
+    }
+
+    #[test]
+    fn resets_auto_lock_returns_false_for_all_variants() {
+        use crate::commands::types::HealthReport;
+        let report = HealthReport {
+            weak_passwords: vec![],
+            duplicate_passwords: vec![],
+            compromised: vec![],
+            expired: vec![],
+            total_checked: 0,
+        };
+        assert!(!InternalCommand::HealthCheckCompleted {
+            report: report.clone()
+        }
+        .resets_auto_lock());
+        assert!(!InternalCommand::ScheduleHealthCheck { force: false }.resets_auto_lock());
+        assert!(!InternalCommand::ScheduleHealthCheck { force: true }.resets_auto_lock());
     }
 }
