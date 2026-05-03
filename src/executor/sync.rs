@@ -106,17 +106,23 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
         })
         .collect();
 
-    // Validate each upload CloudRecord; a structurally invalid record would
-    // be rejected by the remote side on download, silently breaking sync.
-    for record in &uploads {
-        if let Err(e) = record.validate() {
-            tracing::error!(
-                record_id = %record.id,
-                error = %e,
-                "Upload CloudRecord failed validation — this is a bug"
-            );
-        }
-    }
+    // Filter out structurally invalid CloudRecords that would be silently
+    // rejected by the remote side during validation on download.
+    let valid_uploads: Vec<crate::cloud::CloudRecord> = uploads
+        .into_iter()
+        .filter(|r| {
+            if let Err(e) = r.validate() {
+                tracing::error!(
+                    record_id = %r.id,
+                    error = %e,
+                    "Upload CloudRecord failed validation — dropping from sync upload"
+                );
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
 
     // Read metadata version and vault token
     let metadata_version = executor
@@ -136,7 +142,7 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
 
     Some(Box::new(SyncVaultData {
         local_records,
-        uploads,
+        uploads: valid_uploads,
         local_metadata_version: metadata_version,
         local_vault_token: vault_token,
     }))
