@@ -1377,6 +1377,7 @@ fn onboarding_vault_path_resolved_custom_when_set() {
 
 /// Helper to create a dummy ScreenContext for tests.
 /// The command_tx is a buffered channel that discards messages.
+#[allow(static_mut_refs)]
 fn dummy_ctx() -> ScreenContext<'static> {
     // We cannot easily construct ScreenContext in unit tests,
     // so we leak the channel to get 'static lifetime.

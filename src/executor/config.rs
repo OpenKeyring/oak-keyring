@@ -282,7 +282,6 @@ mod tests {
         use crate::services::health::HealthService;
         use crate::services::import_export::ImportExportService;
         use crate::services::vault::VaultService;
-        use rusqlite::Connection;
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
 
