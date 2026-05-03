@@ -79,25 +79,12 @@ fn detect_changed_fields(old: &AppConfig, new: &AppConfig) -> Vec<&'static str> 
     changed
 }
 
-/// Map config field paths to service IDs for the notification system.
-fn map_to_service_ids<'a>(changed: &[&'a str]) -> Vec<&'a str> {
-    changed
-        .iter()
-        .filter_map(|&field| match field {
-            "general.clipboard_clear_seconds" => Some("clipboard"),
-            _ => None,
-        })
-        .collect()
-}
-
 /// Apply runtime config changes that take effect immediately.
 fn apply_config_changes(executor: &mut CommandExecutor, changed: &[&str], new_config: &AppConfig) {
-    // Notify registered services via the notification system.
-    let service_ids = map_to_service_ids(changed);
-    if !service_ids.is_empty() {
+    if !changed.is_empty() {
         let results = executor
             .config_notifier
-            .notify_config_change(new_config, &service_ids);
+            .notify_config_change(new_config, &[]);
         for result in &results {
             if let Err(e) = result {
                 tracing::error!(error = %e, "Service failed to reload config");
@@ -316,28 +303,6 @@ mod tests {
             cancel_token: CancellationToken::new(),
             oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
         }
-    }
-
-    #[test]
-    fn map_to_service_ids_clipboard_field() {
-        let ids = map_to_service_ids(&["general.clipboard_clear_seconds"]);
-        assert_eq!(ids, vec!["clipboard"]);
-    }
-
-    #[test]
-    fn map_to_service_ids_no_match() {
-        let ids = map_to_service_ids(&["general.auto_lock_seconds", "sync"]);
-        assert!(ids.is_empty());
-    }
-
-    #[test]
-    fn map_to_service_ids_mixed() {
-        let ids = map_to_service_ids(&[
-            "general.clipboard_clear_seconds",
-            "sync",
-            "general.auto_lock_seconds",
-        ]);
-        assert_eq!(ids, vec!["clipboard"]);
     }
 
     #[test]
