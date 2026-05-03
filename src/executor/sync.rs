@@ -161,9 +161,9 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
         Some(s) => s,
         None => {
             return CommandResult::Error {
-                code: ErrorCode::SyncProviderError,
+                code: ErrorCode::SyncNotConfigured,
                 context: ErrorContext::new(),
-                message_key: "tui.error.sync_provider_error",
+                message_key: "tui.error.sync_not_configured",
                 fallback: String::from("Sync is not configured."),
             };
         }
@@ -256,9 +256,9 @@ pub async fn handle_resolve_conflict(
         Some(s) => s,
         None => {
             return CommandResult::Error {
-                code: ErrorCode::SyncProviderError,
+                code: ErrorCode::SyncNotConfigured,
                 context: ErrorContext::new(),
-                message_key: "tui.error.sync_provider_error",
+                message_key: "tui.error.sync_not_configured",
                 fallback: String::from("Sync is not configured."),
             };
         }
@@ -293,9 +293,9 @@ pub async fn handle_resolve_all_conflicts(
         Some(s) => s,
         None => {
             return CommandResult::Error {
-                code: ErrorCode::SyncProviderError,
+                code: ErrorCode::SyncNotConfigured,
                 context: ErrorContext::new(),
-                message_key: "tui.error.sync_provider_error",
+                message_key: "tui.error.sync_not_configured",
                 fallback: String::from("Sync is not configured."),
             };
         }

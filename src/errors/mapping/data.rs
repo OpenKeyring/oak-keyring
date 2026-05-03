@@ -33,7 +33,7 @@ fn data_error_to_code(err: &DataError) -> ErrorCode {
         DataError::InvalidCredentialType(_) => ErrorCode::DataInvalidCredentialType,
         DataError::InvalidAuditOperation(_) => ErrorCode::DataInvalidAuditOperation,
         DataError::InvalidUuid(_) => ErrorCode::DataInvalidUuid,
-        DataError::InvalidSyncStatus(_) => ErrorCode::DataInvalidCredentialType,
+        DataError::InvalidSyncStatus(_) => ErrorCode::DataInvalidSyncStatus,
     }
 }
 

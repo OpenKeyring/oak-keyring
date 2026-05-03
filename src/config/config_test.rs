@@ -109,19 +109,19 @@ mod tests {
         ));
         assert!(matches!(
             err.to_error_code(),
-            crate::errors::ErrorCode::VaultDatabaseIoError
+            crate::errors::ErrorCode::ConfigIoError
         ));
 
         let err = ConfigError::Parse("bad toml".into());
         assert!(matches!(
             err.to_error_code(),
-            crate::errors::ErrorCode::ImportFileFormatInvalid
+            crate::errors::ErrorCode::ConfigParseError
         ));
 
         let err = ConfigError::Validation("invalid provider".into());
         assert!(matches!(
             err.to_error_code(),
-            crate::errors::ErrorCode::ImportColumnMappingInvalid
+            crate::errors::ErrorCode::ConfigValidationError
         ));
     }
 

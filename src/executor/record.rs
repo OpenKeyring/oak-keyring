@@ -397,9 +397,9 @@ pub fn handle_generate_password(
             CommandResult::PasswordGenerated { password, strength }
         }
         Err(e) => CommandResult::Error {
-            code: ErrorCode::CryptoKeyDerivationFailed,
+            code: ErrorCode::CryptoRandomGenerationFailed,
             context: ErrorContext::new(),
-            message_key: "tui.error.crypto_key_derivation_failed",
+            message_key: "tui.error.crypto_random_generation_failed",
             fallback: format!("Failed to generate password: {}", e),
         },
     }
@@ -416,9 +416,9 @@ pub fn handle_generate_memorable_password(
             CommandResult::PasswordGenerated { password, strength }
         }
         Err(e) => CommandResult::Error {
-            code: ErrorCode::CryptoKeyDerivationFailed,
+            code: ErrorCode::CryptoRandomGenerationFailed,
             context: ErrorContext::new(),
-            message_key: "tui.error.crypto_key_derivation_failed",
+            message_key: "tui.error.crypto_random_generation_failed",
             fallback: format!("Failed to generate memorable password: {}", e),
         },
     }
@@ -432,9 +432,9 @@ pub fn handle_generate_pin(_executor: &mut CommandExecutor, length: usize) -> Co
             CommandResult::PasswordGenerated { password, strength }
         }
         Err(e) => CommandResult::Error {
-            code: ErrorCode::CryptoKeyDerivationFailed,
+            code: ErrorCode::CryptoRandomGenerationFailed,
             context: ErrorContext::new(),
-            message_key: "tui.error.crypto_key_derivation_failed",
+            message_key: "tui.error.crypto_random_generation_failed",
             fallback: format!("Failed to generate PIN: {}", e),
         },
     }

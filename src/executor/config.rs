@@ -31,9 +31,9 @@ pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> 
             CommandResult::ConfigSaved
         }
         Err(e) => CommandResult::Error {
-            code: ErrorCode::VaultDatabaseIoError,
+            code: ErrorCode::ConfigIoError,
             context: ErrorContext::new(),
-            message_key: "tui.error.vault_database_io_error",
+            message_key: "tui.error.config_io_error",
             fallback: format!("Failed to save config: {}", e),
         },
     }

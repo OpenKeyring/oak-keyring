@@ -104,7 +104,7 @@ impl ServiceError for SyncError {
             SyncError::VaultIdentityMismatch { .. } => ErrorCode::SyncVaultIdentityMismatch,
             SyncError::MetadataVersionConflict { .. } => ErrorCode::SyncConflictDetected,
             SyncError::RecordNotFound { .. } => ErrorCode::VaultRecordNotFound,
-            SyncError::PermissionDenied { .. } => ErrorCode::VaultDatabaseIoError,
+            SyncError::PermissionDenied { .. } => ErrorCode::SyncPermissionDenied,
             SyncError::QuotaExceeded { .. } => ErrorCode::SyncDiskFull,
             SyncError::Cancelled { .. } => ErrorCode::SyncProviderError,
         }
@@ -112,29 +112,65 @@ impl ServiceError for SyncError {
 
     fn to_error_context(&self) -> ErrorContext {
         match self {
-            SyncError::NetworkTimeout { .. }
-            | SyncError::NetworkUnreachable { .. }
-            | SyncError::ConnectionRefused { .. } => ErrorContext::new(),
-            SyncError::AuthenticationFailed { .. } | SyncError::TokenExpired => ErrorContext::new(),
-            SyncError::ChecksumMismatch { record_id, .. } => {
-                ErrorContext::new().field_name(record_id.clone())
+            SyncError::NetworkTimeout { message } => {
+                ErrorContext::new().extra("message", message.clone())
             }
-            SyncError::AadInconsistent { field, .. } => {
-                ErrorContext::new().field_name(field.clone())
+            SyncError::NetworkUnreachable { message } => {
+                ErrorContext::new().extra("message", message.clone())
             }
-            SyncError::SerializationFailed { .. } | SyncError::DeserializationFailed { .. } => {
-                ErrorContext::new()
+            SyncError::ConnectionRefused { endpoint } => {
+                ErrorContext::new().extra("endpoint", endpoint.clone())
             }
-            SyncError::InvalidStateTransition { .. } => ErrorContext::new(),
-            SyncError::LockAcquireFailed { .. } | SyncError::LockReleaseFailed { .. } => {
-                ErrorContext::new()
+            SyncError::AuthenticationFailed { reason } => {
+                ErrorContext::new().extra("reason", reason.clone())
             }
-            SyncError::ProviderNotSupported { provider }
-            | SyncError::ProviderError { provider, .. } => {
+            SyncError::TokenExpired => ErrorContext::new(),
+            SyncError::ChecksumMismatch {
+                expected,
+                actual,
+                record_id,
+            } => ErrorContext::new()
+                .field_name(record_id.clone())
+                .extra("expected", expected.clone())
+                .extra("actual", actual.clone()),
+            SyncError::AadInconsistent {
+                field,
+                expected,
+                actual,
+            } => ErrorContext::new()
+                .field_name(field.clone())
+                .extra("expected", expected.clone())
+                .extra("actual", actual.clone()),
+            SyncError::SerializationFailed { message } => {
+                ErrorContext::new().extra("message", message.clone())
+            }
+            SyncError::DeserializationFailed { message } => {
+                ErrorContext::new().extra("message", message.clone())
+            }
+            SyncError::InvalidStateTransition { from, to } => ErrorContext::new()
+                .extra("from", from.clone())
+                .extra("to", to.clone()),
+            SyncError::LockAcquireFailed { reason } => {
+                ErrorContext::new().extra("reason", reason.clone())
+            }
+            SyncError::LockReleaseFailed { reason } => {
+                ErrorContext::new().extra("reason", reason.clone())
+            }
+            SyncError::ProviderNotSupported { provider } => {
                 ErrorContext::new().provider_name(provider.clone())
             }
-            SyncError::ConfigValidationFailed { .. } => ErrorContext::new(),
-            SyncError::VaultIdentityMismatch { .. } => ErrorContext::new(),
+            SyncError::ProviderError { provider, message } => ErrorContext::new()
+                .provider_name(provider.clone())
+                .extra("message", message.clone()),
+            SyncError::ConfigValidationFailed { field, reason } => ErrorContext::new()
+                .field_name(field.clone())
+                .extra("reason", reason.clone()),
+            SyncError::VaultIdentityMismatch {
+                local_token,
+                remote_token,
+            } => ErrorContext::new()
+                .extra("local_token", local_token.clone())
+                .extra("remote_token", remote_token.clone()),
             SyncError::MetadataVersionConflict { local, remote } => ErrorContext::new()
                 .expected_version(*local)
                 .actual_version(*remote),
@@ -147,7 +183,9 @@ impl ServiceError for SyncError {
             SyncError::QuotaExceeded { provider } => {
                 ErrorContext::new().provider_name(provider.clone())
             }
-            SyncError::Cancelled { .. } => ErrorContext::new(),
+            SyncError::Cancelled { operation } => {
+                ErrorContext::new().extra("operation", operation.clone())
+            }
         }
     }
 
@@ -219,6 +257,9 @@ mod tests {
         };
         assert_eq!(err.to_error_code(), ErrorCode::SyncMetadataCorrupted);
         assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.extra.get("expected"), Some(&"abc123".to_string()));
+        assert_eq!(ctx.extra.get("actual"), Some(&"def456".to_string()));
     }
 
     #[test]
@@ -319,6 +360,12 @@ mod tests {
         };
         assert_eq!(err.to_error_code(), ErrorCode::SyncVaultIdentityMismatch);
         assert_eq!(err.to_error_code().level(), ErrorLevel::Fatal);
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.extra.get("local_token"), Some(&"local_abc".to_string()));
+        assert_eq!(
+            ctx.extra.get("remote_token"),
+            Some(&"remote_xyz".to_string())
+        );
     }
 
     #[test]
@@ -348,8 +395,8 @@ mod tests {
         let err = SyncError::PermissionDenied {
             path: "/vault/records".to_string(),
         };
-        assert_eq!(err.to_error_code(), ErrorCode::VaultDatabaseIoError);
-        assert_eq!(err.to_error_code().level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code(), ErrorCode::SyncPermissionDenied);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]

@@ -25,7 +25,7 @@ pub enum HealthError {
 impl ServiceError for HealthError {
     fn to_error_code(&self) -> ErrorCode {
         match self {
-            HealthError::VaultNotUnlocked => ErrorCode::ExecutorVaultLocked,
+            HealthError::VaultNotUnlocked => ErrorCode::VaultNotUnlocked,
             HealthError::DecryptionFailed(_) => ErrorCode::CryptoDecryptionFailed,
             HealthError::HibpApiError(_) => ErrorCode::HealthHibpApiError,
             HealthError::HibpRateLimited => ErrorCode::HealthHibpRateLimited,
@@ -57,9 +57,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vault_not_unlocked_error_code_is_executor_vault_locked() {
+    fn vault_not_unlocked_error_code_is_vault_not_unlocked() {
         let err = HealthError::VaultNotUnlocked;
-        assert_eq!(err.to_error_code(), ErrorCode::ExecutorVaultLocked);
+        assert_eq!(err.to_error_code(), ErrorCode::VaultNotUnlocked);
         assert_eq!(
             err.to_error_code().level(),
             crate::errors::ErrorLevel::Operation

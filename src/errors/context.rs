@@ -6,6 +6,10 @@ use uuid::Uuid;
 ///
 /// Per spec §6.3, provides typed fields with builder pattern.
 /// `record_id` is for logging only and does NOT appear in interpolation map.
+///
+/// `extra` serves as a fallback HashMap for diagnostic kv pairs that don't
+/// have a dedicated typed slot (e.g. checksum values, AAD fields, lock reasons,
+/// state transition names). These are merged into the interpolation map.
 #[derive(Debug, Clone, Default)]
 pub struct ErrorContext {
     /// Record ID (logging only, not shown to user)
@@ -24,73 +28,66 @@ pub struct ErrorContext {
     pub actual_version: Option<u64>,
     /// Remaining attempt count (i18n interpolation: `%{remaining}`)
     pub attempt_count: Option<u32>,
+    /// Fallback diagnostic kv pairs merged into interpolation map.
+    /// For data that does not fit the typed fields above.
+    pub extra: HashMap<String, String>,
 }
 
 impl ErrorContext {
-    /// Create a new empty context.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set record ID (logging only, not interpolated).
     pub fn record_id(mut self, id: Uuid) -> Self {
         self.record_id = Some(id);
         self
     }
 
-    /// Set record name for interpolation.
     pub fn record_name(mut self, name: impl Into<String>) -> Self {
         self.record_name = Some(name.into());
         self
     }
 
-    /// Set field name for interpolation.
     pub fn field_name(mut self, name: impl Into<String>) -> Self {
         self.field_name = Some(name.into());
         self
     }
 
-    /// Set provider name for interpolation.
     pub fn provider_name(mut self, name: impl Into<String>) -> Self {
         self.provider_name = Some(name.into());
         self
     }
 
-    /// Set file path for interpolation.
     pub fn file_path(mut self, path: PathBuf) -> Self {
         self.file_path = Some(path);
         self
     }
 
-    /// Set expected version for optimistic lock interpolation.
     pub fn expected_version(mut self, v: u64) -> Self {
         self.expected_version = Some(v);
         self
     }
 
-    /// Set actual version for optimistic lock interpolation.
     pub fn actual_version(mut self, v: u64) -> Self {
         self.actual_version = Some(v);
         self
     }
 
-    /// Set attempt count for interpolation.
     pub fn attempt_count(mut self, count: u32) -> Self {
         self.attempt_count = Some(count);
+        self
+    }
+
+    /// Add a diagnostic key-value pair not covered by typed fields.
+    pub fn extra(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.extra.insert(key.into(), value.into());
         self
     }
 
     /// Convert to HashMap for i18n variable substitution.
     ///
     /// Per spec §8.5, `record_id` is NOT included (UUID not shown to user).
-    /// Mapping:
-    /// - `record_name` → "record_name"
-    /// - `provider_name` → "provider"
-    /// - `file_path` → "path" (to_string_lossy())
-    /// - `expected_version` → "expected"
-    /// - `actual_version` → "actual"
-    /// - `attempt_count` → "remaining"
-    /// - `field_name` → "field_name"
+    /// `extra` entries are merged last so they cannot shadow typed keys.
     pub fn to_interpolation_map(&self) -> HashMap<String, String> {
         let mut map = HashMap::new();
 
@@ -114,6 +111,11 @@ impl ErrorContext {
         }
         if let Some(ref field) = self.field_name {
             map.insert("field_name".to_string(), field.clone());
+        }
+
+        // Merge extra fallback fields — typed slots take precedence.
+        for (k, v) in &self.extra {
+            map.entry(k.clone()).or_insert_with(|| v.clone());
         }
 
         map
@@ -141,16 +143,35 @@ mod tests {
     }
 
     #[test]
+    fn extra_field_merged_into_map() {
+        let ctx = ErrorContext::new()
+            .extra("local_token", "abc123")
+            .extra("remote_token", "xyz789");
+
+        let map = ctx.to_interpolation_map();
+        assert_eq!(map.get("local_token"), Some(&"abc123".to_string()));
+        assert_eq!(map.get("remote_token"), Some(&"xyz789".to_string()));
+    }
+
+    #[test]
+    fn typed_slot_takes_precedence_over_extra() {
+        let ctx = ErrorContext::new()
+            .record_name("TypedName")
+            .extra("record_name", "ExtraName");
+
+        let map = ctx.to_interpolation_map();
+        assert_eq!(map.get("record_name"), Some(&"TypedName".to_string()));
+    }
+
+    #[test]
     fn interpolation_map_excludes_record_id() {
         let id = Uuid::new_v4();
         let ctx = ErrorContext::new().record_id(id).record_name("TestRecord");
 
         let map = ctx.to_interpolation_map();
 
-        // record_id is NOT in interpolation map
         assert!(!map.contains_key("record_id"));
         assert!(!map.contains_key(&id.to_string()));
-        // record_name IS in interpolation map
         assert_eq!(map.get("record_name"), Some(&"TestRecord".to_string()));
     }
 
@@ -201,6 +222,7 @@ mod tests {
         assert!(ctx.expected_version.is_none());
         assert!(ctx.actual_version.is_none());
         assert!(ctx.attempt_count.is_none());
+        assert!(ctx.extra.is_empty());
 
         let map = ctx.to_interpolation_map();
         assert!(map.is_empty());

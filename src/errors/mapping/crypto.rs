@@ -7,7 +7,7 @@ impl ServiceError for CryptoError {
         match self {
             CryptoError::EncryptionFailed => ErrorCode::CryptoEncryptionFailed,
             CryptoError::DecryptionFailed => ErrorCode::CryptoDecryptionFailed,
-            CryptoError::InvalidKey => ErrorCode::CryptoKeyDerivationFailed,
+            CryptoError::InvalidKey => ErrorCode::CryptoInvalidKey,
             CryptoError::InvalidNonce => ErrorCode::CryptoInvalidNonce,
             CryptoError::DerivationFailed => ErrorCode::CryptoKeyDerivationFailed,
         }
@@ -59,9 +59,9 @@ mod tests {
     }
 
     #[test]
-    fn invalid_key_error_code_is_key_derivation_failed() {
+    fn invalid_key_error_code_is_specific() {
         let err = CryptoError::InvalidKey;
-        assert_eq!(err.to_error_code(), ErrorCode::CryptoKeyDerivationFailed);
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoInvalidKey);
         assert_eq!(
             err.to_error_code().level(),
             crate::errors::ErrorLevel::Operation

@@ -28,9 +28,9 @@ impl From<toml::ser::Error> for ConfigError {
 impl ServiceError for ConfigError {
     fn to_error_code(&self) -> ErrorCode {
         match self {
-            ConfigError::Io(_) => ErrorCode::VaultDatabaseIoError,
-            ConfigError::Parse(_) => ErrorCode::ImportFileFormatInvalid,
-            ConfigError::Validation(_) => ErrorCode::ImportColumnMappingInvalid,
+            ConfigError::Io(_) => ErrorCode::ConfigIoError,
+            ConfigError::Parse(_) => ErrorCode::ConfigParseError,
+            ConfigError::Validation(_) => ErrorCode::ConfigValidationError,
         }
     }
 

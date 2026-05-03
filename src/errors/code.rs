@@ -2,7 +2,7 @@ use crate::errors::ErrorLevel;
 
 /// Unified error code enum for the entire application.
 ///
-/// Single enum flattened with 43 variants, organized by module prefix.
+/// Single enum flattened with 56 variants, organized by module prefix.
 /// Enables exhaustive match checking for compile-time safety.
 ///
 /// Per spec §5.7, each variant maps to a specific `ErrorLevel` and i18n key.
@@ -18,22 +18,30 @@ pub enum ErrorCode {
     VaultDatabaseIoError,
     VaultInvalidField,
 
-    // === DATA (D1) — 6 variants ===
+    // === DATA (D1) — 7 variants ===
     DataInvalidCredentialType,
     DataInvalidAuditOperation,
     DataInvalidUuid,
+    DataInvalidSyncStatus,
     DataMissingField,
     DataFieldTooLong,
     DataEmptyField,
 
-    // === CRYPTO (D2) — 5 variants ===
+    // === CRYPTO (D2) — 7 variants ===
     CryptoDecryptionFailed,
     CryptoEncryptionFailed,
     CryptoKeyDerivationFailed,
+    CryptoInvalidKey,
     CryptoInvalidNonce,
     CryptoAadMismatch,
+    CryptoRandomGenerationFailed,
 
-    // === SYNC (S2) — 8 variants ===
+    // === CONFIG (D3) — 3 variants ===
+    ConfigIoError,
+    ConfigParseError,
+    ConfigValidationError,
+
+    // === SYNC (S2) — 11 variants ===
     SyncConnectionTimeout,
     SyncAuthenticationFailed,
     SyncProviderError,
@@ -42,12 +50,18 @@ pub enum ErrorCode {
     SyncDiskFull,
     SyncMetadataCorrupted,
     SyncVaultIdentityMismatch,
+    SyncPermissionDenied,
     SyncNotConfigured,
     SyncPauseFailed,
 
-    // === ROTATION (S6) — 2 variants ===
+    // === ROTATION (S6) — 7 variants ===
     DekRotationFailed,
     ExportSessionCreateFailed,
+    RotationRecordMigrationFailed,
+    RotationPushFailed,
+    RotationCheckpointCorrupted,
+    RotationMaxVersionExceeded,
+    RotationInternalError,
 
     // === HEALTH (S3) — 3 variants ===
     HealthCheckFailed,
@@ -59,23 +73,24 @@ pub enum ErrorCode {
     ClipboardCopyFailed,
     ClipboardClearFailed,
 
-    // === IMPORT/EXPORT — 8 variants ===
+    // === IMPORT/EXPORT (S5) — 10 variants ===
     ImportFileUnreadable,
     ImportFileFormatInvalid,
     ImportPasswordRequired,
     ImportPasswordIncorrect,
     ImportColumnMappingInvalid,
     ImportPartialFailure,
+    ImportExportInternalError,
+    ImportExportTimeout,
     ExportWriteFailed,
     ExportPathInvalid,
 
-    // === EXECUTOR (S5) — 2 variants ===
+    // === EXECUTOR (S7) — 2 variants ===
     ExecutorVaultLocked,
     ExecutorMasterPasswordRequired,
 }
 
 impl ErrorCode {
-    /// Returns the error level per spec §5.7 static mapping table.
     pub fn level(&self) -> ErrorLevel {
         match self {
             // Fatal: database corruption, file I/O unrecoverable, vault root data corruption
@@ -84,6 +99,7 @@ impl ErrorCode {
             ErrorCode::CryptoEncryptionFailed => ErrorLevel::Fatal,
             ErrorCode::CryptoAadMismatch => ErrorLevel::Fatal,
             ErrorCode::SyncVaultIdentityMismatch => ErrorLevel::Fatal,
+            ErrorCode::RotationCheckpointCorrupted => ErrorLevel::Fatal,
 
             // Operation: single record failure, decryption failure, version conflict
             ErrorCode::VaultRecordNotFound => ErrorLevel::Operation,
@@ -92,7 +108,9 @@ impl ErrorCode {
             ErrorCode::VaultInvalidField => ErrorLevel::Operation,
             ErrorCode::CryptoDecryptionFailed => ErrorLevel::Operation,
             ErrorCode::CryptoKeyDerivationFailed => ErrorLevel::Operation,
+            ErrorCode::CryptoInvalidKey => ErrorLevel::Operation,
             ErrorCode::CryptoInvalidNonce => ErrorLevel::Operation,
+            ErrorCode::CryptoRandomGenerationFailed => ErrorLevel::Operation,
             ErrorCode::SyncConflictDetected => ErrorLevel::Operation,
             ErrorCode::SyncMetadataCorrupted => ErrorLevel::Operation,
             ErrorCode::ImportFileUnreadable => ErrorLevel::Operation,
@@ -105,6 +123,18 @@ impl ErrorCode {
             ErrorCode::ExportPathInvalid => ErrorLevel::Operation,
             ErrorCode::ExecutorVaultLocked => ErrorLevel::Operation,
             ErrorCode::ExecutorMasterPasswordRequired => ErrorLevel::Operation,
+            ErrorCode::ConfigIoError => ErrorLevel::Operation,
+            ErrorCode::ConfigParseError => ErrorLevel::Operation,
+            ErrorCode::ConfigValidationError => ErrorLevel::Operation,
+            ErrorCode::RotationRecordMigrationFailed => ErrorLevel::Operation,
+            ErrorCode::RotationPushFailed => ErrorLevel::Operation,
+            ErrorCode::RotationMaxVersionExceeded => ErrorLevel::Operation,
+            ErrorCode::RotationInternalError => ErrorLevel::Operation,
+            ErrorCode::DekRotationFailed => ErrorLevel::Operation,
+            ErrorCode::ExportSessionCreateFailed => ErrorLevel::Operation,
+            ErrorCode::ImportExportInternalError => ErrorLevel::Operation,
+            ErrorCode::ImportExportTimeout => ErrorLevel::Operation,
+            ErrorCode::SyncPermissionDenied => ErrorLevel::Operation,
 
             // Minor: clipboard unavailable, sync timeout, HIBP rate limited, tag already exists
             ErrorCode::VaultTagAlreadyExists => ErrorLevel::Minor,
@@ -112,6 +142,7 @@ impl ErrorCode {
             ErrorCode::DataInvalidCredentialType => ErrorLevel::Minor,
             ErrorCode::DataInvalidAuditOperation => ErrorLevel::Minor,
             ErrorCode::DataInvalidUuid => ErrorLevel::Minor,
+            ErrorCode::DataInvalidSyncStatus => ErrorLevel::Minor,
             ErrorCode::DataMissingField => ErrorLevel::Minor,
             ErrorCode::DataFieldTooLong => ErrorLevel::Minor,
             ErrorCode::DataEmptyField => ErrorLevel::Minor,
@@ -122,8 +153,6 @@ impl ErrorCode {
             ErrorCode::SyncDiskFull => ErrorLevel::Minor,
             ErrorCode::SyncNotConfigured => ErrorLevel::Minor,
             ErrorCode::SyncPauseFailed => ErrorLevel::Minor,
-            ErrorCode::DekRotationFailed => ErrorLevel::Operation,
-            ErrorCode::ExportSessionCreateFailed => ErrorLevel::Operation,
             ErrorCode::HealthCheckFailed => ErrorLevel::Minor,
             ErrorCode::HealthHibpApiError => ErrorLevel::Minor,
             ErrorCode::HealthHibpRateLimited => ErrorLevel::Minor,
@@ -133,8 +162,6 @@ impl ErrorCode {
         }
     }
 
-    /// Returns the i18n message key per spec §6.7.
-    /// Keys follow `tui.error.<module>_<specific_error>` naming convention.
     pub fn message_key(&self) -> &'static str {
         match self {
             // VAULT
@@ -151,6 +178,7 @@ impl ErrorCode {
             ErrorCode::DataInvalidCredentialType => "tui.error.data_invalid_credential_type",
             ErrorCode::DataInvalidAuditOperation => "tui.error.data_invalid_audit_operation",
             ErrorCode::DataInvalidUuid => "tui.error.data_invalid_uuid",
+            ErrorCode::DataInvalidSyncStatus => "tui.error.data_invalid_sync_status",
             ErrorCode::DataMissingField => "tui.error.data_missing_field",
             ErrorCode::DataFieldTooLong => "tui.error.data_field_too_long",
             ErrorCode::DataEmptyField => "tui.error.data_empty_field",
@@ -159,8 +187,15 @@ impl ErrorCode {
             ErrorCode::CryptoDecryptionFailed => "tui.error.crypto_decryption_failed",
             ErrorCode::CryptoEncryptionFailed => "tui.error.crypto_encryption_failed",
             ErrorCode::CryptoKeyDerivationFailed => "tui.error.crypto_key_derivation_failed",
+            ErrorCode::CryptoInvalidKey => "tui.error.crypto_invalid_key",
             ErrorCode::CryptoInvalidNonce => "tui.error.crypto_invalid_nonce",
             ErrorCode::CryptoAadMismatch => "tui.error.crypto_aad_mismatch",
+            ErrorCode::CryptoRandomGenerationFailed => "tui.error.crypto_random_generation_failed",
+
+            // CONFIG
+            ErrorCode::ConfigIoError => "tui.error.config_io_error",
+            ErrorCode::ConfigParseError => "tui.error.config_parse_error",
+            ErrorCode::ConfigValidationError => "tui.error.config_validation_error",
 
             // SYNC
             ErrorCode::SyncConnectionTimeout => "tui.error.sync_connection_timeout",
@@ -171,12 +206,20 @@ impl ErrorCode {
             ErrorCode::SyncDiskFull => "tui.error.sync_disk_full",
             ErrorCode::SyncMetadataCorrupted => "tui.error.sync_metadata_corrupted",
             ErrorCode::SyncVaultIdentityMismatch => "tui.error.sync_vault_identity_mismatch",
+            ErrorCode::SyncPermissionDenied => "tui.error.sync_permission_denied",
             ErrorCode::SyncNotConfigured => "tui.error.sync_not_configured",
             ErrorCode::SyncPauseFailed => "tui.error.sync_pause_failed",
 
             // ROTATION
             ErrorCode::DekRotationFailed => "tui.error.dek_rotation_failed",
             ErrorCode::ExportSessionCreateFailed => "tui.error.export_session_create_failed",
+            ErrorCode::RotationRecordMigrationFailed => {
+                "tui.error.rotation_record_migration_failed"
+            }
+            ErrorCode::RotationPushFailed => "tui.error.rotation_push_failed",
+            ErrorCode::RotationCheckpointCorrupted => "tui.error.rotation_checkpoint_corrupted",
+            ErrorCode::RotationMaxVersionExceeded => "tui.error.rotation_max_version_exceeded",
+            ErrorCode::RotationInternalError => "tui.error.rotation_internal_error",
 
             // HEALTH
             ErrorCode::HealthCheckFailed => "tui.error.health_check_failed",
@@ -195,6 +238,8 @@ impl ErrorCode {
             ErrorCode::ImportPasswordIncorrect => "tui.error.import_password_incorrect",
             ErrorCode::ImportColumnMappingInvalid => "tui.error.import_column_mapping_invalid",
             ErrorCode::ImportPartialFailure => "tui.error.import_partial_failure",
+            ErrorCode::ImportExportInternalError => "tui.error.import_export_internal_error",
+            ErrorCode::ImportExportTimeout => "tui.error.import_export_timeout",
             ErrorCode::ExportWriteFailed => "tui.error.export_write_failed",
             ErrorCode::ExportPathInvalid => "tui.error.export_path_invalid",
 
@@ -206,7 +251,6 @@ impl ErrorCode {
         }
     }
 
-    /// Returns the module prefix for grouping: "vault", "sync", "crypto", etc.
     pub fn module_prefix(&self) -> &'static str {
         match self {
             ErrorCode::VaultRecordNotFound
@@ -221,6 +265,7 @@ impl ErrorCode {
             ErrorCode::DataInvalidCredentialType
             | ErrorCode::DataInvalidAuditOperation
             | ErrorCode::DataInvalidUuid
+            | ErrorCode::DataInvalidSyncStatus
             | ErrorCode::DataMissingField
             | ErrorCode::DataFieldTooLong
             | ErrorCode::DataEmptyField => "data",
@@ -228,8 +273,14 @@ impl ErrorCode {
             ErrorCode::CryptoDecryptionFailed
             | ErrorCode::CryptoEncryptionFailed
             | ErrorCode::CryptoKeyDerivationFailed
+            | ErrorCode::CryptoInvalidKey
             | ErrorCode::CryptoInvalidNonce
-            | ErrorCode::CryptoAadMismatch => "crypto",
+            | ErrorCode::CryptoAadMismatch
+            | ErrorCode::CryptoRandomGenerationFailed => "crypto",
+
+            ErrorCode::ConfigIoError
+            | ErrorCode::ConfigParseError
+            | ErrorCode::ConfigValidationError => "config",
 
             ErrorCode::SyncConnectionTimeout
             | ErrorCode::SyncAuthenticationFailed
@@ -239,10 +290,17 @@ impl ErrorCode {
             | ErrorCode::SyncDiskFull
             | ErrorCode::SyncMetadataCorrupted
             | ErrorCode::SyncVaultIdentityMismatch
+            | ErrorCode::SyncPermissionDenied
             | ErrorCode::SyncNotConfigured
             | ErrorCode::SyncPauseFailed => "sync",
 
-            ErrorCode::DekRotationFailed | ErrorCode::ExportSessionCreateFailed => "rotation",
+            ErrorCode::DekRotationFailed
+            | ErrorCode::ExportSessionCreateFailed
+            | ErrorCode::RotationRecordMigrationFailed
+            | ErrorCode::RotationPushFailed
+            | ErrorCode::RotationCheckpointCorrupted
+            | ErrorCode::RotationMaxVersionExceeded
+            | ErrorCode::RotationInternalError => "rotation",
 
             ErrorCode::HealthCheckFailed
             | ErrorCode::HealthHibpApiError
@@ -258,6 +316,8 @@ impl ErrorCode {
             | ErrorCode::ImportPasswordIncorrect
             | ErrorCode::ImportColumnMappingInvalid
             | ErrorCode::ImportPartialFailure
+            | ErrorCode::ImportExportInternalError
+            | ErrorCode::ImportExportTimeout
             | ErrorCode::ExportWriteFailed
             | ErrorCode::ExportPathInvalid => "import_export",
 
@@ -280,6 +340,10 @@ mod tests {
         assert_eq!(ErrorCode::CryptoAadMismatch.level(), ErrorLevel::Fatal);
         assert_eq!(
             ErrorCode::SyncVaultIdentityMismatch.level(),
+            ErrorLevel::Fatal
+        );
+        assert_eq!(
+            ErrorCode::RotationCheckpointCorrupted.level(),
             ErrorLevel::Fatal
         );
     }
@@ -306,6 +370,19 @@ mod tests {
             ErrorCode::ExecutorVaultLocked.level(),
             ErrorLevel::Operation
         );
+        assert_eq!(ErrorCode::ConfigIoError.level(), ErrorLevel::Operation);
+        assert_eq!(
+            ErrorCode::RotationRecordMigrationFailed.level(),
+            ErrorLevel::Operation
+        );
+        assert_eq!(
+            ErrorCode::ImportExportInternalError.level(),
+            ErrorLevel::Operation
+        );
+        assert_eq!(
+            ErrorCode::SyncPermissionDenied.level(),
+            ErrorLevel::Operation
+        );
     }
 
     #[test]
@@ -314,6 +391,7 @@ mod tests {
         assert_eq!(ErrorCode::SyncConnectionTimeout.level(), ErrorLevel::Minor);
         assert_eq!(ErrorCode::ClipboardUnavailable.level(), ErrorLevel::Minor);
         assert_eq!(ErrorCode::HealthHibpRateLimited.level(), ErrorLevel::Minor);
+        assert_eq!(ErrorCode::DataInvalidSyncStatus.level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -330,6 +408,10 @@ mod tests {
             ErrorCode::CryptoDecryptionFailed.message_key(),
             "tui.error.crypto_decryption_failed"
         );
+        assert_eq!(
+            ErrorCode::ConfigIoError.message_key(),
+            "tui.error.config_io_error"
+        );
     }
 
     #[test]
@@ -339,12 +421,12 @@ mod tests {
         assert_eq!(ErrorCode::CryptoDecryptionFailed.module_prefix(), "crypto");
         assert_eq!(ErrorCode::ClipboardUnavailable.module_prefix(), "clipboard");
         assert_eq!(ErrorCode::ExecutorVaultLocked.module_prefix(), "executor");
+        assert_eq!(ErrorCode::ConfigIoError.module_prefix(), "config");
+        assert_eq!(ErrorCode::DekRotationFailed.module_prefix(), "rotation");
     }
 
     #[test]
     fn exhaustiveness_check() {
-        // This test ensures all variants are handled in level(), message_key(), and module_prefix()
-        // Adding a new variant without updating these methods will cause a compile error.
         let all_variants = [
             ErrorCode::VaultRecordNotFound,
             ErrorCode::VaultVersionConflict,
@@ -357,14 +439,20 @@ mod tests {
             ErrorCode::DataInvalidCredentialType,
             ErrorCode::DataInvalidAuditOperation,
             ErrorCode::DataInvalidUuid,
+            ErrorCode::DataInvalidSyncStatus,
             ErrorCode::DataMissingField,
             ErrorCode::DataFieldTooLong,
             ErrorCode::DataEmptyField,
             ErrorCode::CryptoDecryptionFailed,
             ErrorCode::CryptoEncryptionFailed,
             ErrorCode::CryptoKeyDerivationFailed,
+            ErrorCode::CryptoInvalidKey,
             ErrorCode::CryptoInvalidNonce,
             ErrorCode::CryptoAadMismatch,
+            ErrorCode::CryptoRandomGenerationFailed,
+            ErrorCode::ConfigIoError,
+            ErrorCode::ConfigParseError,
+            ErrorCode::ConfigValidationError,
             ErrorCode::SyncConnectionTimeout,
             ErrorCode::SyncAuthenticationFailed,
             ErrorCode::SyncProviderError,
@@ -373,6 +461,7 @@ mod tests {
             ErrorCode::SyncDiskFull,
             ErrorCode::SyncMetadataCorrupted,
             ErrorCode::SyncVaultIdentityMismatch,
+            ErrorCode::SyncPermissionDenied,
             ErrorCode::SyncNotConfigured,
             ErrorCode::SyncPauseFailed,
             ErrorCode::HealthCheckFailed,
@@ -387,12 +476,19 @@ mod tests {
             ErrorCode::ImportPasswordIncorrect,
             ErrorCode::ImportColumnMappingInvalid,
             ErrorCode::ImportPartialFailure,
+            ErrorCode::ImportExportInternalError,
+            ErrorCode::ImportExportTimeout,
             ErrorCode::ExportWriteFailed,
             ErrorCode::ExportPathInvalid,
             ErrorCode::ExportSessionCreateFailed,
             ErrorCode::ExecutorVaultLocked,
             ErrorCode::ExecutorMasterPasswordRequired,
             ErrorCode::DekRotationFailed,
+            ErrorCode::RotationRecordMigrationFailed,
+            ErrorCode::RotationPushFailed,
+            ErrorCode::RotationCheckpointCorrupted,
+            ErrorCode::RotationMaxVersionExceeded,
+            ErrorCode::RotationInternalError,
         ];
 
         for code in &all_variants {

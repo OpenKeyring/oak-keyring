@@ -138,12 +138,12 @@ impl ServiceError for ImportExportError {
             ImportExportError::InvalidSessionStatus { .. } => ErrorCode::ImportPartialFailure,
             ImportExportError::SessionCancelled => ErrorCode::ImportPartialFailure,
 
-            // Vault errors
-            ImportExportError::VaultError(_) => ErrorCode::VaultDatabaseIoError,
+            // Vault errors — opaque string, cannot delegate to specific variant
+            ImportExportError::VaultError(_) => ErrorCode::ImportExportInternalError,
 
             // General errors
-            ImportExportError::InternalError(_) => ErrorCode::CryptoEncryptionFailed,
-            ImportExportError::Timeout => ErrorCode::SyncConnectionTimeout,
+            ImportExportError::InternalError(_) => ErrorCode::ImportExportInternalError,
+            ImportExportError::Timeout => ErrorCode::ImportExportTimeout,
         }
     }
 
@@ -174,7 +174,7 @@ impl ServiceError for ImportExportError {
             ImportExportError::SessionNotFound(id) => ErrorContext::new().record_id(*id),
             ImportExportError::InvalidSessionStatus { expected, actual } => ErrorContext::new()
                 .field_name(expected)
-                .actual_version(actual.parse().unwrap_or(0)),
+                .extra("actual", actual),
             _ => ErrorContext::new(),
         }
     }
@@ -259,16 +259,28 @@ mod tests {
     }
 
     #[test]
-    fn internal_error_is_fatal() {
+    fn internal_error_is_operation() {
         assert_eq!(
             ImportExportError::InternalError("bug".into()).to_error_code(),
-            ErrorCode::CryptoEncryptionFailed
+            ErrorCode::ImportExportInternalError
         );
         assert_eq!(
             ImportExportError::InternalError("bug".into())
                 .to_error_code()
                 .level(),
-            crate::errors::ErrorLevel::Fatal
+            crate::errors::ErrorLevel::Operation
+        );
+    }
+
+    #[test]
+    fn timeout_is_import_export_timeout() {
+        assert_eq!(
+            ImportExportError::Timeout.to_error_code(),
+            ErrorCode::ImportExportTimeout
+        );
+        assert_eq!(
+            ImportExportError::Timeout.to_error_code().level(),
+            crate::errors::ErrorLevel::Operation
         );
     }
 
