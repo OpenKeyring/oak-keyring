@@ -375,4 +375,67 @@ mod tests {
             CommandResult::Cancelled { ref operation, .. } if operation == "sync_connection_test"
         ));
     }
+
+    #[test]
+    fn apply_config_changes_returns_empty_warnings_on_success() {
+        let mut executor = make_executor_with_clipboard(30);
+        let mut new_config = AppConfig::default();
+        new_config.general.clipboard_clear_seconds = 90;
+
+        let warnings = apply_config_changes(
+            &mut executor,
+            &["general.clipboard_clear_seconds"],
+            &new_config,
+        );
+
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn apply_config_changes_returns_warning_on_vault_path_change() {
+        let mut executor = make_executor_with_clipboard(30);
+        let new_config = AppConfig::default();
+
+        let warnings = apply_config_changes(&mut executor, &["general.vault_path"], &new_config);
+
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("requires application restart")));
+    }
+
+    #[test]
+    fn handle_save_config_includes_warnings_in_result() {
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let mut executor = make_executor_with_clipboard(30);
+        executor.vault_dir = tmp.path().to_path_buf();
+        let mut new_config = AppConfig::default();
+        new_config.general.clipboard_clear_seconds = 90;
+
+        let result = handle_save_config(&mut executor, new_config);
+        match result {
+            CommandResult::ConfigSaved { warnings } => {
+                assert!(warnings.is_empty());
+            }
+            _ => panic!("Expected ConfigSaved"),
+        }
+    }
+
+    #[test]
+    fn handle_save_config_includes_vault_path_warning() {
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let mut executor = make_executor_with_clipboard(30);
+        executor.vault_dir = tmp.path().to_path_buf();
+        let mut new_config = AppConfig::default();
+        new_config.general.vault_path = std::path::PathBuf::from("/totally/different/path");
+
+        let result = handle_save_config(&mut executor, new_config);
+        match result {
+            CommandResult::ConfigSaved { warnings } => {
+                assert!(warnings
+                    .iter()
+                    .any(|w| w.contains("requires application restart")));
+            }
+            _ => panic!("Expected ConfigSaved"),
+        }
+    }
 }
