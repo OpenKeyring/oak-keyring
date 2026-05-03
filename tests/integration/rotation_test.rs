@@ -15,7 +15,6 @@
 //! | AC11| rotation config defaults (auto_rotate=true, 90d, 1000r) | acceptance_rotation_config_defaults
 
 use oak_keyring::db::schema::{initialize_metadata, initialize_schema};
-use oak_keyring::errors::mapping::rotation::RotationError;
 use oak_keyring::services::rotation::{
     check_trigger, is_past_grace_period, should_skip_rotation_due_to_cloud_version, RotationService,
 };

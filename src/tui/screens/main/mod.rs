@@ -569,7 +569,7 @@ mod tests {
         let mut state = MainScreenState::default();
         state.list.enter_visual();
         let screen = MainScreen::new();
-        let result = screen.handle_key_event(make_key(KeyCode::Esc), &mut state, PanelId::List);
+        let _ = screen.handle_key_event(make_key(KeyCode::Esc), &mut state, PanelId::List);
         assert!(!state.list.is_visual());
     }
 
