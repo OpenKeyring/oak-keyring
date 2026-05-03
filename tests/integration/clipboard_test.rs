@@ -3,6 +3,7 @@ use oak_keyring::errors::service_error::ServiceError;
 use oak_keyring::errors::{ErrorCode, ErrorLevel};
 use oak_keyring::services::clipboard::{ClipboardService, MockBackend};
 
+#[allow(dead_code)]
 fn skip_in_ci() -> bool {
     std::env::var("CI").is_ok()
 }

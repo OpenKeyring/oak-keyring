@@ -4,9 +4,7 @@ use ratatui::Terminal;
 
 use oak_keyring::commands::Message;
 use oak_keyring::config::AppConfig;
-use oak_keyring::tui::screens::set_password::{
-    PasswordField, SetPasswordContext, SetPasswordScreen,
-};
+use oak_keyring::tui::screens::set_password::{SetPasswordContext, SetPasswordScreen};
 use oak_keyring::tui::traits::screen::{Screen as ScreenTrait, ScreenContext};
 
 fn render_screen(screen: &SetPasswordScreen, width: u16, height: u16) -> TestBackend {
@@ -20,6 +18,7 @@ fn render_screen(screen: &SetPasswordScreen, width: u16, height: u16) -> TestBac
     terminal.backend().clone()
 }
 
+#[allow(static_mut_refs)]
 fn dummy_ctx() -> ScreenContext<'static> {
     static ONCE: std::sync::Once = std::sync::Once::new();
     static mut TX: Option<tokio::sync::mpsc::Sender<oak_keyring::commands::Command>> = None;
