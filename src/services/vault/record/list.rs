@@ -198,6 +198,25 @@ impl VaultService {
         queries::list_active_records(&self.conn).map_err(db_error_to_vault)
     }
 
+    /// Decrypt the name field from a `StoredRecord`.
+    ///
+    /// Used by the sync upload path to produce a valid `CloudRecord.metadata.name`
+    /// without decrypting the full payload.
+    pub fn decrypt_record_name_for_sync(
+        &self,
+        stored: &crate::types::record::StoredRecord,
+    ) -> Result<String, VaultError> {
+        let aad = format!("record:{}", stored.id);
+        crate::crypto::payload::decrypt_name_only(
+            &self.crypto,
+            &stored.encrypted_data,
+            &stored.nonce,
+            aad.as_bytes(),
+            stored.dek_version,
+        )
+        .map_err(VaultError::CryptoError)
+    }
+
     /// Load all sync statuses from the `sync_state` table in a single query.
     ///
     /// Returns a map from record ID (as hyphenated string) to its `SyncStatus`.
