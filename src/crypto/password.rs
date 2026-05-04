@@ -83,12 +83,20 @@ const WORDS: &[&str] = &[
 ];
 
 pub fn generate_memorable_password(word_count: usize) -> Result<SecureStr, String> {
-    generate_memorable_password_with_separator(word_count, "-")
+    generate_memorable_password_with_options(word_count, "-", false)
 }
 
 pub fn generate_memorable_password_with_separator(
     word_count: usize,
     separator: &str,
+) -> Result<SecureStr, String> {
+    generate_memorable_password_with_options(word_count, separator, false)
+}
+
+pub fn generate_memorable_password_with_options(
+    word_count: usize,
+    separator: &str,
+    capitalize: bool,
 ) -> Result<SecureStr, String> {
     if !(3..=12).contains(&word_count) {
         return Err("Word count must be between 3 and 12".into());
@@ -96,9 +104,22 @@ pub fn generate_memorable_password_with_separator(
     let mut words = Vec::with_capacity(word_count);
     for _ in 0..word_count {
         let idx = (OsRng.next_u32() as usize) % WORDS.len();
-        words.push(WORDS[idx]);
+        let word = if capitalize {
+            capitalize_word(WORDS[idx])
+        } else {
+            WORDS[idx].to_string()
+        };
+        words.push(word);
     }
     Ok(SecureStr::new(words.join(separator)))
+}
+
+fn capitalize_word(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+    }
 }
 
 pub fn generate_pin(length: usize) -> Result<SecureStr, String> {
@@ -210,5 +231,82 @@ mod tests {
         assert!(generate_pin(16).is_ok());
         assert!(generate_pin(3).is_err());
         assert!(generate_pin(17).is_err());
+    }
+
+    #[test]
+    fn test_memorable_password_capitalize_false() {
+        let pw = generate_memorable_password_with_options(4, "-", false).unwrap();
+        let words: Vec<&str> = pw.get().split('-').collect();
+        assert_eq!(words.len(), 4);
+        // All words should be lowercase
+        for word in words {
+            assert_eq!(
+                word,
+                word.to_lowercase(),
+                "word '{word}' should be lowercase"
+            );
+        }
+    }
+
+    #[test]
+    fn test_memorable_password_capitalize_true() {
+        let pw = generate_memorable_password_with_options(4, "-", true).unwrap();
+        let words: Vec<&str> = pw.get().split('-').collect();
+        assert_eq!(words.len(), 4);
+        // Each word should start with uppercase
+        for word in words {
+            let first_char = word.chars().next().unwrap();
+            assert!(
+                first_char.is_uppercase(),
+                "first char of '{word}' should be uppercase"
+            );
+            // Rest should be lowercase
+            let rest: String = word.chars().skip(1).collect();
+            assert_eq!(
+                rest,
+                rest.to_lowercase(),
+                "rest of '{word}' should be lowercase"
+            );
+        }
+    }
+
+    #[test]
+    fn test_memorable_password_backward_compatible() {
+        // Original function should still work (default capitalize=false)
+        let pw = generate_memorable_password(4).unwrap();
+        let words: Vec<&str> = pw.get().split('-').collect();
+        assert_eq!(words.len(), 4);
+        // All words should be lowercase (backward compatible)
+        for word in words {
+            assert_eq!(
+                word,
+                word.to_lowercase(),
+                "word '{word}' should be lowercase"
+            );
+        }
+    }
+
+    #[test]
+    fn test_memorable_password_separator_with_capitalize() {
+        let pw = generate_memorable_password_with_options(3, "_", true).unwrap();
+        let words: Vec<&str> = pw.get().split('_').collect();
+        assert_eq!(words.len(), 3);
+        // Check that separator is used correctly with capitalization
+        assert!(pw.get().contains('_'));
+        assert!(!pw.get().contains('-'));
+        // Each word should be capitalized
+        for word in words {
+            let first_char = word.chars().next().unwrap();
+            assert!(first_char.is_uppercase());
+        }
+    }
+
+    #[test]
+    fn test_capitalize_word_helper() {
+        assert_eq!(capitalize_word("apple"), "Apple");
+        assert_eq!(capitalize_word("brave"), "Brave");
+        assert_eq!(capitalize_word("a"), "A");
+        assert_eq!(capitalize_word(""), "");
+        assert_eq!(capitalize_word("abc"), "Abc");
     }
 }
