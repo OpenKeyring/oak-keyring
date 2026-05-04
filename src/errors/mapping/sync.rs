@@ -136,6 +136,12 @@ impl ServiceError for SyncError {
                 .expected_version(*local)
                 .actual_version(*remote),
 
+            Self::ChecksumMismatch { record_id, .. } => ErrorContext::new().record_name(record_id),
+
+            Self::RecordNotFound { record_id } => ErrorContext::new().record_name(record_id),
+
+            Self::PermissionDenied { path } => ErrorContext::new().file_path(path),
+
             _ => ErrorContext::new(),
         }
     }
@@ -211,6 +217,8 @@ mod tests {
         };
         assert_eq!(err.to_error_code(), ErrorCode::SyncMetadataCorrupted);
         assert_eq!(err.error_level(), ErrorLevel::Operation);
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.record_name, Some("rec_001".to_string()));
     }
 
     #[test]
@@ -337,6 +345,8 @@ mod tests {
         };
         assert_eq!(err.to_error_code(), ErrorCode::VaultRecordNotFound);
         assert_eq!(err.error_level(), ErrorLevel::Operation);
+        let ctx = err.to_error_context();
+        assert_eq!(ctx.record_name, Some("rec_999".to_string()));
     }
 
     #[test]
@@ -346,6 +356,11 @@ mod tests {
         };
         assert_eq!(err.to_error_code(), ErrorCode::SyncProviderError);
         assert_eq!(err.error_level(), ErrorLevel::Minor);
+        let ctx = err.to_error_context();
+        assert_eq!(
+            ctx.file_path,
+            Some(std::path::PathBuf::from("/vault/records"))
+        );
     }
 
     #[test]
