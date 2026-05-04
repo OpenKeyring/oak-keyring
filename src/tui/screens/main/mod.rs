@@ -781,6 +781,195 @@ mod tests {
         screen.handle_key_event(make_key(KeyCode::Down), &mut state, PanelId::Sidebar);
         assert!(!state.list.is_visual());
     }
+
+    // ── Normal mode j/k navigation tests ───────────────────────────────────────
+
+    #[test]
+    fn j_moves_down_in_normal_mode() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        assert_eq!(state.list.selected_index, Some(0));
+
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Char('j')), &mut state, PanelId::List);
+        assert_eq!(state.list.selected_index, Some(1));
+    }
+
+    #[test]
+    fn k_moves_up_in_normal_mode() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.list.move_down(); // move to index 1
+
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Char('k')), &mut state, PanelId::List);
+        assert_eq!(state.list.selected_index, Some(0));
+    }
+
+    #[test]
+    fn ctrl_k_enters_search_mode() {
+        let mut state = MainScreenState::default();
+        let screen = MainScreen::new();
+        let key = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL);
+        screen.handle_key_event(key, &mut state, PanelId::List);
+        assert!(state.list.is_searching());
+    }
+
+    #[test]
+    fn plain_k_does_not_enter_search() {
+        let mut state = MainScreenState::default();
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Char('k')), &mut state, PanelId::List);
+        assert!(!state.list.is_searching());
+    }
+
+    // ── Action key tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn enter_focuses_detail_panel() {
+        let records = vec![make_test_record("Test")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Enter), &mut state, PanelId::List);
+        assert_eq!(state.focused_panel, PanelId::Detail);
+    }
+
+    #[test]
+    fn d_normal_opens_soft_delete_confirm() {
+        let records = vec![make_test_record("Test")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('d')), &mut state, PanelId::List);
+        assert!(result.overlay.is_some());
+        match result.overlay {
+            Some(Overlay::ConfirmDialog(ref dlg)) => {
+                assert!(matches!(dlg.variant, ConfirmVariant::SoftDelete { .. }));
+            }
+            _ => panic!("Expected confirm dialog"),
+        }
+    }
+
+    #[test]
+    fn f_returns_toggle_favorite_command() {
+        let records = vec![make_test_record("Test")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('f')), &mut state, PanelId::List);
+        assert!(result.command.is_some());
+    }
+
+    #[test]
+    fn c_returns_copy_password_command() {
+        let records = vec![make_test_record("Test")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('c')), &mut state, PanelId::List);
+        assert!(result.command.is_some());
+    }
+
+    #[test]
+    fn u_returns_copy_username_command() {
+        let records = vec![make_test_record("Test")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('u')), &mut state, PanelId::List);
+        assert!(result.command.is_some());
+    }
+
+    // ── Trash key tests ────────────────────────────────────────────────────────
+
+    use crate::commands::types::RecordFilter;
+
+    #[test]
+    fn trash_r_opens_restore_confirm() {
+        let records = vec![make_test_record("Deleted")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('r')), &mut state, PanelId::List);
+        assert!(result.overlay.is_some());
+        match result.overlay {
+            Some(Overlay::ConfirmDialog(ref dlg)) => {
+                assert!(matches!(dlg.variant, ConfirmVariant::Restore { .. }));
+            }
+            _ => panic!("Expected restore confirm dialog"),
+        }
+    }
+
+    #[test]
+    fn trash_shift_d_opens_hard_delete_confirm() {
+        let records = vec![make_test_record("Deleted")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('D')), &mut state, PanelId::List);
+        assert!(result.overlay.is_some());
+        match result.overlay {
+            Some(Overlay::ConfirmDialog(ref dlg)) => {
+                assert!(matches!(dlg.variant, ConfirmVariant::HardDelete { .. }));
+            }
+            _ => panic!("Expected hard delete confirm dialog"),
+        }
+    }
+
+    #[test]
+    fn trash_a_opens_empty_trash_confirm() {
+        let records = vec![make_test_record("Deleted")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('a')), &mut state, PanelId::List);
+        assert!(result.overlay.is_some());
+        match result.overlay {
+            Some(Overlay::ConfirmDialog(ref dlg)) => {
+                assert!(matches!(dlg.variant, ConfirmVariant::EmptyTrash { .. }));
+            }
+            _ => panic!("Expected empty trash confirm dialog"),
+        }
+    }
+
+    #[test]
+    fn trash_f_does_nothing() {
+        let records = vec![make_test_record("Deleted")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('f')), &mut state, PanelId::List);
+        assert!(result.command.is_none());
+        assert!(result.overlay.is_none());
+    }
 }
 
 /// Render the horizontal separator line between content panels and the status bar.
