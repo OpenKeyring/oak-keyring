@@ -214,6 +214,10 @@ pub enum ConfirmVariant {
         tag_name: String,
         affected_count: usize,
     },
+    Restore {
+        record_id: Uuid,
+        record_name: String,
+    },
 }
 
 /// Confirm dialog state

@@ -8,6 +8,7 @@ use crate::tui::state::list_state::{
     calculate_remaining_days, format_days_since_deletion, format_relative_time, format_type_prefix,
     trash_warning_tier, TrashWarningTier,
 };
+use crate::tui::terminal::WidthTier;
 use crate::tui::theme;
 
 use super::ListPanel;
@@ -121,6 +122,7 @@ pub(super) fn build_record_item<'a>(
     search_query: Option<&str>,
 ) -> ListItem<'a> {
     let indicator = if unicode { " \u{25C0}" } else { " <" }; // ◀ / <
+    let is_min_width = WidthTier::from_width(area_width) == WidthTier::Minimum;
 
     // ── Line 1: Title ──
     let type_prefix = format_type_prefix(&record.credential_type);
@@ -130,7 +132,9 @@ pub(super) fn build_record_item<'a>(
     let prefix_str = format!("  {}", type_prefix);
 
     // Priority: Compromised > Weak > Duplicate (matches S3 spec)
-    let badge = if record.is_compromised {
+    let badge = if is_min_width {
+        None // hide badge at minimum width
+    } else if record.is_compromised {
         health_badge(Some(&HealthIssue::Compromised), unicode)
     } else if record.has_weak_password {
         health_badge(Some(&HealthIssue::Weak), unicode)
@@ -233,7 +237,11 @@ pub(super) fn build_record_item<'a>(
     // ── Line 3: Blank separator (empty line) ──
     let separator_line = Line::from("");
 
-    ListItem::new(vec![title_line, subtitle_line, separator_line])
+    if is_min_width {
+        ListItem::new(vec![title_line, separator_line])
+    } else {
+        ListItem::new(vec![title_line, subtitle_line, separator_line])
+    }
 }
 
 /// Build a trash-specific list item with deletion metadata and progressive warnings.
@@ -251,6 +259,7 @@ pub(super) fn build_trash_item<'a>(
     retention_days: u32,
 ) -> ListItem<'a> {
     let indicator = if unicode { " \u{25C0}" } else { " <" };
+    let is_min_width = WidthTier::from_width(area_width) == WidthTier::Minimum;
 
     // ── Line 1: Title with type prefix ──
     let type_prefix = format_type_prefix(&record.credential_type);
@@ -333,5 +342,9 @@ pub(super) fn build_trash_item<'a>(
     let sep_text: String = std::iter::repeat_n(sep_char, area_width as usize).collect();
     let separator_line = Line::from(Span::styled(sep_text, Style::default().fg(theme::BORDER)));
 
-    ListItem::new(vec![title_line, meta_line, separator_line])
+    if is_min_width {
+        ListItem::new(vec![title_line, separator_line])
+    } else {
+        ListItem::new(vec![title_line, meta_line, separator_line])
+    }
 }

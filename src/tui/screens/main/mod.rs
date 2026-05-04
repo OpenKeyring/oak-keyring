@@ -240,6 +240,11 @@ impl MainScreen {
 
         match focused_panel {
             PanelId::List => {
+                // Trash mode takes priority
+                if matches!(state.current_filter, RecordFilter::Trash) {
+                    return Self::handle_trash_keys(key, state);
+                }
+
                 let mut result_command: Option<Box<Command>> = None;
 
                 match key.code {
@@ -536,6 +541,67 @@ impl MainScreen {
                 ttl: 100,
             });
         state.status_bar.temp_message_timer = Some(100);
+    }
+
+    /// Handle trash-specific key bindings (r/D/a + navigation).
+    fn handle_trash_keys(key: KeyEvent, state: &mut MainScreenState) -> MainKeyResult {
+        let messages = Vec::new();
+        let mut overlay = None;
+
+        match key.code {
+            // r — restore from trash
+            KeyCode::Char('r') => {
+                if let Some(record) = state.list.selected_record() {
+                    let record_id = record.id;
+                    let record_name = record.name.clone();
+                    overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
+                        variant: ConfirmVariant::Restore {
+                            record_id,
+                            record_name,
+                        },
+                        focused_button: ConfirmButton::Cancel,
+                    }));
+                }
+            }
+            // D (Shift+D) — permanent delete
+            KeyCode::Char('D') => {
+                if let Some(record) = state.list.selected_record() {
+                    let record_id = record.id;
+                    let record_name = record.name.clone();
+                    overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
+                        variant: ConfirmVariant::HardDelete {
+                            record_id,
+                            record_name,
+                        },
+                        focused_button: ConfirmButton::Cancel,
+                    }));
+                }
+            }
+            // a — empty all trash
+            KeyCode::Char('a') => {
+                let count = state.list.records.len();
+                if count > 0 {
+                    overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
+                        variant: ConfirmVariant::EmptyTrash { count },
+                        focused_button: ConfirmButton::Cancel,
+                    }));
+                }
+            }
+            // Navigation still works in trash
+            KeyCode::Char('j') | KeyCode::Down => {
+                state.list.move_down();
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                state.list.move_up();
+            }
+            _ => {}
+        }
+
+        MainKeyResult {
+            messages,
+            overlay,
+            command: None,
+        }
     }
 }
 
