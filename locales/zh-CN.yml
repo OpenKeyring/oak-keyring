@@ -228,6 +228,7 @@ tui:
     weak_password_title: "弱密码"
     weak_password_body: "此密码强度较弱，是否仍要保存？"
     save_anyway: "仍然保存"
+    warning_title: "警告"
 
   # ---- U6: Password Generator ----
   generator:
@@ -795,6 +796,7 @@ tui:
     existing_tags: "现有标签:"
     done: "完成"
     select_hint: "请按 Space 选择密码项"
+    more_items: "...等共 %{count} 条"
 
   # ---- Health Check ----
   health:
