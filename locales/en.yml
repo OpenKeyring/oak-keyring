@@ -254,6 +254,9 @@ tui:
     word_count: "Word Count"
     capitalize: "Capitalize"
     separator_label: "Separator:"
+    adjust: "Adjust"
+    switch_focus: "Switch Focus"
+    label: "Generator"
 
   # ---- U7: Create/Edit Form ----
   form:
