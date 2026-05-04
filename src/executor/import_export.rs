@@ -293,12 +293,12 @@ pub fn handle_execute_export(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Map a fully decrypted record to the flat export format.
+/// Map a fully decrypted record to the export format.
 ///
-/// Field mapping follows the same convention as `VaultService::decrypt_field`:
-/// - Login: username→username, password→password, url→url, notes→notes
-/// - Api: app_id→username, secret_key→password, url→url, notes→notes
-/// - Ssh: public_key→username, private_key→password, notes→notes
+/// Field mapping uses type-specific fields:
+/// - Login: username, password, url, notes
+/// - Api: app_id, secret_key, url, notes (username/password are None)
+/// - Ssh: public_key, private_key, passphrase, notes (username/password are None)
 fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
     match record {
         DecryptedRecord::Login {
@@ -344,8 +344,8 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             id: id.to_string(),
             credential_type: CredentialType::Api.to_db_str().to_string(),
             name: name.clone(),
-            username: Some(app_id.clone()),
-            password: Some(secret_key.get().clone()),
+            username: None,
+            password: None,
             url: url.clone(),
             notes: notes.clone(),
             tags: Some(tags.clone()),
@@ -354,8 +354,8 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             public_key: None,
             private_key: None,
             passphrase: None,
-            app_id: None,
-            secret_key: None,
+            app_id: Some(app_id.clone()),
+            secret_key: Some(secret_key.get().clone()),
         },
         DecryptedRecord::Ssh {
             id,
@@ -365,22 +365,23 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             name,
             public_key,
             private_key,
+            passphrase,
             notes,
             ..
         } => ExportRecord {
             id: id.to_string(),
             credential_type: CredentialType::Ssh.to_db_str().to_string(),
             name: name.clone(),
-            username: Some(public_key.clone()),
-            password: private_key.as_ref().map(|pk| pk.get().clone()),
+            username: None,
+            password: None,
             url: None,
             notes: notes.clone(),
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
-            public_key: None,
-            private_key: None,
-            passphrase: None,
+            public_key: Some(public_key.clone()),
+            private_key: private_key.as_ref().map(|pk| pk.get().clone()),
+            passphrase: passphrase.as_ref().map(|p| p.get().clone()),
             app_id: None,
             secret_key: None,
         },
@@ -586,8 +587,10 @@ mod tests {
         let export = decrypted_record_to_export(&record);
 
         assert_eq!(export.credential_type, "api");
-        assert_eq!(export.username.as_deref(), Some("AKIA123"));
-        assert_eq!(export.password.as_deref(), Some("secret456"));
+        assert!(export.username.is_none());
+        assert!(export.password.is_none());
+        assert_eq!(export.app_id.as_deref(), Some("AKIA123"));
+        assert_eq!(export.secret_key.as_deref(), Some("secret456"));
         assert!(export.url.is_none());
         assert!(export.notes.is_none());
     }
@@ -615,8 +618,10 @@ mod tests {
         let export = decrypted_record_to_export(&record);
 
         assert_eq!(export.credential_type, "ssh");
-        assert_eq!(export.username.as_deref(), Some("ssh-rsa AAA..."));
-        assert_eq!(export.password.as_deref(), Some("-----BEGIN RSA..."));
+        assert!(export.username.is_none());
+        assert!(export.password.is_none());
+        assert_eq!(export.public_key.as_deref(), Some("ssh-rsa AAA..."));
+        assert_eq!(export.private_key.as_deref(), Some("-----BEGIN RSA..."));
         assert!(export.url.is_none());
         assert_eq!(export.notes.as_deref(), Some("production"));
     }
@@ -643,6 +648,6 @@ mod tests {
 
         let export = decrypted_record_to_export(&record);
 
-        assert!(export.password.is_none());
+        assert!(export.private_key.is_none());
     }
 }
