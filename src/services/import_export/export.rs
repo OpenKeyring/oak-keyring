@@ -32,6 +32,21 @@ pub struct ExportRecord {
     pub is_favorite: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
+    /// SSH public key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
+    /// SSH private key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_key: Option<String>,
+    /// SSH passphrase
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub passphrase: Option<String>,
+    /// API application ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_id: Option<String>,
+    /// API secret key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_key: Option<String>,
 }
 
 /// The full export payload.
@@ -178,6 +193,11 @@ mod tests {
                 tags: Some(vec!["email".to_string()]),
                 is_favorite: Some(true),
                 expires_at: None,
+                public_key: None,
+                private_key: None,
+                passphrase: None,
+                app_id: None,
+                secret_key: None,
             }],
         }
     }
@@ -319,6 +339,12 @@ mod tests {
             decrypted_payload.records[0].username.as_ref().unwrap(),
             "user@gmail.com"
         );
+        // Verify new type-specific fields are None after roundtrip
+        assert!(decrypted_payload.records[0].public_key.is_none());
+        assert!(decrypted_payload.records[0].private_key.is_none());
+        assert!(decrypted_payload.records[0].passphrase.is_none());
+        assert!(decrypted_payload.records[0].app_id.is_none());
+        assert!(decrypted_payload.records[0].secret_key.is_none());
     }
 
     // -- Test 8: encrypt_and_write atomic creates file --

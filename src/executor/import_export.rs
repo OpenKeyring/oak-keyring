@@ -293,12 +293,12 @@ pub fn handle_execute_export(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Map a fully decrypted record to the flat export format.
+/// Map a fully decrypted record to the export format.
 ///
-/// Field mapping follows the same convention as `VaultService::decrypt_field`:
-/// - Login: username→username, password→password, url→url, notes→notes
-/// - Api: app_id→username, secret_key→password, url→url, notes→notes
-/// - Ssh: public_key→username, private_key→password, notes→notes
+/// Field mapping uses type-specific fields:
+/// - Login: username, password, url, notes
+/// - Api: app_id, secret_key, url, notes (username/password are None)
+/// - Ssh: public_key, private_key, passphrase, notes (username/password are None)
 fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
     match record {
         DecryptedRecord::Login {
@@ -323,6 +323,11 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
+            public_key: None,
+            private_key: None,
+            passphrase: None,
+            app_id: None,
+            secret_key: None,
         },
         DecryptedRecord::Api {
             id,
@@ -339,13 +344,18 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             id: id.to_string(),
             credential_type: CredentialType::Api.to_db_str().to_string(),
             name: name.clone(),
-            username: Some(app_id.clone()),
-            password: Some(secret_key.get().clone()),
+            username: None,
+            password: None,
             url: url.clone(),
             notes: notes.clone(),
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
+            public_key: None,
+            private_key: None,
+            passphrase: None,
+            app_id: Some(app_id.clone()),
+            secret_key: Some(secret_key.get().clone()),
         },
         DecryptedRecord::Ssh {
             id,
@@ -355,19 +365,25 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             name,
             public_key,
             private_key,
+            passphrase,
             notes,
             ..
         } => ExportRecord {
             id: id.to_string(),
             credential_type: CredentialType::Ssh.to_db_str().to_string(),
             name: name.clone(),
-            username: Some(public_key.clone()),
-            password: private_key.as_ref().map(|pk| pk.get().clone()),
+            username: None,
+            password: None,
             url: None,
             notes: notes.clone(),
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
+            public_key: Some(public_key.clone()),
+            private_key: private_key.as_ref().map(|pk| pk.get().clone()),
+            passphrase: passphrase.as_ref().map(|p| p.get().clone()),
+            app_id: None,
+            secret_key: None,
         },
     }
 }
@@ -571,8 +587,10 @@ mod tests {
         let export = decrypted_record_to_export(&record);
 
         assert_eq!(export.credential_type, "api");
-        assert_eq!(export.username.as_deref(), Some("AKIA123"));
-        assert_eq!(export.password.as_deref(), Some("secret456"));
+        assert!(export.username.is_none());
+        assert!(export.password.is_none());
+        assert_eq!(export.app_id.as_deref(), Some("AKIA123"));
+        assert_eq!(export.secret_key.as_deref(), Some("secret456"));
         assert!(export.url.is_none());
         assert!(export.notes.is_none());
     }
@@ -600,8 +618,10 @@ mod tests {
         let export = decrypted_record_to_export(&record);
 
         assert_eq!(export.credential_type, "ssh");
-        assert_eq!(export.username.as_deref(), Some("ssh-rsa AAA..."));
-        assert_eq!(export.password.as_deref(), Some("-----BEGIN RSA..."));
+        assert!(export.username.is_none());
+        assert!(export.password.is_none());
+        assert_eq!(export.public_key.as_deref(), Some("ssh-rsa AAA..."));
+        assert_eq!(export.private_key.as_deref(), Some("-----BEGIN RSA..."));
         assert!(export.url.is_none());
         assert_eq!(export.notes.as_deref(), Some("production"));
     }
@@ -628,6 +648,244 @@ mod tests {
 
         let export = decrypted_record_to_export(&record);
 
+        assert!(export.private_key.is_none());
+    }
+
+    #[test]
+    fn ssh_credential_roundtrip_preserves_fields() {
+        use std::collections::HashMap;
+
+        // Step 1: Create DecryptedRecord::Ssh with all fields
+        let id = uuid();
+        let record = DecryptedRecord::Ssh {
+            id,
+            is_favorite: false,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec!["server".to_string()],
+            name: "Production Server".to_string(),
+            public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...".to_string(),
+            private_key: Some(SecureStr::new(
+                "-----BEGIN OPENSSH PRIVATE KEY-----\n...".to_string(),
+            )),
+            passphrase: Some(SecureStr::new("my-passphrase".to_string())),
+            notes: Some("production key".to_string()),
+        };
+
+        // Step 2: Export direction: decrypted_record_to_export
+        let export = decrypted_record_to_export(&record);
+        assert_eq!(export.credential_type, "ssh");
+        assert!(export.username.is_none());
         assert!(export.password.is_none());
+        assert_eq!(
+            export.public_key.as_deref(),
+            Some("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...")
+        );
+        assert_eq!(
+            export.private_key.as_deref(),
+            Some("-----BEGIN OPENSSH PRIVATE KEY-----\n...")
+        );
+        assert_eq!(export.passphrase.as_deref(), Some("my-passphrase"));
+
+        // Step 3: Simulate OKB parser output (HashMap)
+        let mut fields = HashMap::new();
+        fields.insert("name".to_string(), export.name.clone());
+        fields.insert(
+            "credential_type".to_string(),
+            export.credential_type.clone(),
+        );
+        if let Some(pk) = &export.public_key {
+            fields.insert("public_key".to_string(), pk.clone());
+        }
+        if let Some(pk) = &export.private_key {
+            fields.insert("private_key".to_string(), pk.clone());
+        }
+        if let Some(p) = &export.passphrase {
+            fields.insert("passphrase".to_string(), p.clone());
+        }
+        if let Some(n) = &export.notes {
+            fields.insert("notes".to_string(), n.clone());
+        }
+
+        // Step 4: Import direction: fields_to_payload
+        let payload = fields_to_payload(CredentialType::Ssh, &fields);
+        match payload {
+            EncryptedPayload::Ssh {
+                name,
+                public_key,
+                private_key,
+                passphrase,
+                notes,
+            } => {
+                assert_eq!(name, "Production Server");
+                assert_eq!(public_key, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...");
+                assert!(private_key.is_some());
+                assert_eq!(
+                    private_key.unwrap().get(),
+                    "-----BEGIN OPENSSH PRIVATE KEY-----\n..."
+                );
+                assert!(passphrase.is_some());
+                assert_eq!(passphrase.unwrap().get(), "my-passphrase");
+                assert_eq!(notes, Some("production key".to_string()));
+            }
+            _ => panic!("expected Ssh payload"),
+        }
+    }
+
+    #[test]
+    fn api_credential_roundtrip_preserves_fields() {
+        use std::collections::HashMap;
+
+        // Step 1: Create DecryptedRecord::Api with all fields
+        let id = uuid();
+        let record = DecryptedRecord::Api {
+            id,
+            is_favorite: true,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec!["cloud".to_string()],
+            name: "AWS Production".to_string(),
+            app_id: "AKIAIOSFODNN7EXAMPLE".to_string(),
+            secret_key: SecureStr::new("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_string()),
+            url: Some("https://aws.amazon.com".to_string()),
+            notes: Some("production account".to_string()),
+        };
+
+        // Step 2: Export direction: decrypted_record_to_export
+        let export = decrypted_record_to_export(&record);
+        assert_eq!(export.credential_type, "api");
+        assert!(export.username.is_none());
+        assert!(export.password.is_none());
+        assert_eq!(export.app_id.as_deref(), Some("AKIAIOSFODNN7EXAMPLE"));
+        assert_eq!(
+            export.secret_key.as_deref(),
+            Some("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
+        );
+        assert_eq!(export.url.as_deref(), Some("https://aws.amazon.com"));
+        assert_eq!(export.notes.as_deref(), Some("production account"));
+
+        // Step 3: Simulate OKB parser output (HashMap)
+        let mut fields = HashMap::new();
+        fields.insert("name".to_string(), export.name.clone());
+        fields.insert(
+            "credential_type".to_string(),
+            export.credential_type.clone(),
+        );
+        if let Some(app_id) = &export.app_id {
+            fields.insert("app_id".to_string(), app_id.clone());
+        }
+        if let Some(secret_key) = &export.secret_key {
+            fields.insert("secret_key".to_string(), secret_key.clone());
+        }
+        if let Some(url) = &export.url {
+            fields.insert("url".to_string(), url.clone());
+        }
+        if let Some(notes) = &export.notes {
+            fields.insert("notes".to_string(), notes.clone());
+        }
+
+        // Step 4: Import direction: fields_to_payload
+        let payload = fields_to_payload(CredentialType::Api, &fields);
+        match payload {
+            EncryptedPayload::Api {
+                name,
+                app_id,
+                secret_key,
+                url,
+                notes,
+            } => {
+                assert_eq!(name, "AWS Production");
+                assert_eq!(app_id, "AKIAIOSFODNN7EXAMPLE");
+                assert_eq!(secret_key.get(), "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+                assert_eq!(url, Some("https://aws.amazon.com".to_string()));
+                assert_eq!(notes, Some("production account".to_string()));
+            }
+            _ => panic!("expected Api payload"),
+        }
+    }
+
+    #[test]
+    fn ssh_without_passphrase_roundtrip() {
+        use std::collections::HashMap;
+
+        // Step 1: Create DecryptedRecord::Ssh without passphrase
+        let id = uuid();
+        let record = DecryptedRecord::Ssh {
+            id,
+            is_favorite: false,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+            name: "Test Server".to_string(),
+            public_key: "ssh-rsa AAAAB3NzaC1yc2E...".to_string(),
+            private_key: Some(SecureStr::new(
+                "-----BEGIN RSA PRIVATE KEY-----\n...".to_string(),
+            )),
+            passphrase: None, // No passphrase
+            notes: None,
+        };
+
+        // Step 2: Export direction: decrypted_record_to_export
+        let export = decrypted_record_to_export(&record);
+        assert_eq!(export.credential_type, "ssh");
+        assert_eq!(
+            export.public_key.as_deref(),
+            Some("ssh-rsa AAAAB3NzaC1yc2E...")
+        );
+        assert_eq!(
+            export.private_key.as_deref(),
+            Some("-----BEGIN RSA PRIVATE KEY-----\n...")
+        );
+        assert!(export.passphrase.is_none()); // Verify passphrase is None
+
+        // Step 3: Simulate OKB parser output (HashMap)
+        let mut fields = HashMap::new();
+        fields.insert("name".to_string(), export.name.clone());
+        fields.insert(
+            "credential_type".to_string(),
+            export.credential_type.clone(),
+        );
+        if let Some(pk) = &export.public_key {
+            fields.insert("public_key".to_string(), pk.clone());
+        }
+        if let Some(pk) = &export.private_key {
+            fields.insert("private_key".to_string(), pk.clone());
+        }
+        // Note: passphrase is None, so we don't insert it into fields
+
+        // Step 4: Import direction: fields_to_payload
+        let payload = fields_to_payload(CredentialType::Ssh, &fields);
+        match payload {
+            EncryptedPayload::Ssh {
+                name,
+                public_key,
+                private_key,
+                passphrase,
+                notes,
+            } => {
+                assert_eq!(name, "Test Server");
+                assert_eq!(public_key, "ssh-rsa AAAAB3NzaC1yc2E...");
+                assert!(private_key.is_some());
+                assert_eq!(
+                    private_key.unwrap().get(),
+                    "-----BEGIN RSA PRIVATE KEY-----\n..."
+                );
+                assert!(passphrase.is_none()); // Verify passphrase remains None
+                assert!(notes.is_none());
+            }
+            _ => panic!("expected Ssh payload"),
+        }
     }
 }
