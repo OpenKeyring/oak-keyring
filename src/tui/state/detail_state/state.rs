@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::commands::types::HealthIssue;
+use crate::t;
 use crate::types::credential::CredentialType as CrateCredentialType;
 
 // ── Field Value ────────────────────────────────────
@@ -328,14 +329,14 @@ impl DetailPanelState {
                 let subtitle = url.clone().unwrap_or_default();
                 let fields = vec![
                     DetailField {
-                        label: "用户名".into(),
+                        label: t!("tui.entry.username_label").to_string(),
                         value: FieldValue::Plain(username.clone()),
                         copyable: true,
                         toggleable: false,
                         kind: DetailFieldKind::Username,
                     },
                     DetailField {
-                        label: "密码".into(),
+                        label: t!("tui.entry.password_label").to_string(),
                         value: FieldValue::Masked,
                         copyable: true,
                         toggleable: true,
@@ -345,7 +346,7 @@ impl DetailPanelState {
                 let mut all_fields = fields;
                 if let Some(ref u) = url {
                     all_fields.push(DetailField {
-                        label: "网址".into(),
+                        label: t!("tui.entry.url_label").to_string(),
                         value: FieldValue::Plain(u.clone()),
                         copyable: true,
                         toggleable: false,
@@ -354,7 +355,7 @@ impl DetailPanelState {
                 }
                 if let Some(ref n) = notes {
                     all_fields.push(DetailField {
-                        label: "备注".into(),
+                        label: t!("tui.entry.notes_label").to_string(),
                         value: FieldValue::Plain(n.clone()),
                         copyable: true,
                         toggleable: false,
@@ -396,14 +397,14 @@ impl DetailPanelState {
                 let subtitle = url.clone().unwrap_or_default();
                 let mut fields = vec![
                     DetailField {
-                        label: "AppID".into(),
+                        label: t!("tui.entry.app_id_label").to_string(),
                         value: FieldValue::Plain(app_id.clone()),
                         copyable: true,
                         toggleable: false,
                         kind: DetailFieldKind::AppId,
                     },
                     DetailField {
-                        label: "SecretKey".into(),
+                        label: t!("tui.entry.secret_key_label").to_string(),
                         value: FieldValue::Masked,
                         copyable: true,
                         toggleable: true,
@@ -412,7 +413,7 @@ impl DetailPanelState {
                 ];
                 if let Some(ref u) = url {
                     fields.push(DetailField {
-                        label: "网址".into(),
+                        label: t!("tui.entry.url_label").to_string(),
                         value: FieldValue::Plain(u.clone()),
                         copyable: true,
                         toggleable: false,
@@ -421,7 +422,7 @@ impl DetailPanelState {
                 }
                 if let Some(ref n) = notes {
                     fields.push(DetailField {
-                        label: "备注".into(),
+                        label: t!("tui.entry.notes_label").to_string(),
                         value: FieldValue::Plain(n.clone()),
                         copyable: true,
                         toggleable: false,
@@ -462,14 +463,14 @@ impl DetailPanelState {
                 let expiry_status = ExpiryStatus::from_date(*expires_at);
                 let mut fields = vec![
                     DetailField {
-                        label: "公钥".into(),
+                        label: t!("tui.entry.public_key_label").to_string(),
                         value: FieldValue::Plain(public_key.clone()),
                         copyable: true,
                         toggleable: false,
                         kind: DetailFieldKind::PublicKey,
                     },
                     DetailField {
-                        label: "私钥".into(),
+                        label: t!("tui.entry.private_key_label").to_string(),
                         value: FieldValue::Masked,
                         copyable: true,
                         toggleable: true,
@@ -477,7 +478,7 @@ impl DetailPanelState {
                     },
                 ];
                 fields.push(DetailField {
-                    label: "Passphrase".into(),
+                    label: t!("tui.entry.passphrase_label").to_string(),
                     value: FieldValue::Masked,
                     copyable: true,
                     toggleable: true,
@@ -485,7 +486,7 @@ impl DetailPanelState {
                 });
                 if let Some(ref n) = notes {
                     fields.push(DetailField {
-                        label: "备注".into(),
+                        label: t!("tui.entry.notes_label").to_string(),
                         value: FieldValue::Plain(n.clone()),
                         copyable: true,
                         toggleable: false,
