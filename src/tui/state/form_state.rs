@@ -542,9 +542,19 @@ mod tests {
 
     #[test]
     fn expiry_option_labels() {
-        assert_eq!(ExpiryOption::Never.label(), "永不过期");
-        assert_eq!(ExpiryOption::Days30.label(), "30 天");
-        assert_eq!(ExpiryOption::Custom.label(), "自定义日期");
+        // Test that labels are non-empty and contain expected substrings
+        let never_label = ExpiryOption::Never.label();
+        let days30_label = ExpiryOption::Days30.label();
+        let custom_label = ExpiryOption::Custom.label();
+
+        assert!(!never_label.is_empty());
+        assert!(!days30_label.is_empty());
+        assert!(!custom_label.is_empty());
+
+        // Verify labels contain expected keywords (works for both EN and ZH)
+        assert!(never_label.contains("Never") || never_label.contains("不过期"));
+        assert!(days30_label.contains("30") || days30_label.contains("天"));
+        assert!(custom_label.contains("Custom") || custom_label.contains("自定义"));
     }
 
     #[test]
