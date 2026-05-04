@@ -1524,7 +1524,454 @@ fn e_from_list_navigates_to_edit() {
     assert!(matches!(result, ScreenResult::NavigateTo(_)));
 }
 
-// ── Overlay result dispatch tests ───────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+use crate::tui::state::detail_state::{DetailViewData, ExpiryStatus};
+use crate::types::credential::CredentialType;
+use crate::types::record::TuiRecord;
+
+fn make_test_record(id_override: Option<Uuid>) -> TuiRecord {
+    TuiRecord {
+        id: id_override.unwrap_or_else(Uuid::new_v4),
+        credential_type: CredentialType::Login,
+        name: "Test Record".to_string(),
+        subtitle: String::new(),
+        is_favorite: false,
+        is_expired: false,
+        expires_at: None,
+        has_weak_password: false,
+        is_compromised: false,
+        duplicate_group_size: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        deleted: false,
+        deleted_at: None,
+        tags: Vec::new(),
+        sync_status: None,
+    }
+}
+
+fn make_detail_view(id: Uuid, is_favorite: bool) -> DetailViewData {
+    DetailViewData {
+        id,
+        name: "Test Detail".to_string(),
+        subtitle: String::new(),
+        credential_type: CredentialType::Login,
+        is_favorite,
+        expires_at: None,
+        expiry_status: ExpiryStatus::None,
+        tags: Vec::new(),
+        notes: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        fields: Vec::new(),
+        password_strength: None,
+        deleted_at: None,
+    }
+}
+
+// ── Record CRUD refresh tests ────────────────────────────────
+
+#[test]
+fn record_created_triggers_list_refresh() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::All;
+    assert!(!state.list_auto_select);
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordCreated { id: record_id }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    // list_auto_select should be set so next RecordListLoaded auto-selects first record
+    assert!(state.list_auto_select);
+
+    // Should send LoadRecordList
+    let cmd = rx
+        .try_recv()
+        .expect("Should send LoadRecordList command after RecordCreated");
+    match cmd {
+        Command::LoadRecordList { filter, .. } => {
+            assert_eq!(filter, RecordFilter::All);
+        }
+        other => panic!("Expected LoadRecordList, got {:?}", other),
+    }
+}
+
+#[test]
+fn record_updated_triggers_list_refresh() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::All;
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordUpdated { id: record_id }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+
+    // Should send LoadRecordList
+    let cmd = rx
+        .try_recv()
+        .expect("Should send LoadRecordList command after RecordUpdated");
+    match cmd {
+        Command::LoadRecordList { filter, .. } => {
+            assert_eq!(filter, RecordFilter::All);
+        }
+        other => panic!("Expected LoadRecordList, got {:?}", other),
+    }
+}
+
+#[test]
+fn record_updated_refreshes_detail_when_showing() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::All;
+    state.list.records = vec![make_test_record(Some(record_id))];
+    state.list.selected_index = Some(0);
+    state.detail.record = Some(make_detail_view(record_id, false));
+    assert!(state.detail.record.is_some());
+    assert_eq!(state.detail.record.as_ref().unwrap().id, record_id);
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let _result = state.update(
+        Message::CommandCompleted(CommandResult::RecordUpdated { id: record_id }),
+        &mut ctx,
+    );
+
+    // First message: LoadRecordList
+    let cmd1 = rx.try_recv().expect("Should send LoadRecordList");
+    assert!(matches!(cmd1, Command::LoadRecordList { .. }));
+
+    // Second message: LoadRecordDetail (because detail was showing the updated record)
+    let cmd2 = rx
+        .try_recv()
+        .expect("Should send LoadRecordDetail after RecordUpdated when detail was showing");
+    match cmd2 {
+        Command::LoadRecordDetail { id } => {
+            assert_eq!(id, record_id);
+        }
+        other => panic!("Expected LoadRecordDetail, got {:?}", other),
+    }
+}
+
+#[test]
+fn record_deleted_clears_detail_when_showing() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::All;
+    state.list.records = vec![make_test_record(Some(record_id))];
+    state.list.selected_index = Some(0);
+    state.detail.record = Some(make_detail_view(record_id, false));
+    assert!(state.detail.record.is_some());
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordDeleted { id: record_id }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    // Detail should be cleared because it was showing the deleted record
+    assert!(state.detail.record.is_none());
+
+    // Should send LoadRecordList
+    let cmd = rx
+        .try_recv()
+        .expect("Should send LoadRecordList after RecordDeleted");
+    assert!(matches!(cmd, Command::LoadRecordList { .. }));
+}
+
+#[test]
+fn record_deleted_does_not_clear_detail_when_not_showing() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let other_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::All;
+    state.list.records = vec![make_test_record(Some(record_id))];
+    state.list.selected_index = Some(0);
+    state.detail.record = Some(make_detail_view(other_id, false));
+    assert!(state.detail.record.is_some());
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordDeleted { id: record_id }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    // Detail should NOT be cleared because it was showing a different record
+    assert!(state.detail.record.is_some());
+}
+
+#[test]
+fn record_restored_triggers_list_refresh() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::Trash;
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordRestored { id: record_id }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+
+    // Should send LoadRecordList
+    let cmd = rx
+        .try_recv()
+        .expect("Should send LoadRecordList after RecordRestored");
+    assert!(matches!(cmd, Command::LoadRecordList { .. }));
+}
+
+// ── Cursor recovery tests ────────────────────────────────────
+
+#[test]
+fn record_list_loaded_cursor_recovery_keeps_selection() {
+    use crate::commands::result::CommandResult;
+
+    let mut state = MainScreenState::default();
+    state.list.records = vec![make_test_record(None), make_test_record(None)];
+    state.list.selected_index = Some(1);
+    state.list_auto_select = false;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let new_records = vec![make_test_record(None), make_test_record(None)];
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: new_records,
+            total: 2,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.list.selected_index, Some(1));
+    assert!(!state.list_auto_select);
+}
+
+#[test]
+fn record_list_loaded_cursor_recovery_clamps_oob() {
+    use crate::commands::result::CommandResult;
+
+    let mut state = MainScreenState::default();
+    state.list.records = vec![
+        make_test_record(None),
+        make_test_record(None),
+        make_test_record(None),
+    ];
+    state.list.selected_index = Some(2);
+    state.list_auto_select = false;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    // New list has only 1 record — index 2 should clamp to 0
+    let new_records = vec![make_test_record(None)];
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: new_records,
+            total: 1,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.list.selected_index, Some(0));
+}
+
+#[test]
+fn record_list_loaded_cursor_recovery_initial_load() {
+    use crate::commands::result::CommandResult;
+
+    let mut state = MainScreenState::default();
+    // Initial state: selected_index = None, no records
+    assert_eq!(state.list.selected_index, None);
+    state.list_auto_select = false;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let new_records = vec![make_test_record(None)];
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: new_records,
+            total: 1,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    // Initial load should keep None for U4 Empty State
+    assert_eq!(state.list.selected_index, None);
+}
+
+#[test]
+fn record_list_loaded_cursor_recovery_keeps_none_when_empty_list() {
+    use crate::commands::result::CommandResult;
+
+    let mut state = MainScreenState::default();
+    state.list.selected_index = Some(0);
+    state.list_auto_select = false;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: Vec::new(),
+            total: 0,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.list.selected_index, None);
+    assert!(state.detail.record.is_none()); // detail cleared for empty list
+}
+
+// ── FavoriteToggled tests ────────────────────────────────────
+
+#[test]
+fn favorite_toggled_updates_detail_is_favorite() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::All;
+    state.list.records = vec![make_test_record(Some(record_id))];
+    state.detail.record = Some(make_detail_view(record_id, false));
+    assert_eq!(state.detail.record.as_ref().unwrap().is_favorite, false);
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::FavoriteToggled {
+            id: record_id,
+            is_favorite: true,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.detail.record.as_ref().unwrap().is_favorite, true);
+    assert_eq!(state.list.records[0].is_favorite, true);
+}
+
+#[test]
+fn favorite_toggled_does_not_update_detail_when_not_showing() {
+    use crate::commands::result::CommandResult;
+
+    let toggled_id = Uuid::new_v4();
+    let detail_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::All;
+    state.list.records = vec![
+        make_test_record(Some(toggled_id)),
+        make_test_record(Some(detail_id)),
+    ];
+    state.detail.record = Some(make_detail_view(detail_id, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::FavoriteToggled {
+            id: toggled_id,
+            is_favorite: true,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    // Detail record's is_favorite should NOT be updated (it's a different record)
+    assert_eq!(state.detail.record.as_ref().unwrap().is_favorite, false);
+    // List record's is_favorite should be updated
+    assert_eq!(state.list.records[0].is_favorite, true);
+}
+
+// ── Overlay result dispatch tests ────────────────────────────
 
 #[test]
 fn restore_confirm_dispatches_command() {
