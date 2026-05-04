@@ -23,7 +23,7 @@ use crate::tui::screens::main::status_bar::StatusBarPanel;
 use crate::tui::state::main_state::{MainScreenState, SidebarCategory, SidebarItem};
 use crate::tui::state::tag_management::TagSortOrder;
 use crate::tui::theme;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Main three-panel screen: sidebar | list | detail, with a status bar.
 pub struct MainScreen {
@@ -300,15 +300,24 @@ impl MainScreen {
                         }));
                     }
                 }
-                KeyCode::Char('j') | KeyCode::Down if state.list.is_visual() => {
+                KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    if !state.list.is_searching() && !state.list.is_visual() {
+                        state.list.enter_search();
+                    }
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
                     state.list.move_down();
                 }
-                KeyCode::Char('k') | KeyCode::Up if state.list.is_visual() => {
+                KeyCode::Char('k') | KeyCode::Up => {
                     state.list.move_up();
                 }
-                KeyCode::Esc if state.list.is_visual() => {
-                    state.list.exit_visual();
-                    messages.push(Message::ExitVisualMode);
+                KeyCode::Esc => {
+                    if state.list.is_visual() {
+                        state.list.exit_visual();
+                        messages.push(Message::ExitVisualMode);
+                    } else if state.list.is_searching() {
+                        state.list.exit_search();
+                    }
                 }
                 KeyCode::Char('s') if !state.list.is_visual() => {
                     state.list.toggle_sort_direction();
