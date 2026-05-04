@@ -364,6 +364,10 @@ fn route_to_screen(
                 .main
                 .sync_from_app(state.shared.focus.focused_panel, state.unicode_capable);
             let result = state.screens.main.update(msg, ctx);
+            // Back-sync focus changes from MainScreen to AppState
+            if state.shared.focus.focused_panel != state.screens.main.focused_panel {
+                state.shared.focus.focused_panel = state.screens.main.focused_panel;
+            }
             // Process pending overlay animation (ModalAppear/ModalDismiss)
             if let Some(kind) = state.screens.main.pending_animation.take() {
                 crate::tui::animation::transitions::start_transition(

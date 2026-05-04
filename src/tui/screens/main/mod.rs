@@ -235,6 +235,7 @@ impl MainScreen {
                 messages,
                 overlay,
                 command: None,
+                focused_panel: None,
             };
         }
 
@@ -246,6 +247,7 @@ impl MainScreen {
                 }
 
                 let mut result_command: Option<Box<Command>> = None;
+                let mut focused_panel_result: Option<PanelId> = None;
 
                 match key.code {
                     KeyCode::Char('v') => {
@@ -315,6 +317,7 @@ impl MainScreen {
                     }
                     KeyCode::Enter if !state.list.is_visual() && !state.list.is_searching() => {
                         state.focused_panel = PanelId::Detail;
+                        focused_panel_result = Some(PanelId::Detail);
                     }
                     KeyCode::Char('d') if !state.list.is_visual() && !state.list.is_searching() => {
                         if let Some(record) = state.list.selected_record() {
@@ -378,6 +381,7 @@ impl MainScreen {
                     messages,
                     overlay,
                     command: result_command,
+                    focused_panel: focused_panel_result,
                 };
             }
             PanelId::Sidebar => match key.code {
@@ -465,6 +469,7 @@ impl MainScreen {
             messages,
             overlay,
             command: None,
+            focused_panel: None,
         }
     }
 
@@ -601,6 +606,7 @@ impl MainScreen {
             messages,
             overlay,
             command: None,
+            focused_panel: None,
         }
     }
 }
@@ -610,6 +616,7 @@ pub struct MainKeyResult {
     pub messages: Vec<Message>,
     pub overlay: Option<Overlay>,
     pub command: Option<Box<crate::commands::Command>>,
+    pub focused_panel: Option<PanelId>,
 }
 
 /// Sort the sidebar tags according to the current sort order.
