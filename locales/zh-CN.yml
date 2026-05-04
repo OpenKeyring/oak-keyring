@@ -98,6 +98,8 @@ tui:
     path_valid: "路径有效"
     path_no_parent_write: "父目录无写入权限"
     path_will_create: "目录将自动创建"
+    path_cannot_create: "无法创建目录路径"
+    path_invalid: "无效路径"
     mnemonic_language_option_en: "English"
     mnemonic_language_option_zh_cn: "中文(简体)"
     mnemonic_language_warning: "⚠ 选择后不可更改，请确认你的选择"

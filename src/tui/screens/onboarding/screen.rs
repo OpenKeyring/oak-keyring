@@ -3,6 +3,7 @@ use zeroize::Zeroize;
 use crate::commands::types::ImportPreview;
 use crate::commands::Message;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
+use crate::t;
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 
@@ -142,7 +143,7 @@ impl OnboardingScreen {
 
         if path.exists() {
             if !path.is_dir() {
-                return Some(("Path exists but is not a directory".to_string(), true));
+                return Some((t!("tui.entry.path_not_directory").to_string(), true));
             }
 
             // Check write permission
@@ -151,25 +152,29 @@ impl OnboardingScreen {
             if writable {
                 let _ = std::fs::remove_file(&write_target);
             } else {
-                return Some(("No write permission for this directory".to_string(), true));
+                return Some((t!("tui.entry.path_no_write").to_string(), true));
             }
 
             // Check if directory is non-empty
-            match std::fs::read_dir(path) {
+            match std::fs::read_dir(&path) {
                 Ok(mut entries) => {
                     if entries.next().is_some() {
-                        return Some((
-                            "Directory is not empty — files may be overwritten".to_string(),
-                            false,
-                        ));
+                        return Some((t!("tui.entry.path_not_empty").to_string(), false));
                     }
                 }
-                Err(e) => {
-                    return Some((format!("Cannot read directory: {}", e), true));
+                Err(_e) => {
+                    return Some((
+                        t!(
+                            "tui.entry.path_cannot_read",
+                            dir = path.to_string_lossy().to_string()
+                        )
+                        .to_string(),
+                        true,
+                    ));
                 }
             }
 
-            Some(("Path is valid".to_string(), false))
+            Some((t!("tui.entry.path_valid").to_string(), false))
         } else {
             // Path does not exist — check if parent is writable
             match path.parent() {
@@ -181,12 +186,9 @@ impl OnboardingScreen {
                             let _ = std::fs::remove_file(&write_target);
                         }
                         if !writable {
-                            return Some((
-                                "No write permission for parent directory".to_string(),
-                                true,
-                            ));
+                            return Some((t!("tui.entry.path_no_parent_write").to_string(), true));
                         }
-                        Some(("Directory will be created automatically".to_string(), false))
+                        Some((t!("tui.entry.path_will_create").to_string(), false))
                     } else {
                         // Parent also does not exist — check ancestor chain
                         match parent.parent() {
@@ -198,17 +200,17 @@ impl OnboardingScreen {
                                 }
                                 if !writable {
                                     return Some((
-                                        "Cannot create directory path".to_string(),
+                                        t!("tui.entry.path_cannot_create").to_string(),
                                         true,
                                     ));
                                 }
-                                Some(("Directory will be created automatically".to_string(), false))
+                                Some((t!("tui.entry.path_will_create").to_string(), false))
                             }
-                            _ => Some(("Invalid path".to_string(), true)),
+                            _ => Some((t!("tui.entry.path_invalid").to_string(), true)),
                         }
                     }
                 }
-                _ => Some(("Invalid path".to_string(), true)),
+                _ => Some((t!("tui.entry.path_invalid").to_string(), true)),
             }
         }
     }
