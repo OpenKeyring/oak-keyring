@@ -319,6 +319,10 @@ impl MainScreen {
                     KeyCode::Enter if !state.list.is_visual() && !state.list.is_searching() => {
                         state.focused_panel = PanelId::Detail;
                         focused_panel_result = Some(PanelId::Detail);
+                        if let Some(record) = state.list.selected_record() {
+                            result_command =
+                                Some(Box::new(Command::LoadRecordDetail { id: record.id }));
+                        }
                     }
                     KeyCode::Char('d') if !state.list.is_visual() && !state.list.is_searching() => {
                         if let Some(record) = state.list.selected_record() {
@@ -338,7 +342,7 @@ impl MainScreen {
                         if let Some(record) = state.list.selected_record() {
                             result_command = Some(Box::new(Command::ToggleFavorite {
                                 id: record.id,
-                                is_favorite: record.is_favorite,
+                                is_favorite: !record.is_favorite,
                             }));
                         }
                     }
