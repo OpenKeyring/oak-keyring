@@ -90,10 +90,41 @@ tui:
     strength_label: "强度:"
     confirm_button: "确认"
     mnemonic_language_label: "助记词语言"
+    # ---- Onboarding path validation ----
+    path_not_directory: "路径存在但不是目录"
+    path_no_write: "此目录无写入权限"
+    path_not_empty: "目录非空 — 文件可能被覆盖"
+    path_cannot_read: "无法读取目录: %{dir}"
+    path_valid: "路径有效"
+    path_no_parent_write: "父目录无写入权限"
+    path_will_create: "目录将自动创建"
+    path_cannot_create: "无法创建目录路径"
+    path_invalid: "无效路径"
     mnemonic_language_option_en: "English"
     mnemonic_language_option_zh_cn: "中文(简体)"
     mnemonic_language_warning: "⚠ 选择后不可更改，请确认你的选择"
     mnemonic_language_hint_restore: "请选择创建 vault 时使用的助记词语言"
+    # ---- Unlock screen enhancements ----
+    tagline_secure: "安全"
+    tagline_private: "私密"
+    tagline_yours: "属于你"
+    password_title: " 主密码 "
+    recovery_title: " 恢复密钥 "
+    recovery_prompt: "输入恢复密钥单词…"
+    vault_unlocked: "密码库已解锁"
+    password_hint: "主密码用于解锁你的加密数据"
+    recovery_hint: "恢复密钥用于解锁你的加密数据"
+    tab_to_recovery: "按 Tab 使用恢复密钥"
+    tab_to_password: "按 Tab 使用主密码"
+    # ---- Set/Change password enhancements ----
+    new_password_placeholder: "输入新密码"
+    confirm_new_placeholder: "确认新密码"
+    input_hint: "Tab: 切换字段 | Enter: 提交 | Esc: 返回"
+    password_too_short: "密码至少需要 8 个字符"
+    password_empty: "密码不能为空"
+    verify_current_title: "验证当前密码"
+    verify_current_hint: "输入当前主密码以继续"
+    verify_current_placeholder: "输入当前密码"
 
   # ---- U2: Main Layout ----
   main:
@@ -104,7 +135,14 @@ tui:
     sidebar_health: "安全问题"
     sidebar_trash: "回收站"
     sidebar_tags: "标签"
+    sidebar_tags_collapsed: "标签"
     sidebar_config: "配置"
+    sidebar_generator: "生成器"
+    sidebar_manage_mode: "管理模式"
+    sidebar_sort_by: "按: %{sort}"
+    sidebar_sort_frequency: "频率"
+    sidebar_sort_name: "名称"
+    sidebar_sort_recent: "最近使用"
     terminal_too_small: "终端窗口太小（最小 80×24）"
     resize_prompt: "请调整终端窗口大小"
     terminal_too_small_title: "终端过小"
@@ -117,8 +155,14 @@ tui:
     col_time: "时间"
     sort_by_name: "名称"
     sort_by_date: "日期"
+    sort_created: "创建时间"
+    sort_updated: "更新时间"
+    sort_frequency: "使用频率"
     sort_asc: "↑"
     sort_desc: "↓"
+    sort_direction_asc: "升序"
+    sort_direction_desc: "降序"
+    sort_label: "排序"
     search_prompt: "搜索: "
     visual_mode: "多选"
     selected_count: "已选 %{count} 项"
@@ -184,6 +228,7 @@ tui:
     weak_password_title: "弱密码"
     weak_password_body: "此密码强度较弱，是否仍要保存？"
     save_anyway: "仍然保存"
+    warning_title: "警告"
 
   # ---- U6: Password Generator ----
   generator:
@@ -208,6 +253,9 @@ tui:
     capitalize: "首字母大写"
     separator_label: "分隔符:"
     use_password: "使用此密码"
+    adjust: "调整"
+    switch_focus: "切换焦点"
+    label: "生成器"
 
   # ---- U7: Create/Edit Form ----
   form:
@@ -226,6 +274,7 @@ tui:
     hostname_label: "主机地址"
     public_key_label: "公钥"
     private_key_label: "私钥"
+    passphrase_label: "Passphrase"
     expiry_label: "过期时间"
     expiry_never: "永不过期"
     expiry_30d: "30 天"
@@ -238,16 +287,29 @@ tui:
     notes_label: "备注"
     required_marker: "必填"
     optional_marker: "选填"
-    validation_required: "必填"
-    validation_invalid_date: "日期格式无效"
+    validation_required: "← 必填"
+    validation_date_format: "✗ 日期格式错误"
+    validation_invalid_month: "✗ 月份无效"
+    validation_invalid_day: "✗ 日期无效"
+    validation_past_date: "✗ 过期日期不能早于今天"
     validation_tag_exists: "标签 \"%{name}\" 已存在"
     generate_button: "生成"
     show_button: "显示"
     hide_button: "隐藏"
     paste_button: "粘贴"
+    copy_button: "复制"
     save_button: "保存"
     cancel_button: "取消"
     back_button: "上一步"
+    # Additional form strings
+    save_hint: "Ctrl+S 保存"
+    cancel_hint: "Esc 取消"
+    weak_password_hint: "当前密码强度为\"弱\"，容易受到暴力破解攻击。"
+    weak_password_suggestion: "建议使用生成器创建更强的密码。"
+    go_back: "返回修改"
+    save_anyway: "直接保存"
+    continue_editing: "继续编辑"
+    discard_changes: "丢弃"
 
   # ---- U8: Config Screen ----
   config:
@@ -326,6 +388,12 @@ tui:
     sync_testing: "测试连接中..."
     sync_last_sync: "上次同步"
     sync_test_button: "测试连接"
+    sync_auth_status: "授权状态"
+    sync_never: "从未同步"
+    sync_start_auth: "[ 开始授权 ]"
+    sync_authorizing: "[ 授权中... ]"
+    sync_authorized: "[ 已授权 ]"
+    sync_action: "操作"
     # Provider dynamic field labels
     field_client_id: "Client ID"
     field_client_secret: "Client Secret"
@@ -490,6 +558,10 @@ tui:
     source_csv: "CSV 文件"
     source_select_hint: "选择导入文件的格式"
     file_path: "文件路径"
+    file_path_required: "文件路径不能为空"
+    password_required: "此来源需要密码"
+    master_password_required: "导出需要主密码授权"
+    output_path_required: "输出路径不能为空"
     browse_button: "浏览..."
     preview_title: "预览"
     preview_count: "%{count} 条待导入"
@@ -506,7 +578,17 @@ tui:
 
   # ---- U10: Audit Log ----
   audit:
-    title: "审计日志"
+    title: " 操作审计"
+    disabled: "审计已关闭"
+    record_count: "%{n} 条记录"
+    filter_type: " 类型 "
+    filter_time: " 时间 "
+    filter_search: " 搜索 "
+    search_placeholder: " 输入关键词..."
+    no_record_name: "(无记录名)"
+    disabled_message: "审计日志功能已关闭"
+    no_matches: "未找到匹配的记录"
+    no_records_for_filter: "当前筛选条件下无记录"
     col_time: "时间"
     col_action: "操作"
     col_target: "目标"
@@ -514,6 +596,8 @@ tui:
     action_update: "修改密码"
     action_delete: "删除密码"
     action_copy: "复制密码"
+    action_view_password: "查看密码"
+    action_copy_field: "复制字段"
     action_unlock: "解锁"
     action_lock: "锁定"
     action_export: "导出"
@@ -524,8 +608,15 @@ tui:
     action_modify: "修改密码"
     action_permanent_delete: "永久删除"
     action_restore: "恢复密码"
+    action_permanent_delete: "永久删除"
     action_audit_enable: "开启审计"
     action_audit_disable: "关闭审计"
+    action_change_password: "修改主密码"
+    action_empty_trash: "清空回收站"
+    action_resolve_conflict: "解决冲突"
+    action_batch_resolve_conflict: "批量解决冲突"
+    action_rotate_key: "密钥轮换"
+    action_rotate_failed: "轮换失败"
     empty_log: "暂无审计日志"
     empty_log_hint: "操作记录将显示在这里"
     filter_all_time: "全部时间"
@@ -533,6 +624,8 @@ tui:
     filter_last_7d: "最近 7 天"
     filter_last_30d: "最近 30 天"
     filter_last_90d: "最近 90 天"
+    filter_last_1y: "最近一年"
+    filter_type_all: "全部"
     filter_type_copy: "复制"
     filter_type_add: "添加"
     filter_type_modify: "修改"
@@ -540,12 +633,16 @@ tui:
     filter_type_system: "系统事件"
     total_records: "共 %{count} 条记录"
     deleted_password_hint: "该密码已永久删除"
+    no_related_records: "此条目无关联记录"
+    sort_created: "创建时间"
+    sort_updated: "更新时间"
 
   # ---- U11: Cross-Cutting ----
   notification:
     saved: "已保存"
     copied_password: "已复制密码"
     copied_username: "已复制用户名"
+    copied_to_clipboard: "已复制到剪贴板"
     clipboard_clearing: "%{seconds}s 后清除"
     clipboard_cleared: "剪贴板已清除"
     deleted: "已删除"
@@ -555,6 +652,7 @@ tui:
     expired_warning: "%{count} 个密码已过期"
     expiring_warning: "%{count} 个密码即将过期"
     expired_and_expiring: "%{expired} 个已过期，%{expiring} 个即将过期"
+    renamed: "已重命名 \"%{old}\" → \"%{new}\""
 
   empty:
     no_passwords: "还没有密码"
@@ -624,12 +722,143 @@ tui:
     section_tags: "标签管理"
     section_sync: "同步"
     close_hint: "F1/Esc 关闭"
+    # Navigation shortcuts
+    nav_up: "上移"
+    nav_down: "下移"
+    nav_tab: "切换面板"
+    nav_enter: "确认"
+    nav_esc: "返回/关闭"
+    # Action shortcuts
+    action_search: "搜索"
+    action_new: "新建"
+    action_edit: "编辑"
+    action_delete: "删除"
+    action_favorite: "收藏"
+    action_sort: "排序"
+    action_multiselect: "多选模式"
+    action_config: "配置页"
+    action_audit: "审计日志"
+    action_quit: "退出"
+    # Password details shortcuts
+    pwd_copy: "复制密码"
+    pwd_copy_username: "复制用户名"
+    pwd_toggle: "显示/隐藏密码"
+    pwd_history: "密码历史"
+    # Trash shortcuts
+    trash_restore: "恢复记录"
+    trash_permanent_delete: "永久删除"
+    trash_empty: "清空回收站"
+    # Multiselect shortcuts
+    ms_toggle: "选中/取消"
+    ms_move: "上下移动"
+    ms_select_all: "全选/取消"
+    ms_batch_delete: "批量删除"
+    ms_batch_tag: "批量打标签"
+    ms_exit: "退出多选"
+    # Tag management shortcuts
+    tag_add: "添加标签"
+    tag_rename: "重命名标签"
+    tag_delete: "删除标签"
+    tag_save: "保存"
+    # Sync shortcuts
+    sync_manual: "手动同步"
 
   status_bar:
     lock_unlocked: "已解锁"
     lock_locked: "已锁定"
     record_count: "%{count} 条密码"
     version: "v%{version}"
+    sync_synced: "已同步"
+    sync_syncing: "同步中"
+    sync_failed: "同步失败"
+    sync_offline: "离线"
+    sync_not_configured: "未配置"
+
+  # ---- Sync Indicator ----
+  sync_indicator:
+    synced: "已同步"
+    syncing_with_progress: "同步中 %{current}/%{total}"
+    syncing: "同步中..."
+    failed_with_error: "同步失败: %{error}"
+    failed_unknown: "同步失败: 未知错误"
+    offline: "网络不可达"
+    not_configured: "未配置同步"
+    rotating_with_progress: "密钥轮换中 %{current}/%{total}"
+    rotating: "密钥轮换中..."
+    time_just_now: "刚刚"
+    time_minutes_ago: "%{n}分钟前"
+    time_hours_ago: "%{n}小时前"
+    time_days_ago: "%{n}天前"
+
+  # ---- Vault Path Dialog ----
+  vault_path_dialog:
+    title: " 修改 Vault 路径 "
+    current_path: "当前路径:"
+    new_path: "新路径:"
+    vault_contains: "Vault 目录包含以下文件:"
+    file_vault_db: "vault.db"
+    desc_vault_db: "加密 SQLite 数据库（所有密码数据）"
+    file_metadata: "metadata.json"
+    desc_metadata: "Vault 元信息（版本、设备 ID 等）"
+    file_config: "config.toml"
+    desc_config: "客户端配置（同步、快捷键等）"
+    warning_restart: " %{icon} 修改路径后需要重启应用才能生效。"
+    warning_no_migration: "    现有数据不会自动迁移。"
+    button_cancel: " [ 取消 ] "
+    button_confirm: " [ 确认修改 ] "
+
+  # ---- List State ----
+  list_state:
+    time_yesterday: "昨天"
+    time_days_ago: "%{n}天前"
+    time_weeks_ago: "%{n}周前"
+    type_prefix_api: "[API] "
+    type_prefix_ssh: "[SSH] "
+    deleted_days_ago: "%{n} 天前删除"
+    remaining_days: "剩余 %{n} 天"
+    will_not_auto_delete: "不会自动删除"
+
+  # ---- Empty State ----
+  empty_state:
+    no_passwords: "还没有密码"
+    empty_trash: "回收站为空"
+    empty_trash_hint: "已删除的密码会出现在这里"
+    no_favorites: "没有收藏"
+    no_expired: "没有过期的密码"
+    no_health_issues: "没有安全问题"
+    empty_tag: "该标签下没有密码"
+    no_search_results: "没有匹配结果"
+    no_passwords_hint: "按 n 创建你的第一个密码"
+    no_favorites_hint: "在密码详情中按 f 收藏"
+    no_expired_hint: "所有凭证都在有效期内"
+    no_health_issues_hint: "所有密码通过了安全检查"
+    empty_tag_hint: "创建密码并添加 '%{tag}' 标签"
+    no_search_results_hint: "没有匹配 '%{query}' 的结果"
+
+  # ---- Component Labels ----
+  component_labels:
+    strength: "  强度: "
+    strength_hint: "（输入密码后显示强度）"
+    tag: "  标签 "
+    length: "长度"
+    password: "密码"
+    required: " ← 必填"
+    optional: " ← 选填"
+
+  # ---- Audit Log View ----
+  audit_log_view:
+    help_select: "选择"
+    help_switch_area: "切换区域"
+    help_view_record: "查看记录"
+    help_back: "返回"
+
+  # ---- Config Screen ----
+  config_screen:
+    restart_hint: "部分配置修改需要重启应用后生效"
+
+  # ---- Generator Overlay ----
+  generator_overlay:
+    title: "  密码生成器"
 
   # ---- Sync Conflict ----
   sync:
@@ -650,6 +879,10 @@ tui:
     skip_current: "跳过（保留本地）"
     keep_all_local: "全部保留本地"
     diff_marker: "差异"
+    no_conflicts: "没有需要解决的冲突"
+    select_version: "选择版本"
+    confirm_selection: "确认"
+    toggle_password: "显示/隐藏密码"
 
   # ---- Trash / Delete ----
   trash:
@@ -691,9 +924,12 @@ tui:
     batch_tag_title: "批量标签 — 已选 %{count} 项"
     add_tag: "添加标签:"
     current_tags: "当前标签:"
-    existing_tags: "现有标签:"
+    existing_tags: "可用标签:"
     done: "完成"
     select_hint: "请按 Space 选择密码项"
+    more_items: "...等共 %{count} 条"
+    no_tags: "(无)"
+    enter_hint: "Enter 添加"
 
   # ---- Health Check ----
   health:
@@ -708,6 +944,8 @@ tui:
     leaked_detail: "此密码已在数据泄露中发现 — 请立即修改"
     weak_detail: "弱密码 — 建议更新为更强的密码"
     duplicate_detail: "该密码与其他 %{count} 条记录重复 — 建议使用独立密码"
+    needs_attention: "有需注意 W%{weak} C%{compromised} D%{duplicate}"
+    skipped_short: "跳过泄露检测"
 
   # ---- Password History ----
   history:
@@ -716,3 +954,5 @@ tui:
     password_created: "创建时设定"
     record_count: "共 %{count} 条记录（最多保留 10 条）"
     copied_history: "已复制历史密码（%{seconds}s 后清除）"
+    no_history: "暂无历史记录"
+    copy_button: "[复制]"

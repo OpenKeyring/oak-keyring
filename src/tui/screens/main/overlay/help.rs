@@ -11,6 +11,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::t;
 use crate::tui::theme;
 
 // ── Colour constants ──────────────────────────────────────────
@@ -21,14 +22,14 @@ const OVERLAY_BG: Color = Color::Rgb(31, 35, 53); // #1f2335
 
 /// A single keyboard shortcut (key binding + description).
 struct Shortcut {
-    key: &'static str,
-    desc: &'static str,
+    key: String,
+    desc: String,
 }
 
 /// A named group of related shortcuts.
 struct ShortcutGroup {
-    label: &'static str,
-    shortcuts: &'static [Shortcut],
+    label: String,
+    shortcuts: Vec<Shortcut>,
 }
 
 /// Indices of groups hidden in compact (single-column) layout.
@@ -37,178 +38,178 @@ const COMPACT_HIDDEN: &[usize] = &[3, 5];
 
 // ── Group definitions ─────────────────────────────────────────
 
-fn all_groups() -> [ShortcutGroup; 7] {
-    [
-        // 0 — 导航
+fn all_groups() -> Vec<ShortcutGroup> {
+    vec![
+        // 0 — Navigation
         ShortcutGroup {
-            label: "导航",
-            shortcuts: &[
+            label: t!("tui.help.category_nav").to_string(),
+            shortcuts: vec![
                 Shortcut {
-                    key: "↑/k",
-                    desc: "上移",
+                    key: "↑/k".to_string(),
+                    desc: t!("tui.help.nav_up").to_string(),
                 },
                 Shortcut {
-                    key: "↓/j",
-                    desc: "下移",
+                    key: "↓/j".to_string(),
+                    desc: t!("tui.help.nav_down").to_string(),
                 },
                 Shortcut {
-                    key: "Tab",
-                    desc: "切换面板",
+                    key: "Tab".to_string(),
+                    desc: t!("tui.help.nav_tab").to_string(),
                 },
                 Shortcut {
-                    key: "Enter",
-                    desc: "确认",
+                    key: "Enter".to_string(),
+                    desc: t!("tui.help.nav_enter").to_string(),
                 },
                 Shortcut {
-                    key: "Esc",
-                    desc: "返回/关闭",
+                    key: "Esc".to_string(),
+                    desc: t!("tui.help.nav_esc").to_string(),
                 },
             ],
         },
-        // 1 — 操作
+        // 1 — Actions
         ShortcutGroup {
-            label: "操作",
-            shortcuts: &[
+            label: t!("tui.help.category_action").to_string(),
+            shortcuts: vec![
                 Shortcut {
-                    key: "Ctrl+K",
-                    desc: "搜索",
+                    key: "Ctrl+K".to_string(),
+                    desc: t!("tui.help.action_search").to_string(),
                 },
                 Shortcut {
-                    key: "n",
-                    desc: "新建",
+                    key: "n".to_string(),
+                    desc: t!("tui.help.action_new").to_string(),
                 },
                 Shortcut {
-                    key: "e",
-                    desc: "编辑",
+                    key: "e".to_string(),
+                    desc: t!("tui.help.action_edit").to_string(),
                 },
                 Shortcut {
-                    key: "d",
-                    desc: "删除",
+                    key: "d".to_string(),
+                    desc: t!("tui.help.action_delete").to_string(),
                 },
                 Shortcut {
-                    key: "f",
-                    desc: "收藏",
+                    key: "f".to_string(),
+                    desc: t!("tui.help.action_favorite").to_string(),
                 },
                 Shortcut {
-                    key: "s",
-                    desc: "排序",
+                    key: "s".to_string(),
+                    desc: t!("tui.help.action_sort").to_string(),
                 },
                 Shortcut {
-                    key: "v",
-                    desc: "多选模式",
+                    key: "v".to_string(),
+                    desc: t!("tui.help.action_multiselect").to_string(),
                 },
                 Shortcut {
-                    key: "g",
-                    desc: "配置页",
+                    key: "g".to_string(),
+                    desc: t!("tui.help.action_config").to_string(),
                 },
                 Shortcut {
-                    key: "l",
-                    desc: "审计日志",
+                    key: "l".to_string(),
+                    desc: t!("tui.help.action_audit").to_string(),
                 },
                 Shortcut {
-                    key: "q",
-                    desc: "退出",
+                    key: "q".to_string(),
+                    desc: t!("tui.help.action_quit").to_string(),
                 },
             ],
         },
-        // 2 — 密码详情
+        // 2 — Password Details
         ShortcutGroup {
-            label: "密码详情",
-            shortcuts: &[
+            label: t!("tui.help.section_password_details").to_string(),
+            shortcuts: vec![
                 Shortcut {
-                    key: "c",
-                    desc: "复制密码",
+                    key: "c".to_string(),
+                    desc: t!("tui.help.pwd_copy").to_string(),
                 },
                 Shortcut {
-                    key: "u",
-                    desc: "复制用户名",
+                    key: "u".to_string(),
+                    desc: t!("tui.help.pwd_copy_username").to_string(),
                 },
                 Shortcut {
-                    key: "p",
-                    desc: "显示/隐藏密码",
+                    key: "p".to_string(),
+                    desc: t!("tui.help.pwd_toggle").to_string(),
                 },
                 Shortcut {
-                    key: "H",
-                    desc: "密码历史",
+                    key: "H".to_string(),
+                    desc: t!("tui.help.pwd_history").to_string(),
                 },
             ],
         },
-        // 3 — 回收站
+        // 3 — Trash
         ShortcutGroup {
-            label: "回收站",
-            shortcuts: &[
+            label: t!("tui.help.section_trash").to_string(),
+            shortcuts: vec![
                 Shortcut {
-                    key: "r",
-                    desc: "恢复记录",
+                    key: "r".to_string(),
+                    desc: t!("tui.help.trash_restore").to_string(),
                 },
                 Shortcut {
-                    key: "D",
-                    desc: "永久删除",
+                    key: "D".to_string(),
+                    desc: t!("tui.help.trash_permanent_delete").to_string(),
                 },
                 Shortcut {
-                    key: "a",
-                    desc: "清空回收站",
+                    key: "a".to_string(),
+                    desc: t!("tui.help.trash_empty").to_string(),
                 },
             ],
         },
-        // 4 — 多选模式(v)
+        // 4 — Multiselect(v)
         ShortcutGroup {
-            label: "多选模式(v)",
-            shortcuts: &[
+            label: t!("tui.help.section_multiselect").to_string(),
+            shortcuts: vec![
                 Shortcut {
-                    key: "Space",
-                    desc: "选中/取消",
+                    key: "Space".to_string(),
+                    desc: t!("tui.help.ms_toggle").to_string(),
                 },
                 Shortcut {
-                    key: "j/k",
-                    desc: "上下移动",
+                    key: "j/k".to_string(),
+                    desc: t!("tui.help.ms_move").to_string(),
                 },
                 Shortcut {
-                    key: "a",
-                    desc: "全选/取消",
+                    key: "a".to_string(),
+                    desc: t!("tui.help.ms_select_all").to_string(),
                 },
                 Shortcut {
-                    key: "d",
-                    desc: "批量删除",
+                    key: "d".to_string(),
+                    desc: t!("tui.help.ms_batch_delete").to_string(),
                 },
                 Shortcut {
-                    key: "t",
-                    desc: "批量打标签",
+                    key: "t".to_string(),
+                    desc: t!("tui.help.ms_batch_tag").to_string(),
                 },
                 Shortcut {
-                    key: "Esc/v",
-                    desc: "退出多选",
+                    key: "Esc/v".to_string(),
+                    desc: t!("tui.help.ms_exit").to_string(),
                 },
             ],
         },
-        // 5 — 标签管理(m)
+        // 5 — Tag Management(m)
         ShortcutGroup {
-            label: "标签管理(m)",
-            shortcuts: &[
+            label: t!("tui.help.section_tags").to_string(),
+            shortcuts: vec![
                 Shortcut {
-                    key: "m",
-                    desc: "添加标签",
+                    key: "m".to_string(),
+                    desc: t!("tui.help.tag_add").to_string(),
                 },
                 Shortcut {
-                    key: "r",
-                    desc: "重命名标签",
+                    key: "r".to_string(),
+                    desc: t!("tui.help.tag_rename").to_string(),
                 },
                 Shortcut {
-                    key: "d",
-                    desc: "删除标签",
+                    key: "d".to_string(),
+                    desc: t!("tui.help.tag_delete").to_string(),
                 },
                 Shortcut {
-                    key: "s",
-                    desc: "保存",
+                    key: "s".to_string(),
+                    desc: t!("tui.help.tag_save").to_string(),
                 },
             ],
         },
-        // 6 — 同步
+        // 6 — Sync
         ShortcutGroup {
-            label: "同步",
-            shortcuts: &[Shortcut {
-                key: "Ctrl+R",
-                desc: "手动同步",
+            label: t!("tui.help.section_sync").to_string(),
+            shortcuts: vec![Shortcut {
+                key: "Ctrl+R".to_string(),
+                desc: t!("tui.help.sync_manual").to_string(),
             }],
         },
     ]
@@ -226,11 +227,11 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
 
     // Footer hint line.
     lines.push(Line::from(Span::styled(
-        " F1/Esc 关闭",
+        format!(" {} ", t!("tui.help.close_hint")),
         Style::default().fg(theme::TEXT_SECONDARY),
     )));
 
-    let title = " 快捷键 ";
+    let title = format!(" {} ", t!("tui.help.title"));
     let block = Block::default()
         .title(Span::styled(
             title,
@@ -256,7 +257,8 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
 
 /// Choose overlay dimensions and visible group indices based on terminal width.
 fn layout_for(area: Rect) -> (Rect, Vec<usize>) {
-    let all_indices: Vec<usize> = (0..7).collect();
+    let group_count = 7;
+    let all_indices: Vec<usize> = (0..group_count).collect();
 
     if area.width >= 120 {
         // Two-column, full width.
@@ -269,10 +271,12 @@ fn layout_for(area: Rect) -> (Rect, Vec<usize>) {
         let h: u16 = 30;
         (centered_rect(area, w, h), all_indices)
     } else {
-        // Single column — hide 回收站 and 标签管理.
+        // Single column — hide Trash and Tag Management.
         let w: u16 = 44;
         let h: u16 = 28;
-        let visible: Vec<usize> = (0..7).filter(|i| !COMPACT_HIDDEN.contains(i)).collect();
+        let visible: Vec<usize> = (0..group_count)
+            .filter(|i| !COMPACT_HIDDEN.contains(i))
+            .collect();
         (centered_rect(area, w, h), visible)
     }
 }
@@ -362,8 +366,8 @@ fn append_group_lines(lines: &mut Vec<Line<'static>>, group: &ShortcutGroup) {
     )));
 
     // Shortcut lines.
-    for sc in group.shortcuts {
-        lines.push(format_line_spans(sc.key, sc.desc));
+    for sc in &group.shortcuts {
+        lines.push(format_line_spans(&sc.key, &sc.desc));
     }
 
     // Blank line after group.

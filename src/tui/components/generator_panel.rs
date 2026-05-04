@@ -5,6 +5,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::t;
 use crate::tui::components::length_slider;
 use crate::tui::components::strength_bar;
 use crate::tui::state::generator_state::{GenerationStyle, GeneratorFocus, GeneratorState};
@@ -29,13 +30,28 @@ pub fn render_generator_panel(
 
     // Length slider
     let (label, value, min, max) = match state.style {
-        GenerationStyle::Random => ("长度", state.random_config.length, 8, 128),
-        GenerationStyle::Memorable => ("单词数", state.memorable_config.word_count, 3, 12),
-        GenerationStyle::Pin => ("长度", state.pin_config.length, 4, 16),
+        GenerationStyle::Random => (
+            t!("tui.generator.length").to_string(),
+            state.random_config.length,
+            8,
+            128,
+        ),
+        GenerationStyle::Memorable => (
+            t!("tui.generator.word_count").to_string(),
+            state.memorable_config.word_count,
+            3,
+            12,
+        ),
+        GenerationStyle::Pin => (
+            t!("tui.generator.length").to_string(),
+            state.pin_config.length,
+            4,
+            16,
+        ),
     };
     let slider_focused = state.focus == GeneratorFocus::LengthSlider;
     lines.push(length_slider::render_length_slider(
-        label,
+        label.as_str(),
         value,
         min,
         max,
@@ -84,9 +100,9 @@ pub fn render_generator_panel(
         Style::default().fg(theme::TEXT_SECONDARY)
     };
     let action_label = if is_embedded {
-        "使用此密码"
+        t!("tui.generator.use_password").to_string()
     } else {
-        "复制到剪贴板"
+        t!("tui.notification.copied_to_clipboard").to_string()
     };
     let action_style = if state.focus == GeneratorFocus::ActionButton {
         Style::default()
@@ -98,7 +114,10 @@ pub fn render_generator_panel(
 
     lines.push(Line::from(vec![
         Span::raw("     "),
-        Span::styled(" [ 重新生成 ] ", regen_style),
+        Span::styled(
+            format!(" [ {} ] ", t!("tui.generator.regenerate")),
+            regen_style,
+        ),
         Span::raw("        "),
         Span::styled(format!(" [ {} ] ", action_label), action_style),
     ]));
@@ -109,13 +128,22 @@ pub fn render_generator_panel(
 /// Render style selector tabs (standalone only).
 fn render_style_selector(state: &GeneratorState) -> Line<'static> {
     let styles = [
-        (GenerationStyle::Random, "Random"),
-        (GenerationStyle::Memorable, "Memorable"),
-        (GenerationStyle::Pin, "PIN"),
+        (
+            GenerationStyle::Random,
+            t!("tui.generator.style_random").to_string(),
+        ),
+        (
+            GenerationStyle::Memorable,
+            t!("tui.generator.style_memorable").to_string(),
+        ),
+        (
+            GenerationStyle::Pin,
+            t!("tui.generator.style_pin").to_string(),
+        ),
     ];
 
     let mut spans = vec![Span::styled(
-        "  风格 ",
+        format!("  {} ", t!("tui.generator.style_label")),
         Style::default().fg(theme::TEXT_SECONDARY),
     )];
     for (i, (style_type, label)) in styles.iter().enumerate() {
@@ -140,11 +168,16 @@ fn render_style_selector(state: &GeneratorState) -> Line<'static> {
 
 /// Render Random-style character type toggles.
 fn render_random_toggles(state: &GeneratorState) -> Vec<Line<'static>> {
+    let uppercase = t!("tui.generator.uppercase").to_string();
+    let lowercase = t!("tui.generator.lowercase").to_string();
+    let digits = t!("tui.generator.digits").to_string();
+    let symbols = t!("tui.generator.symbols").to_string();
+
     let toggles = [
-        (0, "大写字母", state.random_config.uppercase, true),
-        (1, "小写字母", true, false),
-        (2, "数字", state.random_config.digits, true),
-        (3, "特殊符号", state.random_config.symbols, true),
+        (0, uppercase.as_str(), state.random_config.uppercase, true),
+        (1, lowercase.as_str(), true, false),
+        (2, digits.as_str(), state.random_config.digits, true),
+        (3, symbols.as_str(), state.random_config.symbols, true),
     ];
 
     let mut row_spans: Vec<Span> = vec![Span::raw("  ")];
@@ -194,9 +227,15 @@ fn render_memorable_options(state: &GeneratorState) -> Vec<Line<'static>> {
 
     vec![Line::from(vec![
         Span::raw("  "),
-        Span::styled(format!("[{}] 首字母大写", check), cap_style),
+        Span::styled(
+            format!("[{}] {}", check, t!("tui.generator.capitalize")),
+            cap_style,
+        ),
         Span::raw("    "),
-        Span::styled("分隔符: ", Style::default().fg(theme::TEXT_SECONDARY)),
+        Span::styled(
+            format!("{} ", t!("tui.generator.separator_label")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
         Span::styled(
             format!("[ {} ]", state.memorable_config.separator),
             sep_border,
@@ -226,9 +265,10 @@ mod tests {
     fn render_embedded_has_no_style_selector() {
         let state = GeneratorState::new();
         let lines = render_generator_panel(&state, true, 56, true);
+        let style_label = t!("tui.generator.style_label").to_string();
         let has_style = lines
             .iter()
-            .any(|l| l.spans.iter().any(|s| s.content.contains("风格")));
+            .any(|l| l.spans.iter().any(|s| s.content.contains(&style_label)));
         assert!(!has_style);
     }
 

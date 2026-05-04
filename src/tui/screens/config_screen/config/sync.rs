@@ -298,22 +298,45 @@ fn render_provider_fields(
                     format!("{}: {}", t!("tui.config.gdrive_auth_failed"), reason)
                 }
             };
-            render_label_value(chunks, fi, frame, "授权状态", &status_text, LABEL);
+            render_label_value(
+                chunks,
+                fi,
+                frame,
+                &t!("tui.config.sync_auth_status"),
+                &status_text,
+                LABEL,
+            );
 
             // Show last sync time only when authorized
             if matches!(gdrive_auth_status, GDriveAuthStatus::Authorized) {
                 let last_sync_text = last_sync
                     .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
-                    .unwrap_or_else(|| "从未同步".to_string());
-                render_label_value(chunks, fi, frame, "上次同步", &last_sync_text, LABEL);
+                    .unwrap_or_else(|| t!("tui.config.sync_never").to_string());
+                render_label_value(
+                    chunks,
+                    fi,
+                    frame,
+                    &t!("tui.config.sync_last_sync"),
+                    &last_sync_text,
+                    LABEL,
+                );
             }
 
             let button_text = match &gdrive_auth_status {
-                GDriveAuthStatus::NotAuthorized | GDriveAuthStatus::Failed { .. } => "[ 开始授权 ]",
-                GDriveAuthStatus::Authorizing => "[ 授权中... ]",
-                GDriveAuthStatus::Authorized => "[ 已授权 ]",
+                GDriveAuthStatus::NotAuthorized | GDriveAuthStatus::Failed { .. } => {
+                    &t!("tui.config.sync_start_auth")
+                }
+                GDriveAuthStatus::Authorizing => &t!("tui.config.sync_authorizing"),
+                GDriveAuthStatus::Authorized => &t!("tui.config.sync_authorized"),
             };
-            render_label_value(chunks, fi, frame, "操作", button_text, LABEL);
+            render_label_value(
+                chunks,
+                fi,
+                frame,
+                &t!("tui.config.sync_action"),
+                button_text,
+                LABEL,
+            );
 
             let l = t!("tui.config.field_work_dir");
             render_field(chunks, fi, frame, &l, &cfg.root_path, false);

@@ -8,14 +8,14 @@ expression: terminal.backend()
 "                                                                                "
 "  ────────────────────────────────────────                                      "
 "                                                                                "
-"  登录信息                                                                      " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " "), (9, " ")]
+"  Login                                                                         "
 "                                                                                "
 "  用户名:                                                                       " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
 "    octocat                                                                     "
 "                                                                                "
 "  密码:                                                                         " Hidden by multi-width symbols: [(3, " "), (5, " ")]
 "    ••••••••                                                                    "
-"    强度: ████████████░░░░ 强                                                   " Hidden by multi-width symbols: [(5, " "), (7, " "), (28, " ")]
+"    Strength: ████████████░░░░ Strong                                           "
 "                                                                                "
 "  网址:                                                                         " Hidden by multi-width symbols: [(3, " "), (5, " ")]
 "    https://github.com                                                          "

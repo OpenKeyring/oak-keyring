@@ -12,6 +12,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::t;
 use crate::tui::state::overlay_state::PasswordHistoryState;
 use crate::tui::theme;
 
@@ -55,7 +56,10 @@ pub fn render_password_history(frame: &mut Frame, area: Rect, state: &PasswordHi
     let height = (total_lines as u16 + 2).min(area.height);
     let overlay_rect = centered_rect(area, width, height);
 
-    let title = format!(" 密码历史 \u{2014} {} ", state.record_name);
+    let title = format!(
+        " {} ",
+        t!("tui.history.title", name = state.record_name.as_str())
+    );
     let block = Block::default()
         .title(Span::styled(
             title,
@@ -127,7 +131,7 @@ fn build_body_lines(state: &PasswordHistoryState) -> Vec<Line<'static>> {
     if state.entries.is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "  暂无历史记录",
+            format!("  {}", t!("tui.history.no_history")),
             Style::default().fg(theme::TEXT_MUTED),
         )));
         return lines;
@@ -168,7 +172,7 @@ fn build_body_lines(state: &PasswordHistoryState) -> Vec<Line<'static>> {
             Span::styled("  ", desc_style),
             Span::styled(entry.description.clone(), desc_style),
             Span::styled("  ", copy_style),
-            Span::styled("[复制]", copy_style),
+            Span::styled(t!("tui.history.copy_button"), copy_style),
         ]));
     }
 
@@ -179,7 +183,7 @@ fn build_body_lines(state: &PasswordHistoryState) -> Vec<Line<'static>> {
 fn build_footer_line(state: &PasswordHistoryState) -> Line<'static> {
     let n = state.entries.len();
     Line::from(Span::styled(
-        format!(" 共 {n} 条记录（最多保留 10 条）"),
+        format!(" {}", t!("tui.history.record_count", count = n)),
         Style::default().fg(theme::TEXT_MUTED),
     ))
 }

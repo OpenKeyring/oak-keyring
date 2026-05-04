@@ -91,10 +91,41 @@ tui:
     strength_label: "Strength:"
     confirm_button: "Confirm"
     mnemonic_language_label: "Mnemonic Language"
+    # ---- Onboarding path validation ----
+    path_not_directory: "Path exists but is not a directory"
+    path_no_write: "No write permission for this directory"
+    path_not_empty: "Directory is not empty — files may be overwritten"
+    path_cannot_read: "Cannot read directory: %{dir}"
+    path_valid: "Path is valid"
+    path_no_parent_write: "No write permission for parent directory"
+    path_will_create: "Directory will be created automatically"
+    path_cannot_create: "Cannot create directory path"
+    path_invalid: "Invalid path"
     mnemonic_language_option_en: "English"
     mnemonic_language_option_zh_cn: "中文(简体)"
     mnemonic_language_warning: "⚠ Cannot be changed after creation"
     mnemonic_language_hint_restore: "Select the language used when creating the vault"
+    # ---- Unlock screen enhancements ----
+    tagline_secure: "Secure"
+    tagline_private: "Private"
+    tagline_yours: "Yours"
+    password_title: " MASTER PASSWORD "
+    recovery_title: " RECOVERY KEY "
+    recovery_prompt: "Enter your recovery key words…"
+    vault_unlocked: "Vault unlocked"
+    password_hint: "Your master password unlocks your encrypted data"
+    recovery_hint: "Your recovery key unlocks your encrypted data"
+    tab_to_recovery: "Press Tab to use recovery key"
+    tab_to_password: "Press Tab to use master password"
+    # ---- Set/Change password enhancements ----
+    new_password_placeholder: "Enter new password"
+    confirm_new_placeholder: "Confirm new password"
+    input_hint: "Tab: switch field | Enter: submit | Esc: back"
+    password_too_short: "Password must be at least 8 characters"
+    password_empty: "Password cannot be empty"
+    verify_current_title: "Verify Current Password"
+    verify_current_hint: "Enter your current master password to continue"
+    verify_current_placeholder: "Enter current password"
 
   # ---- U2: Main Layout ----
   main:
@@ -105,7 +136,14 @@ tui:
     sidebar_health: "Health Issues"
     sidebar_trash: "Trash"
     sidebar_tags: "Tags"
+    sidebar_tags_collapsed: "Tags"
     sidebar_config: "Settings"
+    sidebar_generator: "Generator"
+    sidebar_manage_mode: "Manage Mode"
+    sidebar_sort_by: "Sort: %{sort}"
+    sidebar_sort_frequency: "Frequency"
+    sidebar_sort_name: "Name"
+    sidebar_sort_recent: "Recent"
     terminal_too_small: "Terminal too small (min 80×24)"
     resize_prompt: "Please resize your terminal window"
     terminal_too_small_title: "Terminal Too Small"
@@ -118,8 +156,14 @@ tui:
     col_time: "Time"
     sort_by_name: "Name"
     sort_by_date: "Date"
+    sort_created: "Created"
+    sort_updated: "Updated"
+    sort_frequency: "Frequency"
     sort_asc: "↑"
     sort_desc: "↓"
+    sort_direction_asc: "Ascending"
+    sort_direction_desc: "Descending"
+    sort_label: "Sort"
     search_prompt: "Search: "
     visual_mode: "VISUAL"
     selected_count: "%{count} selected"
@@ -169,6 +213,7 @@ tui:
     hostname_label: "Hostname"
     public_key_label: "Public Key"
     private_key_label: "Private Key"
+    passphrase_label: "Passphrase"
     paste_button: "Paste"
 
   # ---- U5: Overlay System (common dialog text) ----
@@ -185,6 +230,7 @@ tui:
     weak_password_title: "Weak Password"
     weak_password_body: "This password is weak. Save anyway?"
     save_anyway: "Save Anyway"
+    warning_title: "Warning"
 
   # ---- U6: Password Generator ----
   generator:
@@ -209,6 +255,9 @@ tui:
     word_count: "Word Count"
     capitalize: "Capitalize"
     separator_label: "Separator:"
+    adjust: "Adjust"
+    switch_focus: "Switch Focus"
+    label: "Generator"
 
   # ---- U7: Create/Edit Form ----
   form:
@@ -239,16 +288,29 @@ tui:
     notes_label: "Notes"
     required_marker: "Required"
     optional_marker: "Optional"
-    validation_required: "Required"
-    validation_invalid_date: "Invalid date format"
+    validation_required: "← Required"
+    validation_date_format: "✗ Invalid date format"
+    validation_invalid_month: "✗ Invalid month"
+    validation_invalid_day: "✗ Invalid day"
+    validation_past_date: "✗ Expiry date cannot be in the past"
     validation_tag_exists: "Tag \"%{name}\" already exists"
     generate_button: "Generate"
     show_button: "Show"
     hide_button: "Hide"
     paste_button: "Paste"
+    copy_button: "Copy"
     save_button: "Save"
     cancel_button: "Cancel"
     back_button: "Back"
+    # Additional form strings
+    save_hint: "Ctrl+S Save"
+    cancel_hint: "Esc Cancel"
+    weak_password_hint: "Current password strength is \"Weak\" and vulnerable to brute force attacks."
+    weak_password_suggestion: "Consider using the generator to create a stronger password."
+    go_back: "Go Back"
+    save_anyway: "Save Anyway"
+    continue_editing: "Continue Editing"
+    discard_changes: "Discard"
 
   # ---- U8: Config Screen ----
   config:
@@ -327,6 +389,12 @@ tui:
     sync_testing: "Testing connection..."
     sync_last_sync: "Last Synced"
     sync_test_button: "Test Connection"
+    sync_auth_status: "Auth Status"
+    sync_never: "Never"
+    sync_start_auth: "[ Authorize ]"
+    sync_authorizing: "[ Authorizing... ]"
+    sync_authorized: "[ Authorized ]"
+    sync_action: "Action"
     # Provider dynamic field labels
     field_client_id: "Client ID"
     field_client_secret: "Client Secret"
@@ -491,6 +559,10 @@ tui:
     source_csv: "CSV File"
     source_select_hint: "Select the format of your import file"
     file_path: "File Path"
+    file_path_required: "File path is required"
+    password_required: "Password is required for this source"
+    master_password_required: "Master password is required to authorize export"
+    output_path_required: "Output path is required"
     browse_button: "Browse..."
     preview_title: "Preview"
     preview_count: "%{count} items to import"
@@ -507,7 +579,17 @@ tui:
 
   # ---- U10: Audit Log ----
   audit:
-    title: "Audit Log"
+    title: " Audit Log"
+    disabled: "Audit Disabled"
+    record_count: "%{n} records"
+    filter_type: " Type "
+    filter_time: " Time "
+    filter_search: " Search "
+    search_placeholder: " Enter keywords..."
+    no_record_name: "(no record name)"
+    disabled_message: "Audit logging is disabled"
+    no_matches: "No matching records found"
+    no_records_for_filter: "No records under current filter"
     col_time: "Time"
     col_action: "Action"
     col_target: "Target"
@@ -515,6 +597,8 @@ tui:
     action_update: "Modified"
     action_delete: "Deleted Password"
     action_copy: "Copied Password"
+    action_view_password: "Viewed Password"
+    action_copy_field: "Copied Field"
     action_unlock: "Unlocked"
     action_lock: "Locked"
     action_export: "Exported"
@@ -525,8 +609,15 @@ tui:
     action_modify: "Modified"
     action_permanent_delete: "Permanently Deleted"
     action_restore: "Restored"
+    action_permanent_delete: "Permanently Deleted"
     action_audit_enable: "Audit Enabled"
     action_audit_disable: "Audit Disabled"
+    action_change_password: "Changed Master Password"
+    action_empty_trash: "Emptied Trash"
+    action_resolve_conflict: "Resolved Conflict"
+    action_batch_resolve_conflict: "Batch Resolved Conflicts"
+    action_rotate_key: "Rotated Key"
+    action_rotate_failed: "Key Rotation Failed"
     empty_log: "No audit logs"
     empty_log_hint: "Operations will be logged here"
     filter_all_time: "All Time"
@@ -534,6 +625,8 @@ tui:
     filter_last_7d: "Last 7 Days"
     filter_last_30d: "Last 30 Days"
     filter_last_90d: "Last 90 Days"
+    filter_last_1y: "Last Year"
+    filter_type_all: "All"
     filter_type_copy: "Copy"
     filter_type_add: "Add"
     filter_type_modify: "Modify"
@@ -541,12 +634,16 @@ tui:
     filter_type_system: "System Events"
     total_records: "%{count} records total"
     deleted_password_hint: "This password has been permanently deleted"
+    no_related_records: "No related records for this entry"
+    sort_created: "Created"
+    sort_updated: "Updated"
 
   # ---- U11: Cross-Cutting ----
   notification:
     saved: "Saved"
     copied_password: "Password copied"
     copied_username: "Username copied"
+    copied_to_clipboard: "Copied to clipboard"
     clipboard_clearing: "%{seconds}s until cleared"
     clipboard_cleared: "Clipboard cleared"
     deleted: "Deleted"
@@ -556,6 +653,7 @@ tui:
     expired_warning: "%{count} password(s) expired"
     expiring_warning: "%{count} password(s) expiring soon"
     expired_and_expiring: "%{expired} expired, %{expiring} expiring soon"
+    renamed: "Renamed \"%{old}\" → \"%{new}\""
 
   empty:
     no_passwords: "No passwords yet"
@@ -625,12 +723,143 @@ tui:
     section_tags: "Tag Management"
     section_sync: "Sync"
     close_hint: "F1/Esc Close"
+    # Navigation shortcuts
+    nav_up: "Move up"
+    nav_down: "Move down"
+    nav_tab: "Switch panel"
+    nav_enter: "Confirm"
+    nav_esc: "Back/Close"
+    # Action shortcuts
+    action_search: "Search"
+    action_new: "New"
+    action_edit: "Edit"
+    action_delete: "Delete"
+    action_favorite: "Favorite"
+    action_sort: "Sort"
+    action_multiselect: "Multiselect mode"
+    action_config: "Settings"
+    action_audit: "Audit log"
+    action_quit: "Quit"
+    # Password details shortcuts
+    pwd_copy: "Copy password"
+    pwd_copy_username: "Copy username"
+    pwd_toggle: "Show/Hide password"
+    pwd_history: "Password history"
+    # Trash shortcuts
+    trash_restore: "Restore record"
+    trash_permanent_delete: "Permanent delete"
+    trash_empty: "Empty trash"
+    # Multiselect shortcuts
+    ms_toggle: "Select/Deselect"
+    ms_move: "Move up/down"
+    ms_select_all: "Select all/Deselect"
+    ms_batch_delete: "Batch delete"
+    ms_batch_tag: "Batch tag"
+    ms_exit: "Exit multiselect"
+    # Tag management shortcuts
+    tag_add: "Add tag"
+    tag_rename: "Rename tag"
+    tag_delete: "Delete tag"
+    tag_save: "Save"
+    # Sync shortcuts
+    sync_manual: "Manual sync"
 
   status_bar:
     lock_unlocked: "Unlocked"
     lock_locked: "Locked"
     record_count: "%{count} passwords"
     version: "v%{version}"
+    sync_synced: "Synced"
+    sync_syncing: "Syncing"
+    sync_failed: "Sync failed"
+    sync_offline: "Offline"
+    sync_not_configured: "Not configured"
+
+  # ---- Sync Indicator ----
+  sync_indicator:
+    synced: "Synced"
+    syncing_with_progress: "Syncing %{current}/%{total}"
+    syncing: "Syncing..."
+    failed_with_error: "Sync failed: %{error}"
+    failed_unknown: "Sync failed: Unknown error"
+    offline: "Network unreachable"
+    not_configured: "Sync not configured"
+    rotating_with_progress: "Rotating key %{current}/%{total}"
+    rotating: "Rotating key..."
+    time_just_now: "just now"
+    time_minutes_ago: "%{n} minutes ago"
+    time_hours_ago: "%{n} hours ago"
+    time_days_ago: "%{n} days ago"
+
+  # ---- Vault Path Dialog ----
+  vault_path_dialog:
+    title: " Change Vault Path "
+    current_path: "Current path:"
+    new_path: "New path:"
+    vault_contains: "Vault directory contains:"
+    file_vault_db: "vault.db"
+    desc_vault_db: "Encrypted SQLite database (all password data)"
+    file_metadata: "metadata.json"
+    desc_metadata: "Vault metadata (version, device ID, etc.)"
+    file_config: "config.toml"
+    desc_config: "Client configuration (sync, shortcuts, etc.)"
+    warning_restart: " %{icon} Changing the path requires an app restart to take effect."
+    warning_no_migration: "    Existing data will not be migrated automatically."
+    button_cancel: " [ Cancel ] "
+    button_confirm: " [ Confirm Change ] "
+
+  # ---- List State ----
+  list_state:
+    time_yesterday: "yesterday"
+    time_days_ago: "%{n} days ago"
+    time_weeks_ago: "%{n} weeks ago"
+    type_prefix_api: "[API] "
+    type_prefix_ssh: "[SSH] "
+    deleted_days_ago: "Deleted %{n} days ago"
+    remaining_days: "%{n} days remaining"
+    will_not_auto_delete: "Will not auto-delete"
+
+  # ---- Empty State ----
+  empty_state:
+    no_passwords: "No passwords yet"
+    empty_trash: "Trash is empty"
+    empty_trash_hint: "Deleted passwords will appear here"
+    no_favorites: "No favorites"
+    no_expired: "No expired passwords"
+    no_health_issues: "No security issues"
+    empty_tag: "No passwords under this tag"
+    no_search_results: "No results found"
+    no_passwords_hint: "Press n to create your first password"
+    no_favorites_hint: "Press f in password detail to favorite"
+    no_expired_hint: "All credentials are valid"
+    no_health_issues_hint: "All passwords passed security check"
+    empty_tag_hint: "Create a password and add '%{tag}' tag"
+    no_search_results_hint: "No matches for '%{query}'"
+
+  # ---- Component Labels ----
+  component_labels:
+    strength: "  Strength: "
+    strength_hint: "(strength shown after password entry)"
+    tag: "  Tags "
+    length: "Length"
+    password: "Password"
+    required: " ← Required"
+    optional: " ← Optional"
+
+  # ---- Audit Log View ----
+  audit_log_view:
+    help_select: "Select"
+    help_switch_area: "Switch Area"
+    help_view_record: "View Record"
+    help_back: "Back"
+
+  # ---- Config Screen ----
+  config_screen:
+    restart_hint: "Some config changes require restart to take effect"
+
+  # ---- Generator Overlay ----
+  generator_overlay:
+    title: "  Password Generator"
 
   # ---- Sync Conflict ----
   sync:
@@ -651,6 +880,10 @@ tui:
     skip_current: "Skip (keep local)"
     keep_all_local: "Keep All Local"
     diff_marker: "diff"
+    no_conflicts: "No conflicts to resolve"
+    select_version: "Select version"
+    confirm_selection: "Confirm"
+    toggle_password: "Show/Hide password"
 
   # ---- Trash / Delete ----
   trash:
@@ -695,6 +928,9 @@ tui:
     existing_tags: "Existing Tags:"
     done: "Done"
     select_hint: "Press Space to select passwords"
+    more_items: "...and %{count} more total"
+    no_tags: "(no tags)"
+    enter_hint: "Enter to add"
 
   # ---- Health Check ----
   health:
@@ -709,6 +945,8 @@ tui:
     leaked_detail: "This password was found in a data breach — change it immediately"
     weak_detail: "Weak password — consider updating to a stronger one"
     duplicate_detail: "This password is shared by %{count} other entries — use a unique password"
+    needs_attention: "Needs attention W%{weak} C%{compromised} D%{duplicate}"
+    skipped_short: "HIBP skipped"
 
   # ---- Password History ----
   history:
@@ -717,3 +955,5 @@ tui:
     password_created: "Set at Creation"
     record_count: "%{count} records (max 10 retained)"
     copied_history: "Historical password copied (%{seconds}s until cleared)"
+    no_history: "No history yet"
+    copy_button: "[Copy]"

@@ -3,7 +3,7 @@ source: tests/snapshot_tests/screens/config_test.rs
 expression: backend
 ---
 " Settings   General │ Sync │ Security │ Password │ About                        "
-" ℹ 部分配置修改需要重启应用后生效                                               " Hidden by multi-width symbols: [(4, " "), (6, " "), (8, " "), (10, " "), (12, " "), (14, " "), (16, " "), (18, " "), (20, " "), (22, " "), (24, " "), (26, " "), (28, " "), (30, " "), (32, " ")]
+" ℹ Some config changes require restart to take effect                           "
 "General                                                                         "
 "Language                [ auto ▼ ]                                              "
 "Vault Path          /Users/alpha/Library/Application Support/open-keyring  [ Ch "

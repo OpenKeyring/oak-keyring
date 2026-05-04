@@ -6,7 +6,7 @@ expression: terminal.backend()
 "                                                            "
 "  ──────────────────────────────                            "
 "                                                            "
-"  SSH 密钥                                                  " Hidden by multi-width symbols: [(7, " "), (9, " ")]
+"  SSH Key                                                   "
 "                                                            "
 "  公钥:                                                     " Hidden by multi-width symbols: [(3, " "), (5, " ")]
 "    ssh-rsa AAAA...                                         "

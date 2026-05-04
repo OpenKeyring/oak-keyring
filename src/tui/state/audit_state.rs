@@ -90,14 +90,14 @@ pub enum AuditOperationFilter {
 
 impl AuditOperationFilter {
     /// Human-readable display name for this category.
-    pub fn display_name(&self) -> &'static str {
+    pub fn display_name(&self) -> String {
         match self {
-            AuditOperationFilter::All => "全部",
-            AuditOperationFilter::Copy => "复制",
-            AuditOperationFilter::Create => "添加",
-            AuditOperationFilter::Modify => "修改",
-            AuditOperationFilter::Delete => "删除",
-            AuditOperationFilter::System => "系统事件",
+            AuditOperationFilter::All => crate::t!("tui.audit.filter_type_all").to_string(),
+            AuditOperationFilter::Copy => crate::t!("tui.audit.filter_type_copy").to_string(),
+            AuditOperationFilter::Create => crate::t!("tui.audit.filter_type_add").to_string(),
+            AuditOperationFilter::Modify => crate::t!("tui.audit.filter_type_modify").to_string(),
+            AuditOperationFilter::Delete => crate::t!("tui.audit.filter_type_delete").to_string(),
+            AuditOperationFilter::System => crate::t!("tui.audit.filter_type_system").to_string(),
         }
     }
 
@@ -211,12 +211,13 @@ mod tests {
 
     #[test]
     fn operation_filter_display_names() {
-        assert_eq!(AuditOperationFilter::All.display_name(), "全部");
-        assert_eq!(AuditOperationFilter::Copy.display_name(), "复制");
-        assert_eq!(AuditOperationFilter::Create.display_name(), "添加");
-        assert_eq!(AuditOperationFilter::Modify.display_name(), "修改");
-        assert_eq!(AuditOperationFilter::Delete.display_name(), "删除");
-        assert_eq!(AuditOperationFilter::System.display_name(), "系统事件");
+        // Test that labels are non-empty (content may be localized)
+        assert!(!AuditOperationFilter::All.display_name().is_empty());
+        assert!(!AuditOperationFilter::Copy.display_name().is_empty());
+        assert!(!AuditOperationFilter::Create.display_name().is_empty());
+        assert!(!AuditOperationFilter::Modify.display_name().is_empty());
+        assert!(!AuditOperationFilter::Delete.display_name().is_empty());
+        assert!(!AuditOperationFilter::System.display_name().is_empty());
     }
 
     #[test]

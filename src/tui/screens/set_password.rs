@@ -7,6 +7,7 @@ use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::{Command, Message};
 use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel};
+use crate::t;
 use crate::tui::theme::{
     self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING,
 };
@@ -138,7 +139,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         let content_area = h_layout[1];
 
         // Title
-        let title = Paragraph::new("Set Master Password")
+        let title = Paragraph::new(t!("tui.entry.set_password_title"))
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
 
@@ -155,9 +156,9 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
             self.display_password(&self.new_password)
         };
         let new_placeholder = if self.new_password.is_empty() {
-            "Enter new password"
+            t!("tui.entry.new_password_placeholder")
         } else {
-            ""
+            std::borrow::Cow::Borrowed("")
         };
 
         let new_input_block = Block::default()
@@ -182,11 +183,33 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
                 theme::ICON_PROGRESS_FILL.repeat(filled as usize),
                 theme::ICON_PROGRESS_EMPTY.repeat(empty as usize)
             );
-            let label = format!("Strength: {} {}", s.level.label_zh(), bar_str);
+            let label = format!(
+                "{} {} {}",
+                t!("tui.entry.strength_label"),
+                match s.level {
+                    crate::crypto::strength::StrengthLevel::VeryWeak => {
+                        t!("tui.generator.strength_too_weak")
+                    }
+                    crate::crypto::strength::StrengthLevel::Weak => {
+                        t!("tui.generator.strength_weak")
+                    }
+                    crate::crypto::strength::StrengthLevel::Fair => {
+                        t!("tui.generator.strength_fair")
+                    }
+                    crate::crypto::strength::StrengthLevel::Strong => {
+                        t!("tui.generator.strength_strong")
+                    }
+                    crate::crypto::strength::StrengthLevel::VeryStrong => {
+                        t!("tui.generator.strength_very_strong")
+                    }
+                },
+                bar_str
+            );
             let color = Self::strength_color(&s.level);
             Paragraph::new(label).style(ratatui::style::Style::default().fg(color))
         } else {
-            Paragraph::new("Strength: ").style(ratatui::style::Style::default().fg(TEXT_MUTED))
+            Paragraph::new(t!("tui.entry.strength_label"))
+                .style(ratatui::style::Style::default().fg(TEXT_MUTED))
         };
 
         // -- Confirm password field --
@@ -202,9 +225,9 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
             self.display_password(&self.confirm_password)
         };
         let confirm_placeholder = if self.confirm_password.is_empty() {
-            "Confirm password"
+            t!("tui.entry.confirm_password")
         } else {
-            ""
+            std::borrow::Cow::Borrowed("")
         };
 
         let confirm_input_block = Block::default()
@@ -223,8 +246,12 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         let match_line = if !self.new_password.is_empty() && !self.confirm_password.is_empty() {
             if self.new_password == self.confirm_password {
                 Some(
-                    Paragraph::new(format!("{} Passwords match", theme::ICON_SUCCESS))
-                        .style(Styles::success_text()),
+                    Paragraph::new(format!(
+                        "{} {}",
+                        theme::ICON_SUCCESS,
+                        t!("tui.entry.password_match")
+                    ))
+                    .style(Styles::success_text()),
                 )
             } else {
                 None
@@ -241,7 +268,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         });
 
         // -- Hint --
-        let hint = Paragraph::new("Tab: switch field | Enter: submit | Esc: back")
+        let hint = Paragraph::new(t!("tui.entry.input_hint"))
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
 
@@ -317,11 +344,11 @@ impl SetPasswordScreen {
             }
             KeyCode::Enter => {
                 if self.new_password.len() < 8 {
-                    self.error = Some("Password must be at least 8 characters".to_string());
+                    self.error = Some(t!("tui.entry.password_too_short").to_string());
                     return ScreenResult::Continue;
                 }
                 if self.new_password != self.confirm_password {
-                    self.error = Some("Passwords do not match".to_string());
+                    self.error = Some(t!("tui.entry.password_mismatch").to_string());
                     return ScreenResult::Continue;
                 }
                 // Passwords match and long enough — send InitializeVault

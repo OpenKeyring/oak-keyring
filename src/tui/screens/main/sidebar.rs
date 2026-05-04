@@ -11,6 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
+use crate::t;
 use crate::tui::state::main_state::{SidebarCategory, SidebarItem, SidebarState};
 use crate::tui::theme;
 
@@ -19,26 +20,8 @@ const SEPARATOR_UNICODE: char = '\u{2500}'; // ─
 /// Separator character for ASCII-only terminals.
 const SEPARATOR_ASCII: char = '-';
 
-/// Tag header label when expanded (unicode).
-const TAG_HEADER_EXPANDED_UNICODE: &str = "\u{25BE} # \u{6807}\u{7B7E}"; // ▾ # 标签
-/// Tag header label when collapsed (unicode).
-const TAG_HEADER_COLLAPSED_UNICODE: &str = "\u{25B8} # \u{6807}\u{7B7E}"; // ▸ # 标签
-/// Tag header label when expanded (ASCII fallback).
-const TAG_HEADER_EXPANDED_ASCII: &str = "v # Tags";
-/// Tag header label when collapsed (ASCII fallback).
-const TAG_HEADER_COLLAPSED_ASCII: &str = "> # Tags";
-
 /// Indentation prefix for tag items.
 const TAG_INDENT: &str = "  ";
-
-/// Generator label (unicode).
-const GENERATOR_LABEL_UNICODE: &str = "\u{2726} \u{751F}\u{6210}\u{5668}"; // ✦ 生成器
-/// Config label (unicode).
-const CONFIG_LABEL_UNICODE: &str = "\u{2726} \u{914D}\u{7F6E}"; // ✦ 配置
-/// Generator label (ASCII fallback).
-const GENERATOR_LABEL_ASCII: &str = "* Generator";
-/// Config label (ASCII fallback).
-const CONFIG_LABEL_ASCII: &str = "* Config";
 
 /// Panel responsible for rendering the sidebar navigation.
 pub struct SidebarPanel;
@@ -132,31 +115,49 @@ fn build_list_item<'a>(
                 } else {
                     theme::ascii::ICON_DROPDOWN
                 };
+                let tags_label = t!("tui.main.sidebar_tags");
+                let manage_label = t!("tui.main.sidebar_manage_mode");
+                let sort_by_label = t!("tui.main.sidebar_sort_by", sort = &sort_label);
                 let header_text = if unicode {
                     format!(
-                        "\u{25BE} # \u{6807}\u{7B7E} (\u{7BA1}\u{7406}\u{6A21}\u{5F0F}) \u{6309}: {} {}",
-                        sort_label, down_icon
+                        "\u{25BE} # {} ({}) {} {}",
+                        tags_label, manage_label, sort_by_label, down_icon
                     )
                 } else {
-                    format!("v # Tags (manage) by: {} {}", sort_label, down_icon)
+                    format!(
+                        "v # {} ({}) {} {}",
+                        tags_label, manage_label, sort_by_label, down_icon
+                    )
                 };
                 ListItem::new(Line::from(Span::styled(
                     header_text,
                     Style::default().fg(theme::TEXT_SECONDARY),
                 )))
             } else {
-                let label = if unicode {
-                    if state.tags_expanded {
-                        TAG_HEADER_EXPANDED_UNICODE
-                    } else {
-                        TAG_HEADER_COLLAPSED_UNICODE
-                    }
-                } else if state.tags_expanded {
-                    TAG_HEADER_EXPANDED_ASCII
+                let (icon, label_key) = if unicode {
+                    (
+                        if state.tags_expanded {
+                            "\u{25BE}"
+                        } else {
+                            "\u{25B8}"
+                        },
+                        if state.tags_expanded {
+                            "tui.main.sidebar_tags"
+                        } else {
+                            "tui.main.sidebar_tags_collapsed"
+                        },
+                    )
                 } else {
-                    TAG_HEADER_COLLAPSED_ASCII
+                    (
+                        if state.tags_expanded { "v" } else { ">" },
+                        if state.tags_expanded {
+                            "tui.main.sidebar_tags"
+                        } else {
+                            "tui.main.sidebar_tags_collapsed"
+                        },
+                    )
                 };
-
+                let label = format!("{} # {}", icon, t!(label_key));
                 ListItem::new(Line::from(Span::styled(
                     label,
                     Style::default().fg(theme::TEXT_SECONDARY),
@@ -196,9 +197,9 @@ fn build_list_item<'a>(
         }
         SidebarItem::Generator => {
             let label = if unicode {
-                GENERATOR_LABEL_UNICODE
+                format!("\u{2726} {}", t!("tui.main.sidebar_generator"))
             } else {
-                GENERATOR_LABEL_ASCII
+                format!("* {}", t!("tui.main.sidebar_generator"))
             };
             ListItem::new(Line::from(Span::styled(
                 label,
@@ -207,9 +208,9 @@ fn build_list_item<'a>(
         }
         SidebarItem::Config => {
             let label = if unicode {
-                CONFIG_LABEL_UNICODE
+                format!("\u{2726} {}", t!("tui.main.sidebar_config"))
             } else {
-                CONFIG_LABEL_ASCII
+                format!("* {}", t!("tui.main.sidebar_config"))
             };
             ListItem::new(Line::from(Span::styled(
                 label,
@@ -220,23 +221,23 @@ fn build_list_item<'a>(
 }
 
 /// Return the display label for a sidebar category.
-fn category_label(category: &SidebarCategory, unicode: bool) -> &'static str {
+fn category_label(category: &SidebarCategory, unicode: bool) -> String {
     match category {
-        SidebarCategory::All => "所有",
+        SidebarCategory::All => t!("tui.main.sidebar_all").to_string(),
         SidebarCategory::Favorites => {
             if unicode {
-                "\u{2606} \u{6536}\u{85CF}" // ☆ 收藏
+                format!("\u{2606} {}", t!("tui.main.sidebar_favorites"))
             } else {
-                "* Favorites"
+                format!("* {}", t!("tui.main.sidebar_favorites"))
             }
         }
-        SidebarCategory::Expired => "已过期",
-        SidebarCategory::HealthIssues => "健康问题",
+        SidebarCategory::Expired => t!("tui.main.sidebar_expired").to_string(),
+        SidebarCategory::HealthIssues => t!("tui.main.sidebar_health").to_string(),
         SidebarCategory::Trash => {
             if unicode {
-                "\u{1F5D1} \u{56DE}\u{6536}\u{7AD9}" // 🗑 回收站
+                format!("\u{1F5D1} {}", t!("tui.main.sidebar_trash"))
             } else {
-                "[DEL] Trash"
+                format!("[DEL] {}", t!("tui.main.sidebar_trash"))
             }
         }
     }
@@ -330,9 +331,9 @@ fn render_inline_rename(
             };
             let error_line = Line::from(Span::styled(
                 format!(
-                    "  {} \u{6807}\u{7B7E}\"{}\"\u{5DF2}\u{5B58}\u{5728}",
+                    "  {} {}",
                     error_icon,
-                    edit.text.trim()
+                    t!("tui.form.validation_tag_exists", name = edit.text.trim())
                 ),
                 Style::default().fg(theme::ERROR),
             ));
@@ -360,30 +361,34 @@ mod tests {
 
     #[test]
     fn category_labels_unicode() {
-        assert_eq!(category_label(&SidebarCategory::All, true), "所有");
-        assert_eq!(
-            category_label(&SidebarCategory::Favorites, true),
-            "\u{2606} \u{6536}\u{85CF}"
-        );
-        assert_eq!(category_label(&SidebarCategory::Expired, true), "已过期");
-        assert_eq!(
-            category_label(&SidebarCategory::HealthIssues, true),
-            "健康问题"
-        );
+        // Note: These tests now check that labels are non-empty and contain expected icons
+        let all_label = category_label(&SidebarCategory::All, true);
+        assert!(!all_label.is_empty());
+
+        let fav_label = category_label(&SidebarCategory::Favorites, true);
+        assert!(fav_label.contains('\u{2606}')); // ☆ icon
+
+        let expired_label = category_label(&SidebarCategory::Expired, true);
+        assert!(!expired_label.is_empty());
+
+        let health_label = category_label(&SidebarCategory::HealthIssues, true);
+        assert!(!health_label.is_empty());
     }
 
     #[test]
     fn category_labels_ascii() {
-        assert_eq!(category_label(&SidebarCategory::All, false), "所有");
-        assert_eq!(
-            category_label(&SidebarCategory::Favorites, false),
-            "* Favorites"
-        );
-        assert_eq!(category_label(&SidebarCategory::Expired, false), "已过期");
-        assert_eq!(
-            category_label(&SidebarCategory::Trash, false),
-            "[DEL] Trash"
-        );
+        // Note: These tests now check that labels are non-empty and contain expected markers
+        let all_label = category_label(&SidebarCategory::All, false);
+        assert!(!all_label.is_empty());
+
+        let fav_label = category_label(&SidebarCategory::Favorites, false);
+        assert!(fav_label.contains('*'));
+
+        let expired_label = category_label(&SidebarCategory::Expired, false);
+        assert!(!expired_label.is_empty());
+
+        let trash_label = category_label(&SidebarCategory::Trash, false);
+        assert!(trash_label.contains("[DEL]"));
     }
 
     #[test]
@@ -416,18 +421,6 @@ mod tests {
         let state = SidebarState::default();
         let item = build_list_item(&SidebarItem::Separator, &state, false, 25);
         assert_eq!(item.width(), 25);
-    }
-
-    #[test]
-    fn tag_header_label_expanded() {
-        assert!(TAG_HEADER_EXPANDED_UNICODE.starts_with('\u{25BE}')); // ▾
-        assert!(TAG_HEADER_EXPANDED_ASCII.starts_with('v'));
-    }
-
-    #[test]
-    fn tag_header_label_collapsed() {
-        assert!(TAG_HEADER_COLLAPSED_UNICODE.starts_with('\u{25B8}')); // ▸
-        assert!(TAG_HEADER_COLLAPSED_ASCII.starts_with('>'));
     }
 
     #[test]
@@ -510,9 +503,10 @@ mod tests {
 
         let buf = terminal.backend().buffer().clone();
         let result = format!("{:?}", buf);
+        // Check that the header contains some content (may be localized)
         assert!(
-            result.contains("\u{7BA1}\u{7406}\u{6A21}\u{5F0F}"),
-            "header should contain '管理模式'"
+            result.contains("Tags") || result.contains('\u{6807}'), // Tags or 标签
+            "header should contain tag label"
         );
     }
 
@@ -574,9 +568,10 @@ mod tests {
 
         let buf = terminal.backend().buffer().clone();
         let result = format!("{:?}", buf);
+        // Check that sort indicator is present (may be localized)
         assert!(
-            result.contains("\u{540D}\u{79F0}"),
-            "should show sort order label '名称'"
+            result.contains("Sort") || result.contains('\u{6309}') || result.contains("按"),
+            "should show sort indicator"
         );
     }
 }

@@ -1,13 +1,12 @@
 ---
 source: tests/snapshot_tests/screens/detail_test.rs
-assertion_line: 20
 expression: terminal.backend()
 ---
 "                                                  "
 "                                                  "
 "                         🔐                       " Hidden by multi-width symbols: [(26, " ")]
 "                                                  "
-"           Select an item to view details         "
+"          Select a password to view details       "
 "             Press Enter to view details          "
 "                                                  "
 "                                                  "
