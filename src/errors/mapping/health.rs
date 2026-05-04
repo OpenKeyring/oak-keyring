@@ -1,5 +1,5 @@
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorContext, ErrorLevel};
+use crate::errors::{ErrorCode, ErrorContext};
 
 #[derive(Debug, thiserror::Error)]
 pub enum HealthError {
@@ -23,23 +23,22 @@ pub enum HealthError {
 }
 
 impl ServiceError for HealthError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::Health(self.to_string())
-    }
-
-    fn error_context(&self) -> Option<ErrorContext> {
-        None
-    }
-
-    fn error_level(&self) -> ErrorLevel {
+    fn to_error_code(&self) -> ErrorCode {
         match self {
-            HealthError::VaultNotUnlocked => ErrorLevel::Fatal,
-            HealthError::Disabled => ErrorLevel::Warning,
-            HealthError::HibpApiError(_) => ErrorLevel::Warning,
-            HealthError::HibpRateLimited => ErrorLevel::Warning,
-            HealthError::DecryptionFailed(_) => ErrorLevel::Error,
-            HealthError::Internal(_) => ErrorLevel::Error,
+            Self::VaultNotUnlocked => ErrorCode::ExecutorVaultLocked,
+            Self::DecryptionFailed(_) => ErrorCode::CryptoDecryptionFailed,
+            Self::HibpApiError(_) | Self::Internal(_) => ErrorCode::HealthHibpApiError,
+            Self::HibpRateLimited => ErrorCode::HealthHibpRateLimited,
+            Self::Disabled => ErrorCode::HealthCheckFailed,
         }
+    }
+
+    fn to_error_context(&self) -> ErrorContext {
+        ErrorContext::new()
+    }
+
+    fn to_fallback_message(&self) -> String {
+        self.to_string()
     }
 }
 
@@ -52,41 +51,71 @@ impl From<HealthError> for crate::errors::ServiceErrorBox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::service_error::ServiceError;
+    use crate::errors::{ErrorCode, ErrorLevel};
 
     #[test]
-    fn vault_not_unlocked_error_level_is_fatal() {
+    fn vault_not_unlocked_maps_to_executor_vault_locked() {
         let err = HealthError::VaultNotUnlocked;
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code(), ErrorCode::ExecutorVaultLocked);
+        assert_eq!(err.error_level(), ErrorLevel::Operation);
+        assert!(err.to_fallback_message().contains("not unlocked"));
     }
 
     #[test]
-    fn hibp_api_error_level_is_warning() {
-        let err = HealthError::HibpApiError("timeout".into());
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
+    fn decryption_failed_maps_to_crypto_decryption_failed() {
+        let err = HealthError::DecryptionFailed("bad key".to_string());
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoDecryptionFailed);
+        assert_eq!(err.error_level(), ErrorLevel::Operation);
+        assert!(err.to_fallback_message().contains("decryption failed"));
     }
 
     #[test]
-    fn disabled_error_level_is_warning() {
+    fn hibp_api_error_maps_to_health_hibp_api_error() {
+        let err = HealthError::HibpApiError("timeout".to_string());
+        assert_eq!(err.to_error_code(), ErrorCode::HealthHibpApiError);
+        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert!(err.to_fallback_message().contains("timeout"));
+    }
+
+    #[test]
+    fn internal_error_maps_to_health_hibp_api_error() {
+        let err = HealthError::Internal("test".to_string());
+        assert_eq!(err.to_error_code(), ErrorCode::HealthHibpApiError);
+        assert_eq!(err.error_level(), ErrorLevel::Minor);
+    }
+
+    #[test]
+    fn hibp_rate_limited_maps_to_health_hibp_rate_limited() {
+        let err = HealthError::HibpRateLimited;
+        assert_eq!(err.to_error_code(), ErrorCode::HealthHibpRateLimited);
+        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert!(err.to_fallback_message().contains("rate limited"));
+    }
+
+    #[test]
+    fn disabled_maps_to_health_check_failed() {
         let err = HealthError::Disabled;
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
-    }
-
-    #[test]
-    fn decryption_failed_error_level_is_error() {
-        let err = HealthError::DecryptionFailed("bad key".into());
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code(), ErrorCode::HealthCheckFailed);
+        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert!(err.to_fallback_message().contains("disabled"));
     }
 
     #[test]
     fn health_error_converts_to_service_error_box() {
         let err = HealthError::HibpRateLimited;
         let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert_eq!(boxed.error_level(), ErrorLevel::Warning);
+        assert_eq!(boxed.to_error_code(), ErrorCode::HealthHibpRateLimited);
     }
 
     #[test]
-    fn health_error_code_is_health_variant() {
-        let err = HealthError::Internal("test".into());
-        assert!(matches!(err.error_code(), ErrorCode::Health(_)));
+    fn health_error_implements_service_error() {
+        fn assert_service_error<E: ServiceError>(_: &E) {}
+        assert_service_error(&HealthError::VaultNotUnlocked);
+        assert_service_error(&HealthError::DecryptionFailed("x".into()));
+        assert_service_error(&HealthError::HibpApiError("y".into()));
+        assert_service_error(&HealthError::Internal("z".into()));
+        assert_service_error(&HealthError::HibpRateLimited);
+        assert_service_error(&HealthError::Disabled);
     }
 }
