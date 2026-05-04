@@ -12,6 +12,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::commands::types::PanelId;
+use crate::t;
 use crate::tui::state::main_state::{StatusBarState, StatusMessage, SyncIndicator};
 use crate::tui::theme;
 
@@ -135,15 +136,11 @@ impl StatusBarPanel {
         use crate::tui::state::main_state::HealthCheckPhase;
         match state.health_check_phase {
             HealthCheckPhase::Checking => {
-                let (icon, text) = if unicode {
-                    (theme::ICON_SEARCH, " \u{6B63}\u{5728}\u{68C0}\u{67E5}...")
-                // "🔍 正在检查..."
-                } else {
-                    ("[?]", " Checking...")
-                };
+                let icon = if unicode { theme::ICON_SEARCH } else { "[?]" };
+                let text = t!("tui.health.checking");
                 all_spans.push(Span::styled(SEPARATOR, sep_style));
                 all_spans.push(Span::styled(
-                    format!("{}{}", icon, text),
+                    format!("{} {}", icon, text),
                     Style::default().fg(theme::PRIMARY).bg(bar_bg),
                 ));
             }
@@ -152,35 +149,24 @@ impl StatusBarPanel {
                 compromised,
                 duplicate_groups,
             } => {
-                let (icon, text) = if unicode {
-                    (
-                        theme::ICON_WARNING,
-                        format!(
-                            " \u{6709}\u{9700}\u{6CE8}\u{610F} W{} C{} D{}",
-                            weak, compromised, duplicate_groups
-                        ),
-                    )
-                    // "⚠ 有需注意 W{n} C{n} D{n}"
-                } else {
-                    (
-                        "[!]",
-                        format!(
-                            " NeedsAttn W{} C{} D{}",
-                            weak, compromised, duplicate_groups
-                        ),
-                    )
-                };
+                let icon = if unicode { theme::ICON_WARNING } else { "[!]" };
+                let text = t!(
+                    "tui.health.needs_attention",
+                    weak = weak,
+                    compromised = compromised,
+                    duplicate = duplicate_groups
+                );
                 all_spans.push(Span::styled(SEPARATOR, sep_style));
                 all_spans.push(Span::styled(
-                    format!("{}{}", icon, text),
+                    format!("{} {}", icon, text),
                     Style::default().fg(theme::WARNING).bg(bar_bg),
                 ));
             }
             HealthCheckPhase::AllSecure => {
                 let text = if unicode {
-                    format!("{} 全部安全", theme::ICON_SUCCESS)
+                    format!("{} {}", theme::ICON_SUCCESS, t!("tui.health.all_secure"))
                 } else {
-                    "+ AllSecure".to_string()
+                    format!("+ {}", t!("tui.health.all_secure"))
                 };
                 all_spans.push(Span::styled(SEPARATOR, sep_style));
                 all_spans.push(Span::styled(
@@ -190,9 +176,13 @@ impl StatusBarPanel {
             }
             HealthCheckPhase::Skipped => {
                 let text = if unicode {
-                    format!("{} 跳过泄露检测", theme::ICON_NOT_CONFIGURED)
+                    format!(
+                        "{} {}",
+                        theme::ICON_NOT_CONFIGURED,
+                        t!("tui.health.skipped_short")
+                    )
                 } else {
-                    "- HIBP skipped".to_string()
+                    format!("- {}", t!("tui.health.skipped_short"))
                 };
                 all_spans.push(Span::styled(SEPARATOR, sep_style));
                 all_spans.push(Span::styled(
@@ -267,38 +257,43 @@ fn visual_shortcuts_text(unicode: bool) -> &'static str {
 fn sync_indicator_text(sync: &SyncIndicator, unicode: bool) -> String {
     match sync {
         SyncIndicator::Synced => {
+            let text = t!("tui.status_bar.sync_synced");
             if unicode {
-                format!("{} 已同步", theme::ICON_SUCCESS)
+                format!("{} {}", theme::ICON_SUCCESS, text)
             } else {
-                "+ Synced".to_string()
+                format!("+ {}", text)
             }
         }
         SyncIndicator::Syncing => {
+            let text = t!("tui.status_bar.sync_syncing");
             if unicode {
-                format!("{} 同步中", theme::ICON_SYNC_SYNCING)
+                format!("{} {}", theme::ICON_SYNC_SYNCING, text)
             } else {
-                "~ Syncing".to_string()
+                format!("~ {}", text)
             }
         }
         SyncIndicator::Failed => {
+            let text = t!("tui.status_bar.sync_failed");
             if unicode {
-                format!("{} 同步失败", theme::ICON_ERROR)
+                format!("{} {}", theme::ICON_ERROR, text)
             } else {
-                "x Sync failed".to_string()
+                format!("x {}", text)
             }
         }
         SyncIndicator::Offline => {
+            let text = t!("tui.status_bar.sync_offline");
             if unicode {
-                format!("{} 离线", theme::ICON_SYNC_OFFLINE)
+                format!("{} {}", theme::ICON_SYNC_OFFLINE, text)
             } else {
-                "o Offline".to_string()
+                format!("o {}", text)
             }
         }
         SyncIndicator::NotConfigured => {
+            let text = t!("tui.status_bar.sync_not_configured");
             if unicode {
-                format!("{} 未配置", theme::ICON_NOT_CONFIGURED)
+                format!("{} {}", theme::ICON_NOT_CONFIGURED, text)
             } else {
-                "- Not configured".to_string()
+                format!("- {}", text)
             }
         }
     }
@@ -318,15 +313,20 @@ fn sync_color(sync: &SyncIndicator) -> Color {
 /// Format the status message as a display string, if present.
 fn status_message_text(msg: &Option<StatusMessage>) -> Option<String> {
     match msg {
-        Some(StatusMessage::RecordCount(n)) => Some(format!("{}\u{6761}\u{5BC6}\u{7801}", n)), // "{n} 条密码"
-        Some(StatusMessage::ClipboardCountdown { field, seconds }) => Some(format!(
-            "{} 已复制{}（{}s 后清除）",
+        Some(StatusMessage::RecordCount(n)) => {
+            Some(t!("tui.status_bar.record_count", count = n).to_string())
+        }
+        Some(StatusMessage::ClipboardCountdown { field: _, seconds }) => Some(format!(
+            "{} {}",
             theme::ICON_SUCCESS,
-            field,
-            seconds
+            t!("tui.notification.clipboard_clearing", seconds = seconds)
         )),
         Some(StatusMessage::Temporary { text, .. }) => Some(text.clone()),
-        Some(StatusMessage::Search(q)) => Some(format!("\u{641C}\u{7D22}: {}...", q)), // "搜索: {q}..."
+        Some(StatusMessage::Search(q)) => Some(format!(
+            "{}: {}...",
+            t!("tui.password_list.search_prompt"),
+            q
+        )),
         None => None,
     }
 }
@@ -435,7 +435,8 @@ mod tests {
         let msg = StatusMessage::RecordCount(42);
         let text = status_message_text(&Some(msg)).unwrap();
         assert!(text.contains("42"));
-        assert!(text.contains('\u{6761}')); // 条
+        // Text may be localized, so we just check it's non-empty
+        assert!(!text.is_empty());
     }
 
     #[test]
