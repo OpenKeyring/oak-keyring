@@ -21,7 +21,7 @@ pub fn render_form(
     state: &FormState,
     generator_state: Option<&crate::tui::state::generator_state::EmbeddedGeneratorState>,
     all_tags: &[String],
-    _unicode: bool, // TODO: use this parameter for unicode-aware rendering
+    _unicode: bool,
 ) {
     let title = match state.mode {
         crate::tui::state::form_state::FormMode::Create => "新建密码",
@@ -60,6 +60,7 @@ pub fn render_form(
             &ct_options,
             state.credential_dropdown.selected_index,
             area.width,
+            _unicode,
         );
         lines.extend(expanded);
     } else {
@@ -68,6 +69,7 @@ pub fn render_form(
             ct_selected,
             focused == 0,
             !state.is_credential_type_editable(),
+            _unicode,
         ));
     }
     lines.push(Line::raw(""));
@@ -342,6 +344,7 @@ pub fn render_form(
             &options,
             state.expiry_dropdown.selected_index,
             area.width,
+            _unicode,
         ));
     } else {
         let expiry_label = state.fields.expires_at.label();
@@ -350,6 +353,7 @@ pub fn render_form(
             expiry_label,
             focused == expiry_idx,
             false,
+            _unicode,
         ));
     }
 
