@@ -75,6 +75,8 @@ pub enum OverlayKeyResult {
     ConfirmAction { variant: ConfirmVariant },
     /// Copy a historical password entry to the clipboard.
     CopyHistoryPassword { record_id: Uuid, index: usize },
+    /// Copy the generated password to the clipboard.
+    CopyGeneratedPassword { password: String },
     /// Add a tag to the selected records.
     BatchAddTag {
         record_ids: Vec<Uuid>,
@@ -248,7 +250,11 @@ impl OverlayManager {
                     generator::GeneratorAction::Close => OverlayKeyResult::Close {
                         restore: FocusRestoreTarget::PreOpenPosition,
                     },
-                    generator::GeneratorAction::CopyToClipboard => OverlayKeyResult::Consumed,
+                    generator::GeneratorAction::CopyToClipboard => {
+                        OverlayKeyResult::CopyGeneratedPassword {
+                            password: state.preview.clone(),
+                        }
+                    }
                     // Regenerate and None are consumed internally
                     _ => OverlayKeyResult::Consumed,
                 }
