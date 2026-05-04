@@ -200,6 +200,222 @@ fn terminal_title_save_and_restore() {
     assert!(state.pending_restore.is_none());
 }
 
+// ── LoadRecordList command and RecordListLoaded handler tests ─────────
+
+#[test]
+fn on_mount_sends_load_record_list() {
+    use crate::commands::types::RecordFilter;
+    use crate::commands::Command;
+    use crate::config::AppConfig;
+    use crate::tui::traits::screen::{Screen, ScreenContext};
+    use tokio::sync::mpsc;
+
+    let config = AppConfig::default();
+    let (tx, mut rx) = mpsc::channel(16);
+
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let mut state = MainScreenState::default();
+    state.on_mount(&mut ctx);
+
+    let cmd = rx
+        .try_recv()
+        .expect("on_mount should send a LoadRecordList command");
+    match cmd {
+        Command::LoadRecordList { filter, sort } => {
+            assert_eq!(filter, RecordFilter::All);
+            assert_eq!(sort, crate::commands::types::RecordSort::default());
+        }
+        _ => panic!("Expected LoadRecordList command, got a different command"),
+    }
+}
+
+#[test]
+fn on_mount_sends_load_record_list_with_current_filter() {
+    use crate::commands::types::RecordFilter;
+    use crate::commands::Command;
+    use crate::config::AppConfig;
+    use crate::tui::traits::screen::{Screen, ScreenContext};
+    use tokio::sync::mpsc;
+
+    let config = AppConfig::default();
+    let (tx, mut rx) = mpsc::channel(16);
+
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::Favorites;
+    state.on_mount(&mut ctx);
+
+    let cmd = rx
+        .try_recv()
+        .expect("on_mount should send a LoadRecordList command");
+    match cmd {
+        Command::LoadRecordList { filter, .. } => {
+            assert_eq!(filter, RecordFilter::Favorites);
+        }
+        _ => panic!("Expected LoadRecordList command"),
+    }
+}
+
+#[test]
+fn record_list_loaded_populates_records_and_total() {
+    use crate::commands::result::CommandResult;
+    use crate::commands::types::PanelId;
+    use crate::commands::Message;
+    use crate::tui::state::list_state::ListPanelState;
+    use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
+    use crate::types::credential::CredentialType;
+    use crate::types::record::TuiRecord;
+    use tokio::sync::mpsc;
+
+    let records = vec![
+        TuiRecord {
+            id: uuid::Uuid::new_v4(),
+            credential_type: CredentialType::Login,
+            name: "Test 1".to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: Vec::new(),
+            sync_status: None,
+        },
+        TuiRecord {
+            id: uuid::Uuid::new_v4(),
+            credential_type: CredentialType::Login,
+            name: "Test 2".to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: Vec::new(),
+            sync_status: None,
+        },
+    ];
+
+    let mut state = MainScreenState::default();
+    assert!(state.list.records.is_empty());
+    assert_eq!(state.list.total_count, 0);
+    assert_eq!(state.status_bar.record_count, 0);
+    assert_eq!(state.list.selected_index, None);
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded { records, total: 10 }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.list.records.len(), 2);
+    assert_eq!(state.list.total_count, 10);
+    // selected_index stays None — no auto-select (U4 Empty State)
+    assert_eq!(state.list.selected_index, None);
+}
+
+#[test]
+fn record_list_loaded_updates_status_bar_count() {
+    use crate::commands::result::CommandResult;
+    use crate::commands::Message;
+    use crate::tui::traits::screen::{Screen, ScreenContext};
+    use crate::types::credential::CredentialType;
+    use crate::types::record::TuiRecord;
+    use tokio::sync::mpsc;
+
+    let records = vec![TuiRecord {
+        id: uuid::Uuid::new_v4(),
+        credential_type: CredentialType::Login,
+        name: "Test".to_string(),
+        subtitle: String::new(),
+        is_favorite: false,
+        is_expired: false,
+        expires_at: None,
+        has_weak_password: false,
+        is_compromised: false,
+        duplicate_group_size: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        deleted: false,
+        deleted_at: None,
+        tags: Vec::new(),
+        sync_status: None,
+    }];
+
+    let mut state = MainScreenState::default();
+    assert_eq!(state.status_bar.record_count, 0);
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let _result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded { records, total: 5 }),
+        &mut ctx,
+    );
+
+    assert_eq!(state.status_bar.record_count, 5);
+}
+
+#[test]
+fn record_list_loaded_handles_empty_list() {
+    use crate::commands::result::CommandResult;
+    use crate::commands::Message;
+    use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
+    use tokio::sync::mpsc;
+
+    let mut state = MainScreenState::default();
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: Vec::new(),
+            total: 0,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.list.records.is_empty());
+    assert_eq!(state.list.total_count, 0);
+    assert_eq!(state.status_bar.record_count, 0);
+    assert_eq!(state.list.selected_index, None);
+}
+
 // ── Sidebar navigation tests ──────────────────────────────────────────
 
 #[test]
