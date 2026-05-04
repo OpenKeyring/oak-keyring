@@ -595,17 +595,10 @@ impl Screen for MainScreenState {
                     CommandResult::RecordListLoaded { records, total } => {
                         self.list.records = records;
                         self.list.total_count = total;
-                        // Normalize selection after loading
-                        self.list.selected_index = if self.list.records.is_empty() {
-                            None
-                        } else {
-                            Some(
-                                self.list
-                                    .selected_index
-                                    .unwrap_or(0)
-                                    .min(self.list.records.len() - 1),
-                            )
-                        };
+                        // No auto-select — detail panel stays empty until user
+                        // manually selects a record via j/k (U4 Empty State).
+                        self.list.selected_index = None;
+                        self.status_bar.record_count = total;
                         ScreenResult::Continue
                     }
                     CommandResult::RecordDeleted { id } => {
