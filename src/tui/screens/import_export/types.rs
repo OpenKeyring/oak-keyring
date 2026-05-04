@@ -72,19 +72,19 @@ pub const IMPORT_SOURCES: [(ImportSource, &str, bool, &str); 6] = [
         ImportSource::OnePassword1pux,
         "1Password (.1pux)",
         false,
-        "Password / TOTP  \u{26A0} Custom fields",
+        "Password / TOTP  ⚠ Custom fields",
     ),
     (
         ImportSource::OnePasswordOpvault,
         "1Password (.opvault)",
         true,
-        "Password / TOTP  \u{26A0} Custom fields",
+        "Password / TOTP  ⚠ Custom fields",
     ),
     (
         ImportSource::Bitwarden,
         "Bitwarden (.json)",
         true,
-        "Password / TOTP / URL  \u{2715} Attachments",
+        "Password / TOTP / URL  ✗ Attachments",
     ),
     (ImportSource::Csv, "CSV", false, "Column-mapped fields"),
     (
