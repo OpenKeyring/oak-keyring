@@ -21,6 +21,7 @@ pub fn render_form(
     state: &FormState,
     generator_state: Option<&crate::tui::state::generator_state::EmbeddedGeneratorState>,
     all_tags: &[String],
+    _unicode: bool, // TODO: use this parameter for unicode-aware rendering
 ) {
     let title = match state.mode {
         crate::tui::state::form_state::FormMode::Create => "新建密码",
@@ -159,7 +160,7 @@ pub fn render_form(
 
             // Strength bar on next line
             if let Some(ref strength) = state.fields.strength {
-                lines.push(strength_bar::render_strength_bar(strength));
+                lines.push(strength_bar::render_strength_bar(strength, _unicode));
             } else {
                 lines.push(strength_bar::render_empty_strength_bar());
             }
@@ -172,6 +173,7 @@ pub fn render_form(
                         &gen.generator,
                         true,
                         area.width,
+                        _unicode,
                     );
                     lines.extend(panel);
                 }

@@ -654,6 +654,7 @@ impl Screen for EditRecordScreen {
             &self.form,
             Some(&self.generator),
             &self.all_tags,
+            true, // unicode - TODO: wire up from AppState
         );
     }
 

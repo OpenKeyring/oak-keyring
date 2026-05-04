@@ -267,7 +267,7 @@ impl DetailPanel {
                 || field.kind == DetailFieldKind::Passphrase
             {
                 if let Some(strength) = &record.password_strength {
-                    let bar = self.render_strength_bar(strength, 16);
+                    let bar = self.render_strength_bar(strength, 16, unicode);
                     lines.push(Line::from(Span::styled(
                         format!("{}  {}", pad, bar),
                         Style::default().fg(strength.color()),
@@ -368,13 +368,28 @@ impl DetailPanel {
         frame.render_widget(para, area);
     }
 
-    fn render_strength_bar(&self, strength: &PasswordStrength, width: usize) -> String {
+    fn render_strength_bar(
+        &self,
+        strength: &PasswordStrength,
+        width: usize,
+        unicode: bool,
+    ) -> String {
         let filled = (strength.fraction() * width as f32).round() as usize;
         let empty = width - filled;
+        let fill_char = if unicode {
+            crate::tui::theme::ICON_PROGRESS_FILL
+        } else {
+            crate::tui::theme::ascii::ICON_PROGRESS_FILL
+        };
+        let empty_char = if unicode {
+            crate::tui::theme::ICON_PROGRESS_EMPTY
+        } else {
+            crate::tui::theme::ascii::ICON_PROGRESS_EMPTY
+        };
         format!(
             "\u{5F3A}\u{5EA6}: {}{} {}",
-            "\u{2588}".repeat(filled),
-            "\u{2591}".repeat(empty),
+            fill_char.repeat(filled),
+            empty_char.repeat(empty),
             strength.label()
         )
     }
