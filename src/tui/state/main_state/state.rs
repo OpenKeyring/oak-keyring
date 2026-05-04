@@ -3,7 +3,9 @@ use ratatui::{layout::Rect, Frame};
 
 use crate::commands::types::{PanelId, RecordFilter, RecordSort, Screen as ScreenEnum};
 use crate::commands::{Command, Message};
+use crate::tui::screens::main::overlay::OverlayManager;
 use crate::tui::screens::main::MainScreen;
+use crate::tui::state::animation::EffectKind;
 use crate::tui::state::detail_state::DetailPanelState;
 use crate::tui::state::list_state::ListPanelState;
 use crate::tui::state::tag_management::TagManagementState;
@@ -450,6 +452,11 @@ pub struct MainScreenState {
     pub unicode_capable: bool,
     /// Trash retention days from config (0 = never auto-delete).
     pub trash_retention_days: u32,
+    /// Overlay manager for modal dialogs (help, generator, confirm, etc.).
+    pub overlay_manager: OverlayManager,
+    /// Animation effect to trigger on the next update cycle.
+    /// Set when overlay opens/closes, consumed by update.rs.
+    pub pending_animation: Option<EffectKind>,
 }
 
 impl Default for MainScreenState {
@@ -466,6 +473,8 @@ impl Default for MainScreenState {
             focused_panel: PanelId::Sidebar,
             unicode_capable: true,
             trash_retention_days: 30,
+            overlay_manager: OverlayManager::new(),
+            pending_animation: None,
         }
     }
 }
@@ -580,11 +589,42 @@ impl Screen for MainScreenState {
 
 impl MainScreenState {
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
-        // Check sidebar Enter for Generator/Config navigation first
+        use crate::commands::types::Overlay;
+        use crate::tui::screens::main::overlay::OverlayKeyResult;
+
+        // Route key to active overlay first
+        if self.overlay_manager.is_active() {
+            let result = self.overlay_manager.handle_key(key.code);
+            match result {
+                OverlayKeyResult::Consumed => return ScreenResult::Continue,
+                OverlayKeyResult::Close { .. } => {
+                    self.overlay_manager.close();
+                    self.pending_animation = Some(EffectKind::ModalDismiss);
+                    return ScreenResult::Continue;
+                }
+                OverlayKeyResult::CopyHistoryPassword { .. } => {
+                    // TODO: wire clipboard copy for history overlay
+                    return ScreenResult::Continue;
+                }
+                OverlayKeyResult::ConfirmAction { .. }
+                | OverlayKeyResult::BatchAddTag { .. }
+                | OverlayKeyResult::BatchRemoveTag { .. }
+                | OverlayKeyResult::ErrorRetry
+                | OverlayKeyResult::ErrorQuit => {
+                    // TODO: wire overlay action results
+                    return ScreenResult::Continue;
+                }
+                OverlayKeyResult::None => {}
+            }
+        }
+
+        // Check sidebar Enter for Generator/Config navigation
         if self.focused_panel == PanelId::Sidebar && key.code == KeyCode::Enter {
             match self.sidebar.items.get(self.sidebar.selected_index) {
                 Some(SidebarItem::Generator) => {
-                    return ScreenResult::NavigateTo(ScreenEnum::PasswordGenerator);
+                    self.overlay_manager.open(Overlay::PasswordGenerator);
+                    self.pending_animation = Some(EffectKind::ModalAppear);
+                    return ScreenResult::Continue;
                 }
                 Some(SidebarItem::Config) => {
                     return ScreenResult::NavigateTo(ScreenEnum::Config);
@@ -595,7 +635,11 @@ impl MainScreenState {
         match key.code {
             KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
             KeyCode::Char('l') => ScreenResult::NavigateTo(ScreenEnum::AuditLog),
-            KeyCode::Char('p') => ScreenResult::NavigateTo(ScreenEnum::PasswordGenerator),
+            KeyCode::Char('p') => {
+                self.overlay_manager.open(Overlay::PasswordGenerator);
+                self.pending_animation = Some(EffectKind::ModalAppear);
+                ScreenResult::Continue
+            }
             KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ScreenResult::Command(Box::new(Command::TriggerSync))
             }
