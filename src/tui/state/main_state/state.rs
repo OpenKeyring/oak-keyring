@@ -596,29 +596,71 @@ impl Screen for MainScreenState {
                         self.status_bar.clipboard_countdown = Some(clear_after_seconds as u32);
                         ScreenResult::Continue
                     }
+                    CommandResult::RecordCreated { id: _ } => {
+                        // Auto-select the first record (newly created) when list reloads
+                        self.list_auto_select = true;
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    CommandResult::RecordUpdated { id } => {
+                        let was_showing_detail =
+                            self.detail.record.as_ref().is_some_and(|r| r.id == id);
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        // Refresh detail if it was showing the updated record
+                        if was_showing_detail {
+                            let _ = ctx.command_tx.try_send(Command::LoadRecordDetail { id });
+                        }
+                        ScreenResult::Continue
+                    }
                     CommandResult::RecordListLoaded { records, total } => {
+                        let prev_selected_index = self.list.selected_index;
                         self.list.records = records;
                         self.list.total_count = total;
                         self.status_bar.record_count = total;
 
                         if self.list_auto_select && !self.list.records.is_empty() {
-                            // Auto-select first record (triggered by sidebar filter change)
+                            // Auto-select first record (sidebar filter change or record creation)
                             self.list.selected_index = Some(0);
                             self.list.scroll_offset = 0;
                             self.list_auto_select = false;
                             let id = self.list.records[0].id;
                             let _ = ctx.command_tx.try_send(Command::LoadRecordDetail { id });
-                        } else {
-                            // No auto-select — detail panel stays empty (U4 Empty State)
+                        } else if self.list.records.is_empty() {
                             self.list.selected_index = None;
-                            if self.list.records.is_empty() {
-                                self.detail.clear();
+                            self.list.scroll_offset = 0;
+                            self.detail.clear();
+                            self.list_auto_select = false;
+                        } else {
+                            // Cursor recovery: keep selected_index, clamp if OOB
+                            match prev_selected_index {
+                                Some(idx) if idx < self.list.records.len() => {
+                                    self.list.selected_index = Some(idx);
+                                }
+                                Some(_) => {
+                                    // OOB — clamp to last
+                                    self.list.selected_index = Some(self.list.records.len() - 1);
+                                }
+                                None => {
+                                    // No previous selection (initial load) — keep None
+                                    self.list.selected_index = None;
+                                }
                             }
+                            self.list.adjust_scroll();
                             self.list_auto_select = false;
                         }
                         ScreenResult::Continue
                     }
                     CommandResult::RecordDeleted { id } => {
+                        // Clear detail if it shows the deleted record
+                        if self.detail.record.as_ref().is_some_and(|r| r.id == id) {
+                            self.detail.clear();
+                        }
                         self.list.records.retain(|r| r.id != id);
                         self.list.cleanup_after_batch(&[id]);
                         // Reload to get accurate counts
@@ -647,8 +689,15 @@ impl Screen for MainScreenState {
                         ScreenResult::Continue
                     }
                     CommandResult::FavoriteToggled { id, is_favorite } => {
+                        // Update the list record
                         if let Some(record) = self.list.records.iter_mut().find(|r| r.id == id) {
                             record.is_favorite = is_favorite;
+                        }
+                        // Also update the detail record if currently displayed
+                        if let Some(record) = self.detail.record.as_mut() {
+                            if record.id == id {
+                                record.is_favorite = is_favorite;
+                            }
                         }
                         // When viewing Favorites, unfavorite should remove the row
                         if matches!(self.current_filter, RecordFilter::Favorites) && !is_favorite {
