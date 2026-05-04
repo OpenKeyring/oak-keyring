@@ -11,6 +11,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::t;
 use crate::tui::state::overlay_state::{ErrorActions, ErrorDialogFullState};
 use crate::tui::theme;
 
@@ -48,7 +49,7 @@ pub fn render_error_dialog(frame: &mut Frame, area: Rect, state: &ErrorDialogFul
     let height = (total_lines as u16 + 2).min(area.height); // +2 for border top/bottom
     let overlay_rect = centered_rect(area, width, height);
 
-    let title = format!(" {} 错误 ", theme::ICON_ERROR);
+    let title = format!(" {} ", t!("tui.error.fatal_title"));
     let block = Block::default()
         .title(Span::styled(
             title,
@@ -143,8 +144,8 @@ fn build_body_lines(state: &ErrorDialogFullState) -> Vec<Line<'static>> {
 fn build_button_line(state: &ErrorDialogFullState) -> Line<'static> {
     match state.actions {
         ErrorActions::RetryQuit => {
-            let retry_label = " 重试 ";
-            let quit_label = " 退出 ";
+            let retry_label = format!(" {} ", t!("tui.error.retry"));
+            let quit_label = format!(" {} ", t!("tui.error.exit"));
 
             let retry_style = if state.focused_button == 0 {
                 Style::default()
@@ -163,17 +164,17 @@ fn build_button_line(state: &ErrorDialogFullState) -> Line<'static> {
             };
 
             Line::from(vec![
-                Span::styled(retry_label.to_string(), retry_style),
+                Span::styled(retry_label, retry_style),
                 Span::raw("  "),
-                Span::styled(quit_label.to_string(), quit_style),
+                Span::styled(quit_label, quit_style),
             ])
         }
         ErrorActions::QuitOnly => {
-            let label = " 退出 ";
+            let label = format!(" {} ", t!("tui.error.exit"));
             let style = Style::default()
                 .fg(theme::TEXT_SECONDARY)
                 .add_modifier(Modifier::REVERSED);
-            Line::from(vec![Span::styled(label.to_string(), style)])
+            Line::from(vec![Span::styled(label, style)])
         }
     }
 }
