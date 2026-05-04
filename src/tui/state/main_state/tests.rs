@@ -436,3 +436,101 @@ fn main_restore_state_restores_navigation_context() {
     assert_eq!(restored.list.scroll_offset, 2);
     assert_eq!(restored.detail.focused_field, 5);
 }
+
+// ── Overlay integration tests ─────────────────────────────────────────────
+
+use crate::commands::types::PanelId;
+use crate::commands::Message;
+use crate::tui::state::animation::EffectKind;
+use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
+use crossterm::event::KeyCode;
+
+fn make_ctx() -> ScreenContext<'static> {
+    // Leak is acceptable in tests — the channel lives for the process lifetime.
+    let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    ScreenContext {
+        command_tx: Box::leak(Box::new(tx)),
+        config: Box::leak(Box::new(crate::config::AppConfig::default())),
+    }
+}
+
+fn key_event(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
+    use crossterm::event::{KeyEvent, KeyEventKind, KeyModifiers};
+    KeyEvent {
+        code,
+        modifiers: KeyModifiers::NONE,
+        kind: KeyEventKind::Press,
+        state: crossterm::event::KeyEventState::NONE,
+    }
+}
+
+#[test]
+fn default_state_has_no_active_overlay() {
+    let state = MainScreenState::default();
+    assert!(!state.overlay_manager.is_active());
+    assert!(state.pending_animation.is_none());
+}
+
+#[test]
+fn p_key_opens_generator_overlay() {
+    let mut state = MainScreenState::default();
+    let mut ctx = make_ctx();
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('p'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.overlay_manager.is_active());
+    assert_eq!(state.pending_animation, Some(EffectKind::ModalAppear));
+}
+
+#[test]
+fn sidebar_generator_opens_overlay() {
+    let mut state = MainScreenState::default();
+    // Find Generator item in sidebar and select it
+    let gen_idx = state
+        .sidebar
+        .items
+        .iter()
+        .position(|i| matches!(i, SidebarItem::Generator))
+        .expect("Generator should be in sidebar");
+    state.sidebar.selected_index = gen_idx;
+    state.focused_panel = PanelId::Sidebar;
+
+    let mut ctx = make_ctx();
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Enter)), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.overlay_manager.is_active());
+    assert_eq!(state.pending_animation, Some(EffectKind::ModalAppear));
+}
+
+#[test]
+fn esc_closes_overlay_with_dismiss_animation() {
+    let mut state = MainScreenState::default();
+    // Open overlay first
+    state
+        .overlay_manager
+        .open(crate::commands::types::Overlay::PasswordGenerator);
+    assert!(state.overlay_manager.is_active());
+
+    let mut ctx = make_ctx();
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Esc)), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(!state.overlay_manager.is_active());
+    assert_eq!(state.pending_animation, Some(EffectKind::ModalDismiss));
+}
+
+#[test]
+fn overlay_consumes_tab_key() {
+    let mut state = MainScreenState::default();
+    state
+        .overlay_manager
+        .open(crate::commands::types::Overlay::PasswordGenerator);
+
+    let mut ctx = make_ctx();
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Tab)), &mut ctx);
+
+    // Tab should be consumed by overlay, not propagate to panel focus cycling
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.overlay_manager.is_active());
+}

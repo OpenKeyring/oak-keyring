@@ -138,6 +138,11 @@ impl MainScreen {
             is_trash,
             state.list.is_visual(),
         );
+
+        // 7. Overlay (rendered on top of all panels)
+        if state.overlay_manager.is_active() {
+            state.overlay_manager.render(frame, frame.area(), unicode);
+        }
     }
 
     /// Advance focus to next panel: Sidebar -> List -> Detail -> Sidebar.
