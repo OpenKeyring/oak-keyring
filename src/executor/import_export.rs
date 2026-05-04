@@ -323,6 +323,11 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
+            public_key: None,
+            private_key: None,
+            passphrase: None,
+            app_id: None,
+            secret_key: None,
         },
         DecryptedRecord::Api {
             id,
@@ -346,6 +351,11 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
+            public_key: None,
+            private_key: None,
+            passphrase: None,
+            app_id: None,
+            secret_key: None,
         },
         DecryptedRecord::Ssh {
             id,
@@ -368,6 +378,11 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
+            public_key: None,
+            private_key: None,
+            passphrase: None,
+            app_id: None,
+            secret_key: None,
         },
     }
 }
