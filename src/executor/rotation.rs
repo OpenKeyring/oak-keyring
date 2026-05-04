@@ -376,7 +376,7 @@ mod tests {
             health: HealthService::new(),
             clipboard,
             import_export: ImportExportService::new(),
-            config: AppConfig::default(),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
             config_notifier,
             vault_dir: PathBuf::from(":memory:"),
             health_report: None,

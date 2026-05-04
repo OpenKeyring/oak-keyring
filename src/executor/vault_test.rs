@@ -37,7 +37,7 @@ fn make_unlocked_executor() -> CommandExecutor {
             30,
         )),
         import_export: ImportExportService::new(),
-        config: AppConfig::default(),
+        config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
         config_notifier: ServiceNotificationImpl::new(),
         vault_dir: std::path::PathBuf::from(":memory:"),
         health_report: None,
@@ -119,7 +119,9 @@ fn loads_cached_report_when_check_not_due() {
     let mut executor = make_unlocked_executor();
 
     // Set frequency to Weekly and set last check to recent (within window)
-    executor.config.security.health_check_frequency = HealthCheckFrequency::Weekly;
+    executor.config.update_config_for_test(|c| {
+        c.security.health_check_frequency = HealthCheckFrequency::Weekly
+    });
     let recent = chrono::Utc::now() - chrono::Duration::hours(1);
     executor
         .vault
@@ -171,7 +173,9 @@ fn loads_cached_report_when_check_not_due() {
 #[test]
 fn does_nothing_when_health_check_disabled() {
     let mut executor = make_unlocked_executor();
-    executor.config.security.health_check_enabled = false;
+    executor
+        .config
+        .update_config_for_test(|c| c.security.health_check_enabled = false);
 
     schedule_health_check_after_unlock(&mut executor);
 
@@ -214,7 +218,9 @@ fn loads_empty_cache_when_no_health_states() {
     let mut executor = make_unlocked_executor();
 
     // Set frequency to Daily and set last check to recent
-    executor.config.security.health_check_frequency = HealthCheckFrequency::Daily;
+    executor.config.update_config_for_test(|c| {
+        c.security.health_check_frequency = HealthCheckFrequency::Daily
+    });
     let recent = chrono::Utc::now() - chrono::Duration::minutes(30);
     executor
         .vault
@@ -241,7 +247,9 @@ fn loads_empty_cache_when_no_health_states() {
 #[test]
 fn schedules_check_when_daily_frequency_expired() {
     let mut executor = make_unlocked_executor();
-    executor.config.security.health_check_frequency = HealthCheckFrequency::Daily;
+    executor.config.update_config_for_test(|c| {
+        c.security.health_check_frequency = HealthCheckFrequency::Daily
+    });
 
     // Set last check to 2 days ago (> 24h)
     let two_days_ago = chrono::Utc::now() - chrono::Duration::days(2);
@@ -268,7 +276,9 @@ fn schedules_check_when_daily_frequency_expired() {
 fn loads_cached_report_with_multiple_categories() {
     let mut executor = make_unlocked_executor();
 
-    executor.config.security.health_check_frequency = HealthCheckFrequency::Weekly;
+    executor.config.update_config_for_test(|c| {
+        c.security.health_check_frequency = HealthCheckFrequency::Weekly
+    });
     let recent = chrono::Utc::now() - chrono::Duration::hours(6);
     executor
         .vault

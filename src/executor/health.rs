@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::commands::types::{FieldSelector, HealthReport};
 use crate::commands::{CommandResult, Message};
+use crate::config::ConfigManager;
 use crate::errors::mapping::vault::VaultError;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::services::health::{
@@ -297,10 +298,8 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor, force: bool) -> C
     if !force {
         // Check if health check should run (enabled + frequency).
         // Uses the actual last check time recorded when the previous check completed.
-        if !crate::services::health::should_run(
-            &executor.config.security,
-            executor.last_health_check_time,
-        ) {
+        let config = executor.config.get_config();
+        if !crate::services::health::should_run(&config.security, executor.last_health_check_time) {
             return CommandResult::HealthCheckSkipped;
         }
     }
