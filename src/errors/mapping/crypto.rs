@@ -27,7 +27,8 @@ impl ServiceError for CryptoError {
             }
             CryptoError::EncryptionFailed => "Encryption failed due to a system error".to_string(),
             CryptoError::InvalidKey => {
-                "Invalid cryptographic key. The key may be malformed or have an incorrect length".to_string()
+                "Invalid cryptographic key. The key may be malformed or have an incorrect length"
+                    .to_string()
             }
             CryptoError::InvalidNonce => {
                 "Invalid nonce. The nonce may be malformed or have an incorrect length".to_string()

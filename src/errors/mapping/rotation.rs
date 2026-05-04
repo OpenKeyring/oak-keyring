@@ -117,11 +117,6 @@ impl ServiceError for RotationError {
         self.to_string()
     }
 }
-impl From<RotationError> for crate::errors::ServiceErrorBox {
-    fn from(err: RotationError) -> Self {
-        Box::new(err)
-    }
-}
 
 #[cfg(test)]
 mod tests {

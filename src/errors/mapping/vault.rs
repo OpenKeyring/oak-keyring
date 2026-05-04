@@ -78,9 +78,10 @@ impl ServiceError for VaultError {
             VaultError::NotUnlocked => ErrorContext::new(),
             VaultError::DatabaseError(_) => ErrorContext::new(),
             VaultError::CryptoError(_) => ErrorContext::new(),
-            VaultError::InvalidField { record_type: _, field } => {
-                ErrorContext::new().field_name(format!("{:?}", field))
-            }
+            VaultError::InvalidField {
+                record_type: _,
+                field,
+            } => ErrorContext::new().field_name(format!("{:?}", field)),
         }
     }
 
@@ -88,15 +89,23 @@ impl ServiceError for VaultError {
         match self {
             VaultError::RecordNotFound(_) => "The requested vault record was not found".to_string(),
             VaultError::VersionConflict { expected, actual } => {
-                format!("Version conflict: expected version {}, but found version {}", expected, actual)
+                format!(
+                    "Version conflict: expected version {}, but found version {}",
+                    expected, actual
+                )
             }
             VaultError::TagAlreadyExists(name) => format!("Tag '{}' already exists", name),
             VaultError::TagNotFound(name) => format!("Tag '{}' not found", name),
-            VaultError::NotUnlocked => "Vault is not unlocked. Please provide the master password".to_string(),
+            VaultError::NotUnlocked => {
+                "Vault is not unlocked. Please provide the master password".to_string()
+            }
             VaultError::DatabaseError(e) => format!("Database error: {}", e),
             VaultError::CryptoError(msg) => format!("Cryptographic operation failed: {}", msg),
             VaultError::InvalidField { record_type, field } => {
-                format!("Field '{:?}' is not valid for credential type '{:?}'", field, record_type)
+                format!(
+                    "Field '{:?}' is not valid for credential type '{:?}'",
+                    field, record_type
+                )
             }
         }
     }

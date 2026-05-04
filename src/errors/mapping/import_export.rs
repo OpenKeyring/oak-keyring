@@ -603,11 +603,6 @@ impl ServiceError for ImportExportError {
         self.to_string()
     }
 }
-impl From<ImportExportError> for crate::errors::ServiceErrorBox {
-    fn from(err: ImportExportError) -> Self {
-        Box::new(err)
-    }
-}
 
 #[cfg(test)]
 mod tests {
