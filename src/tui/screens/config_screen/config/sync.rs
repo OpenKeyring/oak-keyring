@@ -22,15 +22,13 @@ fn mask(value: &str) -> String {
     if value.is_empty() {
         t!("tui.config.not_set").to_string()
     } else {
-        "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string()
+        theme::ICON_PASSWORD_MASK.repeat(8)
     }
 }
 
 fn mask_opt(value: &Option<String>) -> String {
     match value {
-        Some(v) if !v.is_empty() => {
-            "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string()
-        }
+        Some(v) if !v.is_empty() => theme::ICON_PASSWORD_MASK.repeat(8),
         _ => t!("tui.config.not_set").to_string(),
     }
 }
@@ -103,9 +101,10 @@ pub fn render(
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{}     [ {} \u{25bc} ]",
+            "{}     [ {} {} ]",
             t!("tui.config.sync_provider"),
-            provider_name
+            provider_name,
+            theme::ICON_DROPDOWN
         ))
         .style(if focused == 0 {
             focused_style
@@ -123,9 +122,10 @@ pub fn render(
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{}            [ {} \u{25bc} ]",
+            "{}            [ {} {} ]",
             t!("tui.config.sync_mode"),
-            mode_label
+            mode_label,
+            theme::ICON_DROPDOWN
         ))
         .style(if focused == 1 {
             focused_style
@@ -148,9 +148,10 @@ pub fn render(
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{}        [ {} \u{25bc} ]",
+            "{}        [ {} {} ]",
             t!("tui.config.sync_interval"),
-            t!("tui.config.seconds", n = form.auto_interval_seconds)
+            t!("tui.config.seconds", n = form.auto_interval_seconds),
+            theme::ICON_DROPDOWN
         ))
         .style(interval_style),
         chunks[row],
@@ -192,19 +193,35 @@ pub fn render(
     // ── Test button + status (focus index 3) ──────────────────────────────
     let (status_text, status_color) = match status {
         SyncConnectionStatus::Connected => (
-            format!("\u{2713} {}", t!("tui.config.sync_connected")),
+            format!(
+                "{} {}",
+                theme::ICON_SUCCESS,
+                t!("tui.config.sync_connected")
+            ),
             ratatui::style::Color::Rgb(158, 206, 106),
         ),
         SyncConnectionStatus::Disconnected => (
-            format!("\u{2717} {}", t!("tui.config.sync_disconnected")),
+            format!(
+                "{} {}",
+                theme::ICON_ERROR,
+                t!("tui.config.sync_disconnected")
+            ),
             ratatui::style::Color::Rgb(247, 118, 142),
         ),
         SyncConnectionStatus::NotConfigured => (
-            format!("\u{2014} {}", t!("tui.config.sync_not_configured")),
+            format!(
+                "{} {}",
+                theme::ICON_NOT_CONFIGURED,
+                t!("tui.config.sync_not_configured")
+            ),
             ratatui::style::Color::Rgb(59, 66, 97),
         ),
         SyncConnectionStatus::Testing => (
-            format!("\u{27f3} {}", t!("tui.config.sync_testing")),
+            format!(
+                "{} {}",
+                theme::ICON_SYNC_SYNCING,
+                t!("tui.config.sync_testing")
+            ),
             theme::PRIMARY,
         ),
     };
