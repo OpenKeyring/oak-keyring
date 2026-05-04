@@ -113,7 +113,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         // Tagline
         let tagline_line = Line::from(vec![
             Span::styled(
-                "Secure",
+                t!("tui.entry.tagline_secure"),
                 ratatui::style::Style::default().fg(TEXT_SECONDARY),
             ),
             Span::raw("  "),
@@ -123,7 +123,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
             ),
             Span::raw("  "),
             Span::styled(
-                "Private",
+                t!("tui.entry.tagline_private"),
                 ratatui::style::Style::default().fg(TEXT_SECONDARY),
             ),
             Span::raw("  "),
@@ -132,7 +132,10 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
                 ratatui::style::Style::default().fg(theme::PRIMARY),
             ),
             Span::raw("  "),
-            Span::styled("Yours", ratatui::style::Style::default().fg(TEXT_SECONDARY)),
+            Span::styled(
+                t!("tui.entry.tagline_yours"),
+                ratatui::style::Style::default().fg(TEXT_SECONDARY),
+            ),
         ]);
         let tagline = Paragraph::new(tagline_line).alignment(Alignment::Center);
 
@@ -150,12 +153,12 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         };
 
         let input_title = match self.mode {
-            UnlockMode::Password => Line::from(" MASTER PASSWORD ")
+            UnlockMode::Password => Line::from(t!("tui.entry.password_title"))
                 .style(
                     ratatui::style::Style::default().add_modifier(ratatui::style::Modifier::BOLD),
                 )
                 .alignment(Alignment::Center),
-            UnlockMode::RecoveryKey => Line::from(" RECOVERY KEY ")
+            UnlockMode::RecoveryKey => Line::from(t!("tui.entry.recovery_title"))
                 .style(
                     ratatui::style::Style::default().add_modifier(ratatui::style::Modifier::BOLD),
                 )
@@ -170,7 +173,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
 
         let placeholder: String = match self.mode {
             UnlockMode::Password => t!("tui.entry.unlock_prompt").to_string(),
-            UnlockMode::RecoveryKey => "Enter your recovery key words\u{2026}".to_string(),
+            UnlockMode::RecoveryKey => t!("tui.entry.recovery_prompt").to_string(),
         };
 
         let input_block = Block::default()
@@ -249,17 +252,21 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         // Success message
         let success_text = match &self.state {
             UnlockPhase::Success => Some(
-                Paragraph::new(format!("{} Vault unlocked", theme::ICON_SUCCESS))
-                    .style(Styles::success_text())
-                    .alignment(Alignment::Center),
+                Paragraph::new(format!(
+                    "{} {}",
+                    theme::ICON_SUCCESS,
+                    t!("tui.entry.vault_unlocked")
+                ))
+                .style(Styles::success_text())
+                .alignment(Alignment::Center),
             ),
             _ => None,
         };
 
         // Hint text
         let hint_msg = match self.mode {
-            UnlockMode::Password => "Your master password unlocks your encrypted data",
-            UnlockMode::RecoveryKey => "Your recovery key unlocks your encrypted data",
+            UnlockMode::Password => t!("tui.entry.password_hint"),
+            UnlockMode::RecoveryKey => t!("tui.entry.recovery_hint"),
         };
         let hint = Paragraph::new(hint_msg)
             .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
@@ -277,7 +284,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
                 ),
                 Span::raw("  "),
                 Span::styled(
-                    "Press Tab to use recovery key",
+                    t!("tui.entry.tab_to_recovery"),
                     ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
                 ),
             ]),
@@ -291,7 +298,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
                 ),
                 Span::raw("  "),
                 Span::styled(
-                    "Press Tab to use master password",
+                    t!("tui.entry.tab_to_password"),
                     ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
                 ),
             ]),
