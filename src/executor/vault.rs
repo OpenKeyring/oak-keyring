@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::commands::{CommandResult, InternalCommand};
+use crate::config::ConfigManager;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::SecureStr;
@@ -25,7 +26,8 @@ pub(super) fn schedule_health_check_after_unlock(executor: &mut CommandExecutor)
         }
     };
 
-    let should_run = crate::services::health::should_run(&executor.config.security, last_check);
+    let config = executor.config.get_config();
+    let should_run = crate::services::health::should_run(&config.security, last_check);
 
     if should_run {
         // Non-blocking: send via internal channel. The executor loop will
@@ -180,7 +182,8 @@ pub async fn handle_initialize_vault(
 ) -> CommandResult {
     // Step 1: Obtain Passkey — either from pre-generated recovery words or
     // by generating a fresh mnemonic.
-    let language = MnemonicLanguage::from_config_language(&executor.config.general.language);
+    let config = executor.config.get_config();
+    let language = MnemonicLanguage::from_config_language(&config.general.language);
     let passkey = match recovery_words {
         Some(words) => match reconstruct_passkey(&words) {
             Ok(pk) => pk,

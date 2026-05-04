@@ -2,7 +2,7 @@ use crate::commands::types::AuditFilter;
 use crate::commands::CommandResult;
 use crate::config::notification::ServiceNotification;
 use crate::config::sync::ProviderConfig;
-use crate::config::AppConfig;
+use crate::config::{AppConfig, ConfigManager};
 use crate::errors::{ErrorCode, ErrorContext};
 use std::future::Future;
 
@@ -11,18 +11,18 @@ use super::CommandExecutor;
 #[tracing::instrument(skip_all)]
 pub fn handle_load_config(executor: &mut CommandExecutor) -> CommandResult {
     CommandResult::ConfigLoaded {
-        config: executor.config.clone(),
+        config: executor.config.get_config(),
     }
 }
 
 #[tracing::instrument(skip_all)]
 pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> CommandResult {
-    let changed = detect_changed_fields(&executor.config, &config);
+    let old_config = executor.config.get_config();
+    let changed = detect_changed_fields(&old_config, &config);
 
-    match config.save(&executor.vault_dir) {
+    match executor.config.save(&config, &executor.vault_dir) {
         Ok(()) => {
             let warnings = apply_config_changes(executor, &changed, &config);
-            executor.config = config;
 
             if !changed.is_empty() {
                 tracing::info!(changed_fields = ?changed, warnings = warnings.len(), "Config saved and changes applied");
@@ -147,9 +147,10 @@ pub async fn handle_test_sync_connection(
 
     // If caller provides a provider_config, test it without modifying executor.sync.
     if let Some(pc) = provider_config {
+        let current_config = executor.config.get_config();
         let test_config = SyncConfig {
-            provider: executor.config.sync.provider,
-            ..executor.config.sync.clone()
+            provider: current_config.sync.provider,
+            ..current_config.sync.clone()
         };
         // Override just the provider_config for testing.
         let mut test_sync = test_config;
@@ -305,7 +306,7 @@ mod tests {
             health: HealthService::new(),
             clipboard,
             import_export: ImportExportService::new(),
-            config: AppConfig::default(),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
             config_notifier,
             vault_dir: std::path::PathBuf::from(":memory:"),
             health_report: None,
