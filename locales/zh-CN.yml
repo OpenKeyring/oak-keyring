@@ -606,6 +606,7 @@ tui:
     expired_warning: "%{count} 个密码已过期"
     expiring_warning: "%{count} 个密码即将过期"
     expired_and_expiring: "%{expired} 个已过期，%{expiring} 个即将过期"
+    renamed: "已重命名 \"%{old}\" → \"%{new}\""
 
   empty:
     no_passwords: "还没有密码"
