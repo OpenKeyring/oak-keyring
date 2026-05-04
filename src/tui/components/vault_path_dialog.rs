@@ -12,6 +12,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::t;
 use crate::tui::theme;
 
 // ── Colour / layout constants ────────────────────────────────────
@@ -72,7 +73,7 @@ impl VaultPathDialog {
 
         let block = Block::default()
             .title(Span::styled(
-                " 修改 Vault 路径 ",
+                t!("tui.vault_path_dialog.title").to_string(),
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
@@ -127,25 +128,47 @@ impl VaultPathDialog {
 
         let lines = vec![
             // Current path
-            label_line("当前路径:", label),
+            label_line(&t!("tui.vault_path_dialog.current_path").to_string(), label),
             value_line(&current_display, value),
             Line::raw(""),
             // New path
-            label_line("新路径:", label),
+            label_line(&t!("tui.vault_path_dialog.new_path").to_string(), label),
             value_line(&new_display, value),
             Line::raw(""),
             // Vault directory contents explanation
-            label_line("Vault 目录包含以下文件:", label),
-            file_list_line("vault.db", "加密 SQLite 数据库（所有密码数据）", value),
-            file_list_line("metadata.json", "Vault 元信息（版本、设备 ID 等）", value),
-            file_list_line("config.toml", "客户端配置（同步、快捷键等）", value),
+            label_line(
+                &t!("tui.vault_path_dialog.vault_contains").to_string(),
+                label,
+            ),
+            file_list_line(
+                &t!("tui.vault_path_dialog.file_vault_db").to_string(),
+                &t!("tui.vault_path_dialog.desc_vault_db").to_string(),
+                value,
+            ),
+            file_list_line(
+                &t!("tui.vault_path_dialog.file_metadata").to_string(),
+                &t!("tui.vault_path_dialog.desc_metadata").to_string(),
+                value,
+            ),
+            file_list_line(
+                &t!("tui.vault_path_dialog.file_config").to_string(),
+                &t!("tui.vault_path_dialog.desc_config").to_string(),
+                value,
+            ),
             Line::raw(""),
             // Warning
             Line::from(Span::styled(
-                format!(" {} 修改路径后需要重启应用才能生效。", theme::ICON_WARNING),
+                t!(
+                    "tui.vault_path_dialog.warning_restart",
+                    icon = theme::ICON_WARNING
+                )
+                .to_string(),
                 warning,
             )),
-            Line::from(Span::styled("    现有数据不会自动迁移。", warning)),
+            Line::from(Span::styled(
+                t!("tui.vault_path_dialog.warning_no_migration").to_string(),
+                warning,
+            )),
             // Separator
             separator_line(content_width),
             // Buttons
@@ -201,9 +224,15 @@ fn render_buttons(focused: VaultPathButton) -> Line<'static> {
 
     Line::from(vec![
         Span::raw("     "),
-        Span::styled(" [ 取消 ] ".to_string(), cancel_style),
+        Span::styled(
+            t!("tui.vault_path_dialog.button_cancel").to_string(),
+            cancel_style,
+        ),
         Span::raw("  "),
-        Span::styled(" [ 确认修改 ] ".to_string(), confirm_style),
+        Span::styled(
+            t!("tui.vault_path_dialog.button_confirm").to_string(),
+            confirm_style,
+        ),
     ])
 }
 
@@ -236,6 +265,12 @@ fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::i18n;
+
+    // Initialize locale for tests - call this at the start of each test that needs i18n
+    fn init_test_locale() {
+        i18n::init("zh-CN");
+    }
 
     #[test]
     fn button_toggle() {
@@ -331,6 +366,7 @@ mod tests {
 
     #[test]
     fn build_lines_contains_expected_sections() {
+        init_test_locale();
         let dialog = VaultPathDialog::new("/old/path".into(), "/new/path".into());
         let lines = dialog.build_lines(48);
 

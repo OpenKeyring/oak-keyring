@@ -244,15 +244,20 @@ impl AuditLogScreen {
     }
 
     pub(super) fn render_help_bar(&self, frame: &mut Frame, area: Rect) {
+        let help_select = t!("tui.audit_log_view.help_select").to_string();
+        let help_switch_area = t!("tui.audit_log_view.help_switch_area").to_string();
+        let help_view_record = t!("tui.audit_log_view.help_view_record").to_string();
+        let help_back = t!("tui.audit_log_view.help_back").to_string();
+
         let hints = [
             "\u{2191}\u{2193}/j/k",
-            "选择",
+            help_select.as_str(),
             "Tab",
-            "切换区域",
+            help_switch_area.as_str(),
             "Enter",
-            "查看记录",
+            help_view_record.as_str(),
             "Esc",
-            "返回",
+            help_back.as_str(),
         ];
 
         let hint_text = hints.chunks(2).fold(String::new(), |mut acc, pair| {

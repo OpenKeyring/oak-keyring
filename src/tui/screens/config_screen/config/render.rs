@@ -75,7 +75,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
             Style::default().fg(ratatui::style::Color::Yellow),
         ),
         Span::styled(
-            "部分配置修改需要重启应用后生效",
+            t!("tui.config_screen.restart_hint").to_string(),
             Style::default().fg(ratatui::style::Color::Yellow),
         ),
     ]));

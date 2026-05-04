@@ -775,6 +775,92 @@ tui:
     sync_offline: "离线"
     sync_not_configured: "未配置"
 
+  # ---- Sync Indicator ----
+  sync_indicator:
+    synced: "已同步"
+    syncing_with_progress: "同步中 %{current}/%{total}"
+    syncing: "同步中..."
+    failed_with_error: "同步失败: %{error}"
+    failed_unknown: "同步失败: 未知错误"
+    offline: "网络不可达"
+    not_configured: "未配置同步"
+    rotating_with_progress: "密钥轮换中 %{current}/%{total}"
+    rotating: "密钥轮换中..."
+    time_just_now: "刚刚"
+    time_minutes_ago: "%{n}分钟前"
+    time_hours_ago: "%{n}小时前"
+    time_days_ago: "%{n}天前"
+
+  # ---- Vault Path Dialog ----
+  vault_path_dialog:
+    title: " 修改 Vault 路径 "
+    current_path: "当前路径:"
+    new_path: "新路径:"
+    vault_contains: "Vault 目录包含以下文件:"
+    file_vault_db: "vault.db"
+    desc_vault_db: "加密 SQLite 数据库（所有密码数据）"
+    file_metadata: "metadata.json"
+    desc_metadata: "Vault 元信息（版本、设备 ID 等）"
+    file_config: "config.toml"
+    desc_config: "客户端配置（同步、快捷键等）"
+    warning_restart: " %{icon} 修改路径后需要重启应用才能生效。"
+    warning_no_migration: "    现有数据不会自动迁移。"
+    button_cancel: " [ 取消 ] "
+    button_confirm: " [ 确认修改 ] "
+
+  # ---- List State ----
+  list_state:
+    time_yesterday: "昨天"
+    time_days_ago: "%{n}天前"
+    time_weeks_ago: "%{n}周前"
+    type_prefix_api: "[API] "
+    type_prefix_ssh: "[SSH] "
+    deleted_days_ago: "%{n} 天前删除"
+    remaining_days: "剩余 %{n} 天"
+    will_not_auto_delete: "不会自动删除"
+
+  # ---- Empty State ----
+  empty_state:
+    no_passwords: "还没有密码"
+    empty_trash: "回收站为空"
+    empty_trash_hint: "已删除的密码会出现在这里"
+    no_favorites: "没有收藏"
+    no_expired: "没有过期的密码"
+    no_health_issues: "没有安全问题"
+    empty_tag: "该标签下没有密码"
+    no_search_results: "没有匹配结果"
+    no_passwords_hint: "按 n 创建你的第一个密码"
+    no_favorites_hint: "在密码详情中按 f 收藏"
+    no_expired_hint: "所有凭证都在有效期内"
+    no_health_issues_hint: "所有密码通过了安全检查"
+    empty_tag_hint: "创建密码并添加 '%{tag}' 标签"
+    no_search_results_hint: "没有匹配 '%{query}' 的结果"
+
+  # ---- Component Labels ----
+  component_labels:
+    strength: "  强度: "
+    strength_hint: "（输入密码后显示强度）"
+    tag: "  标签 "
+    length: "长度"
+    password: "密码"
+    required: " ← 必填"
+    optional: " ← 选填"
+
+  # ---- Audit Log View ----
+  audit_log_view:
+    help_select: "选择"
+    help_switch_area: "切换区域"
+    help_view_record: "查看记录"
+    help_back: "返回"
+
+  # ---- Config Screen ----
+  config_screen:
+    restart_hint: "部分配置修改需要重启应用后生效"
+
+  # ---- Generator Overlay ----
+  generator_overlay:
+    title: "  密码生成器"
+
   # ---- Sync Conflict ----
   sync:
     conflict_title: "同步冲突"

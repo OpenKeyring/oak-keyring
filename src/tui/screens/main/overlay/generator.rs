@@ -8,6 +8,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::t;
 use crate::tui::components::generator_panel;
 use crate::tui::state::generator_state::{GenerationStyle, GeneratorFocus, GeneratorState};
 use crate::tui::theme;
@@ -21,7 +22,7 @@ pub fn render_generator(frame: &mut Frame, area: Rect, state: &GeneratorState, u
         // Title bar
         Line::from(vec![
             Span::styled(
-                "  密码生成器",
+                t!("tui.generator_overlay.title").to_string(),
                 Style::default()
                     .fg(theme::TEXT)
                     .add_modifier(Modifier::BOLD),
