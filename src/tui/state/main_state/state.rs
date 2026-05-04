@@ -682,6 +682,9 @@ impl MainScreenState {
                     self.overlay_manager.open(overlay);
                     self.pending_animation = Some(EffectKind::ModalAppear);
                 }
+                if let Some(cmd) = result.command {
+                    return ScreenResult::Command(cmd);
+                }
                 ScreenResult::Continue
             }
         }

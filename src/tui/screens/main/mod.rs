@@ -15,7 +15,7 @@ use crate::commands::types::{
     BatchTagPanelState, ConfirmButton, ConfirmDialogState, ConfirmVariant, Overlay, PanelId,
     RecordFilter,
 };
-use crate::commands::Message;
+use crate::commands::{Command, Message};
 use crate::t;
 use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, PANEL_SEPARATOR};
 use crate::tui::screens::main::sidebar::SidebarPanel;
@@ -231,7 +231,11 @@ impl MainScreen {
                 }
                 _ => {}
             }
-            return MainKeyResult { messages, overlay };
+            return MainKeyResult {
+                messages,
+                overlay,
+                command: None,
+            };
         }
 
         match focused_panel {
@@ -392,7 +396,11 @@ impl MainScreen {
             },
         }
 
-        MainKeyResult { messages, overlay }
+        MainKeyResult {
+            messages,
+            overlay,
+            command: None,
+        }
     }
 
     /// Handle post-batch-delete cleanup.
@@ -475,6 +483,7 @@ impl MainScreen {
 pub struct MainKeyResult {
     pub messages: Vec<Message>,
     pub overlay: Option<Overlay>,
+    pub command: Option<Box<crate::commands::Command>>,
 }
 
 /// Sort the sidebar tags according to the current sort order.
