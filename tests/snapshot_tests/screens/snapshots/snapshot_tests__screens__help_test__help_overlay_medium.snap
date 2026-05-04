@@ -4,35 +4,35 @@ expression: terminal.backend()
 ---
 "                                                                                                              "
 "                                                                                                              "
-"                           ┌─────────────────────── 快捷键 ───────────────────────┐                           " Hidden by multi-width symbols: [(53, " "), (55, " "), (57, " ")]
-"                           │ 导航                        │  多选模式(v)           │                           " Hidden by multi-width symbols: [(30, " "), (32, " "), (61, " "), (63, " "), (65, " "), (67, " ")]
-"                           │  ↑/k       上移             │   Space     选中/取消  │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (72, " "), (74, " "), (77, " "), (79, " ")]
-"                           │  ↓/j       下移             │   j/k       上下移动   │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (72, " "), (74, " "), (76, " "), (78, " ")]
-"                           │  Tab       切换面板           │   a         全选/取消│                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (45, " "), (47, " "), (74, " "), (76, " "), (79, " "), (81, " ")]
-"                           │  Enter     确认             │   d         批量删除   │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (72, " "), (74, " "), (76, " "), (78, " ")]
-"                           │  Esc       返回/关闭          │   t         批量打标签                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (46, " "), (48, " "), (74, " "), (76, " "), (78, " "), (80, " "), (82, " ")]
-"                           │                           │   Esc/v     退出多选     │                           " Hidden by multi-width symbols: [(70, " "), (72, " "), (74, " "), (76, " ")]
-"                           │ 操作                        │                        │                           " Hidden by multi-width symbols: [(30, " "), (32, " ")]
-"                           │  Ctrl+K    搜索             │  标签管理(m)           │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (61, " "), (63, " "), (65, " "), (67, " ")]
-"                           │  n         新建             │   m         添加标签   │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (72, " "), (74, " "), (76, " "), (78, " ")]
-"                           │  e         编辑             │   r         重命名标签 │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (72, " "), (74, " "), (76, " "), (78, " "), (80, " ")]
-"                           │  d         删除             │   d         删除标签   │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (72, " "), (74, " "), (76, " "), (78, " ")]
-"                           │  f         收藏             │   s         保存       │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (72, " "), (74, " ")]
-"                           │  s         排序             │                        │                           " Hidden by multi-width symbols: [(41, " "), (43, " ")]
-"                           │  v         多选模式           │  同步                │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (45, " "), (47, " "), (63, " "), (65, " ")]
-"                           │  g         配置页            │   Ctrl+R    手动同步  │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (45, " "), (73, " "), (75, " "), (77, " "), (79, " ")]
-"                           │  l         审计日志           │                      │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (45, " "), (47, " ")]
-"                           │  q         退出             │                        │                           " Hidden by multi-width symbols: [(41, " "), (43, " ")]
+"                           ┌──────────────────────── Help ────────────────────────┐                           "
+"                           │ Navigation                │  Multiselect             │                           "
+"                           │  ↑/k       Move up        │   Space                  │                           "
+"                           │Select/Deselect                                       │                           "
+"                           │  ↓/j       Move down      │   j/k       Move up/down │                           "
+"                           │  Tab       Switch panel   │   a         Select       │                           "
+"                           │all/Deselect                                          │                           "
+"                           │  Enter     Confirm        │   d         Batch delete │                           "
+"                           │  Esc       Back/Close     │   t         Batch tag    │                           "
+"                           │                           │   Esc/v     Exit         │                           "
+"                           │multiselect                                           │                           "
+"                           │ Actions                   │                          │                           "
+"                           │  Ctrl+K    Search         │  Tag Management          │                           "
+"                           │  n         New            │   m         Add tag      │                           "
+"                           │  e         Edit           │   r         Rename tag   │                           "
+"                           │  d         Delete         │   d         Delete tag   │                           "
+"                           │  f         Favorite       │   s         Save         │                           "
+"                           │  s         Sort           │                          │                           "
+"                           │  v         Multiselect mode│  Sync                   │                           "
+"                           │  g         Settings       │   Ctrl+R    Manual sync  │                           "
+"                           │  l         Audit log      │                          │                           "
+"                           │  q         Quit           │                          │                           "
 "                           │                           │                          │                           "
-"                           │ 密码详情                      │                      │                           " Hidden by multi-width symbols: [(30, " "), (32, " "), (34, " "), (36, " ")]
-"                           │  c         复制密码           │                      │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (45, " "), (47, " ")]
-"                           │  u         复制用户名          │                     │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (45, " "), (47, " "), (49, " ")]
-"                           │  p         显示/隐藏密码        │                    │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (46, " "), (48, " "), (50, " "), (52, " ")]
-"                           │  H         密码历史           │                      │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (45, " "), (47, " ")]
+"                           │ Password Details          │                          │                           "
+"                           │  c         Copy password  │                          │                           "
+"                           │  u         Copy username  │                          │                           "
+"                           │  p         Show/Hide password│                       │                           "
+"                           │  H         Password history│                         │                           "
 "                           │                           │                          │                           "
-"                           │ 回收站                       │                       │                           " Hidden by multi-width symbols: [(30, " "), (32, " "), (34, " ")]
-"                           │  r         恢复记录           │                      │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (45, " "), (47, " ")]
-"                           │  D         永久删除           │                      │                           " Hidden by multi-width symbols: [(41, " "), (43, " "), (45, " "), (47, " ")]
 "                           └──────────────────────────────────────────────────────┘                           "
 "                                                                                                              "
 "                                                                                                              "

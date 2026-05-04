@@ -3,32 +3,32 @@ source: tests/snapshot_tests/screens/help_test.rs
 expression: terminal.backend()
 ---
 "                                                                                          "
-"                       ┌───────────────── 快捷键 ─────────────────┐                       " Hidden by multi-width symbols: [(43, " "), (45, " "), (47, " ")]
-"                       │ 导航                                     │                       " Hidden by multi-width symbols: [(26, " "), (28, " ")]
-"                       │  ↑/k       上移                          │                       " Hidden by multi-width symbols: [(37, " "), (39, " ")]
-"                       │  ↓/j       下移                          │                       " Hidden by multi-width symbols: [(37, " "), (39, " ")]
-"                       │  Tab       切换面板                      │                       " Hidden by multi-width symbols: [(37, " "), (39, " "), (41, " "), (43, " ")]
-"                       │  Enter     确认                          │                       " Hidden by multi-width symbols: [(37, " "), (39, " ")]
-"                       │  Esc       返回/关闭                     │                       " Hidden by multi-width symbols: [(37, " "), (39, " "), (42, " "), (44, " ")]
+"                       ┌────────────────── Help ──────────────────┐                       "
+"                       │ Navigation                               │                       "
+"                       │  ↑/k       Move up                       │                       "
+"                       │  ↓/j       Move down                     │                       "
+"                       │  Tab       Switch panel                  │                       "
+"                       │  Enter     Confirm                       │                       "
+"                       │  Esc       Back/Close                    │                       "
 "                       │                                          │                       "
-"                       │ 操作                                     │                       " Hidden by multi-width symbols: [(26, " "), (28, " ")]
-"                       │  Ctrl+K    搜索                          │                       " Hidden by multi-width symbols: [(37, " "), (39, " ")]
-"                       │  n         新建                          │                       " Hidden by multi-width symbols: [(37, " "), (39, " ")]
-"                       │  e         编辑                          │                       " Hidden by multi-width symbols: [(37, " "), (39, " ")]
-"                       │  d         删除                          │                       " Hidden by multi-width symbols: [(37, " "), (39, " ")]
-"                       │  f         收藏                          │                       " Hidden by multi-width symbols: [(37, " "), (39, " ")]
-"                       │  s         排序                          │                       " Hidden by multi-width symbols: [(37, " "), (39, " ")]
-"                       │  v         多选模式                      │                       " Hidden by multi-width symbols: [(37, " "), (39, " "), (41, " "), (43, " ")]
-"                       │  g         配置页                        │                       " Hidden by multi-width symbols: [(37, " "), (39, " "), (41, " ")]
-"                       │  l         审计日志                      │                       " Hidden by multi-width symbols: [(37, " "), (39, " "), (41, " "), (43, " ")]
-"                       │  q         退出                          │                       " Hidden by multi-width symbols: [(37, " "), (39, " ")]
+"                       │ Actions                                  │                       "
+"                       │  Ctrl+K    Search                        │                       "
+"                       │  n         New                           │                       "
+"                       │  e         Edit                          │                       "
+"                       │  d         Delete                        │                       "
+"                       │  f         Favorite                      │                       "
+"                       │  s         Sort                          │                       "
+"                       │  v         Multiselect mode              │                       "
+"                       │  g         Settings                      │                       "
+"                       │  l         Audit log                     │                       "
+"                       │  q         Quit                          │                       "
 "                       │                                          │                       "
-"                       │ 密码详情                                 │                       " Hidden by multi-width symbols: [(26, " "), (28, " "), (30, " "), (32, " ")]
-"                       │  c         复制密码                      │                       " Hidden by multi-width symbols: [(37, " "), (39, " "), (41, " "), (43, " ")]
-"                       │  u         复制用户名                    │                       " Hidden by multi-width symbols: [(37, " "), (39, " "), (41, " "), (43, " "), (45, " ")]
-"                       │  p         显示/隐藏密码                 │                       " Hidden by multi-width symbols: [(37, " "), (39, " "), (42, " "), (44, " "), (46, " "), (48, " ")]
-"                       │  H         密码历史                      │                       " Hidden by multi-width symbols: [(37, " "), (39, " "), (41, " "), (43, " ")]
+"                       │ Password Details                         │                       "
+"                       │  c         Copy password                 │                       "
+"                       │  u         Copy username                 │                       "
+"                       │  p         Show/Hide password            │                       "
+"                       │  H         Password history              │                       "
 "                       │                                          │                       "
-"                       │ 多选模式(v)                              │                       " Hidden by multi-width symbols: [(26, " "), (28, " "), (30, " "), (32, " ")]
+"                       │ Multiselect                              │                       "
 "                       └──────────────────────────────────────────┘                       "
 "                                                                                          "

@@ -7,16 +7,16 @@ expression: terminal.backend()
 "                                                            "
 "  ──────────────────────────────                            "
 "                                                            "
-"  登录信息                                                  " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " "), (9, " ")]
+"  Login                                                     "
 "                                                            "
 "  用户名:                                                   " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
 "    user                                                    "
 "                                                            "
 "  密码:                                                     " Hidden by multi-width symbols: [(3, " "), (5, " ")]
 "    ••••••••                                                "
-"    强度: ██░░░░░░░░░░░░░░ 极弱                             " Hidden by multi-width symbols: [(5, " "), (7, " "), (28, " "), (30, " ")]
+"    Strength: ██░░░░░░░░░░░░░░ Too Weak                     "
 "                                                            "
-"  ⚠ 此密码已在数据泄露中发现 — 请立即修改                   " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (17, " "), (19, " "), (21, " "), (23, " "), (25, " "), (27, " "), (32, " "), (34, " "), (36, " "), (38, " "), (40, " ")]
+"  ⚠ This password was found in a data breach — change it imm"
 "                                                            "
 "                                                            "
 "                                                            "

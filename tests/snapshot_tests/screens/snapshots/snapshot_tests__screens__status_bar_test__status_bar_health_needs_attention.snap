@@ -2,4 +2,4 @@
 source: tests/snapshot_tests/screens/status_bar_test.rs
 expression: backend
 ---
-"  ⌘K搜索 n新建 e编辑 d删除 F1帮助 │ v0.1.0 │ ⚠ 有需注意 W3 C1 D2 │ ✓ 已同步                                             " Hidden by multi-width symbols: [(5, " "), (7, " "), (11, " "), (13, " "), (17, " "), (19, " "), (23, " "), (25, " "), (30, " "), (32, " "), (48, " "), (50, " "), (52, " "), (54, " "), (70, " "), (72, " "), (74, " ")]
+"  ⌘K搜索 n新建 e编辑 d删除 F1帮助 │ v0.1.0 │ ⚠ Needs attention W3 C1 D2 │ ✓ Synced                                      " Hidden by multi-width symbols: [(5, " "), (7, " "), (11, " "), (13, " "), (17, " "), (19, " "), (23, " "), (25, " "), (30, " "), (32, " ")]
