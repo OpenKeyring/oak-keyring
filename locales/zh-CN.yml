@@ -274,6 +274,7 @@ tui:
     hostname_label: "主机地址"
     public_key_label: "公钥"
     private_key_label: "私钥"
+    passphrase_label: "Passphrase"
     expiry_label: "过期时间"
     expiry_never: "永不过期"
     expiry_30d: "30 天"

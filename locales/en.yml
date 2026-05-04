@@ -213,6 +213,7 @@ tui:
     hostname_label: "Hostname"
     public_key_label: "Public Key"
     private_key_label: "Private Key"
+    passphrase_label: "Passphrase"
     paste_button: "Paste"
 
   # ---- U5: Overlay System (common dialog text) ----
