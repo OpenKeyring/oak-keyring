@@ -200,6 +200,7 @@ mod tests {
     fn make_state(n_entries: usize, selected: usize) -> PasswordHistoryState {
         let entries: Vec<_> = (0..n_entries)
             .map(|i| crate::tui::state::overlay_state::HistoryEntry {
+                id: i as i64 + 1,
                 changed_at: Utc.with_ymd_and_hms(2025, 1, 1, 12, 0, i as u32).unwrap(),
                 description: format!("password v{}", i + 1),
             })

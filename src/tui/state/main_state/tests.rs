@@ -1,6 +1,13 @@
 use super::*;
-use crate::commands::types::RecordFilter;
+use crate::commands::types::{
+    ConfirmButton, ConfirmDialogState, ConfirmVariant, Overlay, RecordFilter,
+};
+use crate::commands::{Command, Message};
+use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::Tag;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use tokio::sync::mpsc;
+use uuid::Uuid;
 
 #[test]
 fn sidebar_default_selects_all_category() {
@@ -440,10 +447,7 @@ fn main_restore_state_restores_navigation_context() {
 // ── Overlay integration tests ─────────────────────────────────────────────
 
 use crate::commands::types::PanelId;
-use crate::commands::Message;
 use crate::tui::state::animation::EffectKind;
-use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
-use crossterm::event::KeyCode;
 
 fn make_ctx() -> ScreenContext<'static> {
     // Leak is acceptable in tests — the channel lives for the process lifetime.
@@ -533,4 +537,110 @@ fn overlay_consumes_tab_key() {
     // Tab should be consumed by overlay, not propagate to panel focus cycling
     assert!(matches!(result, ScreenResult::Continue));
     assert!(state.overlay_manager.is_active());
+}
+
+#[test]
+fn copy_generated_password_maps_to_command() {
+    let mut state = MainScreenState::default();
+    state.overlay_manager.open(Overlay::PasswordGenerator);
+    assert!(state.overlay_manager.is_active());
+
+    // Set a preview password in the generator state
+    if let Some(generator) = state.overlay_manager.get_mut() {
+        if let crate::tui::screens::main::overlay::ActiveOverlay::PasswordGenerator(gen_state) =
+            generator
+        {
+            gen_state.preview = "test-password-123".to_string();
+        }
+    }
+
+    // Enter key triggers copy in generator overlay
+    let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+    let result = state.update(Message::KeyEvent(key), &mut ctx);
+
+    // Overlay should be closed
+    assert!(!state.overlay_manager.is_active());
+
+    // Should return a CopyRawToClipboard command
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::CopyRawToClipboard { .. } => {}
+            other => panic!("Expected CopyRawToClipboard, got {:?}", other),
+        }
+    } else {
+        panic!("Expected Command result, got {:?}", result);
+    }
+}
+
+#[test]
+fn confirm_soft_delete_maps_to_command() {
+    let mut state = MainScreenState::default();
+    let record_id = Uuid::new_v4();
+    let dialog = ConfirmDialogState {
+        variant: ConfirmVariant::SoftDelete {
+            record_id,
+            record_name: "Test Record".to_string(),
+            auto_delete_days: None,
+        },
+        focused_button: ConfirmButton::Confirm,
+    };
+    assert!(state.overlay_manager.open(Overlay::ConfirmDialog(dialog)));
+    assert!(state.overlay_manager.is_active());
+
+    // Enter confirms (focused on Confirm button)
+    let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+    let result = state.update(Message::KeyEvent(key), &mut ctx);
+
+    assert!(!state.overlay_manager.is_active());
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::SoftDeleteRecord { id } if *id == record_id => {}
+            other => panic!(
+                "Expected SoftDeleteRecord with id {:?}, got {:?}",
+                record_id, other
+            ),
+        }
+    } else {
+        panic!("Expected Command result, got {:?}", result);
+    }
+}
+
+#[test]
+fn confirm_empty_trash_maps_to_command() {
+    let mut state = MainScreenState::default();
+    let dialog = ConfirmDialogState {
+        variant: ConfirmVariant::EmptyTrash { count: 5 },
+        focused_button: ConfirmButton::Cancel, // EmptyTrash defaults to Cancel for safety
+    };
+    assert!(state.overlay_manager.open(Overlay::ConfirmDialog(dialog)));
+    assert!(state.overlay_manager.is_active());
+
+    // 'y' always confirms regardless of which button has focus
+    let key = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE);
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+    let result = state.update(Message::KeyEvent(key), &mut ctx);
+
+    assert!(!state.overlay_manager.is_active());
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::EmptyTrash => {}
+            other => panic!("Expected EmptyTrash, got {:?}", other),
+        }
+    } else {
+        panic!("Expected Command result, got {:?}", result);
+    }
 }
