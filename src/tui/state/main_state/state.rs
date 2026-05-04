@@ -595,16 +595,17 @@ impl Screen for MainScreenState {
                     CommandResult::RecordListLoaded { records, total } => {
                         self.list.records = records;
                         self.list.total_count = total;
-                        // Reset selection if it's out of bounds
-                        if self.list.selected_index.is_some()
-                            && self.list.selected_index.unwrap() >= self.list.records.len()
-                        {
-                            self.list.selected_index = if self.list.records.is_empty() {
-                                None
-                            } else {
-                                Some(0)
-                            };
-                        }
+                        // Normalize selection after loading
+                        self.list.selected_index = if self.list.records.is_empty() {
+                            None
+                        } else {
+                            Some(
+                                self.list
+                                    .selected_index
+                                    .unwrap_or(0)
+                                    .min(self.list.records.len() - 1),
+                            )
+                        };
                         ScreenResult::Continue
                     }
                     CommandResult::RecordDeleted { id } => {
@@ -636,10 +637,29 @@ impl Screen for MainScreenState {
                         ScreenResult::Continue
                     }
                     CommandResult::FavoriteToggled { id, is_favorite } => {
-                        // Update in-place without full reload
                         if let Some(record) = self.list.records.iter_mut().find(|r| r.id == id) {
                             record.is_favorite = is_favorite;
                         }
+                        // When viewing Favorites, unfavorite should remove the row
+                        if matches!(self.current_filter, RecordFilter::Favorites) && !is_favorite {
+                            self.list.records.retain(|r| r.id != id);
+                            self.list.selected_index = if self.list.records.is_empty() {
+                                None
+                            } else {
+                                Some(
+                                    self.list
+                                        .selected_index
+                                        .unwrap_or(0)
+                                        .min(self.list.records.len() - 1),
+                                )
+                            };
+                        }
+                        ScreenResult::Continue
+                    }
+                    CommandResult::RecordDetailLoaded { record } => {
+                        let view_data = DetailPanelState::build_from_record(&record);
+                        self.detail = DetailPanelState::with_record(view_data);
+                        self.detail.is_trash = self.current_filter == RecordFilter::Trash;
                         ScreenResult::Continue
                     }
                     _ => ScreenResult::Continue,
@@ -697,7 +717,8 @@ impl MainScreenState {
                 }
                 KeyCode::Backspace => {
                     if let ListMode::Search(ref s) = self.list.mode {
-                        let new_query = s.query.chars().rev().skip(1).collect::<String>();
+                        let mut new_query = s.query.clone();
+                        new_query.pop();
                         self.list.update_search_query(new_query);
                     }
                     return ScreenResult::Continue;
