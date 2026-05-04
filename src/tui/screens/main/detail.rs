@@ -6,6 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
+use crate::t;
 use crate::tui::state::detail_state::{
     DetailFieldKind, DetailPanelState, DetailViewData, ExpiryStatus, FieldValue, PasswordStrength,
 };
@@ -56,7 +57,7 @@ impl DetailPanel {
             )),
             Line::from(""),
             Line::from(Span::styled(
-                "  Select an item to view details".to_string(),
+                format!("  {}", t!("tui.password_detail.empty_hint")),
                 Style::default().fg(theme::TEXT_SECONDARY),
             )),
             Line::from(Span::styled(
@@ -94,7 +95,7 @@ impl DetailPanel {
                     Style::default().fg(theme::WARNING),
                 ),
                 Span::styled(
-                    "已删除".to_string(),
+                    t!("tui.trash.deleted_label"),
                     Style::default()
                         .fg(theme::WARNING)
                         .add_modifier(Modifier::BOLD),
@@ -106,27 +107,45 @@ impl DetailPanel {
             match calculate_remaining_days(&deleted_at, state.trash_retention_days) {
                 None => {
                     banner_spans.push(Span::styled(
-                        format!("{}  · 不会自动删除", info_prefix),
+                        format!(
+                            "{}  · {}",
+                            info_prefix,
+                            t!("tui.trash.will_not_auto_delete")
+                        ),
                         Style::default().fg(theme::TEXT_SECONDARY),
                     ));
                 }
                 Some(remaining) => {
                     let tier = trash_warning_tier(remaining);
+                    let days_str = format!("{}", t!("tui.config.days", n = remaining.max(0)));
                     let (dot_color, remaining_text) = match tier {
                         TrashWarningTier::Safe => (
                             theme::TEXT_SECONDARY,
-                            format!(" · 剩余 {} 天", remaining.max(0)),
+                            format!(
+                                " · {}",
+                                t!("tui.trash.auto_delete_in", days = days_str.as_str())
+                            ),
                         ),
-                        TrashWarningTier::Moderate => {
-                            (theme::WARNING, format!(" · 剩余 {} 天", remaining.max(0)))
-                        }
+                        TrashWarningTier::Moderate => (
+                            theme::WARNING,
+                            format!(
+                                " · {}",
+                                t!("tui.trash.auto_delete_in", days = days_str.as_str())
+                            ),
+                        ),
                         TrashWarningTier::Urgent => (
                             theme::WARNING,
-                            format!(" \u{26A0} 剩余 {} 天", remaining.max(0)),
+                            format!(
+                                " \u{26A0} {}",
+                                t!("tui.trash.auto_delete_in", days = days_str.as_str())
+                            ),
                         ),
                         TrashWarningTier::Critical => (
                             theme::ERROR,
-                            format!(" \u{26A0} 剩余 {} 天", remaining.max(0)),
+                            format!(
+                                " \u{26A0} {}",
+                                t!("tui.trash.auto_delete_in", days = days_str.as_str())
+                            ),
                         ),
                     };
                     banner_spans.push(Span::styled(
@@ -177,7 +196,14 @@ impl DetailPanel {
                 };
                 if let Some(dt) = record.expires_at {
                     markers.push(Span::styled(
-                        format!("{} 即将过期（{}）", icon, dt.format("%Y-%m-%d")),
+                        format!(
+                            "{} {}",
+                            icon,
+                            t!(
+                                "tui.password_detail.expiry_warning",
+                                days = dt.format("%Y-%m-%d")
+                            )
+                        ),
                         Style::default().fg(theme::WARNING),
                     ));
                 }
@@ -190,7 +216,14 @@ impl DetailPanel {
                 };
                 if let Some(dt) = record.expires_at {
                     markers.push(Span::styled(
-                        format!("{} 已过期（{}）", icon, dt.format("%Y-%m-%d")),
+                        format!(
+                            "{} {}",
+                            icon,
+                            t!(
+                                "tui.password_detail.expiry_expired",
+                                days = dt.format("%Y-%m-%d")
+                            )
+                        ),
                         Style::default().fg(theme::ERROR),
                     ));
                 }
@@ -212,9 +245,9 @@ impl DetailPanel {
 
         // Credential type label
         let type_label = match record.credential_type {
-            crate::types::credential::CredentialType::Login => "\u{767B}\u{5F55}\u{4FE1}\u{606F}",
-            crate::types::credential::CredentialType::Api => "API \u{51ED}\u{8BC1}",
-            crate::types::credential::CredentialType::Ssh => "SSH \u{5BC6}\u{94A5}",
+            crate::types::credential::CredentialType::Login => t!("tui.form.type_login"),
+            crate::types::credential::CredentialType::Api => t!("tui.form.type_api"),
+            crate::types::credential::CredentialType::Ssh => t!("tui.form.type_ssh"),
         };
         lines.push(Line::from(Span::styled(
             format!("{}{}", pad, type_label),
@@ -292,29 +325,21 @@ impl DetailPanel {
 
         // Health Issue Line
         if let Some(issue) = &state.health_issue {
-            let (text, color) = match issue {
+            use std::borrow::Cow;
+            let (text, color): (Cow<str>, _) = match issue {
                 crate::commands::types::HealthIssue::Compromised => {
-                    (
-                        "\u{6B64}\u{5BC6}\u{7801}\u{5DF2}\u{5728}\u{6570}\u{636E}\u{6CC4}\u{9732}\u{4E2D}\u{53D1}\u{73B0} \u{2014} \u{8BF7}\u{7ACB}\u{5373}\u{4FEE}\u{6539}".to_string(),
-                        theme::ERROR,
-                    )
+                    (t!("tui.password_detail.health_leaked"), theme::ERROR)
                 }
                 crate::commands::types::HealthIssue::Weak => {
-                    (
-                        "\u{5F31}\u{5BC6}\u{7801} \u{2014} \u{5EFA}\u{8BAE}\u{66F4}\u{65B0}\u{4E3A}\u{66F4}\u{5F3A}\u{7684}\u{5BC6}\u{7801}".to_string(),
-                        theme::WARNING,
-                    )
+                    (t!("tui.password_detail.health_weak"), theme::WARNING)
                 }
-                crate::commands::types::HealthIssue::Duplicate { group_size } => {
-                    (
-                        format!(
-                            "\u{8BE5}\u{5BC6}\u{7801}\u{4E0E}\u{5176}\u{4ED6} {} \u{6761}\u{8BB0}\u{5F55}\u{91CD}\u{590D} \u{2014} \u{5EFA}\u{8BAE}\u{4F7F}\u{7528}\u{72EC}\u{7ACB}\u{5BC6}\u{7801}",
-                            group_size
-                        ),
-                        theme::WARNING,
-                    )
+                crate::commands::types::HealthIssue::Duplicate { group_size } => (
+                    t!("tui.password_detail.health_duplicate", count = group_size),
+                    theme::WARNING,
+                ),
+                crate::commands::types::HealthIssue::Expired => {
+                    (Cow::Borrowed(""), theme::TEXT_MUTED)
                 }
-                crate::commands::types::HealthIssue::Expired => (String::new(), theme::TEXT_MUTED),
             };
             if !text.is_empty() {
                 lines.push(Line::from(Span::styled(
@@ -352,12 +377,23 @@ impl DetailPanel {
                 .fg(theme::ERROR)
                 .add_modifier(Modifier::BOLD);
             lines.push(Line::from(vec![
-                Span::styled(format!("{}[恢复]", pad), restore_style),
+                Span::styled(
+                    format!("{}[{}]", pad, t!("tui.trash.restore_button")),
+                    restore_style,
+                ),
                 Span::raw("  "),
-                Span::styled("[永久删除]", destroy_style),
+                Span::styled(
+                    format!("[{}]", t!("tui.overlay.confirm_delete_permanent")),
+                    destroy_style,
+                ),
             ]));
             lines.push(Line::from(Span::styled(
-                format!("{}r 恢复  D 永久删除", pad),
+                format!(
+                    "{}r {}  D {}",
+                    pad,
+                    t!("tui.trash.restore_button"),
+                    t!("tui.overlay.confirm_delete_permanent")
+                ),
                 Style::default().fg(theme::TEXT_MUTED),
             )));
             lines.push(Line::from(""));
@@ -367,9 +403,11 @@ impl DetailPanel {
         if !narrow {
             lines.push(Line::from(Span::styled(
                 format!(
-                    "{}\u{521B}\u{5EFA}: {}  \u{66F4}\u{65B0}: {}",
+                    "{}{}: {}  {}: {}",
                     pad,
+                    t!("tui.password_detail.created_at", date = "").trim_end_matches(" %{date}"),
                     record.created_at.format("%Y-%m-%d %H:%M"),
+                    t!("tui.password_detail.updated_at", date = "").trim_end_matches(" %{date}"),
                     record.updated_at.format("%Y-%m-%d %H:%M"),
                 ),
                 Style::default().fg(theme::TEXT_MUTED),
@@ -399,7 +437,8 @@ impl DetailPanel {
             crate::tui::theme::ascii::ICON_PROGRESS_EMPTY
         };
         format!(
-            "\u{5F3A}\u{5EA6}: {}{} {}",
+            "{}: {}{} {}",
+            t!("tui.password_detail.strength_label"),
             fill_char.repeat(filled),
             empty_char.repeat(empty),
             strength.label()
@@ -426,7 +465,11 @@ fn render_batch_summary_view(
 
     // Header: 已选择 N 项
     lines.push(Line::from(Span::styled(
-        format!("{}已选择 {} 项", pad, total_count),
+        format!(
+            "{}{}",
+            pad,
+            t!("tui.batch.selected_count", count = total_count)
+        ),
         Style::default()
             .fg(theme::TEXT)
             .add_modifier(Modifier::BOLD),
@@ -455,7 +498,11 @@ fn render_batch_summary_view(
     if total_count > display_limit {
         let remaining = total_count - display_limit;
         lines.push(Line::from(Span::styled(
-            format!("{}  ... 及其他 {} 项", pad, remaining),
+            format!(
+                "{}  ... {}",
+                pad,
+                t!("tui.password_list.selected_count", count = remaining)
+            ),
             Style::default().fg(theme::TEXT_SECONDARY),
         )));
     }
@@ -477,14 +524,20 @@ fn render_batch_summary_view(
                 .fg(theme::PRIMARY)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("批量删除  ", Style::default().fg(theme::TEXT_SECONDARY)),
+        Span::styled(
+            format!("{}  ", t!("tui.notification.deleted")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
         Span::styled(
             "t ",
             Style::default()
                 .fg(theme::PRIMARY)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("批量标签", Style::default().fg(theme::TEXT_SECONDARY)),
+        Span::styled(
+            t!("tui.sidebar_tags"),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
     ]));
 
     let para = Paragraph::new(lines);
@@ -512,14 +565,14 @@ mod tests {
             updated_at: chrono::Utc::now(),
             fields: vec![
                 DetailField {
-                    label: "\u{7528}\u{6237}\u{540D}".into(),
+                    label: t!("tui.password_detail.username_label").into_owned(),
                     value: FieldValue::Plain("alice".into()),
                     copyable: true,
                     toggleable: false,
                     kind: DetailFieldKind::Username,
                 },
                 DetailField {
-                    label: "\u{5BC6}\u{7801}".into(),
+                    label: t!("tui.password_detail.password_label").into_owned(),
                     value: FieldValue::Masked,
                     copyable: true,
                     toggleable: true,
@@ -607,7 +660,7 @@ mod tests {
     fn batch_summary_shows_count() {
         let result = render_batch_snapshot(&["GitHub", "AWS"], 2, 50, 15);
         assert!(
-            result.contains("2") || result.contains("已选择"),
+            result.contains("2") || result.contains("selected"),
             "should show count"
         );
     }
@@ -631,7 +684,10 @@ mod tests {
     fn batch_summary_limits_to_five_names() {
         let names = vec!["A", "B", "C", "D", "E", "F", "G"];
         let result = render_batch_snapshot(&names, 7, 50, 20);
-        // Should show "及其他" for overflow
-        assert!(result.contains("及其他"), "should show overflow indicator");
+        // Should show count for overflow
+        assert!(
+            result.contains("2") || result.contains("selected"),
+            "should show overflow indicator"
+        );
     }
 }

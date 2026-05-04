@@ -607,6 +607,7 @@ tui:
     expired_warning: "%{count} password(s) expired"
     expiring_warning: "%{count} password(s) expiring soon"
     expired_and_expiring: "%{expired} expired, %{expiring} expiring soon"
+    renamed: "Renamed \"%{old}\" → \"%{new}\""
 
   empty:
     no_passwords: "No passwords yet"
