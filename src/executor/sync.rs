@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use crate::commands::types::ConflictResolution;
 use crate::commands::CommandResult;
-use crate::errors::{ErrorCode, ErrorContext};
+use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::task::SyncVaultData;
 use crate::types::SyncStats;
@@ -161,7 +161,7 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
         Some(s) => s,
         None => {
             return CommandResult::Error {
-                code: ErrorCode::Sync(String::from("not_configured")),
+                code: ErrorCode::SyncProviderError,
                 context: ErrorContext::default(),
                 message_key: "error.sync_not_configured",
                 fallback: String::from("Sync is not configured."),
@@ -232,9 +232,10 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
             {
                 return CommandResult::cancelled("sync");
             }
+            let err: &dyn ServiceError = &e;
             CommandResult::Error {
-                code: ErrorCode::Sync(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: "error.sync_failed",
                 fallback: format!("Sync failed: {}", e),
             }
@@ -256,7 +257,7 @@ pub async fn handle_resolve_conflict(
         Some(s) => s,
         None => {
             return CommandResult::Error {
-                code: ErrorCode::Sync(String::from("not_configured")),
+                code: ErrorCode::SyncProviderError,
                 context: ErrorContext::default(),
                 message_key: "error.sync_not_configured",
                 fallback: String::from("Sync is not configured."),
@@ -271,12 +272,15 @@ pub async fn handle_resolve_conflict(
 
     match sync.resolve_conflict(record_id.to_string(), strategy).await {
         Ok(()) => CommandResult::ConflictResolved { record_id },
-        Err(e) => CommandResult::Error {
-            code: ErrorCode::Sync(e.to_string()),
-            context: ErrorContext::default(),
-            message_key: "error.conflict_resolve_failed",
-            fallback: format!("Failed to resolve conflict: {}", e),
-        },
+        Err(e) => {
+            let err: &dyn ServiceError = &e;
+            CommandResult::Error {
+                code: err.to_error_code(),
+                context: err.to_error_context(),
+                message_key: "error.conflict_resolve_failed",
+                fallback: format!("Failed to resolve conflict: {}", e),
+            }
+        }
     }
 }
 
@@ -293,7 +297,7 @@ pub async fn handle_resolve_all_conflicts(
         Some(s) => s,
         None => {
             return CommandResult::Error {
-                code: ErrorCode::Sync(String::from("not_configured")),
+                code: ErrorCode::SyncProviderError,
                 context: ErrorContext::default(),
                 message_key: "error.sync_not_configured",
                 fallback: String::from("Sync is not configured."),
@@ -308,11 +312,14 @@ pub async fn handle_resolve_all_conflicts(
 
     match sync.resolve_all_conflicts(strategy).await {
         Ok(count) => CommandResult::AllConflictsResolved { count },
-        Err(e) => CommandResult::Error {
-            code: ErrorCode::Sync(e.to_string()),
-            context: ErrorContext::default(),
-            message_key: "error.conflict_resolve_all_failed",
-            fallback: format!("Failed to resolve all conflicts: {}", e),
-        },
+        Err(e) => {
+            let err: &dyn ServiceError = &e;
+            CommandResult::Error {
+                code: err.to_error_code(),
+                context: err.to_error_context(),
+                message_key: "error.conflict_resolve_all_failed",
+                fallback: format!("Failed to resolve all conflicts: {}", e),
+            }
+        }
     }
 }

@@ -1,26 +1,41 @@
 use crate::crypto::CryptoError;
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorLevel};
+use crate::errors::ErrorCode;
 
 impl ServiceError for CryptoError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::Crypto(self.to_string())
+    fn to_error_code(&self) -> ErrorCode {
+        match self {
+            CryptoError::DecryptionFailed => ErrorCode::CryptoDecryptionFailed,
+            CryptoError::EncryptionFailed => ErrorCode::CryptoEncryptionFailed,
+            CryptoError::InvalidKey => ErrorCode::CryptoKeyDerivationFailed,
+            CryptoError::InvalidNonce => ErrorCode::CryptoInvalidNonce,
+            CryptoError::DerivationFailed => ErrorCode::CryptoKeyDerivationFailed,
+        }
     }
 
     // CryptoError variants are opaque unit types — they carry no structured data.
     // Context (record_id, record_name) should be attached by the service layer
     // when wrapping CryptoError into a higher-level error type.
-    fn error_context(&self) -> Option<crate::errors::ErrorContext> {
-        None
+    fn to_error_context(&self) -> crate::errors::ErrorContext {
+        crate::errors::ErrorContext::new()
     }
 
-    fn error_level(&self) -> ErrorLevel {
+    fn to_fallback_message(&self) -> String {
         match self {
-            CryptoError::EncryptionFailed => ErrorLevel::Fatal,
-            CryptoError::DecryptionFailed => ErrorLevel::Error,
-            CryptoError::InvalidKey => ErrorLevel::Error,
-            CryptoError::InvalidNonce => ErrorLevel::Error,
-            CryptoError::DerivationFailed => ErrorLevel::Error,
+            CryptoError::DecryptionFailed => {
+                "Decryption failed. The data may be corrupted or the wrong key was used".to_string()
+            }
+            CryptoError::EncryptionFailed => "Encryption failed due to a system error".to_string(),
+            CryptoError::InvalidKey => {
+                "Invalid cryptographic key. The key may be malformed or have an incorrect length"
+                    .to_string()
+            }
+            CryptoError::InvalidNonce => {
+                "Invalid nonce. The nonce may be malformed or have an incorrect length".to_string()
+            }
+            CryptoError::DerivationFailed => {
+                "Key derivation failed. The password or parameters may be invalid".to_string()
+            }
         }
     }
 }
@@ -34,44 +49,40 @@ impl From<CryptoError> for crate::errors::ServiceErrorBox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::ErrorLevel;
 
     #[test]
-    fn decryption_failed_error_code_is_crypto() {
+    fn decryption_failed_error_code_is_crypto_decryption_failed() {
         let err = CryptoError::DecryptionFailed;
-        let code = err.error_code();
-        assert!(
-            matches!(code, ErrorCode::Crypto(ref msg) if msg.contains("decryption")),
-            "expected ErrorCode::Crypto containing 'decryption', got {:?}",
-            code
-        );
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoDecryptionFailed);
     }
 
     #[test]
     fn encryption_failed_is_fatal() {
         let err = CryptoError::EncryptionFailed;
-        assert!(matches!(err.error_code(), ErrorCode::Crypto(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoEncryptionFailed);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Fatal);
     }
 
     #[test]
-    fn invalid_key_error_code_is_crypto() {
+    fn invalid_key_error_code_is_crypto_key_derivation_failed() {
         let err = CryptoError::InvalidKey;
-        assert!(matches!(err.error_code(), ErrorCode::Crypto(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoKeyDerivationFailed);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
-    fn invalid_nonce_error_code_is_crypto() {
+    fn invalid_nonce_error_code_is_crypto_invalid_nonce() {
         let err = CryptoError::InvalidNonce;
-        assert!(matches!(err.error_code(), ErrorCode::Crypto(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoInvalidNonce);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
-    fn derivation_failed_error_code_is_crypto() {
+    fn derivation_failed_error_code_is_crypto_key_derivation_failed() {
         let err = CryptoError::DerivationFailed;
-        assert!(matches!(err.error_code(), ErrorCode::Crypto(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code(), ErrorCode::CryptoKeyDerivationFailed);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
@@ -83,10 +94,10 @@ mod tests {
             CryptoError::DerivationFailed,
         ];
         for v in &non_fatal {
-            assert_eq!(v.error_level(), ErrorLevel::Error);
+            assert_eq!(v.to_error_code().level(), ErrorLevel::Operation);
         }
         assert_eq!(
-            CryptoError::EncryptionFailed.error_level(),
+            CryptoError::EncryptionFailed.to_error_code().level(),
             ErrorLevel::Fatal
         );
     }
@@ -95,21 +106,21 @@ mod tests {
     fn crypto_error_converts_to_service_error_box() {
         let err = CryptoError::DecryptionFailed;
         let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert!(matches!(boxed.error_code(), ErrorCode::Crypto(_)));
-        assert_eq!(boxed.error_level(), ErrorLevel::Error);
+        assert_eq!(boxed.to_error_code(), ErrorCode::CryptoDecryptionFailed);
+        assert_eq!(boxed.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
     fn encryption_failed_converts_to_fatal_service_error() {
         let err = CryptoError::EncryptionFailed;
         let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert!(matches!(boxed.error_code(), ErrorCode::Crypto(_)));
-        assert_eq!(boxed.error_level(), ErrorLevel::Fatal);
+        assert_eq!(boxed.to_error_code(), ErrorCode::CryptoEncryptionFailed);
+        assert_eq!(boxed.to_error_code().level(), ErrorLevel::Fatal);
     }
 
     #[test]
     fn error_context_is_none() {
         let err = CryptoError::InvalidKey;
-        assert!(err.error_context().is_none());
+        assert!(err.to_error_context().to_interpolation_map().is_empty());
     }
 }

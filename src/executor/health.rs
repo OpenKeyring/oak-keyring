@@ -6,7 +6,7 @@ use crate::commands::types::{FieldSelector, HealthReport};
 use crate::commands::{CommandResult, Message};
 use crate::config::ConfigManager;
 use crate::errors::mapping::vault::VaultError;
-use crate::errors::{ErrorCode, ErrorContext};
+use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::services::health::{
     detect_duplicate_passwords, detect_expired_records, detect_weak_passwords, PasswordEntry,
 };
@@ -308,12 +308,13 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor, force: bool) -> C
     let records = match executor.vault.list_all_stored_records() {
         Ok(r) => r,
         Err(e) => {
+            let err: &dyn ServiceError = &e;
             return CommandResult::Error {
-                code: ErrorCode::Vault(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: "error.list_records_failed",
                 fallback: format!("Failed to list records for health check: {}", e),
-            }
+            };
         }
     };
 
@@ -476,11 +477,11 @@ pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) 
         Ok(s) => s,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Vault(e.to_string()),
+                code: ErrorCode::CryptoDecryptionFailed,
                 context: ErrorContext::default(),
                 message_key: "error.decrypt_field_failed",
                 fallback: format!("Failed to decrypt password for HIBP check: {}", e),
-            }
+            };
         }
     };
 
@@ -495,13 +496,13 @@ pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) 
             compromised: c,
         },
         Ok(Err(e)) => CommandResult::Error {
-            code: ErrorCode::Health(e.to_string()),
+            code: ErrorCode::HealthHibpApiError,
             context: ErrorContext::default(),
             message_key: "error.hibp_check_failed",
             fallback: format!("HIBP check failed: {}", e),
         },
         Err(e) => CommandResult::Error {
-            code: ErrorCode::Health(e.to_string()),
+            code: ErrorCode::HealthHibpApiError,
             context: ErrorContext::default(),
             message_key: "error.hibp_check_failed",
             fallback: format!("HIBP check task panicked: {}", e),

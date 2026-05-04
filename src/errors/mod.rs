@@ -7,6 +7,6 @@ pub mod service_error;
 pub use code::ErrorCode;
 pub use context::ErrorContext;
 pub use level::ErrorLevel;
-pub use service_error::ServiceErrorBox;
+pub use service_error::{ServiceError, ServiceErrorBox};
 
 pub type Result<T> = std::result::Result<T, ServiceErrorBox>;

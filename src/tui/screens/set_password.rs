@@ -695,7 +695,7 @@ mod tests {
             recovery_words: Vec::new(),
         });
         let result = screen.handle_command_result(CommandResult::Error {
-            code: crate::errors::ErrorCode::Crypto("test".to_string()),
+            code: crate::errors::ErrorCode::CryptoEncryptionFailed,
             context: crate::errors::ErrorContext::new(),
             message_key: "vault.init_failed",
             fallback: "Failed to initialize vault".to_string(),

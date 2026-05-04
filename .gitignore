@@ -3,6 +3,7 @@
 
 # Build artifacts
 /target/
+*.rlib
 
 # IDE
 .idea/

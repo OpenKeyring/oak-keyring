@@ -895,7 +895,7 @@ fn onboarding_import_preview_backtab_toggles_focus() {
 fn onboarding_command_result_error() {
     let mut screen = OnboardingScreen::default();
     let result = screen.handle_command_result(CommandResult::Error {
-        code: crate::errors::ErrorCode::Vault("not found".to_string()),
+        code: crate::errors::ErrorCode::VaultRecordNotFound,
         context: crate::errors::ErrorContext::new(),
         message_key: "vault.not_found",
         fallback: "Vault not found".to_string(),
