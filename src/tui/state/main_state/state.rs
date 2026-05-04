@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{layout::Rect, Frame};
 
 use crate::commands::types::{
-    ConfirmVariant, Overlay, PanelId, RecordFilter, RecordSort, Screen as ScreenEnum,
+    ConfirmVariant, FieldSelector, Overlay, PanelId, RecordFilter, RecordSort, Screen as ScreenEnum,
 };
 use crate::commands::{Command, Message};
 use crate::tui::screens::main::overlay::OverlayKeyResult;
@@ -565,8 +565,43 @@ impl Screen for MainScreenState {
                         self.status_bar.health_check_phase = HealthCheckPhase::Skipped;
                         ScreenResult::Continue
                     }
+                    CommandResult::CopiedToClipboard {
+                        field,
+                        clear_after_seconds,
+                    } => {
+                        let field_name = match field {
+                            FieldSelector::Password => "密码",
+                            FieldSelector::Username => "用户名",
+                            FieldSelector::Url => "网址",
+                            FieldSelector::Notes => "备注",
+                        };
+                        self.status_bar.status_message = Some(StatusMessage::ClipboardCountdown {
+                            field: field_name.to_string(),
+                            seconds: clear_after_seconds as u32,
+                        });
+                        self.status_bar.clipboard_countdown = Some(clear_after_seconds as u32);
+                        ScreenResult::Continue
+                    }
+                    CommandResult::HistoryPasswordCopied {
+                        clear_after_seconds,
+                    } => {
+                        self.status_bar.status_message = Some(StatusMessage::ClipboardCountdown {
+                            field: "历史密码".to_string(),
+                            seconds: clear_after_seconds as u32,
+                        });
+                        self.status_bar.clipboard_countdown = Some(clear_after_seconds as u32);
+                        ScreenResult::Continue
+                    }
                     _ => ScreenResult::Continue,
                 }
+            }
+            Message::ShowOverlay(overlay) => {
+                self.overlay_manager.open(overlay);
+                ScreenResult::Continue
+            }
+            Message::CloseOverlay => {
+                self.overlay_manager.close();
+                ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
         }
