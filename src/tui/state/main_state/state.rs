@@ -10,7 +10,7 @@ use crate::tui::screens::main::overlay::OverlayManager;
 use crate::tui::screens::main::MainScreen;
 use crate::tui::state::animation::EffectKind;
 use crate::tui::state::detail_state::DetailPanelState;
-use crate::tui::state::list_state::ListPanelState;
+use crate::tui::state::list_state::{ListMode, ListPanelState};
 use crate::tui::state::tag_management::TagManagementState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::{SecureStr, Tag};
@@ -631,6 +631,35 @@ impl MainScreenState {
         if self.overlay_manager.is_active() {
             let result = self.overlay_manager.handle_key(key.code);
             return self.handle_overlay_result(result);
+        }
+
+        // Layer 1.5: Search mode captures all keys before global shortcuts
+        if self.focused_panel == PanelId::List && self.list.is_searching() {
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    self.list.exit_search();
+                    return ScreenResult::Continue;
+                }
+                KeyCode::Backspace => {
+                    if let ListMode::Search(ref s) = self.list.mode {
+                        let new_query = if s.query.is_empty() {
+                            String::new()
+                        } else {
+                            s.query[..s.query.len() - 1].to_string()
+                        };
+                        self.list.update_search_query(new_query);
+                    }
+                    return ScreenResult::Continue;
+                }
+                KeyCode::Char(c) => {
+                    if let ListMode::Search(ref s) = self.list.mode {
+                        let new_query = format!("{}{}", s.query, c);
+                        self.list.update_search_query(new_query);
+                    }
+                    return ScreenResult::Continue;
+                }
+                _ => return ScreenResult::Continue, // consume all other keys
+            }
         }
 
         // Check sidebar Enter for Generator/Config navigation
