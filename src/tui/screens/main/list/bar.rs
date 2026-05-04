@@ -22,7 +22,11 @@ pub(super) fn build_sort_bar<'a>(
 ) -> Line<'a> {
     let field_name = sort_field_label(field);
     let (dir_icon, dir_label) = sort_direction_label(direction, unicode);
-    let down_icon = if unicode { "\u{25BC}" } else { "v" }; // ▼ / v
+    let down_icon = if unicode {
+        theme::ICON_DROPDOWN
+    } else {
+        theme::ascii::ICON_DROPDOWN
+    };
 
     Line::from(vec![
         Span::raw("  \u{6392}\u{5E8F}: [ "), // "  排序: [ "
@@ -41,7 +45,11 @@ pub(super) fn build_sort_bar<'a>(
 
 /// Build search bar: `  🔍 搜索: <query>_`
 pub(super) fn build_search_bar<'a>(query: &str, unicode: bool) -> Line<'a> {
-    let search_icon = if unicode { "\u{1F50D}" } else { ">" }; // 🔍 / >
+    let search_icon = if unicode {
+        theme::ICON_SEARCH
+    } else {
+        theme::ascii::ICON_SEARCH
+    };
     let display_query = format!("{} \u{641C}\u{7D22}: {}_", search_icon, query); // "🔍 搜索: <query>_"
 
     Line::from(vec![Span::styled(

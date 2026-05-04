@@ -158,7 +158,11 @@ impl DetailPanel {
         // Favorite + Expiry markers
         let mut markers = Vec::new();
         if record.is_favorite {
-            let star = if unicode { "\u{2605}" } else { "*" };
+            let star = if unicode {
+                theme::ICON_STAR
+            } else {
+                theme::ascii::ICON_STAR
+            };
             markers.push(Span::styled(
                 format!("{} ", star),
                 Style::default().fg(theme::BRAND),
@@ -166,7 +170,11 @@ impl DetailPanel {
         }
         match record.expiry_status {
             ExpiryStatus::ExpiringSoon => {
-                let icon = if unicode { "\u{26A0}" } else { "!" };
+                let icon = if unicode {
+                    theme::ICON_WARNING
+                } else {
+                    theme::ascii::ICON_WARNING
+                };
                 if let Some(dt) = record.expires_at {
                     markers.push(Span::styled(
                         format!("{} 即将过期（{}）", icon, dt.format("%Y-%m-%d")),
@@ -175,7 +183,11 @@ impl DetailPanel {
                 }
             }
             ExpiryStatus::Expired => {
-                let icon = if unicode { "\u{2717}" } else { "x" };
+                let icon = if unicode {
+                    theme::ICON_ERROR
+                } else {
+                    theme::ascii::ICON_ERROR
+                };
                 if let Some(dt) = record.expires_at {
                     markers.push(Span::styled(
                         format!("{} 已过期（{}）", icon, dt.format("%Y-%m-%d")),
