@@ -642,16 +642,19 @@ impl MainScreenState {
                 }
                 KeyCode::Backspace => {
                     if let ListMode::Search(ref s) = self.list.mode {
-                        let new_query = if s.query.is_empty() {
-                            String::new()
-                        } else {
-                            s.query[..s.query.len() - 1].to_string()
-                        };
+                        let new_query = s.query.chars().rev().skip(1).collect::<String>();
                         self.list.update_search_query(new_query);
                     }
                     return ScreenResult::Continue;
                 }
                 KeyCode::Char(c) => {
+                    // Ignore Ctrl/Alt combinations — let them fall through to global shortcuts
+                    if key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                    {
+                        return ScreenResult::Continue;
+                    }
                     if let ListMode::Search(ref s) = self.list.mode {
                         let new_query = format!("{}{}", s.query, c);
                         self.list.update_search_query(new_query);
@@ -725,6 +728,9 @@ impl MainScreenState {
                 }
                 if let Some(cmd) = result.command {
                     return ScreenResult::Command(cmd);
+                }
+                if let Some(panel) = result.focused_panel {
+                    self.focused_panel = panel;
                 }
                 ScreenResult::Continue
             }
