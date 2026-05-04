@@ -363,7 +363,15 @@ fn route_to_screen(
                 .screens
                 .main
                 .sync_from_app(state.shared.focus.focused_panel, state.unicode_capable);
-            state.screens.main.update(msg, ctx)
+            let result = state.screens.main.update(msg, ctx);
+            // Process pending overlay animation (ModalAppear/ModalDismiss)
+            if let Some(kind) = state.screens.main.pending_animation.take() {
+                crate::tui::animation::transitions::start_transition(
+                    &mut state.shared.animation,
+                    kind,
+                );
+            }
+            result
         }
         Screen::Unlock => state.screens.unlock.update(msg, ctx),
         Screen::Onboarding => state.screens.onboarding.update(msg, ctx),
