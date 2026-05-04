@@ -142,7 +142,7 @@ impl VaultPathDialog {
             Line::raw(""),
             // Warning
             Line::from(Span::styled(
-                " \u{26A0} 修改路径后需要重启应用才能生效。",
+                format!(" {} 修改路径后需要重启应用才能生效。", theme::ICON_WARNING),
                 warning,
             )),
             Line::from(Span::styled("    现有数据不会自动迁移。", warning)),
