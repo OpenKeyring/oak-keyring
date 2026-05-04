@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use crate::commands::types::FieldSelector;
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorContext, ErrorLevel};
+use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::credential::CredentialType;
 
 #[derive(Debug, thiserror::Error)]
@@ -42,24 +42,71 @@ impl From<String> for VaultError {
 }
 
 impl ServiceError for VaultError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::Vault(self.to_string())
-    }
-
-    fn error_context(&self) -> Option<ErrorContext> {
-        None
-    }
-
-    fn error_level(&self) -> ErrorLevel {
+    fn to_error_code(&self) -> ErrorCode {
         match self {
-            VaultError::NotUnlocked => ErrorLevel::Fatal,
-            VaultError::RecordNotFound(_) => ErrorLevel::Warning,
-            VaultError::VersionConflict { .. } => ErrorLevel::Error,
-            VaultError::TagAlreadyExists(_) => ErrorLevel::Error,
-            VaultError::TagNotFound(_) => ErrorLevel::Error,
-            VaultError::DatabaseError(_) => ErrorLevel::Error,
-            VaultError::CryptoError(_) => ErrorLevel::Error,
-            VaultError::InvalidField { .. } => ErrorLevel::Error,
+            VaultError::RecordNotFound(_) => ErrorCode::VaultRecordNotFound,
+            VaultError::VersionConflict { .. } => ErrorCode::VaultVersionConflict,
+            VaultError::TagAlreadyExists(_) => ErrorCode::VaultTagAlreadyExists,
+            VaultError::TagNotFound(_) => ErrorCode::VaultTagNotFound,
+            VaultError::NotUnlocked => ErrorCode::VaultNotUnlocked,
+            VaultError::DatabaseError(e) => {
+                // Heuristic: check if error is corruption-related
+                let error_msg = e.to_string().to_lowercase();
+                if matches!(e, rusqlite::Error::InvalidColumnType(_, _, _))
+                    || error_msg.contains("corrupt")
+                    || error_msg.contains("corrupted")
+                    || error_msg.contains("malformed")
+                {
+                    ErrorCode::VaultDatabaseCorrupted
+                } else {
+                    ErrorCode::VaultDatabaseIoError
+                }
+            }
+            VaultError::CryptoError(_) => ErrorCode::CryptoDecryptionFailed,
+            VaultError::InvalidField { .. } => ErrorCode::VaultInvalidField,
+        }
+    }
+
+    fn to_error_context(&self) -> ErrorContext {
+        match self {
+            VaultError::RecordNotFound(id) => ErrorContext::new().record_id(*id),
+            VaultError::VersionConflict { expected, actual } => ErrorContext::new()
+                .expected_version(*expected)
+                .actual_version(*actual),
+            VaultError::TagAlreadyExists(name) => ErrorContext::new().field_name(name.clone()),
+            VaultError::TagNotFound(name) => ErrorContext::new().field_name(name.clone()),
+            VaultError::NotUnlocked => ErrorContext::new(),
+            VaultError::DatabaseError(_) => ErrorContext::new(),
+            VaultError::CryptoError(_) => ErrorContext::new(),
+            VaultError::InvalidField {
+                record_type: _,
+                field,
+            } => ErrorContext::new().field_name(format!("{:?}", field)),
+        }
+    }
+
+    fn to_fallback_message(&self) -> String {
+        match self {
+            VaultError::RecordNotFound(_) => "The requested vault record was not found".to_string(),
+            VaultError::VersionConflict { expected, actual } => {
+                format!(
+                    "Version conflict: expected version {}, but found version {}",
+                    expected, actual
+                )
+            }
+            VaultError::TagAlreadyExists(name) => format!("Tag '{}' already exists", name),
+            VaultError::TagNotFound(name) => format!("Tag '{}' not found", name),
+            VaultError::NotUnlocked => {
+                "Vault is not unlocked. Please provide the master password".to_string()
+            }
+            VaultError::DatabaseError(e) => format!("Database error: {}", e),
+            VaultError::CryptoError(msg) => format!("Cryptographic operation failed: {}", msg),
+            VaultError::InvalidField { record_type, field } => {
+                format!(
+                    "Field '{:?}' is not valid for credential type '{:?}'",
+                    field, record_type
+                )
+            }
         }
     }
 }
@@ -73,30 +120,27 @@ impl From<VaultError> for crate::errors::ServiceErrorBox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::ErrorLevel;
 
     #[test]
     fn record_not_found_error_code_returns_vault_variant() {
         let id = Uuid::new_v4();
         let err = VaultError::RecordNotFound(id);
-        let code = err.error_code();
+        let code = err.to_error_code();
 
-        assert!(
-            matches!(code, ErrorCode::Vault(ref msg) if msg.contains(&id.to_string())),
-            "expected ErrorCode::Vault containing the UUID, got {:?}",
-            code
-        );
+        assert_eq!(code, ErrorCode::VaultRecordNotFound);
     }
 
     #[test]
-    fn record_not_found_error_level_is_warning() {
+    fn record_not_found_error_level_is_operation() {
         let err = VaultError::RecordNotFound(Uuid::new_v4());
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
-    fn not_unlocked_error_level_is_fatal() {
+    fn not_unlocked_error_level_is_operation() {
         let err = VaultError::NotUnlocked;
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
@@ -114,12 +158,12 @@ mod tests {
     }
 
     #[test]
-    fn version_conflict_error_level_is_error() {
+    fn version_conflict_error_level_is_operation() {
         let err = VaultError::VersionConflict {
             expected: 1,
             actual: 2,
         };
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
@@ -127,25 +171,29 @@ mod tests {
         let sqlite_err = rusqlite::Error::InvalidColumnIndex(99);
         let err: VaultError = sqlite_err.into();
         assert!(matches!(err, VaultError::DatabaseError(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Fatal);
     }
 
     #[test]
     fn crypto_error_mapped_from_string() {
         let err: VaultError = "decryption failed".to_string().into();
         assert!(matches!(err, VaultError::CryptoError(ref s) if s == "decryption failed"));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
     fn tag_errors_have_correct_levels() {
         assert_eq!(
-            VaultError::TagAlreadyExists("work".into()).error_level(),
-            ErrorLevel::Error
+            VaultError::TagAlreadyExists("work".into())
+                .to_error_code()
+                .level(),
+            ErrorLevel::Minor
         );
         assert_eq!(
-            VaultError::TagNotFound("missing".into()).error_level(),
-            ErrorLevel::Error
+            VaultError::TagNotFound("missing".into())
+                .to_error_code()
+                .level(),
+            ErrorLevel::Minor
         );
     }
 
@@ -155,14 +203,14 @@ mod tests {
             record_type: CredentialType::Login,
             field: FieldSelector::Password,
         };
-        assert!(matches!(err.error_code(), ErrorCode::Vault(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert!(matches!(err.to_error_code(), ErrorCode::VaultInvalidField));
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
     fn vault_error_converts_to_service_error_box() {
         let err = VaultError::NotUnlocked;
         let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert_eq!(boxed.error_level(), ErrorLevel::Fatal);
+        assert_eq!(boxed.to_error_code().level(), ErrorLevel::Operation);
     }
 }

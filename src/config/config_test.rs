@@ -107,22 +107,22 @@ mod tests {
             std::io::ErrorKind::NotFound,
             "not found",
         ));
-        assert!(matches!(
-            err.error_code(),
-            crate::errors::ErrorCode::Config(_)
-        ));
+        assert_eq!(
+            err.to_error_code(),
+            crate::errors::ErrorCode::ConfigLoadFailed
+        );
 
         let err = ConfigError::Parse("bad toml".into());
-        assert!(matches!(
-            err.error_code(),
-            crate::errors::ErrorCode::Config(_)
-        ));
+        assert_eq!(
+            err.to_error_code(),
+            crate::errors::ErrorCode::ConfigLoadFailed
+        );
 
         let err = ConfigError::Validation("invalid provider".into());
-        assert!(matches!(
-            err.error_code(),
-            crate::errors::ErrorCode::Config(_)
-        ));
+        assert_eq!(
+            err.to_error_code(),
+            crate::errors::ErrorCode::ConfigValidationFailed
+        );
     }
 
     #[test]

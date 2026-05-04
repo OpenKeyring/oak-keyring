@@ -211,11 +211,7 @@ fn handle_message(
                             crate::tui::state::main_state::SyncIndicator::Synced;
                     }
                 }
-                CommandResult::Error {
-                    code: crate::errors::ErrorCode::Sync(ref _msg),
-                    fallback,
-                    ..
-                } => {
+                CommandResult::Error { code, fallback, .. } if code.module_prefix() == "sync" => {
                     if let Screen::Main = app.state.current_screen {
                         app.state.screens.main.status_bar.sync_status =
                             crate::tui::state::main_state::SyncIndicator::Failed;

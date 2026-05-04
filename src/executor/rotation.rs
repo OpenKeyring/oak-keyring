@@ -1,6 +1,6 @@
 use crate::commands::CommandResult;
 use crate::errors::mapping::rotation::RotationError;
-use crate::errors::{ErrorCode, ErrorContext};
+use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::services::rotation::RotationService;
 use crate::services::sync::SyncService;
 use crate::services::vault::VaultService;
@@ -88,9 +88,10 @@ where
     // 1. Sync Mutex: Pause sync pipeline
     if let Some(sync_svc) = &mut executor.sync {
         if let Err(e) = sync_svc.pause().await {
+            let err: &dyn ServiceError = &e;
             return CommandResult::Error {
-                code: ErrorCode::Sync(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: "error.sync_pause_failed",
                 fallback: format!("Failed to pause sync for {}: {}", label, e),
             };
@@ -106,9 +107,10 @@ where
                 if let Some(sync_svc) = &mut executor.sync {
                     let _ = sync_svc.resume().await;
                 }
+                let err: &dyn ServiceError = &e;
                 return CommandResult::Error {
-                    code: ErrorCode::Sync(e.to_string()),
-                    context: ErrorContext::default(),
+                    code: err.to_error_code(),
+                    context: err.to_error_context(),
                     message_key: "error.download_metadata_failed",
                     fallback: format!("Failed to download cloud metadata for {}: {}", label, e),
                 };
@@ -154,43 +156,26 @@ where
 
                             return match alignment {
                                 Ok(cloud_dek) => CommandResult::Error {
-                                    code: ErrorCode::Sync(format!(
-                                        "CAS conflict during {} v{} -> v{}: {}. \
-                                         Cloud DEK version: {}. Local records are aligned \
-                                         and will sync on next cycle.",
-                                        label,
-                                        res.old_dek_version,
-                                        res.new_dek_version,
-                                        cas_err,
-                                        cloud_dek
-                                    )),
+                                    code: ErrorCode::RotationConflictDetected,
                                     context: ErrorContext::default(),
                                     message_key: "error.rotation_cas_conflict",
                                     fallback: format!(
                                         "DEK {} v{} -> v{} completed locally but \
                                          another device updated cloud simultaneously. \
                                          Local data is safe (cloud DEK v{}). \
-                                         Records will sync on next cycle.",
-                                        label, res.old_dek_version, res.new_dek_version, cloud_dek
+                                         Records will sync on next cycle. CAS error: {}",
+                                        label, res.old_dek_version, res.new_dek_version, cloud_dek, cas_err
                                     ),
                                 },
                                 Err(align_err) => CommandResult::Error {
-                                    code: ErrorCode::Sync(format!(
-                                        "CAS conflict during {} v{} -> v{}: {}. \
-                                         Alignment check failed: {}",
-                                        label,
-                                        res.old_dek_version,
-                                        res.new_dek_version,
-                                        cas_err,
-                                        align_err
-                                    )),
+                                    code: ErrorCode::RotationConflictDetected,
                                     context: ErrorContext::default(),
                                     message_key: "error.rotation_cas_conflict",
                                     fallback: format!(
                                         "DEK {} v{} -> v{} completed locally but \
                                          cloud push failed: {}. Alignment check also failed. \
-                                         Local data is safe. Manual sync recommended.",
-                                        label, res.old_dek_version, res.new_dek_version, cas_err
+                                         Local data is safe. Manual sync recommended. Alignment error: {}",
+                                        label, res.old_dek_version, res.new_dek_version, cas_err, align_err
                                     ),
                                 },
                             };
@@ -217,9 +202,10 @@ where
         }
         Err(e) => {
             tracing::warn!(error = %e, "DEK {} failed", label);
+            let err: &dyn ServiceError = &e;
             CommandResult::Error {
-                code: ErrorCode::Rotation(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: rotation_error_key,
                 fallback: format!("DEK {} failed: {}", label, e),
             }
@@ -285,9 +271,9 @@ pub async fn handle_resume_rotation(executor: &mut CommandExecutor) -> CommandRe
 pub fn handle_check_rotation_trigger(executor: &mut CommandExecutor) -> CommandResult {
     let config = match load_rotation_config(&executor.vault) {
         Ok(c) => c,
-        Err(e) => {
+        Err(_e) => {
             return CommandResult::Error {
-                code: ErrorCode::Rotation(e),
+                code: ErrorCode::ConfigLoadFailed,
                 context: ErrorContext::default(),
                 message_key: "error.rotation_config_load_failed",
                 fallback: String::from("Failed to load rotation config"),

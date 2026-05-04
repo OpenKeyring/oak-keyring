@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use crate::commands::types::FieldSelector;
 use crate::commands::CommandResult;
-use crate::errors::{ErrorCode, ErrorContext};
+use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::types::SecureStr;
 
 use super::CommandExecutor;
@@ -18,7 +18,7 @@ pub async fn handle_copy_to_clipboard(
         Ok(s) => s,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Vault(e.to_string()),
+                code: ErrorCode::CryptoDecryptionFailed,
                 context: ErrorContext::default(),
                 message_key: "error.decrypt_field_failed",
                 fallback: format!("Failed to decrypt field: {}", e),
@@ -30,12 +30,13 @@ pub async fn handle_copy_to_clipboard(
     let clear_after = match executor.clipboard.copy(plaintext.get()) {
         Ok(secs) => secs,
         Err(e) => {
+            let err: &dyn ServiceError = &e;
             return CommandResult::Error {
-                code: ErrorCode::Clipboard(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: "error.clipboard_copy_failed",
                 fallback: format!("Failed to copy to clipboard: {}", e),
-            }
+            };
         }
     };
     // plaintext (SecureStr) is dropped here, zeroized automatically
@@ -54,12 +55,13 @@ pub async fn handle_copy_raw_to_clipboard(
     let clear_after = match executor.clipboard.copy(value.get()) {
         Ok(secs) => secs,
         Err(e) => {
+            let err: &dyn ServiceError = &e;
             return CommandResult::Error {
-                code: ErrorCode::Clipboard(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: "error.clipboard_copy_failed",
                 fallback: format!("Failed to copy to clipboard: {}", e),
-            }
+            };
         }
     };
     // value (SecureStr) is dropped here
@@ -79,7 +81,7 @@ pub async fn handle_copy_history_password(
         Ok(s) => s,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Vault(e.to_string()),
+                code: ErrorCode::CryptoDecryptionFailed,
                 context: ErrorContext::default(),
                 message_key: "error.decrypt_history_failed",
                 fallback: format!("Failed to decrypt history password: {}", e),
@@ -90,12 +92,13 @@ pub async fn handle_copy_history_password(
     let clear_after = match executor.clipboard.copy(plaintext.get()) {
         Ok(secs) => secs,
         Err(e) => {
+            let err: &dyn ServiceError = &e;
             return CommandResult::Error {
-                code: ErrorCode::Clipboard(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: "error.clipboard_copy_failed",
                 fallback: format!("Failed to copy to clipboard: {}", e),
-            }
+            };
         }
     };
 
