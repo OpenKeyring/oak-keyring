@@ -529,7 +529,7 @@ impl MainScreenState {
 }
 
 impl Screen for MainScreenState {
-    fn update(&mut self, msg: Message, _ctx: &mut ScreenContext) -> ScreenResult {
+    fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key),
             Message::HealthCheckProgress { current, total } => {
@@ -592,6 +592,56 @@ impl Screen for MainScreenState {
                         self.status_bar.clipboard_countdown = Some(clear_after_seconds as u32);
                         ScreenResult::Continue
                     }
+                    CommandResult::RecordListLoaded { records, total } => {
+                        self.list.records = records;
+                        self.list.total_count = total;
+                        // Reset selection if it's out of bounds
+                        if self.list.selected_index.is_some()
+                            && self.list.selected_index.unwrap() >= self.list.records.len()
+                        {
+                            self.list.selected_index = if self.list.records.is_empty() {
+                                None
+                            } else {
+                                Some(0)
+                            };
+                        }
+                        ScreenResult::Continue
+                    }
+                    CommandResult::RecordDeleted { id } => {
+                        self.list.records.retain(|r| r.id != id);
+                        self.list.cleanup_after_batch(&[id]);
+                        // Reload to get accurate counts
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    CommandResult::RecordRestored { id } => {
+                        self.list.records.retain(|r| r.id != id);
+                        // Reload list after restore
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    CommandResult::RecordDestroyed { id } => {
+                        self.list.records.retain(|r| r.id != id);
+                        // Reload list after permanent delete
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    CommandResult::FavoriteToggled { id, is_favorite } => {
+                        // Update in-place without full reload
+                        if let Some(record) = self.list.records.iter_mut().find(|r| r.id == id) {
+                            record.is_favorite = is_favorite;
+                        }
+                        ScreenResult::Continue
+                    }
                     _ => ScreenResult::Continue,
                 }
             }
@@ -618,6 +668,11 @@ impl Screen for MainScreenState {
         if !ctx.config.security.health_check_enabled {
             self.status_bar.health_check_phase = HealthCheckPhase::Skipped;
         }
+        // Load initial record list
+        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+            filter: self.current_filter.clone(),
+            sort: self.current_sort.clone(),
+        });
     }
 
     fn on_unmount(&mut self) {
