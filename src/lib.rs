@@ -1,3 +1,5 @@
+#![allow(clippy::unnecessary_to_owned)]
+
 rust_i18n::i18n!("locales", fallback = "en");
 
 // Re-export t!() macro for integration tests and external usage

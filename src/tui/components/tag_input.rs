@@ -5,6 +5,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::t;
 use crate::tui::state::form_state::TagAutocompleteState;
 use crate::tui::theme;
 
@@ -21,7 +22,10 @@ pub fn render_tag_input(
 
     // Input row
     lines.push(Line::from(vec![
-        Span::styled("  标签 ", Style::default().fg(theme::TEXT_SECONDARY)),
+        Span::styled(
+            t!("tui.component_labels.tag").to_string(),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
         Span::styled(
             format!(
                 "[{:<20}]",

@@ -16,6 +16,7 @@ use crate::commands::types::{
     RecordFilter,
 };
 use crate::commands::Message;
+use crate::t;
 use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, PANEL_SEPARATOR};
 use crate::tui::screens::main::sidebar::SidebarPanel;
 use crate::tui::screens::main::status_bar::StatusBarPanel;
@@ -403,8 +404,9 @@ impl MainScreen {
         state.status_bar.status_message =
             Some(crate::tui::state::main_state::StatusMessage::Temporary {
                 text: format!(
-                    "\u{2713} \u{5DF2}\u{5220}\u{9664} {} \u{6761}\u{5BC6}\u{7801}",
-                    deleted_count
+                    "\u{2713} {} {}",
+                    t!("tui.notification.deleted"),
+                    t!("tui.status_bar.record_count", count = deleted_count)
                 ),
                 ttl: 100,
             });
@@ -430,7 +432,8 @@ impl MainScreen {
         state.status_bar.status_message =
             Some(crate::tui::state::main_state::StatusMessage::Temporary {
                 text: format!(
-                    "\u{2713} \u{5DF2}\u{5220}\u{9664}\u{6807}\u{7B7E} \"{}\"",
+                    "\u{2713} {} \"{}\"",
+                    t!("tui.tag.delete_body"),
                     deleted_tag_name
                 ),
                 ttl: 100,
@@ -459,8 +462,8 @@ impl MainScreen {
         state.status_bar.status_message =
             Some(crate::tui::state::main_state::StatusMessage::Temporary {
                 text: format!(
-                    "\u{2713} \u{5DF2}\u{91CD}\u{547D}\u{540D} \"{}\" \u{2192} \"{}\"",
-                    old_name, new_name
+                    "\u{2713} {}",
+                    t!("tui.notification.renamed", old = old_name, new = new_name)
                 ),
                 ttl: 100,
             });

@@ -5,6 +5,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::t;
 use crate::tui::state::form_state::PasswordFieldFocus;
 use crate::tui::theme;
 
@@ -27,12 +28,12 @@ pub fn render_text_input(
     let label_style = Style::default().fg(theme::TEXT_SECONDARY);
     let required_mark = if is_required {
         Span::styled(
-            " \u{2190} \u{5FC5}\u{586B}",
+            t!("tui.component_labels.required").to_string(),
             Style::default().fg(theme::ERROR),
         )
     } else {
         Span::styled(
-            " \u{2190} \u{9009}\u{586B}",
+            t!("tui.component_labels.optional").to_string(),
             Style::default().fg(theme::TEXT_MUTED),
         )
     };
@@ -56,7 +57,7 @@ pub fn render_text_input(
 
 /// A button descriptor for password input inline buttons.
 pub struct PasswordButton {
-    pub label: &'static str,
+    pub label: String,
     pub focus_variant: PasswordFieldFocus,
 }
 
@@ -144,11 +145,11 @@ mod tests {
     fn render_password_input_visible_shows_plaintext() {
         let buttons = [
             PasswordButton {
-                label: "显示",
+                label: "显示".to_string(),
                 focus_variant: PasswordFieldFocus::Show,
             },
             PasswordButton {
-                label: "复制",
+                label: "复制".to_string(),
                 focus_variant: PasswordFieldFocus::Copy,
             },
         ];
@@ -162,7 +163,7 @@ mod tests {
     #[test]
     fn render_password_input_masked_shows_bullets() {
         let buttons = [PasswordButton {
-            label: "显示",
+            label: "显示".to_string(),
             focus_variant: PasswordFieldFocus::Show,
         }];
         let lines = render_password_input_with_buttons(

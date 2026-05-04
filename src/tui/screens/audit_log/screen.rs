@@ -11,6 +11,7 @@ use ratatui::Frame;
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen as ScreenEnum;
 use crate::commands::{Command, Message};
+use crate::t;
 use crate::tui::state::audit_state::{AuditFocus, AuditLogScreenState, AuditOperationFilter};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 
@@ -112,7 +113,7 @@ impl AuditLogScreen {
                         }));
                     }
                     // No record_id (e.g. VaultLock) -- nothing to navigate to
-                    self.state.hint_message = Some("此条目无关联记录".to_string());
+                    self.state.hint_message = Some(t!("tui.audit.no_related_records").to_string());
                 }
                 ScreenResult::Continue
             }

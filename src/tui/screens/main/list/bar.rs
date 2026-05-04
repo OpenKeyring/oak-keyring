@@ -2,6 +2,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::commands::types::{SortDirection, SortField};
+use crate::t;
 use crate::tui::state::list_state::{ListMode, ListPanelState};
 use crate::tui::theme;
 
@@ -27,9 +28,10 @@ pub(super) fn build_sort_bar<'a>(
     } else {
         theme::ascii::ICON_DROPDOWN
     };
+    let sort_label = t!("tui.password_list.sort_label");
 
     Line::from(vec![
-        Span::raw("  \u{6392}\u{5E8F}: [ "), // "  排序: [ "
+        Span::raw(format!("  {}: [ ", sort_label)),
         Span::styled(
             format!("{} {}", field_name, down_icon),
             Style::default().fg(theme::BRAND),
@@ -50,7 +52,8 @@ pub(super) fn build_search_bar<'a>(query: &str, unicode: bool) -> Line<'a> {
     } else {
         theme::ascii::ICON_SEARCH
     };
-    let display_query = format!("{} \u{641C}\u{7D22}: {}_", search_icon, query); // "🔍 搜索: <query>_"
+    let search_label = t!("tui.password_list.search_prompt");
+    let display_query = format!("{} {}{}_", search_icon, search_label, query);
 
     Line::from(vec![Span::styled(
         format!("  {}", display_query),
@@ -60,52 +63,53 @@ pub(super) fn build_search_bar<'a>(query: &str, unicode: bool) -> Line<'a> {
 
 /// Build visual mode bar: `  多选模式` in TEXT bold on BG_BAR + `(N 已选)` in TEXT on BG_BAR
 pub(super) fn build_visual_bar<'a>(selected_count: usize) -> Line<'a> {
+    let visual_label = t!("tui.password_list.visual_mode");
+    let selected_label = t!("tui.password_list.selected_count", count = selected_count);
     Line::from(vec![
         Span::styled(
-            "  \u{591A}\u{9009}\u{6A21}\u{5F0F} ", // "  多选模式 "
+            format!("  {} ", visual_label),
             Style::default()
                 .fg(theme::TEXT)
                 .add_modifier(Modifier::BOLD)
                 .bg(theme::BG_BAR),
         ),
         Span::styled(
-            format!(
-                "({} \u{5DF2}\u{9009})", // "(N 已选)"
-                selected_count
-            ),
+            format!("({})", selected_label),
             Style::default().fg(theme::TEXT).bg(theme::BG_BAR),
         ),
     ])
 }
 
-/// Return the Chinese display label for a sort field.
-pub(super) fn sort_field_label(field: &SortField) -> &'static str {
+/// Return the display label for a sort field.
+pub(super) fn sort_field_label(field: &SortField) -> String {
     match field {
-        SortField::CreatedAt => "\u{521B}\u{5EFA}\u{65F6}\u{95F4}", // 创建时间
-        SortField::UpdatedAt => "\u{66F4}\u{65B0}\u{65F6}\u{95F4}", // 更新时间
-        SortField::Name => "\u{540D}\u{79F0}",                      // 名称
-        SortField::UsageFrequency => "\u{4F7F}\u{7528}\u{9891}\u{7387}", // 使用频率
+        SortField::CreatedAt => t!("tui.password_list.sort_created").to_string(),
+        SortField::UpdatedAt => t!("tui.password_list.sort_updated").to_string(),
+        SortField::Name => t!("tui.password_list.sort_by_name").to_string(),
+        SortField::UsageFrequency => t!("tui.password_list.sort_frequency").to_string(),
     }
 }
 
-/// Return the icon and Chinese label for a sort direction.
+/// Return the icon and label for a sort direction.
 pub(super) fn sort_direction_label(
     direction: &SortDirection,
     unicode: bool,
-) -> (&'static str, &'static str) {
+) -> (&'static str, String) {
     match direction {
         SortDirection::Desc => {
+            let label = t!("tui.password_list.sort_direction_desc");
             if unicode {
-                ("\u{2193}", "\u{964D}\u{5E8F}") // ↓ 降序
+                ("\u{2193}", label.to_string()) // ↓
             } else {
-                ("v", "\u{964D}\u{5E8F}")
+                ("v", label.to_string())
             }
         }
         SortDirection::Asc => {
+            let label = t!("tui.password_list.sort_direction_asc");
             if unicode {
-                ("\u{2191}", "\u{5347}\u{5E8F}") // ↑ 升序
+                ("\u{2191}", label.to_string()) // ↑
             } else {
-                ("^", "\u{5347}\u{5E8F}")
+                ("^", label.to_string())
             }
         }
     }

@@ -1,5 +1,6 @@
 use super::*;
 use crate::commands::types::HealthIssue;
+use crate::t;
 use crate::types::credential::CredentialType as CrateCredentialType;
 use chrono::Utc;
 use uuid::Uuid;
@@ -19,21 +20,21 @@ fn make_login_data() -> DetailViewData {
         updated_at: Utc::now(),
         fields: vec![
             DetailField {
-                label: "用户名".into(),
+                label: t!("tui.entry.username_label").to_string(),
                 value: FieldValue::Plain("alice".into()),
                 copyable: true,
                 toggleable: false,
                 kind: DetailFieldKind::Username,
             },
             DetailField {
-                label: "密码".into(),
+                label: t!("tui.entry.password_label").to_string(),
                 value: FieldValue::Masked,
                 copyable: true,
                 toggleable: true,
                 kind: DetailFieldKind::Password,
             },
             DetailField {
-                label: "网址".into(),
+                label: t!("tui.entry.url_label").to_string(),
                 value: FieldValue::Plain("https://example.com".into()),
                 copyable: true,
                 toggleable: false,
@@ -82,14 +83,14 @@ fn field_navigation_skips_non_interactive() {
                 kind: DetailFieldKind::Notes,
             },
             DetailField {
-                label: "用户名".into(),
+                label: t!("tui.entry.username_label").to_string(),
                 value: FieldValue::Plain("alice".into()),
                 copyable: true,
                 toggleable: false,
                 kind: DetailFieldKind::Username,
             },
             DetailField {
-                label: "密码".into(),
+                label: t!("tui.entry.password_label").to_string(),
                 value: FieldValue::Masked,
                 copyable: true,
                 toggleable: true,
@@ -175,7 +176,7 @@ fn password_strength_colors() {
 #[test]
 fn field_display_value() {
     let plain = DetailField {
-        label: "用户名".into(),
+        label: t!("tui.entry.username_label").to_string(),
         value: FieldValue::Plain("alice".into()),
         copyable: false,
         toggleable: false,
@@ -184,7 +185,7 @@ fn field_display_value() {
     assert_eq!(plain.display_value(), "alice");
 
     let masked = DetailField {
-        label: "密码".into(),
+        label: t!("tui.entry.password_label").to_string(),
         value: FieldValue::Masked,
         copyable: false,
         toggleable: false,
@@ -196,7 +197,7 @@ fn field_display_value() {
     );
 
     let revealed = DetailField {
-        label: "密码".into(),
+        label: t!("tui.entry.password_label").to_string(),
         value: FieldValue::Revealed("secret123".into()),
         copyable: false,
         toggleable: false,
@@ -243,9 +244,9 @@ fn build_from_login_record() {
     assert_eq!(data.name, "GitHub");
     assert!(data.is_favorite);
     assert_eq!(data.fields.len(), 4); // username, password, url, notes
-    assert_eq!(data.fields[0].label, "用户名");
+    assert_eq!(data.fields[0].label, t!("tui.entry.username_label"));
     assert!(matches!(data.fields[0].value, FieldValue::Plain(ref s) if s == "octocat"));
-    assert_eq!(data.fields[1].label, "密码");
+    assert_eq!(data.fields[1].label, t!("tui.entry.password_label"));
     assert!(matches!(data.fields[1].value, FieldValue::Masked));
     assert_eq!(data.tags, vec!["dev"]);
 }

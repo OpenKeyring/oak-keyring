@@ -266,48 +266,39 @@ fn render_zero_area() {
 
 #[test]
 fn sort_field_labels() {
-    assert_eq!(
-        sort_field_label(&SortField::CreatedAt),
-        "\u{521B}\u{5EFA}\u{65F6}\u{95F4}"
-    );
-    assert_eq!(
-        sort_field_label(&SortField::UpdatedAt),
-        "\u{66F4}\u{65B0}\u{65F6}\u{95F4}"
-    );
-    assert_eq!(sort_field_label(&SortField::Name), "\u{540D}\u{79F0}");
-    assert_eq!(
-        sort_field_label(&SortField::UsageFrequency),
-        "\u{4F7F}\u{7528}\u{9891}\u{7387}"
-    );
+    assert_eq!(sort_field_label(&SortField::CreatedAt), "Created");
+    assert_eq!(sort_field_label(&SortField::UpdatedAt), "Updated");
+    assert_eq!(sort_field_label(&SortField::Name), "Name");
+    assert_eq!(sort_field_label(&SortField::UsageFrequency), "Frequency");
 }
 
 #[test]
 fn sort_direction_labels_unicode() {
     let (icon, label) = sort_direction_label(&SortDirection::Desc, true);
     assert_eq!(icon, "\u{2193}"); // ↓
-    assert_eq!(label, "\u{964D}\u{5E8F}"); // 降序
+    assert_eq!(label, "Descending");
 
     let (icon, label) = sort_direction_label(&SortDirection::Asc, true);
     assert_eq!(icon, "\u{2191}"); // ↑
-    assert_eq!(label, "\u{5347}\u{5E8F}"); // 升序
+    assert_eq!(label, "Ascending");
 }
 
 #[test]
 fn sort_direction_labels_ascii() {
     let (icon, label) = sort_direction_label(&SortDirection::Desc, false);
     assert_eq!(icon, "v");
-    assert_eq!(label, "\u{964D}\u{5E8F}");
+    assert_eq!(label, "Descending");
 
     let (icon, label) = sort_direction_label(&SortDirection::Asc, false);
     assert_eq!(icon, "^");
-    assert_eq!(label, "\u{5347}\u{5E8F}");
+    assert_eq!(label, "Ascending");
 }
 
 #[test]
 fn build_sort_bar_contains_field_name() {
     let line = build_sort_bar(&SortField::Name, &SortDirection::Asc, true);
     let combined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-    assert!(combined.contains("\u{540D}\u{79F0}")); // 名称
+    assert!(combined.contains("Name"));
 }
 
 #[test]
@@ -322,7 +313,7 @@ fn build_visual_bar_shows_count() {
     let line = build_visual_bar(3);
     let combined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(combined.contains("3"));
-    assert!(combined.contains("\u{5DF2}\u{9009}")); // 已选
+    assert!(combined.contains("selected")); // selected
 }
 
 // ── Visual mode bar tests ──
@@ -338,11 +329,8 @@ fn render_visual_mode_bar() {
 
     let label_span = &line.spans[0];
     assert!(
-        label_span
-            .content
-            .as_ref()
-            .contains("\u{591A}\u{9009}\u{6A21}\u{5F0F}"),
-        "label span should contain '多选模式'"
+        label_span.content.as_ref().contains("VISUAL"),
+        "label span should contain 'VISUAL'"
     );
     assert!(
         label_span.style.fg == Some(theme::TEXT.into()),
@@ -394,19 +382,19 @@ fn render_visual_mode_with_selections() {
         "rendered buffer should show 2 selected items"
     );
     assert!(
-        result.contains("\u{591A}\u{9009}\u{6A21}\u{5F0F}"),
-        "rendered buffer should contain '多选模式'"
+        result.contains("VISUAL"),
+        "rendered buffer should contain 'VISUAL'"
     );
 }
 
 #[test]
 fn render_visual_bar_zero_selections() {
-    // Visual mode with no selections should show "(0 已选)"
+    // Visual mode with no selections should show "(0 selected)"
     let line = build_visual_bar(0);
     let combined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(
         combined.contains("(0"),
-        "zero selections should show '(0 已选)'"
+        "zero selections should show '(0 selected)'"
     );
 }
 
@@ -423,8 +411,8 @@ fn exiting_visual_mode_returns_to_sort_bar() {
     state.enter_visual();
     let visual_result = render_snapshot(&state, 50, 15, true, true, RecordFilter::All);
     assert!(
-        visual_result.contains("\u{591A}\u{9009}\u{6A21}\u{5F0F}"),
-        "visual mode should show '多选模式'"
+        visual_result.contains("VISUAL"),
+        "visual mode should show 'VISUAL'"
     );
 
     // Exit visual mode
@@ -436,12 +424,12 @@ fn exiting_visual_mode_returns_to_sort_bar() {
 
     let normal_result = render_snapshot(&state, 50, 15, true, true, RecordFilter::All);
     assert!(
-        normal_result.contains("\u{6392}\u{5E8F}"),
-        "normal mode should show '排序' in the bar"
+        normal_result.contains("Sort"),
+        "normal mode should show 'Sort' in the bar"
     );
     assert!(
-        !normal_result.contains("\u{591A}\u{9009}\u{6A21}\u{5F0F}"),
-        "normal mode should NOT show '多选模式'"
+        !normal_result.contains("VISUAL"),
+        "normal mode should NOT show 'VISUAL'"
     );
 }
 
@@ -674,7 +662,7 @@ fn health_badge_compromised() {
     let span = health_badge(Some(&HealthIssue::Compromised), true).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('\u{1F534}')); // 🔴
-    assert!(text.contains('\u{5DF2}')); // 已 (part of 已泄露)
+    assert!(text.contains("Leaked") || text.contains("leaked"));
     assert!(span.style.fg == Some(theme::ERROR.into()));
 }
 
@@ -691,7 +679,7 @@ fn health_badge_weak() {
     let span = health_badge(Some(&HealthIssue::Weak), true).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('\u{26A0}')); // ⚠
-    assert!(text.contains('\u{5F31}')); // 弱
+    assert!(text.contains("Weak") || text.contains("weak"));
     assert!(span.style.fg == Some(theme::WARNING.into()));
 }
 
@@ -709,7 +697,7 @@ fn health_badge_duplicate() {
     let text = span.content.as_ref();
     assert!(text.contains('\u{26A0}')); // ⚠
     assert!(text.contains('3'));
-    assert!(text.contains("\u{91CD}\u{590D}")); // 重复
+    assert!(text.contains("Duplicate") || text.contains("duplicate"));
     assert!(span.style.fg == Some(theme::WARNING.into()));
 }
 

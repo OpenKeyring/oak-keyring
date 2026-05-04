@@ -12,6 +12,7 @@ use ratatui::Frame;
 
 use crate::commands::types::ConflictResolution;
 use crate::commands::{Command, Message};
+use crate::t;
 use crate::tui::state::sync_ui_state::*;
 use crate::tui::theme::{self, BG_BAR, TEXT, TEXT_MUTED, TEXT_SECONDARY};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
@@ -135,11 +136,13 @@ impl SyncConflictScreen {
     }
 
     fn render_title_bar(&self, f: &mut Frame, area: Rect) {
+        let title = t!("tui.sync.conflict_title");
         let header_text = if self.state.conflicts.is_empty() {
-            " 同步冲突".to_string()
+            format!(" {}", title)
         } else {
             format!(
-                " 同步冲突  ({}/{})",
+                " {}  ({}/{})",
+                title,
                 self.state.current_index + 1,
                 self.state.conflicts.len()
             )
@@ -160,14 +163,14 @@ impl SyncConflictScreen {
     }
 
     fn render_progress_line(&self, f: &mut Frame, area: Rect) {
-        let text = if let Some(conflict) = self.state.conflicts.get(self.state.current_index) {
-            format!(
-                "检测到 {} 条密码存在冲突，请逐条解决。当前: {}",
-                self.state.conflicts.len(),
-                conflict.record_name,
+        let text = if self.state.conflicts.get(self.state.current_index).is_some() {
+            t!(
+                "tui.sync.conflicts_detected",
+                count = self.state.conflicts.len()
             )
+            .to_string()
         } else {
-            "没有需要解决的冲突".to_string()
+            t!("tui.sync.no_conflicts").to_string()
         };
 
         let paragraph = Paragraph::new(text)
@@ -193,9 +196,11 @@ impl SyncConflictScreen {
             } else {
                 Color::DarkGray
             };
+            let local_version_label = t!("tui.sync.local_version");
             let local_block = Block::default()
                 .title(format!(
-                    " 本地版本 ({}) ",
+                    " {} ({}) ",
+                    local_version_label,
                     conflict.local_time.format("%m-%d %H:%M")
                 ))
                 .borders(Borders::ALL)
@@ -210,9 +215,11 @@ impl SyncConflictScreen {
             } else {
                 Color::DarkGray
             };
+            let remote_version_label = t!("tui.sync.remote_version");
             let remote_block = Block::default()
                 .title(format!(
-                    " 远程版本 ({}) ",
+                    " {} ({}) ",
+                    remote_version_label,
                     conflict.remote_time.format("%m-%d %H:%M")
                 ))
                 .borders(Borders::ALL)
@@ -222,7 +229,8 @@ impl SyncConflictScreen {
             self.render_fields(f, remote_inner, &conflict.remote_fields);
         } else {
             // No conflicts: show empty state
-            let empty = Paragraph::new("没有需要解决的冲突").alignment(Alignment::Center);
+            let empty_text = t!("tui.sync.no_conflicts");
+            let empty = Paragraph::new(empty_text.to_string()).alignment(Alignment::Center);
             let centered = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
@@ -240,6 +248,8 @@ impl SyncConflictScreen {
             return;
         }
 
+        let diff_marker_label = t!("tui.sync.diff_marker");
+
         let rows: Vec<Row> = fields
             .iter()
             .map(|field| {
@@ -249,9 +259,9 @@ impl SyncConflictScreen {
                     field.value.clone()
                 };
                 let diff_marker = if field.differs {
-                    " \u{2190} 差异"
+                    format!(" \u{2190} {}", diff_marker_label)
                 } else {
-                    ""
+                    "".to_string()
                 };
                 let value_style = if field.differs {
                     Style::default().fg(Color::Black).bg(Color::Yellow)
@@ -280,17 +290,23 @@ impl SyncConflictScreen {
     }
 
     fn render_footer(&self, f: &mut Frame, area: Rect) {
+        let select_version = t!("tui.sync.select_version").to_string();
+        let confirm = t!("tui.sync.confirm_selection").to_string();
+        let keep_all = t!("tui.sync.keep_all_local").to_string();
+        let skip = t!("tui.sync.skip_current").to_string();
+        let toggle_pwd = t!("tui.sync.toggle_password").to_string();
+
         let hints = [
             "\u{2190}\u{2192}",
-            "选择版本",
+            select_version.as_str(),
             "Enter",
-            "确认",
+            confirm.as_str(),
             "a",
-            "全部保留本地",
+            keep_all.as_str(),
             "Esc",
-            "跳过",
+            skip.as_str(),
             "p",
-            "显示/隐藏密码",
+            toggle_pwd.as_str(),
         ];
 
         let hint_text = hints.chunks(2).fold(String::new(), |mut acc, pair| {
@@ -324,19 +340,22 @@ mod tests {
 
     /// Helper to build a conflict display with two fields.
     fn make_conflict(name: &str) -> ConflictDisplay {
+        let username_label = t!("tui.password_detail.username_label");
+        let password_label = t!("tui.password_detail.password_label");
+
         ConflictDisplay {
             record_id: Uuid::new_v4(),
             record_name: name.to_string(),
             local_fields: vec![
                 ConflictField {
-                    label: "用户名".to_string(),
+                    label: username_label.to_string(),
                     value: "alice".to_string(),
                     differs: false,
                     is_sensitive: false,
                     is_masked: false,
                 },
                 ConflictField {
-                    label: "密码".to_string(),
+                    label: password_label.to_string(),
                     value: "secret123".to_string(),
                     differs: true,
                     is_sensitive: true,
@@ -345,14 +364,14 @@ mod tests {
             ],
             remote_fields: vec![
                 ConflictField {
-                    label: "用户名".to_string(),
+                    label: username_label.to_string(),
                     value: "alice".to_string(),
                     differs: false,
                     is_sensitive: false,
                     is_masked: false,
                 },
                 ConflictField {
-                    label: "密码".to_string(),
+                    label: password_label.to_string(),
                     value: "newsecret456".to_string(),
                     differs: true,
                     is_sensitive: true,

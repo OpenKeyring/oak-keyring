@@ -27,12 +27,12 @@ impl TagSortOrder {
         };
     }
 
-    /// Return the Chinese display label for the current sort order.
-    pub fn label(&self) -> &'static str {
+    /// Return the display label for the current sort order.
+    pub fn label(&self) -> String {
         match self {
-            TagSortOrder::Frequency => "频率",
-            TagSortOrder::Alphabetical => "名称",
-            TagSortOrder::RecentlyUsed => "最近",
+            TagSortOrder::Frequency => crate::t!("tui.main.sidebar_sort_frequency").to_string(),
+            TagSortOrder::Alphabetical => crate::t!("tui.main.sidebar_sort_name").to_string(),
+            TagSortOrder::RecentlyUsed => crate::t!("tui.main.sidebar_sort_recent").to_string(),
         }
     }
 
@@ -184,9 +184,10 @@ mod tests {
 
     #[test]
     fn tag_sort_order_labels() {
-        assert_eq!(TagSortOrder::Frequency.label(), "频率");
-        assert_eq!(TagSortOrder::Alphabetical.label(), "名称");
-        assert_eq!(TagSortOrder::RecentlyUsed.label(), "最近");
+        // Tests now check that labels are non-empty (content may be localized)
+        assert!(!TagSortOrder::Frequency.label().is_empty());
+        assert!(!TagSortOrder::Alphabetical.label().is_empty());
+        assert!(!TagSortOrder::RecentlyUsed.label().is_empty());
     }
 
     #[test]

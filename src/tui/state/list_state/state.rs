@@ -13,6 +13,7 @@ use chrono::{DateTime, Datelike, Local, TimeZone, Timelike, Utc};
 use uuid::Uuid;
 
 use crate::commands::types::{RecordSort, SortDirection, SortField};
+use crate::t;
 use crate::types::credential::CredentialType;
 use crate::types::record::TuiRecord;
 
@@ -333,9 +334,9 @@ impl ListPanelState {
 /// Format a UTC datetime as a human-readable relative time string.
 ///
 /// - Today -> HH:MM
-/// - Yesterday -> 昨天
-/// - < 7 days -> N天前
-/// - < 30 days -> N周前
+/// - Yesterday -> yesterday
+/// - < 7 days -> N days ago
+/// - < 30 days -> N weeks ago
 /// - Same year -> MM-DD
 /// - Older -> YYYY-MM-DD
 pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
@@ -352,12 +353,12 @@ pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
         // Today: show time HH:MM
         format!("{:02}:{:02}", local_dt.hour(), local_dt.minute())
     } else if day_diff == 1 {
-        "昨天".to_string()
+        t!("tui.list_state.time_yesterday").to_string()
     } else if day_diff < 7 {
-        format!("{}天前", day_diff)
+        t!("tui.list_state.time_days_ago", n = day_diff).to_string()
     } else if day_diff < 30 {
         let weeks = day_diff / 7;
-        format!("{}周前", weeks)
+        t!("tui.list_state.time_weeks_ago", n = weeks).to_string()
     } else if local_dt.year() == local_now.year() {
         format!("{:02}-{:02}", local_dt.month(), local_dt.day())
     } else {
@@ -375,11 +376,11 @@ pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
 /// - Login -> ""
 /// - Api -> "[API] "
 /// - Ssh -> "[SSH] "
-pub fn format_type_prefix(cred_type: &CredentialType) -> &'static str {
+pub fn format_type_prefix(cred_type: &CredentialType) -> String {
     match cred_type {
-        CredentialType::Login => "",
-        CredentialType::Api => "[API] ",
-        CredentialType::Ssh => "[SSH] ",
+        CredentialType::Login => String::new(),
+        CredentialType::Api => t!("tui.list_state.type_prefix_api").to_string(),
+        CredentialType::Ssh => t!("tui.list_state.type_prefix_ssh").to_string(),
     }
 }
 
@@ -414,20 +415,20 @@ pub fn trash_warning_tier(remaining_days: i64) -> TrashWarningTier {
     }
 }
 
-/// Format "X 天前删除" string from the deletion timestamp.
+/// Format "X days ago deletion" string from the deletion timestamp.
 pub fn format_days_since_deletion(deleted_at: &DateTime<Utc>) -> String {
     let now = Utc::now();
     let local_now: chrono::DateTime<Local> = Local.from_utc_datetime(&now.naive_utc());
     let local_deleted: chrono::DateTime<Local> = Local.from_utc_datetime(&deleted_at.naive_utc());
 
     let days = (local_now.date_naive() - local_deleted.date_naive()).num_days();
-    format!("{} 天前删除", days.max(0))
+    t!("tui.list_state.deleted_days_ago", n = days.max(0)).to_string()
 }
 
 /// Format the remaining days string before automatic permanent deletion.
 pub fn format_remaining_days(deleted_at: &DateTime<Utc>, retention_days: u32) -> String {
     if retention_days == 0 {
-        return "不会自动删除".to_string();
+        return t!("tui.list_state.will_not_auto_delete").to_string();
     }
 
     let now = Utc::now();
@@ -436,7 +437,7 @@ pub fn format_remaining_days(deleted_at: &DateTime<Utc>, retention_days: u32) ->
 
     let days_since = (local_now.date_naive() - local_deleted.date_naive()).num_days();
     let remaining = (retention_days as i64) - days_since;
-    format!("剩余 {} 天", remaining.max(0))
+    t!("tui.list_state.remaining_days", n = remaining.max(0)).to_string()
 }
 
 /// Calculate the number of remaining days before automatic deletion.

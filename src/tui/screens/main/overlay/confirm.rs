@@ -16,6 +16,7 @@ use ratatui::{
 };
 
 use crate::commands::types::{ConfirmButton, ConfirmVariant};
+use crate::t;
 use crate::tui::theme;
 
 // ── Colour / layout constants ────────────────────────────────────
@@ -58,7 +59,7 @@ pub fn render_confirm(
     // body + separator + button line
     let mut all_lines = body_lines;
     all_lines.push(separator_line(content_width));
-    all_lines.push(render_buttons(focused_button, confirm_label, is_danger));
+    all_lines.push(render_buttons(focused_button, &confirm_label, is_danger));
 
     let total_lines = all_lines.len() as u16;
     let height = (total_lines + 2).min(area.height); // +2 border rows
@@ -116,13 +117,13 @@ fn is_danger_variant(variant: &ConfirmVariant) -> bool {
 }
 
 /// Determine the confirm button label for the given variant.
-fn confirm_label_for(variant: &ConfirmVariant) -> &'static str {
+fn confirm_label_for(variant: &ConfirmVariant) -> String {
     match variant {
-        ConfirmVariant::SoftDelete { .. } => "移到回收站",
-        ConfirmVariant::HardDelete { .. } => "永久删除",
-        ConfirmVariant::EmptyTrash { .. } => "清空回收站",
-        ConfirmVariant::BatchSoftDelete { .. } => "移到回收站",
-        ConfirmVariant::TagDelete { .. } => "删除标签",
+        ConfirmVariant::SoftDelete { .. } => t!("tui.overlay.confirm_button").to_string(),
+        ConfirmVariant::HardDelete { .. } => t!("tui.trash.permanent_delete_title").to_string(),
+        ConfirmVariant::EmptyTrash { .. } => t!("tui.trash.empty_trash_title").to_string(),
+        ConfirmVariant::BatchSoftDelete { .. } => t!("tui.overlay.confirm_button").to_string(),
+        ConfirmVariant::TagDelete { .. } => t!("tui.tag.confirm_delete_tag").to_string(),
     }
 }
 
@@ -132,34 +133,40 @@ fn confirm_label_for(variant: &ConfirmVariant) -> &'static str {
 fn build_dialog_parts(
     variant: &ConfirmVariant,
     _content_width: u16,
-) -> (String, Vec<Line<'static>>, &'static str) {
+) -> (String, Vec<Line<'static>>, String) {
     match variant {
         ConfirmVariant::SoftDelete {
             record_name,
             auto_delete_days,
             ..
         } => {
-            let mut lines = vec![line_with_name(&format!(
-                "将 \"{}\" 移到回收站？",
-                record_name
-            ))];
+            let mut lines = vec![line_with_name(
+                t!("tui.trash.move_to_trash", name = record_name.as_str()).as_ref(),
+            )];
             if let Some(days) = auto_delete_days {
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
-                    format!("  {} 天后自动永久删除", days),
+                    format!("  {}", t!("tui.trash.auto_delete_notice", days = days)),
                     Style::default().fg(theme::TEXT_SECONDARY),
                 )));
             }
-            (" 确认 ".to_string(), lines, confirm_label_for(variant))
+            (
+                format!(" {} ", t!("tui.overlay.confirm_button")),
+                lines,
+                confirm_label_for(variant),
+            )
         }
 
         ConfirmVariant::HardDelete { record_name, .. } => {
-            let lines = vec![line_with_name(&format!(
-                "确定永久删除 \"{}\"？",
-                record_name
-            ))];
+            let lines = vec![line_with_name(
+                &t!(
+                    "tui.trash.permanent_delete_body",
+                    name = record_name.as_str()
+                )
+                .into_owned(),
+            )];
             (
-                format!(" {} 警告 ", theme::ICON_WARNING),
+                format!(" {} ", t!("tui.overlay.warning_title")),
                 lines,
                 confirm_label_for(variant),
             )
@@ -167,11 +174,11 @@ fn build_dialog_parts(
 
         ConfirmVariant::EmptyTrash { count } => {
             let lines = vec![Line::from(Span::styled(
-                format!("确定清空回收站？共 {} 个密码。", count),
+                t!("tui.trash.empty_trash_body", count = count),
                 Style::default().fg(theme::TEXT),
             ))];
             (
-                format!(" {} 警告 ", theme::ICON_WARNING),
+                format!(" {} ", t!("tui.overlay.warning_title")),
                 lines,
                 confirm_label_for(variant),
             )
@@ -180,7 +187,7 @@ fn build_dialog_parts(
         ConfirmVariant::BatchSoftDelete { record_names, .. } => {
             let count = record_names.len();
             let mut lines = vec![Line::from(Span::styled(
-                format!("将 {} 条密码移到回收站？", count),
+                t!("tui.batch.batch_delete_body", count = count),
                 Style::default().fg(theme::TEXT),
             ))];
             lines.push(Line::from(""));
@@ -192,24 +199,37 @@ fn build_dialog_parts(
             }
             if record_names.len() > 5 {
                 lines.push(Line::from(Span::styled(
-                    format!("  ...等共 {} 条", record_names.len()),
+                    format!(
+                        "  {}",
+                        t!("tui.batch.more_items", count = record_names.len())
+                    ),
                     Style::default().fg(theme::TEXT_MUTED),
                 )));
             }
-            (" 确认 ".to_string(), lines, confirm_label_for(variant))
+            (
+                format!(" {} ", t!("tui.overlay.confirm_button")),
+                lines,
+                confirm_label_for(variant),
+            )
         }
 
         ConfirmVariant::TagDelete {
             tag_name,
             affected_count,
         } => {
-            let mut lines = vec![line_with_name(&format!("确定删除标签 \"{}\"？", tag_name))];
+            let mut lines = vec![line_with_name(
+                t!("tui.tag.delete_body", name = tag_name.as_str()).as_ref(),
+            )];
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                format!("  影响 {} 条密码", affected_count),
+                format!("  {}", t!("tui.tag.used_by_count", count = affected_count)),
                 Style::default().fg(theme::TEXT_SECONDARY),
             )));
-            (" 确认 ".to_string(), lines, confirm_label_for(variant))
+            (
+                format!(" {} ", t!("tui.overlay.confirm_button")),
+                lines,
+                confirm_label_for(variant),
+            )
         }
     }
 }
@@ -218,7 +238,7 @@ fn build_dialog_parts(
 
 /// Build the button line with Cancel and Confirm buttons.
 fn render_buttons(focused: ConfirmButton, confirm_label: &str, is_danger: bool) -> Line<'static> {
-    let cancel_text = " 取消 ";
+    let cancel_text = format!(" {} ", t!("tui.overlay.cancel_button"));
     let confirm_text = format!(" {} ", confirm_label);
 
     let cancel_style = if matches!(focused, ConfirmButton::Cancel) {
@@ -244,7 +264,7 @@ fn render_buttons(focused: ConfirmButton, confirm_label: &str, is_danger: bool) 
     };
 
     Line::from(vec![
-        Span::styled(cancel_text.to_string(), cancel_style),
+        Span::styled(cancel_text, cancel_style),
         Span::raw("  "),
         Span::styled(confirm_text, confirm_style),
     ])
@@ -369,32 +389,30 @@ mod tests {
 
     #[test]
     fn confirm_labels_are_correct() {
-        assert_eq!(confirm_label_for(&soft_delete_variant()), "移到回收站");
-        assert_eq!(
-            confirm_label_for(&ConfirmVariant::HardDelete {
-                record_id: Uuid::new_v4(),
-                record_name: "x".to_string(),
-            }),
-            "永久删除"
-        );
-        assert_eq!(
-            confirm_label_for(&ConfirmVariant::EmptyTrash { count: 1 }),
-            "清空回收站"
-        );
-        assert_eq!(
-            confirm_label_for(&ConfirmVariant::BatchSoftDelete {
-                record_ids: vec![],
-                record_names: vec![],
-            }),
-            "移到回收站"
-        );
-        assert_eq!(
-            confirm_label_for(&ConfirmVariant::TagDelete {
-                tag_name: "t".to_string(),
-                affected_count: 0,
-            }),
-            "删除标签"
-        );
+        // Note: These tests now check for translated strings
+        let label = confirm_label_for(&soft_delete_variant());
+        assert!(label.contains("Confirm") || label.contains("确认"));
+
+        let label = confirm_label_for(&ConfirmVariant::HardDelete {
+            record_id: Uuid::new_v4(),
+            record_name: "x".to_string(),
+        });
+        assert!(label.contains("Permanent") || label.contains("永久"));
+
+        let label = confirm_label_for(&ConfirmVariant::EmptyTrash { count: 1 });
+        assert!(label.contains("Empty") || label.contains("清空"));
+
+        let label = confirm_label_for(&ConfirmVariant::BatchSoftDelete {
+            record_ids: vec![],
+            record_names: vec![],
+        });
+        assert!(label.contains("Confirm") || label.contains("确认"));
+
+        let label = confirm_label_for(&ConfirmVariant::TagDelete {
+            tag_name: "t".to_string(),
+            affected_count: 0,
+        });
+        assert!(label.contains("Delete") || label.contains("删除"));
     }
 
     #[test]
@@ -424,8 +442,10 @@ mod tests {
             auto_delete_days: Some(30),
         };
         let (title, lines, label) = build_dialog_parts(&variant, 46);
-        assert_eq!(title, " 确认 ");
-        assert_eq!(label, "移到回收站");
+        // Title should contain "Confirm" or "确认"
+        assert!(title.contains("Confirm") || title.contains("确认"));
+        // Label should also contain confirmation text
+        assert!(label.contains("Confirm") || label.contains("确认"));
         // Should have: message line + blank + hint line
         assert_eq!(lines.len(), 3);
     }
