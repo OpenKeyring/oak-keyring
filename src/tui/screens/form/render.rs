@@ -8,6 +8,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::t;
 use crate::tui::components::text_input::PasswordButton;
 use crate::tui::components::{dropdown, strength_bar, tag_input, text_input};
 use crate::tui::state::form_state::{ExpiryOption, FormState, PasswordFieldFocus};
@@ -24,8 +25,8 @@ pub fn render_form(
     _unicode: bool,
 ) {
     let title = match state.mode {
-        crate::tui::state::form_state::FormMode::Create => "新建密码",
-        crate::tui::state::form_state::FormMode::Edit { .. } => "编辑密码",
+        crate::tui::state::form_state::FormMode::Create => t!("tui.form.create_title"),
+        crate::tui::state::form_state::FormMode::Edit { .. } => t!("tui.form.edit_title"),
     };
 
     let mut lines = vec![
@@ -38,7 +39,10 @@ pub fn render_form(
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("                                        "),
-            Span::styled("Esc 取消", Style::default().fg(theme::TEXT_SECONDARY)),
+            Span::styled(
+                format!(" {}", t!("tui.form.cancel_hint")),
+                Style::default().fg(theme::TEXT_SECONDARY),
+            ),
         ]),
         separator_line(area.width),
         Line::raw(""),
@@ -48,16 +52,20 @@ pub fn render_form(
     let focused = state.focused_field;
 
     // Field 0: Credential Type dropdown
-    let ct_options = ["Login", "API", "SSH"];
+    let ct_options = [
+        t!("tui.form.type_login").into_owned(),
+        t!("tui.form.type_api").into_owned(),
+        t!("tui.form.type_ssh").into_owned(),
+    ];
     let ct_selected = match ct {
-        CredentialType::Login => "Login",
-        CredentialType::Api => "API",
-        CredentialType::Ssh => "SSH",
+        CredentialType::Login => t!("tui.form.type_login"),
+        CredentialType::Api => t!("tui.form.type_api"),
+        CredentialType::Ssh => t!("tui.form.type_ssh"),
     };
     if state.credential_dropdown.expanded {
         let expanded = dropdown::render_dropdown_expanded(
-            "凭证类型",
-            &ct_options,
+            &t!("tui.form.type_label").into_owned(),
+            &ct_options.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             state.credential_dropdown.selected_index,
             area.width,
             _unicode,
@@ -65,8 +73,8 @@ pub fn render_form(
         lines.extend(expanded);
     } else {
         lines.push(dropdown::render_dropdown(
-            "凭证类型",
-            ct_selected,
+            &t!("tui.form.type_label").into_owned(),
+            &ct_selected,
             focused == 0,
             !state.is_credential_type_editable(),
             _unicode,
@@ -77,7 +85,7 @@ pub fn render_form(
     // Field 1: Name
     let name_error = state.validation_errors.iter().find(|e| e.field_index == 1);
     lines.extend(text_input::render_text_input(
-        "名称",
+        &t!("tui.form.name_label").into_owned(),
         &state.fields.name,
         focused == 1,
         name_error.is_some(),
@@ -92,11 +100,11 @@ pub fn render_form(
 
     // Field 2: URL
     let url_label = match ct {
-        CredentialType::Ssh => "主机地址",
-        _ => "网址",
+        CredentialType::Ssh => t!("tui.form.hostname_label"),
+        _ => t!("tui.form.url_label"),
     };
     lines.extend(text_input::render_text_input(
-        url_label,
+        &url_label.into_owned(),
         &state.fields.url,
         focused == 2,
         false,
@@ -112,7 +120,7 @@ pub fn render_form(
             // Field 3: Username
             let user_error = state.validation_errors.iter().find(|e| e.field_index == 3);
             lines.extend(text_input::render_text_input(
-                "用户名",
+                &t!("tui.form.username_label").into_owned(),
                 state.fields.username.as_deref().unwrap_or(""),
                 focused == 3,
                 user_error.is_some(),
@@ -129,20 +137,20 @@ pub fn render_form(
             let pw_error = state.validation_errors.iter().find(|e| e.field_index == 4);
             let login_buttons = [
                 PasswordButton {
-                    label: "生成",
+                    label: t!("tui.form.generate_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Generate,
                 },
                 PasswordButton {
-                    label: "显示",
+                    label: t!("tui.form.show_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Show,
                 },
                 PasswordButton {
-                    label: "复制",
+                    label: t!("tui.form.copy_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Copy,
                 },
             ];
             let password_row = text_input::render_password_input_with_buttons(
-                "密码",
+                &t!("tui.form.password_label").into_owned(),
                 state.fields.password.as_deref().unwrap_or(""),
                 focused == 4,
                 pw_error.is_some(),
@@ -185,7 +193,7 @@ pub fn render_form(
             // Field 3: AppID
             let appid_error = state.validation_errors.iter().find(|e| e.field_index == 3);
             lines.extend(text_input::render_text_input(
-                "AppID",
+                &t!("tui.form.app_id_label").into_owned(),
                 state.fields.app_id.as_deref().unwrap_or(""),
                 focused == 3,
                 appid_error.is_some(),
@@ -201,16 +209,16 @@ pub fn render_form(
             // Field 4: SecretKey
             let api_buttons = [
                 PasswordButton {
-                    label: "显示",
+                    label: t!("tui.form.show_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Show,
                 },
                 PasswordButton {
-                    label: "复制",
+                    label: t!("tui.form.copy_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Copy,
                 },
             ];
             let secret_row = text_input::render_password_input_with_buttons(
-                "SecretKey",
+                &t!("tui.form.secret_key_label").into_owned(),
                 state.fields.secret_key.as_deref().unwrap_or(""),
                 focused == 4,
                 false,
@@ -230,16 +238,16 @@ pub fn render_form(
             let pubkey_error = state.validation_errors.iter().find(|e| e.field_index == 3);
             let pubkey_buttons = [
                 PasswordButton {
-                    label: "粘贴",
+                    label: t!("tui.form.paste_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Paste,
                 },
                 PasswordButton {
-                    label: "复制",
+                    label: t!("tui.form.copy_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Copy,
                 },
             ];
             lines.extend(text_input::render_password_input_with_buttons(
-                "公钥",
+                &t!("tui.form.public_key_label").into_owned(),
                 state.fields.public_key.as_deref().unwrap_or(""),
                 focused == 3,
                 pubkey_error.is_some(),
@@ -260,20 +268,20 @@ pub fn render_form(
             // Field 4: Private Key
             let privkey_buttons = [
                 PasswordButton {
-                    label: "显示",
+                    label: t!("tui.form.show_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Show,
                 },
                 PasswordButton {
-                    label: "粘贴",
+                    label: t!("tui.form.paste_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Paste,
                 },
                 PasswordButton {
-                    label: "复制",
+                    label: t!("tui.form.copy_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Copy,
                 },
             ];
             lines.extend(text_input::render_password_input_with_buttons(
-                "私钥",
+                &t!("tui.form.private_key_label").into_owned(),
                 state.fields.private_key.as_deref().unwrap_or(""),
                 focused == 4,
                 false,
@@ -287,7 +295,7 @@ pub fn render_form(
                 area.width,
             ));
             lines.push(Line::from(Span::styled(
-                "        (可选)",
+                format!("        {}", t!("tui.form.optional_marker")),
                 Style::default().fg(theme::TEXT_MUTED),
             )));
             lines.push(Line::raw(""));
@@ -295,20 +303,20 @@ pub fn render_form(
             // Field 5: Passphrase
             let passphrase_buttons = [
                 PasswordButton {
-                    label: "显示",
+                    label: t!("tui.form.show_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Show,
                 },
                 PasswordButton {
-                    label: "粘贴",
+                    label: t!("tui.form.paste_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Paste,
                 },
                 PasswordButton {
-                    label: "复制",
+                    label: t!("tui.form.copy_button").into_owned(),
                     focus_variant: PasswordFieldFocus::Copy,
                 },
             ];
             lines.extend(text_input::render_password_input_with_buttons(
-                "Passphrase",
+                "Passphrase", // Keep "Passphrase" as is - it's a technical term
                 state.fields.passphrase.as_deref().unwrap_or(""),
                 focused == 5,
                 false,
@@ -322,7 +330,7 @@ pub fn render_form(
                 area.width,
             ));
             lines.push(Line::from(Span::styled(
-                "        (选填)",
+                format!("        {}", t!("tui.form.optional_marker")),
                 Style::default().fg(theme::TEXT_MUTED),
             )));
         }
@@ -335,13 +343,10 @@ pub fn render_form(
         CredentialType::Ssh => 6,
     };
     if state.expiry_dropdown.expanded {
-        let options: Vec<&str> = ExpiryOption::all_options()
-            .iter()
-            .map(|(l, _)| *l)
-            .collect();
+        let options = ExpiryOption::all_options();
         lines.extend(dropdown::render_dropdown_expanded(
-            "过期时间",
-            &options,
+            &t!("tui.form.expiry_label").into_owned(),
+            &options.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(),
             state.expiry_dropdown.selected_index,
             area.width,
             _unicode,
@@ -349,8 +354,8 @@ pub fn render_form(
     } else {
         let expiry_label = state.fields.expires_at.label();
         lines.push(dropdown::render_dropdown(
-            "过期时间",
-            expiry_label,
+            &t!("tui.form.expiry_label").into_owned(),
+            &expiry_label,
             focused == expiry_idx,
             false,
             _unicode,
@@ -368,7 +373,7 @@ pub fn render_form(
             ),
         ]));
         lines.push(Line::from(Span::styled(
-            "              格式: YYYY-MM-DD",
+            format!("              {}", t!("tui.form.custom_date_placeholder")),
             Style::default().fg(theme::TEXT_SECONDARY),
         )));
     }
@@ -395,7 +400,7 @@ pub fn render_form(
         CredentialType::Ssh => 8,
     };
     lines.extend(text_input::render_text_input(
-        "备注",
+        &t!("tui.form.notes_label").into_owned(),
         &state.fields.notes,
         focused == notes_idx,
         false,
@@ -411,13 +416,16 @@ pub fn render_form(
     lines.push(Line::from(vec![
         Span::raw("                     "),
         Span::styled(
-            " [ Ctrl+S 保存 ] ",
+            format!(" {} ", t!("tui.form.save_button")),
             Style::default()
                 .fg(theme::PRIMARY)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
-        Span::styled(" [ 取消 ] ", Style::default().fg(theme::TEXT_SECONDARY)),
+        Span::styled(
+            format!(" {} ", t!("tui.form.cancel_button")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
     ]));
 
     let block = Block::default()
@@ -461,24 +469,37 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
 
     let lines = vec![
         Line::from(Span::styled(
-            format!("  {} 密码强度不足", theme::ICON_WARNING),
+            format!(
+                "  {} {}",
+                theme::ICON_WARNING,
+                t!("tui.overlay.weak_password_title")
+            ),
             Style::default()
                 .fg(theme::WARNING)
                 .add_modifier(Modifier::BOLD),
         )),
         separator_line(48),
         Line::raw(""),
-        Line::from(Span::raw("  当前密码强度为\"弱\"，容易受到暴力破解攻击。")),
+        Line::from(Span::raw(format!(
+            "  {}",
+            t!("tui.form.weak_password_hint")
+        ))),
         Line::raw(""),
-        Line::from(Span::raw("  建议使用生成器创建更强的密码。")),
+        Line::from(Span::raw(format!(
+            "  {}",
+            t!("tui.form.weak_password_suggestion")
+        ))),
         Line::raw(""),
         separator_line(48),
         Line::raw(""),
         Line::from(vec![
             Span::raw("      "),
-            Span::styled("[ 返回修改 ]", go_back_style),
+            Span::styled(format!("[ {} ]", t!("tui.form.go_back")), go_back_style),
             Span::raw("      "),
-            Span::styled("[ 直接保存 ]", save_anyway_style),
+            Span::styled(
+                format!("[ {} ]", t!("tui.form.save_anyway")),
+                save_anyway_style,
+            ),
         ]),
     ];
     // Render centered
@@ -500,22 +521,28 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
 fn render_unsaved_dialog(frame: &mut Frame, area: Rect) {
     let lines = vec![
         Line::from(Span::styled(
-            "  未保存的更改",
+            format!("  {}", t!("tui.overlay.unsaved_title")),
             Style::default()
                 .fg(theme::TEXT)
                 .add_modifier(Modifier::BOLD),
         )),
         separator_line(40),
         Line::raw(""),
-        Line::from(Span::raw("  你有未保存的更改，确定要丢弃吗？")),
+        Line::from(Span::raw(format!("  {}", t!("tui.overlay.unsaved_body")))),
         Line::raw(""),
         separator_line(40),
         Line::raw(""),
         Line::from(vec![
             Span::raw("      "),
-            Span::styled(" [ 继续编辑 ] ", Style::default().fg(theme::PRIMARY)),
+            Span::styled(
+                format!(" {} ", t!("tui.form.continue_editing")),
+                Style::default().fg(theme::PRIMARY),
+            ),
             Span::raw("    "),
-            Span::styled(" [ 丢弃 ] ", Style::default().fg(theme::ERROR)),
+            Span::styled(
+                format!(" {} ", t!("tui.form.discard_changes")),
+                Style::default().fg(theme::ERROR),
+            ),
         ]),
     ];
     let w = 40.min(area.width);

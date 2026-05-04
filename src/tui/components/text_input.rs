@@ -56,7 +56,7 @@ pub fn render_text_input(
 
 /// A button descriptor for password input inline buttons.
 pub struct PasswordButton {
-    pub label: &'static str,
+    pub label: String,
     pub focus_variant: PasswordFieldFocus,
 }
 
@@ -144,11 +144,11 @@ mod tests {
     fn render_password_input_visible_shows_plaintext() {
         let buttons = [
             PasswordButton {
-                label: "显示",
+                label: "显示".to_string(),
                 focus_variant: PasswordFieldFocus::Show,
             },
             PasswordButton {
-                label: "复制",
+                label: "复制".to_string(),
                 focus_variant: PasswordFieldFocus::Copy,
             },
         ];
@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn render_password_input_masked_shows_bullets() {
         let buttons = [PasswordButton {
-            label: "显示",
+            label: "显示".to_string(),
             focus_variant: PasswordFieldFocus::Show,
         }];
         let lines = render_password_input_with_buttons(
