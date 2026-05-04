@@ -936,3 +936,37 @@ fn acceptance_trash_ascii_mode() {
     let result = render_snapshot(&state, 50, 10, true, false, RecordFilter::Trash);
     assert!(!result.is_empty());
 }
+
+// ── Responsive hiding tests ─────────────────────────────────────────────────
+
+#[test]
+fn record_item_3_lines_at_full_width() {
+    let record = make_record(Uuid::new_v4(), "TestRecord", "test@example.com");
+    let item = build_record_item(&record, false, false, true, true, 120, None);
+    // Should have 3 lines: title, subtitle, separator
+    assert_eq!(item.height(), 3);
+}
+
+#[test]
+fn record_item_2_lines_at_minimum_width() {
+    let record = make_record(Uuid::new_v4(), "TestRecord", "test@example.com");
+    let item = build_record_item(&record, false, false, true, true, 90, None);
+    // Should have 2 lines at minimum width: title, separator (no subtitle)
+    assert_eq!(item.height(), 2);
+}
+
+#[test]
+fn trash_item_2_lines_at_minimum_width() {
+    let record = make_trash_record(Uuid::new_v4(), "TestRecord", 5);
+    let item = build_trash_item(&record, false, false, true, true, 90, 30);
+    // Should have 2 lines at minimum width: title, separator (no meta)
+    assert_eq!(item.height(), 2);
+}
+
+#[test]
+fn trash_item_3_lines_at_full_width() {
+    let record = make_trash_record(Uuid::new_v4(), "TestRecord", 5);
+    let item = build_trash_item(&record, false, false, true, true, 120, 30);
+    // Should have 3 lines at full width: title, metadata, separator
+    assert_eq!(item.height(), 3);
+}
