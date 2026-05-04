@@ -7,6 +7,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::tui::state::sync_ui_state::{SyncDisplayStatus, SyncIndicatorState};
+use crate::tui::theme;
 
 /// A reusable sync-status indicator that can render into a ratatui frame.
 pub struct SyncIndicator<'a> {
@@ -43,9 +44,9 @@ impl<'a> SyncIndicator<'a> {
         match self.state.status {
             SyncDisplayStatus::Syncing => {
                 if self.state.animation_frame.is_multiple_of(2) {
-                    "\u{27F3}"
+                    theme::ICON_SYNC_SYNCING
                 } else {
-                    "\u{27F2}"
+                    theme::ICON_SYNC_ROTATING
                 }
             }
             _ => self.state.status.icon(),

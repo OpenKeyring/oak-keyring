@@ -24,7 +24,7 @@ pub const INFO: Color = Color::Rgb(122, 162, 247); // #7aa2f7
 
 // ── Semantic Icons (ASCII fallbacks in parens) ──
 pub const ICON_SUCCESS: &str = "\u{2713}";
-pub const ICON_ERROR: &str = "\u{2715}";
+pub const ICON_ERROR: &str = "\u{2717}";
 pub const ICON_WARNING: &str = "\u{26A0}";
 pub const ICON_INFO: &str = "\u{2139}";
 pub const ICON_LOCK: &str = "\u{1F510}";
