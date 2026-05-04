@@ -7,7 +7,7 @@ expression: terminal.backend()
 "                                                            "
 "  ──────────────────────────────                            "
 "                                                            "
-"  API 凭证                                                  " Hidden by multi-width symbols: [(7, " "), (9, " ")]
+"  API Credential                                            "
 "                                                            "
 "  AppID:                                                    "
 "    app_1234567890                                          "

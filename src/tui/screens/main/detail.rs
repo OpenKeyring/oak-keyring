@@ -189,7 +189,7 @@ impl DetailPanel {
                     theme::ascii::ICON_WARNING
                 };
                 if let Some(dt) = record.expires_at {
-                    let now = chrono::Local::now().date_naive();
+                    let now = chrono::Utc::now().date_naive();
                     let days = (dt.date_naive() - now).num_days().max(0);
                     markers.push(Span::styled(
                         format!(
@@ -208,7 +208,7 @@ impl DetailPanel {
                     theme::ascii::ICON_ERROR
                 };
                 if let Some(dt) = record.expires_at {
-                    let now = chrono::Local::now().date_naive();
+                    let now = chrono::Utc::now().date_naive();
                     let days = (now - dt.date_naive()).num_days().max(0);
                     markers.push(Span::styled(
                         format!(

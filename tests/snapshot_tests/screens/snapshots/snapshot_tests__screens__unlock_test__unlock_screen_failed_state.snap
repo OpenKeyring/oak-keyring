@@ -20,7 +20,7 @@ expression: backend
 "                                                                                "
 "                        ─────────────────────────────────                       "
 "                                                                                "
-"                       ✕ Wrong password. Please try again.                      "
+"                       ✗ Wrong password. Please try again.                      "
 "                                                                                "
 "                     [ Tab ]   Press Tab to use recovery key                    "
 "                                                                                "
