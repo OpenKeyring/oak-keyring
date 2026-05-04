@@ -202,8 +202,8 @@ mod tests {
             record_type: CredentialType::Login,
             field: FieldSelector::Password,
         };
-        assert!(matches!(err.error_code(), ErrorCode::Vault(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert!(matches!(err.to_error_code(), ErrorCode::VaultInvalidField));
+        assert_eq!(err.to_error_level(), ErrorLevel::Error);
     }
 
     #[test]
