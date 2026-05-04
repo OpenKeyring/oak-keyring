@@ -186,7 +186,23 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
             let label = format!(
                 "{} {} {}",
                 t!("tui.entry.strength_label"),
-                s.level.label_zh(),
+                match s.level {
+                    crate::crypto::strength::StrengthLevel::VeryWeak => {
+                        t!("tui.generator.strength_too_weak")
+                    }
+                    crate::crypto::strength::StrengthLevel::Weak => {
+                        t!("tui.generator.strength_weak")
+                    }
+                    crate::crypto::strength::StrengthLevel::Fair => {
+                        t!("tui.generator.strength_fair")
+                    }
+                    crate::crypto::strength::StrengthLevel::Strong => {
+                        t!("tui.generator.strength_strong")
+                    }
+                    crate::crypto::strength::StrengthLevel::VeryStrong => {
+                        t!("tui.generator.strength_very_strong")
+                    }
+                },
                 bar_str
             );
             let color = Self::strength_color(&s.level);

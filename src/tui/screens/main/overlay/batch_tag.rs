@@ -47,7 +47,7 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
 
     // ── Title ────────────────────────────────────────────────────────────
     let n = state.selected_record_ids.len();
-    let title = format!(" {} ", t!("tui.batch.batch_tag_title", n = n));
+    let title = format!(" {} ", t!("tui.batch.batch_tag_title", count = n));
 
     let outer_block = Block::default()
         .title(title)
