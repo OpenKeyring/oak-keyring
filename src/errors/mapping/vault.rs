@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use crate::commands::types::FieldSelector;
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorContext, ErrorLevel};
+use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::credential::CredentialType;
 
 #[derive(Debug, thiserror::Error)]
@@ -42,24 +42,62 @@ impl From<String> for VaultError {
 }
 
 impl ServiceError for VaultError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::Vault(self.to_string())
-    }
-
-    fn error_context(&self) -> Option<ErrorContext> {
-        None
-    }
-
-    fn error_level(&self) -> ErrorLevel {
+    fn to_error_code(&self) -> ErrorCode {
         match self {
-            VaultError::NotUnlocked => ErrorLevel::Fatal,
-            VaultError::RecordNotFound(_) => ErrorLevel::Warning,
-            VaultError::VersionConflict { .. } => ErrorLevel::Error,
-            VaultError::TagAlreadyExists(_) => ErrorLevel::Error,
-            VaultError::TagNotFound(_) => ErrorLevel::Error,
-            VaultError::DatabaseError(_) => ErrorLevel::Error,
-            VaultError::CryptoError(_) => ErrorLevel::Error,
-            VaultError::InvalidField { .. } => ErrorLevel::Error,
+            VaultError::RecordNotFound(_) => ErrorCode::VaultRecordNotFound,
+            VaultError::VersionConflict { .. } => ErrorCode::VaultVersionConflict,
+            VaultError::TagAlreadyExists(_) => ErrorCode::VaultTagAlreadyExists,
+            VaultError::TagNotFound(_) => ErrorCode::VaultTagNotFound,
+            VaultError::NotUnlocked => ErrorCode::VaultNotUnlocked,
+            VaultError::DatabaseError(e) => {
+                // Heuristic: check if error is corruption-related
+                let error_msg = e.to_string().to_lowercase();
+                if matches!(e, rusqlite::Error::InvalidColumnType(_, _, _))
+                    || error_msg.contains("corrupt")
+                    || error_msg.contains("corrupted")
+                    || error_msg.contains("malformed")
+                {
+                    ErrorCode::VaultDatabaseCorrupted
+                } else {
+                    ErrorCode::VaultDatabaseIoError
+                }
+            }
+            VaultError::CryptoError(_) => ErrorCode::CryptoDecryptionFailed,
+            VaultError::InvalidField { .. } => ErrorCode::VaultInvalidField,
+        }
+    }
+
+    fn to_error_context(&self) -> ErrorContext {
+        match self {
+            VaultError::RecordNotFound(id) => ErrorContext::new().record_id(*id),
+            VaultError::VersionConflict { expected, actual } => ErrorContext::new()
+                .expected_version(*expected)
+                .actual_version(*actual),
+            VaultError::TagAlreadyExists(name) => ErrorContext::new().field_name(name.clone()),
+            VaultError::TagNotFound(name) => ErrorContext::new().field_name(name.clone()),
+            VaultError::NotUnlocked => ErrorContext::new(),
+            VaultError::DatabaseError(_) => ErrorContext::new(),
+            VaultError::CryptoError(_) => ErrorContext::new(),
+            VaultError::InvalidField { record_type: _, field } => {
+                ErrorContext::new().field_name(format!("{:?}", field))
+            }
+        }
+    }
+
+    fn to_fallback_message(&self) -> String {
+        match self {
+            VaultError::RecordNotFound(_) => "The requested vault record was not found".to_string(),
+            VaultError::VersionConflict { expected, actual } => {
+                format!("Version conflict: expected version {}, but found version {}", expected, actual)
+            }
+            VaultError::TagAlreadyExists(name) => format!("Tag '{}' already exists", name),
+            VaultError::TagNotFound(name) => format!("Tag '{}' not found", name),
+            VaultError::NotUnlocked => "Vault is not unlocked. Please provide the master password".to_string(),
+            VaultError::DatabaseError(e) => format!("Database error: {}", e),
+            VaultError::CryptoError(msg) => format!("Cryptographic operation failed: {}", msg),
+            VaultError::InvalidField { record_type, field } => {
+                format!("Field '{:?}' is not valid for credential type '{:?}'", field, record_type)
+            }
         }
     }
 }
