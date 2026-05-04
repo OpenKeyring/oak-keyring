@@ -66,7 +66,7 @@ fn make_executor_with_one_login() -> CommandExecutor {
             30,
         )),
         import_export: ImportExportService::new(),
-        config: AppConfig::default(),
+        config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
         config_notifier: ServiceNotificationImpl::new(),
         vault_dir: std::path::PathBuf::from(":memory:"),
         health_report: None,
@@ -102,7 +102,7 @@ fn make_executor_no_records() -> CommandExecutor {
             30,
         )),
         import_export: ImportExportService::new(),
-        config: AppConfig::default(),
+        config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
         config_notifier: ServiceNotificationImpl::new(),
         vault_dir: std::path::PathBuf::from(":memory:"),
         health_report: None,
@@ -975,8 +975,9 @@ async fn force_scan_runs_even_when_should_run_returns_false() {
     // Set last_health_check_time to recent and frequency to Daily
     // so should_run would normally return false.
     executor.last_health_check_time = Some(chrono::Utc::now());
-    executor.config.security.health_check_frequency =
-        crate::config::security::HealthCheckFrequency::Daily;
+    executor.config.update_config_for_test(|c| {
+        c.security.health_check_frequency = crate::config::security::HealthCheckFrequency::Daily
+    });
 
     // force=true should bypass the frequency gate and start the scan.
     let result = handle_run_health_check(&mut executor, true);
@@ -994,8 +995,9 @@ fn non_force_scan_respects_should_run_gate() {
     // Set last_health_check_time to recent and frequency to Daily
     // so should_run returns false.
     executor.last_health_check_time = Some(chrono::Utc::now());
-    executor.config.security.health_check_frequency =
-        crate::config::security::HealthCheckFrequency::Daily;
+    executor.config.update_config_for_test(|c| {
+        c.security.health_check_frequency = crate::config::security::HealthCheckFrequency::Daily
+    });
 
     // force=false should respect the frequency gate and return skipped.
     let result = handle_run_health_check(&mut executor, false);
@@ -1512,8 +1514,9 @@ fn full_roundtrip_unlock_schedule_persist_restore() {
     executor.last_health_check_time = Some(last_check);
 
     // Set daily frequency so second unlock won't re-run
-    executor.config.security.health_check_frequency =
-        crate::config::security::HealthCheckFrequency::Daily;
+    executor.config.update_config_for_test(|c| {
+        c.security.health_check_frequency = crate::config::security::HealthCheckFrequency::Daily
+    });
 
     super::vault::schedule_health_check_after_unlock(&mut executor);
 
@@ -1578,8 +1581,9 @@ fn health_report_restores_after_simulated_restart() {
     // Simulate "restart": clear in-memory state
     executor.health_report = None;
     executor.last_health_check_time = None;
-    executor.config.security.health_check_frequency =
-        crate::config::security::HealthCheckFrequency::Daily;
+    executor.config.update_config_for_test(|c| {
+        c.security.health_check_frequency = crate::config::security::HealthCheckFrequency::Daily
+    });
 
     // Re-run unlock scheduling (this is what happens on restart)
     super::vault::schedule_health_check_after_unlock(&mut executor);

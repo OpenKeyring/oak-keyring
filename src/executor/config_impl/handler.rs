@@ -26,6 +26,17 @@ impl ConfigManagerImpl {
             config: RwLock::new(config),
         }
     }
+
+    /// Test-only: Directly update the in-memory config.
+    /// This bypasses persistence and notification, intended only for test isolation.
+    #[cfg(test)]
+    pub fn update_config_for_test<F>(&self, updater: F)
+    where
+        F: FnOnce(&mut AppConfig),
+    {
+        let mut config = self.config.write().unwrap_or_else(|e| e.into_inner());
+        updater(&mut config);
+    }
 }
 
 impl ConfigManager for ConfigManagerImpl {
