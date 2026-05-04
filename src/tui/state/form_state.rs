@@ -39,15 +39,12 @@ pub enum ExpiryOption {
 impl ExpiryOption {
     pub fn all_options() -> Vec<(String, ExpiryOption)> {
         vec![
+            (t!("tui.form.expiry_never").to_string(), ExpiryOption::Never),
+            (t!("tui.form.expiry_30d").to_string(), ExpiryOption::Days30),
+            (t!("tui.form.expiry_90d").to_string(), ExpiryOption::Days90),
+            (t!("tui.form.expiry_1y").to_string(), ExpiryOption::Year1),
             (
-                t!("tui.form.expiry_never").into_owned(),
-                ExpiryOption::Never,
-            ),
-            (t!("tui.form.expiry_30d").into_owned(), ExpiryOption::Days30),
-            (t!("tui.form.expiry_90d").into_owned(), ExpiryOption::Days90),
-            (t!("tui.form.expiry_1y").into_owned(), ExpiryOption::Year1),
-            (
-                t!("tui.form.expiry_custom").into_owned(),
+                t!("tui.form.expiry_custom").to_string(),
                 ExpiryOption::Custom,
             ),
         ]
@@ -66,11 +63,11 @@ impl ExpiryOption {
 
     pub fn label(self) -> String {
         match self {
-            ExpiryOption::Never => t!("tui.form.expiry_never").into_owned(),
-            ExpiryOption::Days30 => t!("tui.form.expiry_30d").into_owned(),
-            ExpiryOption::Days90 => t!("tui.form.expiry_90d").into_owned(),
-            ExpiryOption::Year1 => t!("tui.form.expiry_1y").into_owned(),
-            ExpiryOption::Custom => t!("tui.form.expiry_custom").into_owned(),
+            ExpiryOption::Never => t!("tui.form.expiry_never").to_string(),
+            ExpiryOption::Days30 => t!("tui.form.expiry_30d").to_string(),
+            ExpiryOption::Days90 => t!("tui.form.expiry_90d").to_string(),
+            ExpiryOption::Year1 => t!("tui.form.expiry_1y").to_string(),
+            ExpiryOption::Custom => t!("tui.form.expiry_custom").to_string(),
         }
     }
 }

@@ -81,7 +81,7 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
     render_tags_section(
         frame,
         chunks[1],
-        &t!("tui.batch.current_tags").into_owned(),
+        t!("tui.batch.current_tags").as_ref(),
         &state.current_tags,
         state.focus == TagPanelFocus::CurrentTags,
         state.tag_cursor,
@@ -96,7 +96,7 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
     render_tags_section(
         frame,
         chunks[2],
-        &t!("tui.batch.existing_tags").into_owned(),
+        t!("tui.batch.existing_tags").as_ref(),
         &state.available_tags,
         state.focus == TagPanelFocus::AvailableTags,
         available_cursor,

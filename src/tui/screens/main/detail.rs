@@ -565,14 +565,14 @@ mod tests {
             updated_at: chrono::Utc::now(),
             fields: vec![
                 DetailField {
-                    label: t!("tui.password_detail.username_label").into_owned(),
+                    label: t!("tui.password_detail.username_label").to_string(),
                     value: FieldValue::Plain("alice".into()),
                     copyable: true,
                     toggleable: false,
                     kind: DetailFieldKind::Username,
                 },
                 DetailField {
-                    label: t!("tui.password_detail.password_label").into_owned(),
+                    label: t!("tui.password_detail.password_label").to_string(),
                     value: FieldValue::Masked,
                     copyable: true,
                     toggleable: true,

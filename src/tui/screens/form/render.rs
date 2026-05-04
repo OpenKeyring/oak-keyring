@@ -53,9 +53,9 @@ pub fn render_form(
 
     // Field 0: Credential Type dropdown
     let ct_options = [
-        t!("tui.form.type_login").into_owned(),
-        t!("tui.form.type_api").into_owned(),
-        t!("tui.form.type_ssh").into_owned(),
+        t!("tui.form.type_login"),
+        t!("tui.form.type_api"),
+        t!("tui.form.type_ssh"),
     ];
     let ct_selected = match ct {
         CredentialType::Login => t!("tui.form.type_login"),
@@ -64,8 +64,8 @@ pub fn render_form(
     };
     if state.credential_dropdown.expanded {
         let expanded = dropdown::render_dropdown_expanded(
-            &t!("tui.form.type_label").into_owned(),
-            &ct_options.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            t!("tui.form.type_label").as_ref(),
+            &ct_options.iter().map(|s| s.as_ref()).collect::<Vec<_>>(),
             state.credential_dropdown.selected_index,
             area.width,
             _unicode,
@@ -73,8 +73,8 @@ pub fn render_form(
         lines.extend(expanded);
     } else {
         lines.push(dropdown::render_dropdown(
-            &t!("tui.form.type_label").into_owned(),
-            &ct_selected,
+            t!("tui.form.type_label").as_ref(),
+            ct_selected.as_ref(),
             focused == 0,
             !state.is_credential_type_editable(),
             _unicode,
@@ -85,7 +85,7 @@ pub fn render_form(
     // Field 1: Name
     let name_error = state.validation_errors.iter().find(|e| e.field_index == 1);
     lines.extend(text_input::render_text_input(
-        &t!("tui.form.name_label").into_owned(),
+        t!("tui.form.name_label").as_ref(),
         &state.fields.name,
         focused == 1,
         name_error.is_some(),
@@ -104,7 +104,7 @@ pub fn render_form(
         _ => t!("tui.form.url_label"),
     };
     lines.extend(text_input::render_text_input(
-        &url_label.into_owned(),
+        url_label.as_ref(),
         &state.fields.url,
         focused == 2,
         false,
@@ -120,7 +120,7 @@ pub fn render_form(
             // Field 3: Username
             let user_error = state.validation_errors.iter().find(|e| e.field_index == 3);
             lines.extend(text_input::render_text_input(
-                &t!("tui.form.username_label").into_owned(),
+                t!("tui.form.username_label").as_ref(),
                 state.fields.username.as_deref().unwrap_or(""),
                 focused == 3,
                 user_error.is_some(),
@@ -137,20 +137,20 @@ pub fn render_form(
             let pw_error = state.validation_errors.iter().find(|e| e.field_index == 4);
             let login_buttons = [
                 PasswordButton {
-                    label: t!("tui.form.generate_button").into_owned(),
+                    label: t!("tui.form.generate_button").to_string(),
                     focus_variant: PasswordFieldFocus::Generate,
                 },
                 PasswordButton {
-                    label: t!("tui.form.show_button").into_owned(),
+                    label: t!("tui.form.show_button").to_string(),
                     focus_variant: PasswordFieldFocus::Show,
                 },
                 PasswordButton {
-                    label: t!("tui.form.copy_button").into_owned(),
+                    label: t!("tui.form.copy_button").to_string(),
                     focus_variant: PasswordFieldFocus::Copy,
                 },
             ];
             let password_row = text_input::render_password_input_with_buttons(
-                &t!("tui.form.password_label").into_owned(),
+                t!("tui.form.password_label").as_ref(),
                 state.fields.password.as_deref().unwrap_or(""),
                 focused == 4,
                 pw_error.is_some(),
@@ -193,7 +193,7 @@ pub fn render_form(
             // Field 3: AppID
             let appid_error = state.validation_errors.iter().find(|e| e.field_index == 3);
             lines.extend(text_input::render_text_input(
-                &t!("tui.form.app_id_label").into_owned(),
+                t!("tui.form.app_id_label").as_ref(),
                 state.fields.app_id.as_deref().unwrap_or(""),
                 focused == 3,
                 appid_error.is_some(),
@@ -209,16 +209,16 @@ pub fn render_form(
             // Field 4: SecretKey
             let api_buttons = [
                 PasswordButton {
-                    label: t!("tui.form.show_button").into_owned(),
+                    label: t!("tui.form.show_button").to_string(),
                     focus_variant: PasswordFieldFocus::Show,
                 },
                 PasswordButton {
-                    label: t!("tui.form.copy_button").into_owned(),
+                    label: t!("tui.form.copy_button").to_string(),
                     focus_variant: PasswordFieldFocus::Copy,
                 },
             ];
             let secret_row = text_input::render_password_input_with_buttons(
-                &t!("tui.form.secret_key_label").into_owned(),
+                t!("tui.form.secret_key_label").as_ref(),
                 state.fields.secret_key.as_deref().unwrap_or(""),
                 focused == 4,
                 false,
@@ -238,16 +238,16 @@ pub fn render_form(
             let pubkey_error = state.validation_errors.iter().find(|e| e.field_index == 3);
             let pubkey_buttons = [
                 PasswordButton {
-                    label: t!("tui.form.paste_button").into_owned(),
+                    label: t!("tui.form.paste_button").to_string(),
                     focus_variant: PasswordFieldFocus::Paste,
                 },
                 PasswordButton {
-                    label: t!("tui.form.copy_button").into_owned(),
+                    label: t!("tui.form.copy_button").to_string(),
                     focus_variant: PasswordFieldFocus::Copy,
                 },
             ];
             lines.extend(text_input::render_password_input_with_buttons(
-                &t!("tui.form.public_key_label").into_owned(),
+                t!("tui.form.public_key_label").as_ref(),
                 state.fields.public_key.as_deref().unwrap_or(""),
                 focused == 3,
                 pubkey_error.is_some(),
@@ -268,20 +268,20 @@ pub fn render_form(
             // Field 4: Private Key
             let privkey_buttons = [
                 PasswordButton {
-                    label: t!("tui.form.show_button").into_owned(),
+                    label: t!("tui.form.show_button").to_string(),
                     focus_variant: PasswordFieldFocus::Show,
                 },
                 PasswordButton {
-                    label: t!("tui.form.paste_button").into_owned(),
+                    label: t!("tui.form.paste_button").to_string(),
                     focus_variant: PasswordFieldFocus::Paste,
                 },
                 PasswordButton {
-                    label: t!("tui.form.copy_button").into_owned(),
+                    label: t!("tui.form.copy_button").to_string(),
                     focus_variant: PasswordFieldFocus::Copy,
                 },
             ];
             lines.extend(text_input::render_password_input_with_buttons(
-                &t!("tui.form.private_key_label").into_owned(),
+                t!("tui.form.private_key_label").as_ref(),
                 state.fields.private_key.as_deref().unwrap_or(""),
                 focused == 4,
                 false,
@@ -303,15 +303,15 @@ pub fn render_form(
             // Field 5: Passphrase
             let passphrase_buttons = [
                 PasswordButton {
-                    label: t!("tui.form.show_button").into_owned(),
+                    label: t!("tui.form.show_button").to_string(),
                     focus_variant: PasswordFieldFocus::Show,
                 },
                 PasswordButton {
-                    label: t!("tui.form.paste_button").into_owned(),
+                    label: t!("tui.form.paste_button").to_string(),
                     focus_variant: PasswordFieldFocus::Paste,
                 },
                 PasswordButton {
-                    label: t!("tui.form.copy_button").into_owned(),
+                    label: t!("tui.form.copy_button").to_string(),
                     focus_variant: PasswordFieldFocus::Copy,
                 },
             ];
@@ -345,8 +345,8 @@ pub fn render_form(
     if state.expiry_dropdown.expanded {
         let options = ExpiryOption::all_options();
         lines.extend(dropdown::render_dropdown_expanded(
-            &t!("tui.form.expiry_label").into_owned(),
-            &options.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(),
+            t!("tui.form.expiry_label").as_ref(),
+            &options.iter().map(|(l, _)| l.as_ref()).collect::<Vec<_>>(),
             state.expiry_dropdown.selected_index,
             area.width,
             _unicode,
@@ -354,7 +354,7 @@ pub fn render_form(
     } else {
         let expiry_label = state.fields.expires_at.label();
         lines.push(dropdown::render_dropdown(
-            &t!("tui.form.expiry_label").into_owned(),
+            t!("tui.form.expiry_label").as_ref(),
             &expiry_label,
             focused == expiry_idx,
             false,
@@ -400,7 +400,7 @@ pub fn render_form(
         CredentialType::Ssh => 8,
     };
     lines.extend(text_input::render_text_input(
-        &t!("tui.form.notes_label").into_owned(),
+        t!("tui.form.notes_label").as_ref(),
         &state.fields.notes,
         focused == notes_idx,
         false,
