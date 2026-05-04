@@ -23,7 +23,7 @@ use crate::cloud::provider::create_cloud_storage;
 use crate::commands::types::HealthReport;
 use crate::commands::{Command, InternalCommand, Message};
 use crate::config::sync::{ProviderConfig, SyncProvider};
-use crate::config::AppConfig;
+use crate::config::{AppConfig, ConfigManager};
 use crate::db::schema::init_db;
 use crate::services::clipboard::ClipboardService;
 use crate::services::health::HealthService;
@@ -87,8 +87,8 @@ pub struct CommandExecutor {
     /// S6: Import/Export service — file parsing and vault export.
     #[allow(dead_code)]
     import_export: ImportExportService,
-    /// Application configuration.
-    config: AppConfig,
+    /// Application configuration manager.
+    config: config_impl::ConfigManagerImpl,
     /// Notifier that dispatches config changes to registered services.
     config_notifier: ServiceNotificationImpl,
     /// Path to the vault directory (contains vault.db, config.toml, etc.).
@@ -186,7 +186,7 @@ impl CommandExecutor {
             health,
             clipboard,
             import_export,
-            config,
+            config: config_impl::ConfigManagerImpl::new(config),
             config_notifier,
             vault_dir,
             health_report: None,
@@ -220,7 +220,7 @@ impl CommandExecutor {
         info!("CommandExecutor started");
 
         let mut internal_rx = self.internal_rx.take().expect("internal_rx must be set");
-        let mut timers = timer::ExecutorTimers::new(&self.config, self.sync.is_some());
+        let mut timers = timer::ExecutorTimers::new(&self.config.get_config(), self.sync.is_some());
 
         loop {
             // Destructure into individual fields so tokio::select! can take
@@ -284,7 +284,7 @@ impl CommandExecutor {
             // Rebuild timers if config changed since last iteration.
             // Must happen after select! — destructure borrows are released here.
             if self.timer_rebuild_pending {
-                timers.rebuild(&self.config, self.sync.is_some());
+                timers.rebuild(&self.config.get_config(), self.sync.is_some());
                 self.timer_rebuild_pending = false;
             }
         }
