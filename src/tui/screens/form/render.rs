@@ -461,7 +461,7 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
 
     let lines = vec![
         Line::from(Span::styled(
-            "  ⚠ 密码强度不足",
+            format!("  {} 密码强度不足", theme::ICON_WARNING),
             Style::default()
                 .fg(theme::WARNING)
                 .add_modifier(Modifier::BOLD),

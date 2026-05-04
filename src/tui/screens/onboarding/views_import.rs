@@ -177,14 +177,20 @@ impl OnboardingScreen {
 
             for item in preview.review_items.iter().take(5) {
                 lines.push(Line::from(vec![
-                    Span::styled("\u{26A0} ", Style::default().fg(WARNING)),
+                    Span::styled(
+                        format!("{} ", theme::ICON_WARNING),
+                        Style::default().fg(WARNING),
+                    ),
                     Span::raw(format!("{} \u{2014} {}", item.name, item.reason)),
                 ]));
             }
 
             for item in preview.failed_items.iter().take(5) {
                 lines.push(Line::from(vec![
-                    Span::styled("\u{2717} ", Style::default().fg(ERROR)),
+                    Span::styled(
+                        format!("{} ", theme::ICON_ERROR),
+                        Style::default().fg(ERROR),
+                    ),
                     Span::raw(format!("{} \u{2014} {}", item.name, item.reason)),
                 ]));
             }
