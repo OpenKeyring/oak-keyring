@@ -1,8 +1,11 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{layout::Rect, Frame};
 
-use crate::commands::types::{PanelId, RecordFilter, RecordSort, Screen as ScreenEnum};
+use crate::commands::types::{
+    ConfirmVariant, FieldSelector, Overlay, PanelId, RecordFilter, RecordSort, Screen as ScreenEnum,
+};
 use crate::commands::{Command, Message};
+use crate::tui::screens::main::overlay::OverlayKeyResult;
 use crate::tui::screens::main::overlay::OverlayManager;
 use crate::tui::screens::main::MainScreen;
 use crate::tui::state::animation::EffectKind;
@@ -10,7 +13,7 @@ use crate::tui::state::detail_state::DetailPanelState;
 use crate::tui::state::list_state::ListPanelState;
 use crate::tui::state::tag_management::TagManagementState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
-use crate::types::Tag;
+use crate::types::{SecureStr, Tag};
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -562,8 +565,43 @@ impl Screen for MainScreenState {
                         self.status_bar.health_check_phase = HealthCheckPhase::Skipped;
                         ScreenResult::Continue
                     }
+                    CommandResult::CopiedToClipboard {
+                        field,
+                        clear_after_seconds,
+                    } => {
+                        let field_name = match field {
+                            FieldSelector::Password => "密码",
+                            FieldSelector::Username => "用户名",
+                            FieldSelector::Url => "网址",
+                            FieldSelector::Notes => "备注",
+                        };
+                        self.status_bar.status_message = Some(StatusMessage::ClipboardCountdown {
+                            field: field_name.to_string(),
+                            seconds: clear_after_seconds as u32,
+                        });
+                        self.status_bar.clipboard_countdown = Some(clear_after_seconds as u32);
+                        ScreenResult::Continue
+                    }
+                    CommandResult::HistoryPasswordCopied {
+                        clear_after_seconds,
+                    } => {
+                        self.status_bar.status_message = Some(StatusMessage::ClipboardCountdown {
+                            field: "历史密码".to_string(),
+                            seconds: clear_after_seconds as u32,
+                        });
+                        self.status_bar.clipboard_countdown = Some(clear_after_seconds as u32);
+                        ScreenResult::Continue
+                    }
                     _ => ScreenResult::Continue,
                 }
+            }
+            Message::ShowOverlay(overlay) => {
+                self.overlay_manager.open(overlay);
+                ScreenResult::Continue
+            }
+            Message::CloseOverlay => {
+                self.overlay_manager.close();
+                ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
         }
@@ -589,33 +627,10 @@ impl Screen for MainScreenState {
 
 impl MainScreenState {
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
-        use crate::commands::types::Overlay;
-        use crate::tui::screens::main::overlay::OverlayKeyResult;
-
-        // Route key to active overlay first
+        // Layer 1: Overlay gets priority
         if self.overlay_manager.is_active() {
             let result = self.overlay_manager.handle_key(key.code);
-            match result {
-                OverlayKeyResult::Consumed => return ScreenResult::Continue,
-                OverlayKeyResult::Close { .. } => {
-                    self.overlay_manager.close();
-                    self.pending_animation = Some(EffectKind::ModalDismiss);
-                    return ScreenResult::Continue;
-                }
-                OverlayKeyResult::CopyHistoryPassword { .. } => {
-                    // TODO: wire clipboard copy for history overlay
-                    return ScreenResult::Continue;
-                }
-                OverlayKeyResult::ConfirmAction { .. }
-                | OverlayKeyResult::BatchAddTag { .. }
-                | OverlayKeyResult::BatchRemoveTag { .. }
-                | OverlayKeyResult::ErrorRetry
-                | OverlayKeyResult::ErrorQuit => {
-                    // TODO: wire overlay action results
-                    return ScreenResult::Continue;
-                }
-                OverlayKeyResult::None => {}
-            }
+            return self.handle_overlay_result(result);
         }
 
         // Check sidebar Enter for Generator/Config navigation
@@ -632,6 +647,8 @@ impl MainScreenState {
                 _ => {}
             }
         }
+
+        // Layer 2: Global shortcuts
         match key.code {
             KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
             KeyCode::Char('l') => ScreenResult::NavigateTo(ScreenEnum::AuditLog),
@@ -652,7 +669,98 @@ impl MainScreenState {
                 }
                 ScreenResult::Continue
             }
-            _ => ScreenResult::Continue,
+            // Layer 3: Panel routing
+            _ => {
+                let screen = MainScreen::new();
+                let result = screen.handle_key_event(key, self, self.focused_panel);
+                for msg in result.messages {
+                    // Messages from panel routing are UI state updates;
+                    // they don't need Command dispatch in this context.
+                    let _ = msg;
+                }
+                if let Some(overlay) = result.overlay {
+                    self.overlay_manager.open(overlay);
+                    self.pending_animation = Some(EffectKind::ModalAppear);
+                }
+                ScreenResult::Continue
+            }
+        }
+    }
+
+    fn handle_overlay_result(&mut self, result: OverlayKeyResult) -> ScreenResult {
+        match result {
+            OverlayKeyResult::Consumed => ScreenResult::Continue,
+            OverlayKeyResult::None => ScreenResult::Continue,
+            OverlayKeyResult::Close { .. } => {
+                self.overlay_manager.close();
+                self.pending_animation = Some(EffectKind::ModalDismiss);
+                ScreenResult::Continue
+            }
+            OverlayKeyResult::CopyGeneratedPassword { password } => {
+                self.overlay_manager.close();
+                self.pending_animation = Some(EffectKind::ModalDismiss);
+                ScreenResult::Command(Box::new(Command::CopyRawToClipboard {
+                    value: SecureStr::new(password),
+                }))
+            }
+            OverlayKeyResult::CopyHistoryPassword { history_id } => {
+                self.overlay_manager.close();
+                self.pending_animation = Some(EffectKind::ModalDismiss);
+                ScreenResult::Command(Box::new(Command::CopyHistoryPassword { history_id }))
+            }
+            OverlayKeyResult::ConfirmAction { variant } => {
+                self.overlay_manager.close();
+                self.pending_animation = Some(EffectKind::ModalDismiss);
+                match variant {
+                    ConfirmVariant::SoftDelete { record_id, .. } => {
+                        ScreenResult::Command(Box::new(Command::SoftDeleteRecord { id: record_id }))
+                    }
+                    ConfirmVariant::HardDelete { record_id, .. } => {
+                        ScreenResult::Command(Box::new(Command::HardDeleteRecord { id: record_id }))
+                    }
+                    ConfirmVariant::BatchSoftDelete { record_ids, .. } => {
+                        ScreenResult::Command(Box::new(Command::BatchSoftDelete { record_ids }))
+                    }
+                    ConfirmVariant::EmptyTrash { .. } => {
+                        ScreenResult::Command(Box::new(Command::EmptyTrash))
+                    }
+                    ConfirmVariant::TagDelete { tag_name, .. } => {
+                        ScreenResult::Command(Box::new(Command::DeleteTag { name: tag_name }))
+                    }
+                }
+            }
+            OverlayKeyResult::BatchAddTag {
+                record_ids,
+                tag_name,
+            } => {
+                self.overlay_manager.close();
+                self.pending_animation = Some(EffectKind::ModalDismiss);
+                ScreenResult::Command(Box::new(Command::BatchAddTag {
+                    record_ids,
+                    tag_name,
+                }))
+            }
+            OverlayKeyResult::BatchRemoveTag {
+                record_ids,
+                tag_name,
+            } => {
+                self.overlay_manager.close();
+                self.pending_animation = Some(EffectKind::ModalDismiss);
+                ScreenResult::Command(Box::new(Command::BatchRemoveTag {
+                    record_ids,
+                    tag_name,
+                }))
+            }
+            OverlayKeyResult::ErrorRetry => {
+                self.overlay_manager.close();
+                self.pending_animation = Some(EffectKind::ModalDismiss);
+                ScreenResult::Continue
+            }
+            OverlayKeyResult::ErrorQuit => {
+                self.overlay_manager.close();
+                self.pending_animation = Some(EffectKind::ModalDismiss);
+                ScreenResult::Continue
+            }
         }
     }
 }
