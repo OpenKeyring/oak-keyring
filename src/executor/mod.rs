@@ -76,8 +76,7 @@ fn load_oauth2_tokens_into_config(config: &mut AppConfig) {
 pub struct CommandExecutor {
     /// S1: Vault service — SQLite CRUD + encryption.
     vault: VaultService,
-    /// S2: Sync service — cloud sync (None until configured via Task 22).
-    #[allow(dead_code)]
+    /// S2: Sync service — cloud sync (None when no provider configured).
     sync: Option<crate::services::sync::SyncService>,
     /// S3: Health service — password security analysis.
     health: HealthService,
