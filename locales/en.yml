@@ -589,7 +589,6 @@ tui:
     no_record_name: "(no record name)"
     disabled_message: "Audit logging is disabled"
     no_matches: "No matching records found"
-    empty_log: "No audit records yet"
     no_records_for_filter: "No records under current filter"
     col_time: "Time"
     col_action: "Action"

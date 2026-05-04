@@ -588,7 +588,6 @@ tui:
     no_record_name: "(无记录名)"
     disabled_message: "审计日志功能已关闭"
     no_matches: "未找到匹配的记录"
-    empty_log: "暂无审计记录"
     no_records_for_filter: "当前筛选条件下无记录"
     col_time: "时间"
     col_action: "操作"
