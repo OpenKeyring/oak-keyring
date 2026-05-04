@@ -173,7 +173,7 @@ pub async fn handle_test_sync_connection(
         Some(s) => s,
         None => {
             return CommandResult::Error {
-                code: ErrorCode::SyncProviderError,
+                code: ErrorCode::SyncNotConfigured,
                 context: ErrorContext::default(),
                 message_key: "error.sync_not_configured",
                 fallback: String::from("Sync is not configured."),

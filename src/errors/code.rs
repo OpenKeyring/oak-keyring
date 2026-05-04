@@ -10,7 +10,7 @@ use crate::errors::ErrorLevel;
 /// - **VAULT (S1)**: Vault service errors (8 variants)
 /// - **DATA (D1)**: Data validation errors (6 variants)
 /// - **CRYPTO (D2)**: Cryptographic operation errors (5 variants)
-/// - **SYNC (S2)**: Synchronization errors (8 variants)
+/// - **SYNC (S2)**: Synchronization errors (9 variants)
 /// - **HEALTH (S3)**: Password health check errors (3 variants)
 /// - **CLIPBOARD (S4)**: Clipboard operation errors (3 variants)
 /// - **IMPORT/EXPORT**: Import/export errors (8 variants)
@@ -20,7 +20,7 @@ use crate::errors::ErrorLevel;
 ///
 /// # Total
 ///
-/// 48 specific error variants (no catch-all variants with String payloads).
+/// 49 specific error variants (no catch-all variants with String payloads).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     // === VAULT (S1) ===
@@ -107,6 +107,9 @@ pub enum ErrorCode {
 
     /// Vault identity mismatch (different vault on remote).
     SyncVaultIdentityMismatch,
+
+    /// Sync is not configured (no cloud storage provider set).
+    SyncNotConfigured,
 
     // === HEALTH (S3) ===
     /// Password health check operation failed.
@@ -215,6 +218,7 @@ impl ErrorCode {
             | ErrorCode::CryptoInvalidNonce
             | ErrorCode::SyncConflictDetected
             | ErrorCode::SyncMetadataCorrupted
+            | ErrorCode::SyncNotConfigured
             | ErrorCode::ImportFileFormatInvalid
             | ErrorCode::ImportPasswordRequired
             | ErrorCode::ImportPasswordIncorrect
@@ -310,6 +314,7 @@ impl ErrorCode {
             ErrorCode::SyncDiskFull => "tui.error.sync_disk_full",
             ErrorCode::SyncMetadataCorrupted => "tui.error.sync_metadata_corrupted",
             ErrorCode::SyncVaultIdentityMismatch => "tui.error.sync_vault_identity_mismatch",
+            ErrorCode::SyncNotConfigured => "tui.error.sync_not_configured",
 
             // === HEALTH (S3) ===
             ErrorCode::HealthCheckFailed => "tui.error.health_check_failed",
@@ -397,7 +402,8 @@ impl ErrorCode {
             | ErrorCode::SyncNetworkUnreachable
             | ErrorCode::SyncDiskFull
             | ErrorCode::SyncMetadataCorrupted
-            | ErrorCode::SyncVaultIdentityMismatch => "sync",
+            | ErrorCode::SyncVaultIdentityMismatch
+            | ErrorCode::SyncNotConfigured => "sync",
 
             // === HEALTH (S3) ===
             ErrorCode::HealthCheckFailed
@@ -432,6 +438,14 @@ impl ErrorCode {
             | ErrorCode::ConfigSaveFailed
             | ErrorCode::ConfigValidationFailed => "config",
         }
+    }
+}
+
+impl std::fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let key = self.message_key();
+        let suffix = key.strip_prefix("tui.error.").unwrap_or(key);
+        write!(f, "{suffix}")
     }
 }
 
@@ -473,6 +487,7 @@ mod tests {
             ErrorCode::CryptoInvalidNonce,
             ErrorCode::SyncConflictDetected,
             ErrorCode::SyncMetadataCorrupted,
+            ErrorCode::SyncNotConfigured,
             ErrorCode::ImportFileFormatInvalid,
             ErrorCode::ImportPasswordRequired,
             ErrorCode::ImportPasswordIncorrect,
@@ -609,6 +624,7 @@ mod tests {
             ErrorCode::SyncDiskFull,
             ErrorCode::SyncMetadataCorrupted,
             ErrorCode::SyncVaultIdentityMismatch,
+            ErrorCode::SyncNotConfigured,
             // HEALTH
             ErrorCode::HealthCheckFailed,
             ErrorCode::HealthHibpApiError,
@@ -707,7 +723,7 @@ mod tests {
 
     #[test]
     fn total_variant_count() {
-        // Verify we have exactly 48 variants
+        // Verify we have exactly 49 variants
         let all_codes = [
             // VAULT (8)
             ErrorCode::VaultRecordNotFound,
@@ -731,7 +747,7 @@ mod tests {
             ErrorCode::CryptoKeyDerivationFailed,
             ErrorCode::CryptoInvalidNonce,
             ErrorCode::CryptoAadMismatch,
-            // SYNC (8)
+            // SYNC (9)
             ErrorCode::SyncConnectionTimeout,
             ErrorCode::SyncAuthenticationFailed,
             ErrorCode::SyncProviderError,
@@ -740,6 +756,7 @@ mod tests {
             ErrorCode::SyncDiskFull,
             ErrorCode::SyncMetadataCorrupted,
             ErrorCode::SyncVaultIdentityMismatch,
+            ErrorCode::SyncNotConfigured,
             // HEALTH (3)
             ErrorCode::HealthCheckFailed,
             ErrorCode::HealthHibpApiError,
@@ -769,6 +786,22 @@ mod tests {
             ErrorCode::ConfigValidationFailed,
         ];
 
-        assert_eq!(all_codes.len(), 48);
+        assert_eq!(all_codes.len(), 49);
+    }
+
+    #[test]
+    fn display_uses_message_key_suffix() {
+        assert_eq!(
+            ErrorCode::VaultRecordNotFound.to_string(),
+            "vault_record_not_found"
+        );
+        assert_eq!(
+            ErrorCode::SyncConflictDetected.to_string(),
+            "sync_conflict_detected"
+        );
+        assert_eq!(
+            ErrorCode::ExecutorVaultLocked.to_string(),
+            "executor_vault_locked"
+        );
     }
 }
