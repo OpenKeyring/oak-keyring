@@ -229,6 +229,7 @@ tui:
     weak_password_title: "Weak Password"
     weak_password_body: "This password is weak. Save anyway?"
     save_anyway: "Save Anyway"
+    warning_title: "Warning"
 
   # ---- U6: Password Generator ----
   generator:
@@ -796,6 +797,7 @@ tui:
     existing_tags: "Existing Tags:"
     done: "Done"
     select_hint: "Press Space to select passwords"
+    more_items: "...and %{count} more total"
 
   # ---- Health Check ----
   health:
