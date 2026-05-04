@@ -8,6 +8,7 @@ use crate::commands::result::CommandResult;
 use crate::commands::types::{CsvColumnMapping, ExportScope, ImportPreview, ImportSource};
 use crate::commands::{Command, Message};
 use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel};
+use crate::t;
 use crate::tui::theme::{ERROR, PRIMARY, SUCCESS, WARNING};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::SecureStr;
@@ -486,7 +487,7 @@ impl ImportExportScreen {
 
     fn trigger_validate_import(&mut self, ctx: &mut ScreenContext) -> ScreenResult {
         if self.file_path.is_empty() {
-            self.error_message = Some("File path is required".to_string());
+            self.error_message = Some(t!("tui.import_export.file_path_required").to_string());
             return ScreenResult::Continue;
         }
 
@@ -494,7 +495,7 @@ impl ImportExportScreen {
         self.source = Some(source);
 
         if source_needs_password(source) && self.decrypt_password.is_empty() {
-            self.error_message = Some("Password is required for this source".to_string());
+            self.error_message = Some(t!("tui.import_export.password_required").to_string());
             return ScreenResult::Continue;
         }
 
@@ -655,15 +656,15 @@ impl ImportExportScreen {
 
     fn validate_export_form(&mut self) -> ScreenResult {
         if self.export_password.len() < 8 {
-            self.error_message = Some("Password must be at least 8 characters".to_string());
+            self.error_message = Some(t!("tui.entry.password_too_short").to_string());
             return ScreenResult::Continue;
         }
         if self.export_password != self.export_confirm_password {
-            self.error_message = Some("Passwords do not match".to_string());
+            self.error_message = Some(t!("tui.entry.password_mismatch").to_string());
             return ScreenResult::Continue;
         }
         if self.export_output_path.is_empty() {
-            self.error_message = Some("Output path is required".to_string());
+            self.error_message = Some(t!("tui.import_export.output_path_required").to_string());
             return ScreenResult::Continue;
         }
         self.error_message = None;
@@ -694,7 +695,7 @@ impl ImportExportScreen {
             KeyCode::Enter => {
                 if self.master_password.is_empty() {
                     self.error_message =
-                        Some("Master password is required to authorize export".to_string());
+                        Some(t!("tui.import_export.master_password_required").to_string());
                     return ScreenResult::Continue;
                 }
 

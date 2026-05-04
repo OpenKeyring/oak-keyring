@@ -551,6 +551,7 @@ tui:
     file_path_required: "文件路径不能为空"
     password_required: "此来源需要密码"
     master_password_required: "导出需要主密码授权"
+    output_path_required: "输出路径不能为空"
     browse_button: "浏览..."
     preview_title: "预览"
     preview_count: "%{count} 条待导入"

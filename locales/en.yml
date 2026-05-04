@@ -552,6 +552,7 @@ tui:
     file_path_required: "File path is required"
     password_required: "Password is required for this source"
     master_password_required: "Master password is required to authorize export"
+    output_path_required: "Output path is required"
     browse_button: "Browse..."
     preview_title: "Preview"
     preview_count: "%{count} items to import"
