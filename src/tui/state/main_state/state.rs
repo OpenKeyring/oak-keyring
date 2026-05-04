@@ -460,6 +460,9 @@ pub struct MainScreenState {
     /// Animation effect to trigger on the next update cycle.
     /// Set when overlay opens/closes, consumed by update.rs.
     pub pending_animation: Option<EffectKind>,
+    /// When true, the next `RecordListLoaded` should auto-select the first record
+    /// and fetch its detail. Set by sidebar filter change, reset after consumption.
+    pub list_auto_select: bool,
 }
 
 impl Default for MainScreenState {
@@ -478,6 +481,7 @@ impl Default for MainScreenState {
             trash_retention_days: 30,
             overlay_manager: OverlayManager::new(),
             pending_animation: None,
+            list_auto_select: false,
         }
     }
 }
@@ -595,10 +599,23 @@ impl Screen for MainScreenState {
                     CommandResult::RecordListLoaded { records, total } => {
                         self.list.records = records;
                         self.list.total_count = total;
-                        // No auto-select — detail panel stays empty until user
-                        // manually selects a record via j/k (U4 Empty State).
-                        self.list.selected_index = None;
                         self.status_bar.record_count = total;
+
+                        if self.list_auto_select && !self.list.records.is_empty() {
+                            // Auto-select first record (triggered by sidebar filter change)
+                            self.list.selected_index = Some(0);
+                            self.list.scroll_offset = 0;
+                            self.list_auto_select = false;
+                            let id = self.list.records[0].id;
+                            let _ = ctx.command_tx.try_send(Command::LoadRecordDetail { id });
+                        } else {
+                            // No auto-select — detail panel stays empty (U4 Empty State)
+                            self.list.selected_index = None;
+                            if self.list.records.is_empty() {
+                                self.detail.clear();
+                            }
+                            self.list_auto_select = false;
+                        }
                         ScreenResult::Continue
                     }
                     CommandResult::RecordDeleted { id } => {
@@ -746,6 +763,54 @@ impl MainScreenState {
                     return ScreenResult::NavigateTo(ScreenEnum::Config);
                 }
                 _ => {}
+            }
+        }
+
+        // Sidebar j/k — filter change triggers LoadRecordList
+        if self.focused_panel == PanelId::Sidebar {
+            let is_renaming =
+                self.sidebar.is_tag_management() && self.sidebar.tag_management.is_renaming();
+            if !is_renaming {
+                match key.code {
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        let old_filter = self.sidebar.current_filter();
+                        self.sidebar.move_down();
+                        // Exit visual mode on sidebar navigation (U3 Spec)
+                        if self.list.is_visual() {
+                            self.list.exit_visual();
+                        }
+                        let new_filter = self.sidebar.current_filter();
+                        if new_filter != old_filter {
+                            self.current_filter = new_filter.clone();
+                            self.detail.clear();
+                            self.list_auto_select = true;
+                            return ScreenResult::Command(Box::new(Command::LoadRecordList {
+                                filter: new_filter,
+                                sort: self.current_sort.clone(),
+                            }));
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        let old_filter = self.sidebar.current_filter();
+                        self.sidebar.move_up();
+                        if self.list.is_visual() {
+                            self.list.exit_visual();
+                        }
+                        let new_filter = self.sidebar.current_filter();
+                        if new_filter != old_filter {
+                            self.current_filter = new_filter.clone();
+                            self.detail.clear();
+                            self.list_auto_select = true;
+                            return ScreenResult::Command(Box::new(Command::LoadRecordList {
+                                filter: new_filter,
+                                sort: self.current_sort.clone(),
+                            }));
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    _ => {}
+                }
             }
         }
 

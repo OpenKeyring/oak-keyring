@@ -861,6 +861,335 @@ fn confirm_empty_trash_maps_to_command() {
     }
 }
 
+// ── Sidebar filter change -> LoadRecordList tests ──────────────────────────
+
+#[test]
+fn sidebar_j_triggers_filter_change_and_reload() {
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Sidebar;
+    // Default starts at All (index 2), j moves to Favorites (index 3)
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('j'))), &mut ctx);
+
+    // Should return a LoadRecordList command
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::LoadRecordList { filter, .. } => {
+                assert_eq!(*filter, RecordFilter::Favorites);
+            }
+            other => panic!("Expected LoadRecordList command, got {:?}", other),
+        }
+    }
+
+    // Filter should be updated
+    assert_eq!(state.current_filter, RecordFilter::Favorites);
+    // list_auto_select should be set for the next RecordListLoaded
+    assert!(state.list_auto_select);
+}
+
+#[test]
+fn sidebar_k_triggers_filter_change_and_reload() {
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Sidebar;
+    // Start at Favorites, k moves up to All
+    state.sidebar.select_category(SidebarCategory::Favorites);
+    assert_eq!(state.current_filter, RecordFilter::All); // initial default
+    state.current_filter = RecordFilter::Favorites;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('k'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::LoadRecordList { filter, .. } => {
+                assert_eq!(*filter, RecordFilter::All);
+            }
+            other => panic!("Expected LoadRecordList command, got {:?}", other),
+        }
+    }
+    assert_eq!(state.current_filter, RecordFilter::All);
+    assert!(state.list_auto_select);
+}
+
+#[test]
+fn sidebar_j_down_clears_detail() {
+    use crate::tui::state::detail_state::ExpiryStatus;
+
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Sidebar;
+
+    // Set up a detail record so we can verify it gets cleared
+    state.detail.record = Some(crate::tui::state::detail_state::DetailViewData {
+        id: Uuid::new_v4(),
+        name: "Test".to_string(),
+        subtitle: String::new(),
+        credential_type: crate::types::credential::CredentialType::Login,
+        is_favorite: false,
+        expires_at: None,
+        expiry_status: ExpiryStatus::None,
+        tags: Vec::new(),
+        notes: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        fields: Vec::new(),
+        password_strength: None,
+        deleted_at: None,
+    });
+    assert!(state.detail.record.is_some());
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let _result = state.update(Message::KeyEvent(key_event(KeyCode::Char('j'))), &mut ctx);
+
+    // Detail should be cleared after sidebar filter change
+    assert!(state.detail.record.is_none());
+    assert!(!state.detail.password_visible);
+}
+
+#[test]
+fn sidebar_j_exits_visual_mode() {
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Sidebar;
+    state.list.enter_visual();
+    assert!(state.list.is_visual());
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let _result = state.update(Message::KeyEvent(key_event(KeyCode::Char('j'))), &mut ctx);
+
+    assert!(!state.list.is_visual());
+}
+
+#[test]
+fn sidebar_j_no_filter_change_does_not_reload() {
+    // Navigating between items with the same filter (e.g., Config -> All)
+    // should not trigger a reload.
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Sidebar;
+    state.current_filter = RecordFilter::All;
+
+    // Select Generator (which also returns RecordFilter::All)
+    let gen_idx = state
+        .sidebar
+        .items
+        .iter()
+        .position(|i| matches!(i, SidebarItem::Generator))
+        .expect("Generator should be in sidebar");
+    state.sidebar.selected_index = gen_idx;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('j'))), &mut ctx);
+
+    // Should NOT be a Command since filter didn't change (Generator -> All, both are All)
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(!state.list_auto_select);
+}
+
+// ── list_auto_select -> RecordListLoaded auto-select tests ─────────────────
+
+#[test]
+fn record_list_loaded_auto_selects_first_when_flag_is_true() {
+    use crate::commands::result::CommandResult;
+    use crate::types::credential::CredentialType;
+    use crate::types::record::TuiRecord;
+
+    let records = vec![
+        TuiRecord {
+            id: Uuid::new_v4(),
+            credential_type: CredentialType::Login,
+            name: "Record 1".to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: Vec::new(),
+            sync_status: None,
+        },
+        TuiRecord {
+            id: Uuid::new_v4(),
+            credential_type: CredentialType::Login,
+            name: "Record 2".to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: Vec::new(),
+            sync_status: None,
+        },
+    ];
+
+    let mut state = MainScreenState::default();
+    state.list_auto_select = true;
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: records.clone(),
+            total: 2,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.list.records.len(), 2);
+    assert_eq!(state.list.selected_index, Some(0));
+    // Flag should be reset after consumption
+    assert!(!state.list_auto_select);
+
+    // Should send LoadRecordDetail for the first record
+    let cmd = rx.try_recv().expect("Should send LoadRecordDetail command");
+    match cmd {
+        Command::LoadRecordDetail { id } => {
+            assert_eq!(id, records[0].id);
+        }
+        other => panic!("Expected LoadRecordDetail, got {:?}", other),
+    }
+}
+
+#[test]
+fn record_list_loaded_auto_select_handles_empty_list() {
+    use crate::commands::result::CommandResult;
+
+    let mut state = MainScreenState::default();
+    state.list_auto_select = true;
+    // Set up a detail record so we can verify it gets cleared on empty list
+    state.detail.record = Some(crate::tui::state::detail_state::DetailViewData {
+        id: Uuid::new_v4(),
+        name: "Test".to_string(),
+        subtitle: String::new(),
+        credential_type: crate::types::credential::CredentialType::Login,
+        is_favorite: false,
+        expires_at: None,
+        expiry_status: crate::tui::state::detail_state::ExpiryStatus::None,
+        tags: Vec::new(),
+        notes: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        fields: Vec::new(),
+        password_strength: None,
+        deleted_at: None,
+    });
+    assert!(state.detail.record.is_some());
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: Vec::new(),
+            total: 0,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.list.records.is_empty());
+    assert_eq!(state.list.selected_index, None);
+    // Flag should be reset
+    assert!(!state.list_auto_select);
+    // Detail should be cleared for empty list
+    assert!(state.detail.record.is_none());
+}
+
+#[test]
+fn record_list_loaded_does_not_auto_select_when_flag_is_false() {
+    use crate::commands::result::CommandResult;
+    use crate::types::credential::CredentialType;
+    use crate::types::record::TuiRecord;
+
+    let records = vec![TuiRecord {
+        id: Uuid::new_v4(),
+        credential_type: CredentialType::Login,
+        name: "Record".to_string(),
+        subtitle: String::new(),
+        is_favorite: false,
+        is_expired: false,
+        expires_at: None,
+        has_weak_password: false,
+        is_compromised: false,
+        duplicate_group_size: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        deleted: false,
+        deleted_at: None,
+        tags: Vec::new(),
+        sync_status: None,
+    }];
+
+    let mut state = MainScreenState::default();
+    // list_auto_select is false by default (initial load)
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: records.clone(),
+            total: 1,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.list.records.len(), 1);
+    // Should NOT auto-select — selected_index stays None (U4 Empty State)
+    assert_eq!(state.list.selected_index, None);
+}
+
 // ── Search mode tests ─────────────────────────────────────────────────────
 
 #[test]
