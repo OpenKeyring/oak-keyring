@@ -253,6 +253,9 @@ tui:
     capitalize: "首字母大写"
     separator_label: "分隔符:"
     use_password: "使用此密码"
+    adjust: "调整"
+    switch_focus: "切换焦点"
+    label: "生成器"
 
   # ---- U7: Create/Edit Form ----
   form:

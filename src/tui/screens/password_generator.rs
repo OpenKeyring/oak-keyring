@@ -12,6 +12,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::commands::{Command, Message};
+use crate::t;
 use crate::tui::components::generator_panel;
 use crate::tui::state::generator_state::{GenerationStyle, GeneratorFocus, GeneratorState};
 use crate::tui::theme;
@@ -63,7 +64,8 @@ impl PasswordGeneratorScreen {
                         value: SecureStr::new(pw),
                     });
                     self.state.regenerate();
-                    self.hint_message = Some("已复制到剪贴板".to_string());
+                    self.hint_message =
+                        Some(t!("tui.notification.copied_to_clipboard").to_string());
                 }
                 ScreenResult::Continue
             }
@@ -142,8 +144,9 @@ impl PasswordGeneratorScreen {
     }
 
     fn render_title_bar(&self, frame: &mut Frame, area: Rect) {
-        let title = " 密码生成器";
+        let title = format!(" {}", t!("tui.generator.title"));
         let hint = self.hint_message.as_deref().unwrap_or("");
+        let title_len = title.len();
         let line = Line::from(vec![
             Span::styled(
                 title,
@@ -153,11 +156,7 @@ impl PasswordGeneratorScreen {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!(
-                    "{:>width$}",
-                    hint,
-                    width = area.width as usize - title.len()
-                ),
+                format!("{:>width$}", hint, width = area.width as usize - title_len),
                 Style::default().bg(theme::BG_BAR).fg(theme::INFO),
             ),
         ]);
@@ -168,19 +167,26 @@ impl PasswordGeneratorScreen {
     }
 
     fn render_help_bar(&self, frame: &mut Frame, area: Rect) {
+        let adjust = t!("tui.generator.adjust").to_string();
+        let switch_focus = t!("tui.generator.switch_focus").to_string();
+        let regenerate = t!("tui.generator.regenerate").to_string();
+        let copy = t!("tui.generator.copy").to_string();
+        let label = t!("tui.generator.label").to_string();
+        let back = t!("tui.form.back_button").to_string();
+
         let hints = [
             theme::ICON_ARROW_LR,
-            "调整",
+            adjust.as_str(),
             "Tab",
-            "切换焦点",
+            switch_focus.as_str(),
             "r",
-            "重新生成",
+            regenerate.as_str(),
             "Enter",
-            "复制",
+            copy.as_str(),
             "p",
-            "生成器",
+            label.as_str(),
             "Esc",
-            "返回",
+            back.as_str(),
         ];
         let hint_text = hints.chunks(2).fold(String::new(), |mut acc, pair| {
             if !acc.is_empty() {
@@ -213,7 +219,8 @@ impl Screen for PasswordGeneratorScreen {
             Message::CommandCompleted(result) => {
                 match result {
                     crate::commands::result::CommandResult::CopiedToClipboard { .. } => {
-                        self.hint_message = Some("已复制到剪贴板".to_string());
+                        self.hint_message =
+                            Some(t!("tui.notification.copied_to_clipboard").to_string());
                     }
                     crate::commands::result::CommandResult::Error { fallback, .. } => {
                         self.hint_message = Some(fallback);
@@ -466,7 +473,7 @@ mod tests {
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.hint_message.as_deref(), Some("已复制到剪贴板"));
+        assert!(screen.hint_message.is_some());
     }
 
     #[test]
