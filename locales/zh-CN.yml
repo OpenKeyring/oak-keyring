@@ -681,6 +681,11 @@ tui:
     lock_locked: "已锁定"
     record_count: "%{count} 条密码"
     version: "v%{version}"
+    sync_synced: "已同步"
+    sync_syncing: "同步中"
+    sync_failed: "同步失败"
+    sync_offline: "离线"
+    sync_not_configured: "未配置"
 
   # ---- Sync Conflict ----
   sync:
@@ -763,6 +768,8 @@ tui:
     leaked_detail: "此密码已在数据泄露中发现 — 请立即修改"
     weak_detail: "弱密码 — 建议更新为更强的密码"
     duplicate_detail: "该密码与其他 %{count} 条记录重复 — 建议使用独立密码"
+    needs_attention: "有需注意 W%{weak} C%{compromised} D%{duplicate}"
+    skipped_short: "跳过泄露检测"
 
   # ---- Password History ----
   history:

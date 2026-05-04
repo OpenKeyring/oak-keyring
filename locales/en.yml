@@ -682,6 +682,11 @@ tui:
     lock_locked: "Locked"
     record_count: "%{count} passwords"
     version: "v%{version}"
+    sync_synced: "Synced"
+    sync_syncing: "Syncing"
+    sync_failed: "Sync failed"
+    sync_offline: "Offline"
+    sync_not_configured: "Not configured"
 
   # ---- Sync Conflict ----
   sync:
@@ -764,6 +769,8 @@ tui:
     leaked_detail: "This password was found in a data breach — change it immediately"
     weak_detail: "Weak password — consider updating to a stronger one"
     duplicate_detail: "This password is shared by %{count} other entries — use a unique password"
+    needs_attention: "Needs attention W%{weak} C%{compromised} D%{duplicate}"
+    skipped_short: "HIBP skipped"
 
   # ---- Password History ----
   history:
