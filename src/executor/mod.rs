@@ -314,6 +314,12 @@ impl CommandExecutor {
     }
 
     // execute(), pre_check(), post_hook(), and dispatch() are defined in execute.rs
+
+    /// Replace the sync service with a pre-built instance (test-only).
+    #[cfg(feature = "test-helpers")]
+    pub fn set_sync_service(&mut self, sync: Option<crate::services::sync::SyncService>) {
+        self.sync = sync;
+    }
 }
 
 #[cfg(test)]
