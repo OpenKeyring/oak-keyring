@@ -3,6 +3,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::ListItem;
 
 use crate::commands::types::HealthIssue;
+use crate::t;
 use crate::tui::state::list_state::{
     calculate_remaining_days, format_days_since_deletion, format_relative_time, format_type_prefix,
     trash_warning_tier, TrashWarningTier,
@@ -67,8 +68,9 @@ pub(super) fn health_badge(issue: Option<&HealthIssue>, unicode: bool) -> Option
     issue.and_then(|i| match i {
         HealthIssue::Compromised => {
             let icon = if unicode { "\u{1F534}" } else { "!" }; // 🔴 / !
+            let label = t!("tui.password_list.health_leaked");
             Some(Span::styled(
-                format!(" {}\u{5DF2}\u{6CC4}\u{9732}", icon), // " 🔴已泄露"
+                format!(" {}{}", icon, label),
                 Style::default().fg(theme::ERROR),
             ))
         }
@@ -78,8 +80,9 @@ pub(super) fn health_badge(issue: Option<&HealthIssue>, unicode: bool) -> Option
             } else {
                 theme::ascii::ICON_WARNING
             };
+            let label = t!("tui.password_list.health_weak");
             Some(Span::styled(
-                format!(" {}\u{5F31}", icon), // " ⚠弱"
+                format!(" {}{}", icon, label),
                 Style::default().fg(theme::WARNING),
             ))
         }
@@ -89,8 +92,9 @@ pub(super) fn health_badge(issue: Option<&HealthIssue>, unicode: bool) -> Option
             } else {
                 theme::ascii::ICON_WARNING
             };
+            let label = t!("tui.health.duplicate_label", count = group_size);
             Some(Span::styled(
-                format!(" {}\u{91CD}\u{590D}({})", icon, group_size), // " ⚠重复(N)"
+                format!(" {}{}", icon, label),
                 Style::default().fg(theme::WARNING),
             ))
         }
@@ -294,14 +298,15 @@ pub(super) fn build_trash_item<'a>(
 
     match calculate_remaining_days(&deleted_at, retention_days) {
         None => {
+            let label = t!("tui.trash.will_not_auto_delete");
             meta_spans.push(Span::styled(
-                "  不会自动删除".to_string(),
+                format!("  {}", label),
                 Style::default().fg(theme::TEXT_MUTED),
             ));
         }
         Some(remaining) => {
             let tier = trash_warning_tier(remaining);
-            let remaining_text = format!("  剩余 {} 天", remaining.max(0));
+            let remaining_text = t!("tui.trash.auto_delete_in", days = remaining.max(0));
 
             let (warning_prefix, warning_color, add_bold) = match tier {
                 TrashWarningTier::Safe => ("", theme::TEXT_SECONDARY, false),
@@ -318,7 +323,7 @@ pub(super) fn build_trash_item<'a>(
             if !warning_prefix.is_empty() {
                 meta_spans.push(Span::styled(format!("  {}", warning_prefix), style));
             }
-            meta_spans.push(Span::styled(remaining_text, style));
+            meta_spans.push(Span::styled(format!("  {}", remaining_text), style));
         }
     }
     let meta_line = Line::from(meta_spans);
