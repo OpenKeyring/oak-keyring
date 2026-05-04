@@ -40,26 +40,36 @@ impl FilterState {
 
 // ── Helper functions ────────────────────────────────────────────────────────
 
-pub(super) fn operation_display_name(op: &AuditOperation) -> &'static str {
+pub(super) fn operation_display_name(op: &AuditOperation) -> String {
     match op {
-        AuditOperation::RecordCreate => "添加密码",
-        AuditOperation::RecordUpdate => "修改密码",
-        AuditOperation::RecordDelete => "删除密码",
-        AuditOperation::RecordRestore => "恢复密码",
-        AuditOperation::RecordDestroy => "永久删除",
-        AuditOperation::RecordViewPassword => "查看密码",
-        AuditOperation::RecordCopyPassword => "复制密码",
-        AuditOperation::RecordCopyField => "复制字段",
-        AuditOperation::VaultUnlock => "解锁",
-        AuditOperation::VaultLock => "锁定",
-        AuditOperation::VaultExport => "导出",
-        AuditOperation::VaultImport => "导入",
-        AuditOperation::MasterPasswordChange => "改密",
-        AuditOperation::TrashEmpty => "清空回收站",
-        AuditOperation::SyncConflictResolved => "解决冲突",
-        AuditOperation::SyncBatchConflictsResolved => "批量解决冲突",
-        AuditOperation::DekRotated => "密钥轮换",
-        AuditOperation::DekRotationFailed => "轮换失败",
+        AuditOperation::RecordCreate => crate::t!("tui.audit.action_create").to_string(),
+        AuditOperation::RecordUpdate => crate::t!("tui.audit.action_update").to_string(),
+        AuditOperation::RecordDelete => crate::t!("tui.audit.action_delete").to_string(),
+        AuditOperation::RecordRestore => crate::t!("tui.audit.action_restore").to_string(),
+        AuditOperation::RecordDestroy => crate::t!("tui.audit.action_permanent_delete").to_string(),
+        AuditOperation::RecordViewPassword => {
+            crate::t!("tui.audit.action_view_password").to_string()
+        }
+        AuditOperation::RecordCopyPassword => crate::t!("tui.audit.action_copy").to_string(),
+        AuditOperation::RecordCopyField => crate::t!("tui.audit.action_copy_field").to_string(),
+        AuditOperation::VaultUnlock => crate::t!("tui.audit.action_unlock").to_string(),
+        AuditOperation::VaultLock => crate::t!("tui.audit.action_lock").to_string(),
+        AuditOperation::VaultExport => crate::t!("tui.audit.action_export").to_string(),
+        AuditOperation::VaultImport => crate::t!("tui.audit.action_import").to_string(),
+        AuditOperation::MasterPasswordChange => {
+            crate::t!("tui.audit.action_change_password").to_string()
+        }
+        AuditOperation::TrashEmpty => crate::t!("tui.audit.action_empty_trash").to_string(),
+        AuditOperation::SyncConflictResolved => {
+            crate::t!("tui.audit.action_resolve_conflict").to_string()
+        }
+        AuditOperation::SyncBatchConflictsResolved => {
+            crate::t!("tui.audit.action_batch_resolve_conflict").to_string()
+        }
+        AuditOperation::DekRotated => crate::t!("tui.audit.action_rotate_key").to_string(),
+        AuditOperation::DekRotationFailed => {
+            crate::t!("tui.audit.action_rotate_failed").to_string()
+        }
     }
 }
 
@@ -79,13 +89,13 @@ pub(super) fn operation_color(op: &AuditOperation) -> ratatui::style::Color {
     }
 }
 
-pub(super) fn time_range_display(tr: &AuditTimeRange) -> &'static str {
+pub(super) fn time_range_display(tr: &AuditTimeRange) -> String {
     match tr {
-        AuditTimeRange::Today => "今天",
-        AuditTimeRange::LastWeek => "最近一周",
-        AuditTimeRange::LastMonth => "最近一月",
-        AuditTimeRange::LastYear => "最近一年",
-        AuditTimeRange::All => "全部时间",
+        AuditTimeRange::Today => crate::t!("tui.audit.filter_today").to_string(),
+        AuditTimeRange::LastWeek => crate::t!("tui.audit.filter_last_7d").to_string(),
+        AuditTimeRange::LastMonth => crate::t!("tui.audit.filter_last_30d").to_string(),
+        AuditTimeRange::LastYear => crate::t!("tui.audit.filter_last_1y").to_string(),
+        AuditTimeRange::All => crate::t!("tui.audit.filter_all_time").to_string(),
     }
 }
 
