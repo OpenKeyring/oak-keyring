@@ -5,6 +5,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::t;
 use crate::tui::state::form_state::PasswordFieldFocus;
 use crate::tui::theme;
 
@@ -27,12 +28,12 @@ pub fn render_text_input(
     let label_style = Style::default().fg(theme::TEXT_SECONDARY);
     let required_mark = if is_required {
         Span::styled(
-            " \u{2190} \u{5FC5}\u{586B}",
+            t!("tui.component_labels.required").to_string(),
             Style::default().fg(theme::ERROR),
         )
     } else {
         Span::styled(
-            " \u{2190} \u{9009}\u{586B}",
+            t!("tui.component_labels.optional").to_string(),
             Style::default().fg(theme::TEXT_MUTED),
         )
     };

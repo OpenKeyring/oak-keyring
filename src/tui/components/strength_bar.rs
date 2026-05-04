@@ -6,6 +6,7 @@ use ratatui::{
 };
 
 use crate::crypto::strength::PasswordStrength;
+use crate::t;
 use crate::tui::theme;
 
 /// Render the password strength bar as a Line.
@@ -27,7 +28,10 @@ pub fn render_strength_bar(strength: &PasswordStrength, unicode: bool) -> Line<'
     };
 
     Line::from(vec![
-        Span::styled("  强度: ", Style::default().fg(theme::TEXT_SECONDARY)),
+        Span::styled(
+            t!("tui.component_labels.strength").to_string(),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
         Span::styled(fill_char.repeat(fill), Style::default().fg(color)),
         Span::styled(empty_char.repeat(empty), Style::default().fg(theme::BORDER)),
         Span::raw(" "),
@@ -41,9 +45,12 @@ pub fn render_strength_bar(strength: &PasswordStrength, unicode: bool) -> Line<'
 /// Render empty state strength bar (no password entered).
 pub fn render_empty_strength_bar() -> Line<'static> {
     Line::from(vec![
-        Span::styled("  强度: ", Style::default().fg(theme::TEXT_SECONDARY)),
         Span::styled(
-            "（输入密码后显示强度）",
+            t!("tui.component_labels.strength").to_string(),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled(
+            t!("tui.component_labels.strength_hint").to_string(),
             Style::default().fg(theme::TEXT_MUTED),
         ),
     ])

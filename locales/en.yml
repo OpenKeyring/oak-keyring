@@ -776,6 +776,92 @@ tui:
     sync_offline: "Offline"
     sync_not_configured: "Not configured"
 
+  # ---- Sync Indicator ----
+  sync_indicator:
+    synced: "Synced"
+    syncing_with_progress: "Syncing %{current}/%{total}"
+    syncing: "Syncing..."
+    failed_with_error: "Sync failed: %{error}"
+    failed_unknown: "Sync failed: Unknown error"
+    offline: "Network unreachable"
+    not_configured: "Sync not configured"
+    rotating_with_progress: "Rotating key %{current}/%{total}"
+    rotating: "Rotating key..."
+    time_just_now: "just now"
+    time_minutes_ago: "%{n} minutes ago"
+    time_hours_ago: "%{n} hours ago"
+    time_days_ago: "%{n} days ago"
+
+  # ---- Vault Path Dialog ----
+  vault_path_dialog:
+    title: " Change Vault Path "
+    current_path: "Current path:"
+    new_path: "New path:"
+    vault_contains: "Vault directory contains:"
+    file_vault_db: "vault.db"
+    desc_vault_db: "Encrypted SQLite database (all password data)"
+    file_metadata: "metadata.json"
+    desc_metadata: "Vault metadata (version, device ID, etc.)"
+    file_config: "config.toml"
+    desc_config: "Client configuration (sync, shortcuts, etc.)"
+    warning_restart: " %{icon} Changing the path requires an app restart to take effect."
+    warning_no_migration: "    Existing data will not be migrated automatically."
+    button_cancel: " [ Cancel ] "
+    button_confirm: " [ Confirm Change ] "
+
+  # ---- List State ----
+  list_state:
+    time_yesterday: "yesterday"
+    time_days_ago: "%{n} days ago"
+    time_weeks_ago: "%{n} weeks ago"
+    type_prefix_api: "[API] "
+    type_prefix_ssh: "[SSH] "
+    deleted_days_ago: "Deleted %{n} days ago"
+    remaining_days: "%{n} days remaining"
+    will_not_auto_delete: "Will not auto-delete"
+
+  # ---- Empty State ----
+  empty_state:
+    no_passwords: "No passwords yet"
+    empty_trash: "Trash is empty"
+    empty_trash_hint: "Deleted passwords will appear here"
+    no_favorites: "No favorites"
+    no_expired: "No expired passwords"
+    no_health_issues: "No security issues"
+    empty_tag: "No passwords under this tag"
+    no_search_results: "No results found"
+    no_passwords_hint: "Press n to create your first password"
+    no_favorites_hint: "Press f in password detail to favorite"
+    no_expired_hint: "All credentials are valid"
+    no_health_issues_hint: "All passwords passed security check"
+    empty_tag_hint: "Create a password and add '%{tag}' tag"
+    no_search_results_hint: "No matches for '%{query}'"
+
+  # ---- Component Labels ----
+  component_labels:
+    strength: "  Strength: "
+    strength_hint: "(strength shown after password entry)"
+    tag: "  Tags "
+    length: "Length"
+    password: "Password"
+    required: " ← Required"
+    optional: " ← Optional"
+
+  # ---- Audit Log View ----
+  audit_log_view:
+    help_select: "Select"
+    help_switch_area: "Switch Area"
+    help_view_record: "View Record"
+    help_back: "Back"
+
+  # ---- Config Screen ----
+  config_screen:
+    restart_hint: "Some config changes require restart to take effect"
+
+  # ---- Generator Overlay ----
+  generator_overlay:
+    title: "  Password Generator"
+
   # ---- Sync Conflict ----
   sync:
     conflict_title: "Sync Conflict"

@@ -6,6 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 
+use crate::t;
 use crate::tui::theme;
 
 /// Matches U11 spec EmptyStateVariant.
@@ -75,30 +76,30 @@ impl EmptyStateVariant {
         }
     }
 
-    fn title(&self) -> &str {
+    fn title(&self) -> String {
         match self {
-            Self::NoPasswords => "No passwords yet",
-            Self::EmptyTrash => "回收站为空",
-            Self::NoFavorites => "No favorites",
-            Self::NoExpired => "No expired passwords",
-            Self::NoHealthIssues => "No security issues",
-            Self::EmptyTag { .. } => "No passwords under this tag",
-            Self::NoSearchResults { .. } => "No results found",
+            Self::NoPasswords => t!("tui.empty_state.no_passwords").to_string(),
+            Self::EmptyTrash => t!("tui.empty_state.empty_trash").to_string(),
+            Self::NoFavorites => t!("tui.empty_state.no_favorites").to_string(),
+            Self::NoExpired => t!("tui.empty_state.no_expired").to_string(),
+            Self::NoHealthIssues => t!("tui.empty_state.no_health_issues").to_string(),
+            Self::EmptyTag { .. } => t!("tui.empty_state.empty_tag").to_string(),
+            Self::NoSearchResults { .. } => t!("tui.empty_state.no_search_results").to_string(),
         }
     }
 
     fn description(&self) -> String {
         match self {
-            Self::NoPasswords => "Press n to create your first password".into(),
-            Self::EmptyTrash => "已删除的密码会出现在这里".into(),
-            Self::NoFavorites => "Press f in password detail to favorite".into(),
-            Self::NoExpired => "All credentials are valid".into(),
-            Self::NoHealthIssues => "All passwords passed security check".into(),
+            Self::NoPasswords => t!("tui.empty_state.no_passwords_hint").to_string(),
+            Self::EmptyTrash => t!("tui.empty_state.empty_trash_hint").to_string(),
+            Self::NoFavorites => t!("tui.empty_state.no_favorites_hint").to_string(),
+            Self::NoExpired => t!("tui.empty_state.no_expired_hint").to_string(),
+            Self::NoHealthIssues => t!("tui.empty_state.no_health_issues_hint").to_string(),
             Self::EmptyTag { tag_name } => {
-                format!("Create a password and add '{}' tag", tag_name)
+                t!("tui.empty_state.empty_tag_hint", tag = tag_name).to_string()
             }
             Self::NoSearchResults { query } => {
-                format!("No matches for '{}'", query)
+                t!("tui.empty_state.no_search_results_hint", query = query).to_string()
             }
         }
     }
