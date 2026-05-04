@@ -694,7 +694,6 @@ impl MainScreenState {
             OverlayKeyResult::Close { .. } => {
                 self.overlay_manager.close();
                 self.pending_animation = Some(EffectKind::ModalDismiss);
-                self.pending_animation = Some(EffectKind::ModalDismiss);
                 ScreenResult::Continue
             }
             OverlayKeyResult::CopyGeneratedPassword { password } => {
@@ -704,12 +703,10 @@ impl MainScreenState {
                     value: SecureStr::new(password),
                 }))
             }
-            OverlayKeyResult::CopyHistoryPassword { index, .. } => {
+            OverlayKeyResult::CopyHistoryPassword { history_id } => {
                 self.overlay_manager.close();
                 self.pending_animation = Some(EffectKind::ModalDismiss);
-                ScreenResult::Command(Box::new(Command::CopyHistoryPassword {
-                    history_id: index as i64,
-                }))
+                ScreenResult::Command(Box::new(Command::CopyHistoryPassword { history_id }))
             }
             OverlayKeyResult::ConfirmAction { variant } => {
                 self.overlay_manager.close();

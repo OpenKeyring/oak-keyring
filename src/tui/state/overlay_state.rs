@@ -6,6 +6,7 @@ use uuid::Uuid;
 /// Password history entry displayed in overlay.
 #[derive(Debug, Clone)]
 pub struct HistoryEntry {
+    pub id: i64,
     pub changed_at: DateTime<Utc>,
     pub description: String,
 }
@@ -71,6 +72,7 @@ mod tests {
             record_id: id,
             record_name: "test-record".to_string(),
             entries: vec![HistoryEntry {
+                id: 1,
                 changed_at: Utc::now(),
                 description: "password changed".to_string(),
             }],
