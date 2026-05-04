@@ -156,9 +156,10 @@ impl GeneratorState {
                     if cfg.uppercase { 1 } else { 0 },
                 )
             }
-            GenerationStyle::Memorable => password::generate_memorable_password_with_separator(
+            GenerationStyle::Memorable => password::generate_memorable_password_with_options(
                 self.memorable_config.word_count,
                 &self.memorable_config.separator,
+                self.memorable_config.capitalize,
             ),
             GenerationStyle::Pin => password::generate_pin(self.pin_config.length),
         };
@@ -484,5 +485,88 @@ mod tests {
     fn from_config_disables_symbols() {
         let state = GeneratorState::from_config(None, None, None, Some(false));
         assert!(!state.random_config.symbols);
+    }
+
+    #[test]
+    fn memorable_capitalize_true_produces_capitalized_words() {
+        let mut state = GeneratorState::new();
+        state.style = GenerationStyle::Memorable;
+        state.memorable_config.capitalize = true;
+        state.memorable_config.word_count = 4;
+        state.memorable_config.separator = "-".to_string();
+        state.regenerate();
+
+        // Split by separator and check each word starts with uppercase
+        let words: Vec<&str> = state.preview.split('-').collect();
+        assert_eq!(words.len(), 4, "Should have 4 words separated by '-'");
+
+        for word in words {
+            assert!(!word.is_empty(), "Word should not be empty");
+            let first_char = word.chars().next().unwrap();
+            assert!(
+                first_char.is_uppercase(),
+                "First character of '{}' should be uppercase when capitalize=true",
+                word
+            );
+        }
+    }
+
+    #[test]
+    fn memorable_capitalize_false_produces_lowercase_words() {
+        let mut state = GeneratorState::new();
+        state.style = GenerationStyle::Memorable;
+        state.memorable_config.capitalize = false;
+        state.memorable_config.word_count = 3;
+        state.memorable_config.separator = "-".to_string();
+        state.regenerate();
+
+        // Split by separator and check each word is all lowercase
+        let words: Vec<&str> = state.preview.split('-').collect();
+        assert_eq!(words.len(), 3, "Should have 3 words separated by '-'");
+
+        for word in words {
+            assert!(!word.is_empty(), "Word should not be empty");
+            assert!(
+                word.chars()
+                    .all(|c| c.is_lowercase() || c.is_ascii_lowercase()),
+                "Word '{}' should be all lowercase when capitalize=false",
+                word
+            );
+        }
+    }
+
+    #[test]
+    fn memorable_default_config_has_capitalize_true() {
+        let state = GeneratorState::new();
+        assert_eq!(state.memorable_config.capitalize, true);
+    }
+
+    #[test]
+    fn memorable_regenerate_respects_capitalize_toggle() {
+        let mut state = GeneratorState::new();
+        state.style = GenerationStyle::Memorable;
+        state.memorable_config.capitalize = true;
+        state.regenerate();
+
+        // With capitalize=true, preview should have uppercase letters
+        let has_uppercase = state.preview.chars().any(|c| c.is_uppercase());
+        assert!(
+            has_uppercase,
+            "Preview should contain uppercase letters when capitalize=true"
+        );
+
+        // Toggle to false and regenerate
+        state.memorable_config.capitalize = false;
+        state.regenerate();
+
+        // With capitalize=false, preview should be all lowercase (except separator)
+        let parts: Vec<&str> = state.preview.split('-').collect();
+        for part in parts {
+            assert!(
+                part.chars().all(|c| c.is_lowercase()),
+                "Word '{}' should be lowercase when capitalize=false",
+                part
+            );
+        }
     }
 }
