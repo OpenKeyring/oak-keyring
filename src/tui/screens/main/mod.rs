@@ -12,8 +12,8 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::commands::types::{
-    BatchTagPanelState, ConfirmButton, ConfirmDialogState, ConfirmVariant, Overlay, PanelId,
-    RecordFilter,
+    BatchTagPanelState, ConfirmButton, ConfirmDialogState, ConfirmVariant, FieldSelector, Overlay,
+    PanelId, RecordFilter,
 };
 use crate::commands::{Command, Message};
 use crate::t;
@@ -239,91 +239,142 @@ impl MainScreen {
         }
 
         match focused_panel {
-            PanelId::List => match key.code {
-                KeyCode::Char('v') => {
-                    if state.list.is_visual() {
-                        state.list.exit_visual();
-                        messages.push(Message::ExitVisualMode);
-                    } else if !state.list.is_searching() {
-                        state.list.enter_visual();
-                        messages.push(Message::EnterVisualMode);
+            PanelId::List => {
+                let mut result_command: Option<Box<Command>> = None;
+
+                match key.code {
+                    KeyCode::Char('v') => {
+                        if state.list.is_visual() {
+                            state.list.exit_visual();
+                            messages.push(Message::ExitVisualMode);
+                        } else if !state.list.is_searching() {
+                            state.list.enter_visual();
+                            messages.push(Message::EnterVisualMode);
+                        }
                     }
-                }
-                KeyCode::Char(' ') if state.list.is_visual() => {
-                    state.list.toggle_select_current();
-                    messages.push(Message::ToggleSelectRecord {
-                        id: state
-                            .list
-                            .selected_record()
-                            .map(|r| r.id)
-                            .unwrap_or_default(),
-                    });
-                }
-                KeyCode::Char('a') if state.list.is_visual() => {
-                    if state.list.visual_selected_ids().len() == state.list.records.len() {
-                        state.list.deselect_all();
-                        messages.push(Message::DeselectAll);
-                    } else {
-                        state.list.select_all();
-                        messages.push(Message::SelectAll);
+                    KeyCode::Char(' ') if state.list.is_visual() => {
+                        state.list.toggle_select_current();
+                        messages.push(Message::ToggleSelectRecord {
+                            id: state
+                                .list
+                                .selected_record()
+                                .map(|r| r.id)
+                                .unwrap_or_default(),
+                        });
                     }
-                }
-                KeyCode::Char('d') if state.list.is_visual() => {
-                    let ids = state.list.visual_selected_ids();
-                    if !ids.is_empty() {
-                        let names: Vec<String> = state
-                            .list
-                            .records
-                            .iter()
-                            .filter(|r| ids.contains(&r.id))
-                            .map(|r| r.name.clone())
-                            .collect();
-                        overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
-                            variant: ConfirmVariant::BatchSoftDelete {
+                    KeyCode::Char('a') if state.list.is_visual() => {
+                        if state.list.visual_selected_ids().len() == state.list.records.len() {
+                            state.list.deselect_all();
+                            messages.push(Message::DeselectAll);
+                        } else {
+                            state.list.select_all();
+                            messages.push(Message::SelectAll);
+                        }
+                    }
+                    KeyCode::Char('d') if state.list.is_visual() => {
+                        let ids = state.list.visual_selected_ids();
+                        if !ids.is_empty() {
+                            let names: Vec<String> = state
+                                .list
+                                .records
+                                .iter()
+                                .filter(|r| ids.contains(&r.id))
+                                .map(|r| r.name.clone())
+                                .collect();
+                            overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
+                                variant: ConfirmVariant::BatchSoftDelete {
+                                    record_ids: ids,
+                                    record_names: names,
+                                },
+                                focused_button: ConfirmButton::Confirm,
+                            }));
+                        }
+                    }
+                    KeyCode::Char('t') if state.list.is_visual() => {
+                        let ids = state.list.visual_selected_ids();
+                        if !ids.is_empty() {
+                            let current_tag = match &state.current_filter {
+                                RecordFilter::Tag(name) => name.clone(),
+                                _ => String::new(),
+                            };
+                            overlay = Some(Overlay::BatchTagPanel(BatchTagPanelState {
                                 record_ids: ids,
-                                record_names: names,
-                            },
-                            focused_button: ConfirmButton::Confirm,
-                        }));
+                                current_tag,
+                            }));
+                        }
                     }
-                }
-                KeyCode::Char('t') if state.list.is_visual() => {
-                    let ids = state.list.visual_selected_ids();
-                    if !ids.is_empty() {
-                        let current_tag = match &state.current_filter {
-                            RecordFilter::Tag(name) => name.clone(),
-                            _ => String::new(),
-                        };
-                        overlay = Some(Overlay::BatchTagPanel(BatchTagPanelState {
-                            record_ids: ids,
-                            current_tag,
-                        }));
+                    KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if !state.list.is_searching() && !state.list.is_visual() {
+                            state.list.enter_search();
+                        }
                     }
-                }
-                KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    if !state.list.is_searching() && !state.list.is_visual() {
-                        state.list.enter_search();
+                    KeyCode::Enter if !state.list.is_visual() && !state.list.is_searching() => {
+                        state.focused_panel = PanelId::Detail;
                     }
-                }
-                KeyCode::Char('j') | KeyCode::Down => {
-                    state.list.move_down();
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    state.list.move_up();
-                }
-                KeyCode::Esc => {
-                    if state.list.is_visual() {
-                        state.list.exit_visual();
-                        messages.push(Message::ExitVisualMode);
-                    } else if state.list.is_searching() {
-                        state.list.exit_search();
+                    KeyCode::Char('d') if !state.list.is_visual() && !state.list.is_searching() => {
+                        if let Some(record) = state.list.selected_record() {
+                            let record_id = record.id;
+                            let record_name = record.name.clone();
+                            overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
+                                variant: ConfirmVariant::SoftDelete {
+                                    record_id,
+                                    record_name,
+                                    auto_delete_days: Some(state.trash_retention_days),
+                                },
+                                focused_button: ConfirmButton::Cancel,
+                            }));
+                        }
                     }
+                    KeyCode::Char('f') if !state.list.is_visual() && !state.list.is_searching() => {
+                        if let Some(record) = state.list.selected_record() {
+                            result_command = Some(Box::new(Command::ToggleFavorite {
+                                id: record.id,
+                                is_favorite: record.is_favorite,
+                            }));
+                        }
+                    }
+                    KeyCode::Char('c') if !state.list.is_visual() && !state.list.is_searching() => {
+                        if let Some(record) = state.list.selected_record() {
+                            result_command = Some(Box::new(Command::CopyToClipboard {
+                                id: record.id,
+                                field: FieldSelector::Password,
+                            }));
+                        }
+                    }
+                    KeyCode::Char('u') if !state.list.is_visual() && !state.list.is_searching() => {
+                        if let Some(record) = state.list.selected_record() {
+                            result_command = Some(Box::new(Command::CopyToClipboard {
+                                id: record.id,
+                                field: FieldSelector::Username,
+                            }));
+                        }
+                    }
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        state.list.move_down();
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        state.list.move_up();
+                    }
+                    KeyCode::Esc => {
+                        if state.list.is_visual() {
+                            state.list.exit_visual();
+                            messages.push(Message::ExitVisualMode);
+                        } else if state.list.is_searching() {
+                            state.list.exit_search();
+                        }
+                    }
+                    KeyCode::Char('s') if !state.list.is_visual() => {
+                        state.list.toggle_sort_direction();
+                    }
+                    _ => {}
                 }
-                KeyCode::Char('s') if !state.list.is_visual() => {
-                    state.list.toggle_sort_direction();
-                }
-                _ => {}
-            },
+
+                return MainKeyResult {
+                    messages,
+                    overlay,
+                    command: result_command,
+                };
+            }
             PanelId::Sidebar => match key.code {
                 KeyCode::Char('j') | KeyCode::Down => {
                     state.sidebar.move_down();
