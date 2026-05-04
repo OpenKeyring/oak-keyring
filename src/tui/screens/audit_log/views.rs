@@ -4,6 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
+use crate::t;
 use crate::tui::state::audit_state::AuditFocus;
 use crate::tui::state::audit_state::AuditOperationFilter;
 use crate::tui::theme::{self, Styles, BG_BAR, PRIMARY, TEXT, TEXT_MUTED, TEXT_SECONDARY};
@@ -16,12 +17,12 @@ use super::screen::AuditLogScreen;
 impl AuditLogScreen {
     pub(super) fn render_title_bar(&self, frame: &mut Frame, area: Rect) {
         let title_text = if self.state.audit_enabled {
-            " 操作审计".to_string()
+            t!("tui.audit.title").to_string()
         } else {
-            format!(" 操作审计 {} 审计已关闭", theme::ICON_WARNING)
+            format!(" {} {}", t!("tui.audit.title"), t!("tui.audit.disabled"))
         };
 
-        let count_text = format!("{} 条记录", self.state.total_count);
+        let count_text = t!("tui.audit.record_count", n = self.state.total_count).to_string();
 
         let line = Line::from(vec![
             Span::styled(
@@ -65,7 +66,7 @@ impl AuditLogScreen {
         let op_block = Block::default()
             .borders(Borders::ALL)
             .border_style(op_border)
-            .title(" 类型 ");
+            .title(t!("tui.audit.filter_type").to_string());
         let op_text = Paragraph::new(format!(" {}", op_name)).style(Style::default().fg(TEXT));
         frame.render_widget(op_block, columns[0]);
         let inner = Layout::default()
@@ -89,7 +90,7 @@ impl AuditLogScreen {
         let time_block = Block::default()
             .borders(Borders::ALL)
             .border_style(time_border)
-            .title(" 时间 ");
+            .title(t!("tui.audit.filter_time").to_string());
         let time_text = Paragraph::new(format!(" {}", time_name)).style(Style::default().fg(TEXT));
         frame.render_widget(time_block, columns[1]);
         let inner = Layout::default()
@@ -111,9 +112,10 @@ impl AuditLogScreen {
         let search_block = Block::default()
             .borders(Borders::ALL)
             .border_style(search_border)
-            .title(" 搜索 ");
+            .title(t!("tui.audit.filter_search").to_string());
         let search_display = if self.state.filter.search.is_empty() {
-            Paragraph::new(" 输入关键词...").style(Style::default().fg(theme::TEXT_PLACEHOLDER))
+            Paragraph::new(t!("tui.audit.search_placeholder").to_string())
+                .style(Style::default().fg(theme::TEXT_PLACEHOLDER))
         } else {
             let cursor = if self.state.focused_area == AuditFocus::SearchInput {
                 theme::ICON_PIPE
@@ -154,7 +156,8 @@ impl AuditLogScreen {
                 let op_name = operation_display_name(&entry.operation);
                 let op_color = operation_color(&entry.operation);
                 let timestamp = format_timestamp(&entry.occurred_at);
-                let record_name = entry.record_name.as_deref().unwrap_or("(无记录名)");
+                let no_record_name = t!("tui.audit.no_record_name").to_string();
+                let record_name = entry.record_name.as_deref().unwrap_or(&no_record_name);
 
                 let mut spans = vec![
                     Span::styled(
@@ -208,14 +211,14 @@ impl AuditLogScreen {
 
     fn render_empty_state(&self, frame: &mut Frame, area: Rect) {
         let (icon, message) = if !self.state.audit_enabled {
-            (theme::ICON_WARNING, "审计日志功能已关闭")
+            (theme::ICON_WARNING, t!("tui.audit.disabled_message"))
         } else if !self.state.filter.search.is_empty() {
-            (theme::ICON_INFO, "未找到匹配的记录")
+            (theme::ICON_INFO, t!("tui.audit.no_matches"))
         } else if self.state.entries.is_empty() {
-            (theme::ICON_INFO, "暂无审计记录")
+            (theme::ICON_INFO, t!("tui.audit.empty_log"))
         } else {
             // There are entries but the operation filter excluded them all
-            (theme::ICON_INFO, "当前筛选条件下无记录")
+            (theme::ICON_INFO, t!("tui.audit.no_records_for_filter"))
         };
 
         let line = Line::from(vec![

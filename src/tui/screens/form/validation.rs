@@ -1,5 +1,6 @@
 //! Form validation for U7 Create/Edit.
 
+use crate::t;
 use crate::tui::state::form_state::{ExpiryOption, FormFields, ValidationError};
 use crate::types::credential::CredentialType;
 
@@ -11,7 +12,7 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
     if fields.name.trim().is_empty() {
         errors.push(ValidationError {
             field_index: 1,
-            message: "← 必填".into(),
+            message: t!("tui.form.validation_required").to_string(),
         });
     }
 
@@ -21,14 +22,14 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
             if fields.username.as_ref().is_none_or(|s| s.trim().is_empty()) {
                 errors.push(ValidationError {
                     field_index: 3,
-                    message: "← 必填".into(),
+                    message: t!("tui.form.validation_required").to_string(),
                 });
             }
             // Password required (index 4)
             if fields.password.as_ref().is_none_or(|s| s.trim().is_empty()) {
                 errors.push(ValidationError {
                     field_index: 4,
-                    message: "← 必填".into(),
+                    message: t!("tui.form.validation_required").to_string(),
                 });
             }
         }
@@ -37,7 +38,7 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
             if fields.app_id.as_ref().is_none_or(|s| s.trim().is_empty()) {
                 errors.push(ValidationError {
                     field_index: 3,
-                    message: "← 必填".into(),
+                    message: t!("tui.form.validation_required").to_string(),
                 });
             }
             // SecretKey required (index 4)
@@ -48,7 +49,7 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
             {
                 errors.push(ValidationError {
                     field_index: 4,
-                    message: "← 必填".into(),
+                    message: t!("tui.form.validation_required").to_string(),
                 });
             }
         }
@@ -61,7 +62,7 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
             {
                 errors.push(ValidationError {
                     field_index: 3,
-                    message: "← 必填".into(),
+                    message: t!("tui.form.validation_required").to_string(),
                 });
             }
         }
@@ -83,7 +84,7 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
         } else {
             errors.push(ValidationError {
                 field_index: expiry_index,
-                message: "✗ 日期格式错误".into(),
+                message: t!("tui.form.validation_date_format").to_string(),
             });
         }
     }
@@ -94,24 +95,30 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
 /// Validate a date string in YYYY-MM-DD format.
 pub fn validate_date(date: &str) -> Result<(), String> {
     if date.len() != 10 {
-        return Err("✗ 日期格式错误".into());
+        return Err(t!("tui.form.validation_date_format").to_string());
     }
 
     let parts: Vec<&str> = date.split('-').collect();
     if parts.len() != 3 {
-        return Err("✗ 日期格式错误".into());
+        return Err(t!("tui.form.validation_date_format").to_string());
     }
 
-    let year: i32 = parts[0].parse().map_err(|_| "✗ 日期格式错误")?;
-    let month: u32 = parts[1].parse().map_err(|_| "✗ 月份无效")?;
-    let day: u32 = parts[2].parse().map_err(|_| "✗ 日期无效")?;
+    let year: i32 = parts[0]
+        .parse()
+        .map_err(|_| t!("tui.form.validation_date_format").to_string())?;
+    let month: u32 = parts[1]
+        .parse()
+        .map_err(|_| t!("tui.form.validation_invalid_month").to_string())?;
+    let day: u32 = parts[2]
+        .parse()
+        .map_err(|_| t!("tui.form.validation_invalid_day").to_string())?;
 
     if month == 0 || month > 12 {
-        return Err("✗ 月份无效".into());
+        return Err(t!("tui.form.validation_invalid_month").to_string());
     }
 
     if day == 0 || day > 31 {
-        return Err("✗ 日期无效".into());
+        return Err(t!("tui.form.validation_invalid_day").to_string());
     }
 
     // Simple month-day validation
@@ -127,18 +134,18 @@ pub fn validate_date(date: &str) -> Result<(), String> {
                 28
             }
         }
-        _ => return Err("✗ 月份无效".into()),
+        _ => return Err(t!("tui.form.validation_invalid_month").to_string()),
     };
 
     if day > max_day {
-        return Err("✗ 日期无效".into());
+        return Err(t!("tui.form.validation_invalid_day").to_string());
     }
 
     // Check not in the past
     if let Some(parsed) = chrono::NaiveDate::from_ymd_opt(year, month, day) {
         let today = chrono::Local::now().date_naive();
         if parsed < today {
-            return Err("✗ 过期日期不能早于今天".into());
+            return Err(t!("tui.form.validation_past_date").to_string());
         }
     }
 
@@ -150,7 +157,7 @@ pub fn validate_month_partial(month_str: &str) -> Option<String> {
     if month_str.len() == 2 {
         if let Ok(m) = month_str.parse::<u32>() {
             if m > 12 {
-                return Some("✗ 月份无效".into());
+                return Some(t!("tui.form.validation_invalid_month").to_string());
             }
         }
     }
@@ -184,7 +191,7 @@ pub fn validate_day_partial(year_str: &str, month_str: &str, day_str: &str) -> O
         };
 
         if day > max_day {
-            return Some("✗ 日期无效".into());
+            return Some(t!("tui.form.validation_invalid_day").to_string());
         }
     }
     None
@@ -281,7 +288,10 @@ mod tests {
 
     #[test]
     fn validate_month_partial_over_12() {
-        assert_eq!(validate_month_partial("13"), Some("✗ 月份无效".into()));
+        assert_eq!(
+            validate_month_partial("13"),
+            Some("✗ Invalid month".to_string())
+        );
     }
 
     #[test]
@@ -293,7 +303,7 @@ mod tests {
     fn validate_day_partial_feb_30() {
         assert_eq!(
             validate_day_partial("2027", "02", "30"),
-            Some("✗ 日期无效".into())
+            Some("✗ Invalid day".to_string())
         );
     }
 
