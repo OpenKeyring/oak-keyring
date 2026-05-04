@@ -141,7 +141,7 @@ impl MainScreen {
 
         // 7. Overlay (rendered on top of all panels)
         if state.overlay_manager.is_active() {
-            state.overlay_manager.render(frame, frame.area(), unicode);
+            state.overlay_manager.render(frame, area, unicode);
         }
     }
 
