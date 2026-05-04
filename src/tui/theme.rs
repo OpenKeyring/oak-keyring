@@ -38,6 +38,12 @@ pub const ICON_PIPE: &str = "\u{2502}"; // │
 pub const ICON_SEARCH: &str = "\u{1F50D}";
 pub const ICON_PROGRESS_FILL: &str = "\u{2588}";
 pub const ICON_PROGRESS_EMPTY: &str = "\u{2591}";
+pub const ICON_DROPDOWN: &str = "\u{25BC}"; // ▼
+pub const ICON_PASSWORD_MASK: &str = "\u{2022}"; // •
+pub const ICON_SYNC_SYNCING: &str = "\u{27F3}"; // ⟳
+pub const ICON_SYNC_ROTATING: &str = "\u{27F2}"; // ⟲
+pub const ICON_SYNC_OFFLINE: &str = "\u{25D0}"; // ◐
+pub const ICON_NOT_CONFIGURED: &str = "\u{2014}"; // —
 pub const SPINNER_FRAMES: &[&str] = &[
     "\u{280B}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283C}", "\u{2834}", "\u{2826}", "\u{2827}",
     "\u{2807}", "\u{280F}",
@@ -60,6 +66,12 @@ pub mod ascii {
     pub const ICON_SEARCH: &str = "[?]";
     pub const ICON_PROGRESS_FILL: &str = "#";
     pub const ICON_PROGRESS_EMPTY: &str = "-";
+    pub const ICON_DROPDOWN: &str = "v";
+    pub const ICON_PASSWORD_MASK: &str = "*";
+    pub const ICON_SYNC_SYNCING: &str = "~";
+    pub const ICON_SYNC_ROTATING: &str = "~";
+    pub const ICON_SYNC_OFFLINE: &str = "o";
+    pub const ICON_NOT_CONFIGURED: &str = "-";
     pub const SPINNER_FRAMES: &[&str] = &["-", "\\", "|", "/"];
 }
 
