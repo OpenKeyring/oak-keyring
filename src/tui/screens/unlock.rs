@@ -64,7 +64,7 @@ pub struct UnlockScreen {
 impl UnlockScreen {
     /// Mask password for display: one bullet per character.
     fn masked_input(&self) -> String {
-        "\u{2022}".repeat(self.password_input.len())
+        theme::ICON_PASSWORD_MASK.repeat(self.password_input.len())
     }
 }
 
@@ -118,7 +118,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
             ),
             Span::raw("  "),
             Span::styled(
-                "\u{2022}",
+                theme::ICON_PASSWORD_MASK,
                 ratatui::style::Style::default().fg(theme::PRIMARY),
             ),
             Span::raw("  "),
@@ -128,7 +128,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
             ),
             Span::raw("  "),
             Span::styled(
-                "\u{2022}",
+                theme::ICON_PASSWORD_MASK,
                 ratatui::style::Style::default().fg(theme::PRIMARY),
             ),
             Span::raw("  "),

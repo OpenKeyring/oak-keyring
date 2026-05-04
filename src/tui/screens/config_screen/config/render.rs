@@ -248,9 +248,9 @@ fn render_password_defaults(
         "{}          [ {} ]",
         t!("tui.config.default_digits"),
         if form.include_digits {
-            "\u{2713}"
+            theme::ICON_SUCCESS
         } else {
-            "\u{2717}"
+            theme::ICON_ERROR
         }
     );
     frame.render_widget(
@@ -267,9 +267,9 @@ fn render_password_defaults(
         "{}      [ {} ]",
         t!("tui.config.default_uppercase"),
         if form.include_uppercase {
-            "\u{2713}"
+            theme::ICON_SUCCESS
         } else {
-            "\u{2717}"
+            theme::ICON_ERROR
         }
     );
     frame.render_widget(
@@ -286,9 +286,9 @@ fn render_password_defaults(
         "{}      [ {} ]",
         t!("tui.config.default_symbols"),
         if form.include_special {
-            "\u{2713}"
+            theme::ICON_SUCCESS
         } else {
-            "\u{2717}"
+            theme::ICON_ERROR
         }
     );
     frame.render_widget(

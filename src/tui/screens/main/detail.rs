@@ -158,7 +158,11 @@ impl DetailPanel {
         // Favorite + Expiry markers
         let mut markers = Vec::new();
         if record.is_favorite {
-            let star = if unicode { "\u{2605}" } else { "*" };
+            let star = if unicode {
+                theme::ICON_STAR
+            } else {
+                theme::ascii::ICON_STAR
+            };
             markers.push(Span::styled(
                 format!("{} ", star),
                 Style::default().fg(theme::BRAND),
@@ -166,7 +170,11 @@ impl DetailPanel {
         }
         match record.expiry_status {
             ExpiryStatus::ExpiringSoon => {
-                let icon = if unicode { "\u{26A0}" } else { "!" };
+                let icon = if unicode {
+                    theme::ICON_WARNING
+                } else {
+                    theme::ascii::ICON_WARNING
+                };
                 if let Some(dt) = record.expires_at {
                     markers.push(Span::styled(
                         format!("{} 即将过期（{}）", icon, dt.format("%Y-%m-%d")),
@@ -175,7 +183,11 @@ impl DetailPanel {
                 }
             }
             ExpiryStatus::Expired => {
-                let icon = if unicode { "\u{2717}" } else { "x" };
+                let icon = if unicode {
+                    theme::ICON_ERROR
+                } else {
+                    theme::ascii::ICON_ERROR
+                };
                 if let Some(dt) = record.expires_at {
                     markers.push(Span::styled(
                         format!("{} 已过期（{}）", icon, dt.format("%Y-%m-%d")),
@@ -267,7 +279,7 @@ impl DetailPanel {
                 || field.kind == DetailFieldKind::Passphrase
             {
                 if let Some(strength) = &record.password_strength {
-                    let bar = self.render_strength_bar(strength, 16);
+                    let bar = self.render_strength_bar(strength, 16, unicode);
                     lines.push(Line::from(Span::styled(
                         format!("{}  {}", pad, bar),
                         Style::default().fg(strength.color()),
@@ -368,13 +380,28 @@ impl DetailPanel {
         frame.render_widget(para, area);
     }
 
-    fn render_strength_bar(&self, strength: &PasswordStrength, width: usize) -> String {
+    fn render_strength_bar(
+        &self,
+        strength: &PasswordStrength,
+        width: usize,
+        unicode: bool,
+    ) -> String {
         let filled = (strength.fraction() * width as f32).round() as usize;
         let empty = width - filled;
+        let fill_char = if unicode {
+            crate::tui::theme::ICON_PROGRESS_FILL
+        } else {
+            crate::tui::theme::ascii::ICON_PROGRESS_FILL
+        };
+        let empty_char = if unicode {
+            crate::tui::theme::ICON_PROGRESS_EMPTY
+        } else {
+            crate::tui::theme::ascii::ICON_PROGRESS_EMPTY
+        };
         format!(
             "\u{5F3A}\u{5EA6}: {}{} {}",
-            "\u{2588}".repeat(filled),
-            "\u{2591}".repeat(empty),
+            fill_char.repeat(filled),
+            empty_char.repeat(empty),
             strength.label()
         )
     }

@@ -244,7 +244,7 @@ impl SyncConflictScreen {
             .iter()
             .map(|field| {
                 let value = if field.is_sensitive && field.is_masked {
-                    "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string()
+                    theme::ICON_PASSWORD_MASK.repeat(8)
                 } else {
                     field.value.clone()
                 };

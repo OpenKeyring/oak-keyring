@@ -44,9 +44,9 @@ pub fn render(
         "{}            [ {} ]",
         t!("tui.config.health_check"),
         if form.health_check_enabled {
-            format!("\u{2713} {}", t!("tui.config.enabled"))
+            format!("{} {}", theme::ICON_SUCCESS, t!("tui.config.enabled"))
         } else {
-            format!("\u{2717} {}", t!("tui.config.disabled"))
+            format!("{} {}", theme::ICON_ERROR, t!("tui.config.disabled"))
         }
     );
     frame.render_widget(
@@ -65,9 +65,10 @@ pub fn render(
         HealthCheckFrequency::Weekly => t!("tui.config.frequency_weekly").to_string(),
     };
     let freq = format!(
-        "{}            [ {} \u{25bc} ]",
+        "{}            [ {} {} ]",
         t!("tui.config.check_frequency"),
-        freq_label
+        freq_label,
+        theme::ICON_DROPDOWN
     );
     frame.render_widget(
         Paragraph::new(freq).style(if focused == 1 {
@@ -101,9 +102,9 @@ pub fn render(
             focused_style,
         );
         let toggle_text = if form.audit_enabled {
-            format!("[\u{2713} {}]", t!("tui.config.enabled"))
+            format!("[{} {}]", theme::ICON_SUCCESS, t!("tui.config.enabled"))
         } else {
-            format!("[\u{2717} {}]", t!("tui.config.disabled"))
+            format!("[{} {}]", theme::ICON_ERROR, t!("tui.config.disabled"))
         };
         let toggle_style = if sub_item_focus.unwrap_or(0) == 0 {
             Style::default()
@@ -135,9 +136,9 @@ pub fn render(
             "{}            [ {} ]  [ {} ]",
             t!("tui.config.audit"),
             if form.audit_enabled {
-                format!("\u{2713} {}", t!("tui.config.enabled"))
+                format!("{} {}", theme::ICON_SUCCESS, t!("tui.config.enabled"))
             } else {
-                format!("\u{2717} {}", t!("tui.config.disabled"))
+                format!("{} {}", theme::ICON_ERROR, t!("tui.config.disabled"))
             },
             t!("tui.config.view_audit_log"),
         );
@@ -146,9 +147,10 @@ pub fn render(
 
     // Row index 4: Audit retention (focused == 4)
     let retention = format!(
-        "{}        [ {} \u{25bc} ]",
+        "{}        [ {} {} ]",
         t!("tui.config.audit_retention"),
-        t!("tui.config.days", n = form.audit_retention_days)
+        t!("tui.config.days", n = form.audit_retention_days),
+        theme::ICON_DROPDOWN
     );
     frame.render_widget(
         Paragraph::new(retention).style(if focused == 4 {

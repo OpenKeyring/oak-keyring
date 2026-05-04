@@ -10,15 +10,26 @@ use crate::tui::theme;
 
 /// Render the password strength bar as a Line.
 /// Total width: 16 chars for bar + label text.
-pub fn render_strength_bar(strength: &PasswordStrength) -> Line<'static> {
+pub fn render_strength_bar(strength: &PasswordStrength, unicode: bool) -> Line<'static> {
     let fill = strength.bar_fill as usize;
     let empty = 16 - fill;
     let color = parse_color_hex(strength.level.color_hex());
 
+    let fill_char = if unicode {
+        theme::ICON_PROGRESS_FILL
+    } else {
+        theme::ascii::ICON_PROGRESS_FILL
+    };
+    let empty_char = if unicode {
+        theme::ICON_PROGRESS_EMPTY
+    } else {
+        theme::ascii::ICON_PROGRESS_EMPTY
+    };
+
     Line::from(vec![
         Span::styled("  强度: ", Style::default().fg(theme::TEXT_SECONDARY)),
-        Span::styled("█".repeat(fill), Style::default().fg(color)),
-        Span::styled("░".repeat(empty), Style::default().fg(theme::BORDER)),
+        Span::styled(fill_char.repeat(fill), Style::default().fg(color)),
+        Span::styled(empty_char.repeat(empty), Style::default().fg(theme::BORDER)),
         Span::raw(" "),
         Span::styled(
             strength.level.label_zh().to_string(),
@@ -75,7 +86,7 @@ mod tests {
             char_types: 4,
             bar_fill: 12,
         };
-        let line = render_strength_bar(&strength);
+        let line = render_strength_bar(&strength, true);
         assert_eq!(line.spans.len(), 5);
     }
 

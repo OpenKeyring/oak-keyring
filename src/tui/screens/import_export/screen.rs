@@ -105,7 +105,7 @@ impl ImportExportScreen {
     }
 
     pub(super) fn display_password(password: &str) -> String {
-        "\u{2022}".repeat(password.len())
+        crate::tui::theme::ICON_PASSWORD_MASK.repeat(password.len())
     }
 
     pub(super) fn strength_color(level: &StrengthLevel) -> ratatui::style::Color {

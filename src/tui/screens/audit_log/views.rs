@@ -16,9 +16,9 @@ use super::screen::AuditLogScreen;
 impl AuditLogScreen {
     pub(super) fn render_title_bar(&self, frame: &mut Frame, area: Rect) {
         let title_text = if self.state.audit_enabled {
-            " 操作审计"
+            " 操作审计".to_string()
         } else {
-            " 操作审计 \u{26A0} 审计已关闭"
+            format!(" 操作审计 {} 审计已关闭", theme::ICON_WARNING)
         };
 
         let count_text = format!("{} 条记录", self.state.total_count);
@@ -116,7 +116,7 @@ impl AuditLogScreen {
             Paragraph::new(" 输入关键词...").style(Style::default().fg(theme::TEXT_PLACEHOLDER))
         } else {
             let cursor = if self.state.focused_area == AuditFocus::SearchInput {
-                "\u{2502}" // vertical bar cursor
+                theme::ICON_PIPE
             } else {
                 ""
             };
@@ -254,7 +254,7 @@ impl AuditLogScreen {
 
         let hint_text = hints.chunks(2).fold(String::new(), |mut acc, pair| {
             if !acc.is_empty() {
-                acc.push_str("  \u{2502}  ");
+                acc.push_str(&format!("  {}  ", theme::ICON_PIPE));
             }
             acc.push_str(&format!("{} {}", pair[0], pair[1]));
             acc

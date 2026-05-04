@@ -77,7 +77,7 @@ impl ImportExportScreen {
                 let name_span = ratatui::text::Span::styled(format!("{}{}", prefix, name), style);
                 let pw_hint = if *needs_pw {
                     ratatui::text::Span::styled(
-                        " \u{1F511}",
+                        format!(" {}", theme::ICON_KEY),
                         ratatui::style::Style::default().fg(WARNING),
                     )
                 } else {
@@ -483,8 +483,8 @@ impl ImportExportScreen {
         let empty = bar_width - filled;
         let bar_str = format!(
             "[{}{}] {}/{}",
-            "\u{2588}".repeat(filled),
-            "\u{2591}".repeat(empty),
+            theme::ICON_PROGRESS_FILL.repeat(filled),
+            theme::ICON_PROGRESS_EMPTY.repeat(empty),
             self.import_progress_current,
             total,
         );
