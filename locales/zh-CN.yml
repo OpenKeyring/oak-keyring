@@ -899,6 +899,8 @@ tui:
     deleted_time: "删除时间"
     auto_delete_in: "%{days} 天后自动永久删除"
     will_not_auto_delete: "不会自动删除"
+    restore_title: "确认恢复"
+    restore_body: "恢复「%{name}」？"
     restore_button: "恢复"
     empty_button: "清空"
     confirm_delete: "确认删除"

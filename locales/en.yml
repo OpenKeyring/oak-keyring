@@ -900,6 +900,8 @@ tui:
     deleted_time: "Deleted At"
     auto_delete_in: "Auto-delete in %{days} days"
     will_not_auto_delete: "Will not be auto-deleted"
+    restore_title: "Confirm Restore"
+    restore_body: "Restore \"%{name}\" from trash?"
     restore_button: "Restore"
     empty_button: "Empty"
     confirm_delete: "Confirm Delete"

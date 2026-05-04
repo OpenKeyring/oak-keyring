@@ -1,4 +1,4 @@
-//! Confirmation dialog overlay — renders one of 5 confirm variants with Cancel/Confirm buttons.
+//! Confirmation dialog overlay — renders one of 6 confirm variants with Cancel/Confirm buttons.
 //!
 //! Variants:
 //! - **SoftDelete**: move record to trash (reversible)
@@ -6,6 +6,7 @@
 //! - **EmptyTrash**: empty the trash (irreversible)
 //! - **BatchSoftDelete**: move multiple records to trash (reversible)
 //! - **TagDelete**: delete a tag (irreversible)
+//! - **Restore**: restore a record from trash (reversible)
 
 use ratatui::{
     layout::{Alignment, Rect},
@@ -124,6 +125,7 @@ fn confirm_label_for(variant: &ConfirmVariant) -> String {
         ConfirmVariant::EmptyTrash { .. } => t!("tui.trash.empty_trash_title").to_string(),
         ConfirmVariant::BatchSoftDelete { .. } => t!("tui.overlay.confirm_button").to_string(),
         ConfirmVariant::TagDelete { .. } => t!("tui.tag.confirm_delete_tag").to_string(),
+        ConfirmVariant::Restore { .. } => t!("tui.trash.restore_button").to_string(),
     }
 }
 
@@ -227,6 +229,18 @@ fn build_dialog_parts(
             )));
             (
                 format!(" {} ", t!("tui.overlay.confirm_button")),
+                lines,
+                confirm_label_for(variant),
+            )
+        }
+
+        ConfirmVariant::Restore { record_name, .. } => {
+            let lines = vec![Line::from(Span::styled(
+                t!("tui.trash.restore_body", name = record_name.as_str()).to_string(),
+                Style::default().fg(theme::TEXT),
+            ))];
+            (
+                format!(" {} ", t!("tui.trash.restore_title")),
                 lines,
                 confirm_label_for(variant),
             )
@@ -482,5 +496,28 @@ mod tests {
         let (_, lines, _) = build_dialog_parts(&variant, 46);
         // message + blank + 3 names (no overflow line)
         assert_eq!(lines.len(), 5);
+    }
+
+    // ── Restore variant tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn restore_is_not_danger_variant() {
+        let variant = ConfirmVariant::Restore {
+            record_id: Uuid::new_v4(),
+            record_name: "test".to_string(),
+        };
+        assert!(!is_danger_variant(&variant));
+    }
+
+    #[test]
+    fn build_dialog_restore() {
+        let variant = ConfirmVariant::Restore {
+            record_id: Uuid::new_v4(),
+            record_name: "GitHub".to_string(),
+        };
+        let (title, lines, label) = build_dialog_parts(&variant, 46);
+        assert!(title.contains("Restore") || title.contains("恢复"));
+        assert!(label.contains("Restore") || label.contains("恢复"));
+        assert_eq!(lines.len(), 1); // just the message line
     }
 }
