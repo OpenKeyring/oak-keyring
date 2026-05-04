@@ -71,7 +71,7 @@ mod tests {
     fn clipboard_error_access_denied() {
         let err = ClipboardError::AccessDenied;
         assert_eq!(err.to_error_code(), ErrorCode::ClipboardUnavailable);
-        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
         assert!(err.to_fallback_message().contains("access denied"));
     }
 
@@ -82,7 +82,7 @@ mod tests {
             actual_bytes: 2048,
         };
         assert_eq!(err.to_error_code(), ErrorCode::ClipboardCopyFailed);
-        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
         assert!(err.to_string().contains("1024"));
         assert!(err.to_string().contains("2048"));
         let ctx = err.to_error_context();
@@ -93,7 +93,7 @@ mod tests {
     fn clipboard_error_platform_unavailable() {
         let err = ClipboardError::PlatformUnavailable("headless".to_string());
         assert_eq!(err.to_error_code(), ErrorCode::ClipboardUnavailable);
-        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
         assert!(err.to_string().contains("headless"));
     }
 
@@ -101,22 +101,22 @@ mod tests {
     fn clipboard_error_content_mismatch() {
         let err = ClipboardError::ContentMismatch;
         assert_eq!(err.to_error_code(), ErrorCode::ClipboardCopyFailed);
-        assert_eq!(err.error_level(), ErrorLevel::Minor);
-        assert!(err.to_fallback_message().contains("mismatch"));
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
+        assert!(err.to_fallback_message().contains("changed since copy"));
     }
 
     #[test]
     fn clipboard_error_lock_poisoned() {
         let err = ClipboardError::LockPoisoned;
         assert_eq!(err.to_error_code(), ErrorCode::ClipboardCopyFailed);
-        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
     fn clipboard_error_io() {
         let err = ClipboardError::Io("permission denied".to_string());
         assert_eq!(err.to_error_code(), ErrorCode::ClipboardCopyFailed);
-        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
         assert!(err.to_fallback_message().contains("permission denied"));
     }
 

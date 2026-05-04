@@ -120,30 +120,27 @@ impl From<VaultError> for crate::errors::ServiceErrorBox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::ErrorLevel;
 
     #[test]
     fn record_not_found_error_code_returns_vault_variant() {
         let id = Uuid::new_v4();
         let err = VaultError::RecordNotFound(id);
-        let code = err.error_code();
+        let code = err.to_error_code();
 
-        assert!(
-            matches!(code, ErrorCode::Vault(ref msg) if msg.contains(&id.to_string())),
-            "expected ErrorCode::Vault containing the UUID, got {:?}",
-            code
-        );
+        assert_eq!(code, ErrorCode::VaultRecordNotFound);
     }
 
     #[test]
-    fn record_not_found_error_level_is_warning() {
+    fn record_not_found_error_level_is_operation() {
         let err = VaultError::RecordNotFound(Uuid::new_v4());
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
-    fn not_unlocked_error_level_is_fatal() {
+    fn not_unlocked_error_level_is_operation() {
         let err = VaultError::NotUnlocked;
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
@@ -161,12 +158,12 @@ mod tests {
     }
 
     #[test]
-    fn version_conflict_error_level_is_error() {
+    fn version_conflict_error_level_is_operation() {
         let err = VaultError::VersionConflict {
             expected: 1,
             actual: 2,
         };
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
@@ -174,25 +171,29 @@ mod tests {
         let sqlite_err = rusqlite::Error::InvalidColumnIndex(99);
         let err: VaultError = sqlite_err.into();
         assert!(matches!(err, VaultError::DatabaseError(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Fatal);
     }
 
     #[test]
     fn crypto_error_mapped_from_string() {
         let err: VaultError = "decryption failed".to_string().into();
         assert!(matches!(err, VaultError::CryptoError(ref s) if s == "decryption failed"));
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
     fn tag_errors_have_correct_levels() {
         assert_eq!(
-            VaultError::TagAlreadyExists("work".into()).error_level(),
-            ErrorLevel::Error
+            VaultError::TagAlreadyExists("work".into())
+                .to_error_code()
+                .level(),
+            ErrorLevel::Minor
         );
         assert_eq!(
-            VaultError::TagNotFound("missing".into()).error_level(),
-            ErrorLevel::Error
+            VaultError::TagNotFound("missing".into())
+                .to_error_code()
+                .level(),
+            ErrorLevel::Minor
         );
     }
 
@@ -203,13 +204,13 @@ mod tests {
             field: FieldSelector::Password,
         };
         assert!(matches!(err.to_error_code(), ErrorCode::VaultInvalidField));
-        assert_eq!(err.to_error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
     fn vault_error_converts_to_service_error_box() {
         let err = VaultError::NotUnlocked;
         let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert_eq!(boxed.error_level(), ErrorLevel::Fatal);
+        assert_eq!(boxed.to_error_code().level(), ErrorLevel::Operation);
     }
 }
