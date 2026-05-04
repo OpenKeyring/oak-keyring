@@ -127,7 +127,11 @@ fn build_list_item<'a>(
         SidebarItem::TagHeader => {
             if state.tag_management_mode {
                 let sort_label = state.tag_management.sort_order.label();
-                let down_icon = if unicode { '\u{25BC}' } else { 'v' };
+                let down_icon = if unicode {
+                    theme::ICON_DROPDOWN
+                } else {
+                    theme::ascii::ICON_DROPDOWN
+                };
                 let header_text = if unicode {
                     format!(
                         "\u{25BE} # \u{6807}\u{7B7E} (\u{7BA1}\u{7406}\u{6A21}\u{5F0F}) \u{6309}: {} {}",
@@ -163,7 +167,7 @@ fn build_list_item<'a>(
             if state.tag_management_mode {
                 let display = format!("{}{}", TAG_INDENT, name);
                 let edit_icon = if unicode { "\u{270E}" } else { "[e]" };
-                let delete_icon = if unicode { "\u{2717}" } else { "[x]" };
+                let delete_icon = if unicode { theme::ICON_ERROR } else { "[x]" };
 
                 let name_chars = display.chars().count();
                 let padding_width = (area_width as usize)
@@ -287,7 +291,11 @@ fn render_inline_rename(
     // Build the edit box text with cursor
     let text_before_cursor = &edit.text[..edit.cursor];
     let text_after_cursor = &edit.text[edit.cursor..];
-    let cursor_char = if unicode { "\u{2588}" } else { "_" };
+    let cursor_char = if unicode {
+        theme::ICON_PROGRESS_FILL
+    } else {
+        "_"
+    };
 
     let edit_line = Line::from(vec![
         Span::styled(
@@ -315,7 +323,11 @@ fn render_inline_rename(
     if edit.conflict {
         let error_y = y_offset + 1;
         if error_y < area.y + area.height {
-            let error_icon = if unicode { "\u{2717}" } else { "x" };
+            let error_icon = if unicode {
+                theme::ICON_ERROR
+            } else {
+                theme::ascii::ICON_ERROR
+            };
             let error_line = Line::from(Span::styled(
                 format!(
                     "  {} \u{6807}\u{7B7E}\"{}\"\u{5DF2}\u{5B58}\u{5728}",
