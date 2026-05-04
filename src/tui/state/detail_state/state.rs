@@ -108,13 +108,13 @@ pub enum PasswordStrength {
 }
 
 impl PasswordStrength {
-    pub fn label(&self) -> &'static str {
+    pub fn label(&self) -> String {
         match self {
-            Self::VeryWeak => "极弱",
-            Self::Weak => "弱",
-            Self::Fair => "中等",
-            Self::Strong => "强",
-            Self::VeryStrong => "极强",
+            Self::VeryWeak => crate::t!("tui.generator.strength_too_weak").to_string(),
+            Self::Weak => crate::t!("tui.generator.strength_weak").to_string(),
+            Self::Fair => crate::t!("tui.generator.strength_fair").to_string(),
+            Self::Strong => crate::t!("tui.generator.strength_strong").to_string(),
+            Self::VeryStrong => crate::t!("tui.generator.strength_very_strong").to_string(),
         }
     }
 
