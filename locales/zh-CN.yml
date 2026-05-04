@@ -290,9 +290,19 @@ tui:
     show_button: "显示"
     hide_button: "隐藏"
     paste_button: "粘贴"
+    copy_button: "复制"
     save_button: "保存"
     cancel_button: "取消"
     back_button: "上一步"
+    # Additional form strings
+    save_hint: "Ctrl+S 保存"
+    cancel_hint: "Esc 取消"
+    weak_password_hint: "当前密码强度为\"弱\"，容易受到暴力破解攻击。"
+    weak_password_suggestion: "建议使用生成器创建更强的密码。"
+    go_back: "返回修改"
+    save_anyway: "直接保存"
+    continue_editing: "继续编辑"
+    discard_changes: "丢弃"
 
   # ---- U8: Config Screen ----
   config:

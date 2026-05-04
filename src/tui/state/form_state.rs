@@ -4,6 +4,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::crypto::strength::{evaluate_strength, PasswordStrength};
+use crate::t;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::sensitive::SecureStr;
 
@@ -36,13 +37,19 @@ pub enum ExpiryOption {
 }
 
 impl ExpiryOption {
-    pub fn all_options() -> &'static [(&'static str, ExpiryOption)] {
-        &[
-            ("永不过期", ExpiryOption::Never),
-            ("30 天", ExpiryOption::Days30),
-            ("90 天", ExpiryOption::Days90),
-            ("1 年", ExpiryOption::Year1),
-            ("自定义日期", ExpiryOption::Custom),
+    pub fn all_options() -> Vec<(String, ExpiryOption)> {
+        vec![
+            (
+                t!("tui.form.expiry_never").into_owned(),
+                ExpiryOption::Never,
+            ),
+            (t!("tui.form.expiry_30d").into_owned(), ExpiryOption::Days30),
+            (t!("tui.form.expiry_90d").into_owned(), ExpiryOption::Days90),
+            (t!("tui.form.expiry_1y").into_owned(), ExpiryOption::Year1),
+            (
+                t!("tui.form.expiry_custom").into_owned(),
+                ExpiryOption::Custom,
+            ),
         ]
     }
 
@@ -57,13 +64,13 @@ impl ExpiryOption {
         }
     }
 
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            ExpiryOption::Never => "永不过期",
-            ExpiryOption::Days30 => "30 天",
-            ExpiryOption::Days90 => "90 天",
-            ExpiryOption::Year1 => "1 年",
-            ExpiryOption::Custom => "自定义日期",
+            ExpiryOption::Never => t!("tui.form.expiry_never").into_owned(),
+            ExpiryOption::Days30 => t!("tui.form.expiry_30d").into_owned(),
+            ExpiryOption::Days90 => t!("tui.form.expiry_90d").into_owned(),
+            ExpiryOption::Year1 => t!("tui.form.expiry_1y").into_owned(),
+            ExpiryOption::Custom => t!("tui.form.expiry_custom").into_owned(),
         }
     }
 }

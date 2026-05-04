@@ -291,9 +291,19 @@ tui:
     show_button: "Show"
     hide_button: "Hide"
     paste_button: "Paste"
+    copy_button: "Copy"
     save_button: "Save"
     cancel_button: "Cancel"
     back_button: "Back"
+    # Additional form strings
+    save_hint: "Ctrl+S Save"
+    cancel_hint: "Esc Cancel"
+    weak_password_hint: "Current password strength is \"Weak\" and vulnerable to brute force attacks."
+    weak_password_suggestion: "Consider using the generator to create a stronger password."
+    go_back: "Go Back"
+    save_anyway: "Save Anyway"
+    continue_editing: "Continue Editing"
+    discard_changes: "Discard"
 
   # ---- U8: Config Screen ----
   config:
