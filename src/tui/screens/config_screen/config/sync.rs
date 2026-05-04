@@ -316,7 +316,7 @@ fn render_provider_fields(
                     chunks,
                     fi,
                     frame,
-                    &t!("tui.config.sync_last_time"),
+                    &t!("tui.config.sync_last_sync"),
                     &last_sync_text,
                     LABEL,
                 );
