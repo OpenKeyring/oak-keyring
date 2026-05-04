@@ -5,7 +5,7 @@ use crate::commands::types::{
     CsvColumnMapping, ExportScope, ImportSource, RecordFilter, RecordSort, SortDirection, SortField,
 };
 use crate::commands::CommandResult;
-use crate::errors::{ErrorCode, ErrorContext};
+use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::services::import_export::duplicate::ExistingRecordKey;
 use crate::services::import_export::export::ExportRecord;
 use crate::types::record::{CreateRecordParams, DecryptedRecord};
@@ -35,9 +35,10 @@ pub fn handle_validate_import_file(
     {
         Ok(id) => id,
         Err(e) => {
+            let err: &dyn ServiceError = &e;
             return CommandResult::Error {
-                code: ErrorCode::ImportExport(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: "error.import_session_create_failed",
                 fallback: format!("Failed to create import session: {}", e),
             };
@@ -47,12 +48,15 @@ pub fn handle_validate_import_file(
     // Step 2: Validate the import file.
     match executor.import_export.validate_import_file(session_id) {
         Ok(preview) => CommandResult::ImportValidated { preview },
-        Err(e) => CommandResult::Error {
-            code: ErrorCode::ImportExport(e.to_string()),
-            context: ErrorContext::default(),
-            message_key: "error.import_validate_failed",
-            fallback: format!("Failed to validate import file: {}", e),
-        },
+        Err(e) => {
+            let err: &dyn ServiceError = &e;
+            CommandResult::Error {
+                code: err.to_error_code(),
+                context: err.to_error_context(),
+                message_key: "error.import_validate_failed",
+                fallback: format!("Failed to validate import file: {}", e),
+            }
+        }
     }
 }
 
@@ -79,9 +83,10 @@ pub fn handle_execute_import(
     ) {
         Ok(id) => id,
         Err(e) => {
+            let err: &dyn ServiceError = &e;
             return CommandResult::Error {
-                code: ErrorCode::ImportExport(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: "error.import_session_create_failed",
                 fallback: format!("Failed to create import session: {}", e),
             };
@@ -90,9 +95,10 @@ pub fn handle_execute_import(
 
     // Step 2: Validate the file first (session must be Validated before import).
     if let Err(e) = executor.import_export.validate_import_file(session_id) {
+        let err: &dyn ServiceError = &e;
         return CommandResult::Error {
-            code: ErrorCode::ImportExport(e.to_string()),
-            context: ErrorContext::default(),
+            code: err.to_error_code(),
+            context: err.to_error_context(),
             message_key: "error.import_validate_failed",
             fallback: format!("Failed to validate import file: {}", e),
         };
@@ -134,9 +140,10 @@ pub fn handle_execute_import(
             if executor.cancel_token().is_cancelled() {
                 return CommandResult::cancelled("import_execute");
             }
+            let err: &dyn ServiceError = &e;
             return CommandResult::Error {
-                code: ErrorCode::ImportExport(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: "error.import_execute_failed",
                 fallback: format!("Failed to execute import: {}", e),
             };
@@ -190,7 +197,7 @@ pub fn handle_execute_export(
     // Step 1: Verify master password.
     if crate::crypto::keystore::KeyStore::unlock(&executor.vault_dir, &master_password).is_err() {
         return CommandResult::Error {
-            code: ErrorCode::Vault(String::from("password_verification_failed")),
+            code: ErrorCode::ExecutorMasterPasswordRequired,
             context: ErrorContext::default(),
             message_key: "error.password_verification_failed",
             fallback: String::from("Master password verification failed."),
@@ -206,9 +213,10 @@ pub fn handle_execute_export(
         {
             Ok(id) => id,
             Err(e) => {
+                let err: &dyn ServiceError = &e;
                 return CommandResult::Error {
-                    code: ErrorCode::ImportExport(e.to_string()),
-                    context: ErrorContext::default(),
+                    code: err.to_error_code(),
+                    context: err.to_error_context(),
                     message_key: "error.export_session_create_failed",
                     fallback: format!("Failed to create export session: {}", e),
                 };
@@ -259,9 +267,10 @@ pub fn handle_execute_export(
             if cancel_token.is_cancelled() {
                 return CommandResult::cancelled("export_execute");
             }
+            let err: &dyn ServiceError = &e;
             return CommandResult::Error {
-                code: ErrorCode::ImportExport(e.to_string()),
-                context: ErrorContext::default(),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
                 message_key: "error.export_execute_failed",
                 fallback: format!("Failed to execute export: {}", e),
             };

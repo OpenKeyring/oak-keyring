@@ -199,10 +199,7 @@ mod tests {
     #[test]
     fn data_error_invalid_credential_type_maps_to_correct_code() {
         let err = DbError::Data(DataError::InvalidCredentialType("unknown".into()));
-        assert_eq!(
-            err.to_error_code(),
-            ErrorCode::DataInvalidCredentialType
-        );
+        assert_eq!(err.to_error_code(), ErrorCode::DataInvalidCredentialType);
     }
 
     #[test]
@@ -228,10 +225,7 @@ mod tests {
     #[test]
     fn data_error_invalid_sync_status_maps_to_invalid_credential_type() {
         let err = DbError::Data(DataError::InvalidSyncStatus(999));
-        assert_eq!(
-            err.to_error_code(),
-            ErrorCode::DataInvalidCredentialType
-        );
+        assert_eq!(err.to_error_code(), ErrorCode::DataInvalidCredentialType);
     }
 
     #[test]
@@ -301,7 +295,10 @@ mod tests {
                 }),
                 "too long",
             ),
-            (DbError::Data(DataError::MissingField("username")), "missing"),
+            (
+                DbError::Data(DataError::MissingField("username")),
+                "missing",
+            ),
             (DbError::Data(DataError::EmptyField("password")), "empty"),
             (
                 DbError::Data(DataError::InvalidCredentialType("unknown".into())),

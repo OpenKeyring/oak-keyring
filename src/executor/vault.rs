@@ -84,7 +84,7 @@ pub async fn handle_unlock_with_recovery_key(
                 Ok(pk) => pk,
                 Err(e) => {
                     return CommandResult::Error {
-                        code: ErrorCode::Vault(format!("invalid_recovery_key: {}", e)),
+                        code: ErrorCode::CryptoKeyDerivationFailed,
                         context: ErrorContext::default(),
                         message_key: "error.invalid_recovery_key",
                         fallback: format!("Invalid recovery key: {}", e),
@@ -138,7 +138,7 @@ pub fn handle_verify_master_password(
     match crate::crypto::keystore::KeyStore::unlock(&executor.vault_dir, &password) {
         Ok(_) => CommandResult::MasterPasswordVerified,
         Err(_) => CommandResult::Error {
-            code: ErrorCode::Vault(String::from("password_verification_failed")),
+            code: ErrorCode::ExecutorMasterPasswordRequired,
             context: ErrorContext::default(),
             message_key: "error.password_verification_failed",
             fallback: String::from("Master password verification failed."),
@@ -165,7 +165,7 @@ pub fn handle_change_master_password(
             CommandResult::MasterPasswordChanged
         }
         Err(e) => CommandResult::Error {
-            code: ErrorCode::Crypto(format!("change_cmk_failed: {}", e)),
+            code: ErrorCode::CryptoEncryptionFailed,
             context: ErrorContext::default(),
             message_key: "error.change_password_failed",
             fallback: format!("Failed to change master password: {}", e),
@@ -189,7 +189,7 @@ pub async fn handle_initialize_vault(
             Ok(pk) => pk,
             Err(e) => {
                 return CommandResult::Error {
-                    code: ErrorCode::Crypto(format!("passkey_reconstruction_failed: {}", e)),
+                    code: ErrorCode::CryptoDecryptionFailed,
                     context: ErrorContext::default(),
                     message_key: "error.passkey_reconstruction_failed",
                     fallback: format!("Failed to reconstruct recovery key: {}", e),
@@ -200,7 +200,7 @@ pub async fn handle_initialize_vault(
             Ok(pk) => pk,
             Err(e) => {
                 return CommandResult::Error {
-                    code: ErrorCode::Crypto(format!("passkey_generation_failed: {}", e)),
+                    code: ErrorCode::CryptoEncryptionFailed,
                     context: ErrorContext::default(),
                     message_key: "error.passkey_generation_failed",
                     fallback: format!("Failed to generate recovery key: {}", e),
@@ -214,7 +214,7 @@ pub async fn handle_initialize_vault(
         Ok(s) => s,
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Crypto(format!("seed_derivation_failed: {}", e)),
+                code: ErrorCode::CryptoKeyDerivationFailed,
                 context: ErrorContext::default(),
                 message_key: "error.seed_derivation_failed",
                 fallback: format!("Failed to derive seed: {}", e),
@@ -235,7 +235,7 @@ pub async fn handle_initialize_vault(
         Ok(_) => {}
         Err(e) => {
             return CommandResult::Error {
-                code: ErrorCode::Crypto(format!("keystore_init_failed: {}", e)),
+                code: ErrorCode::CryptoEncryptionFailed,
                 context: ErrorContext::default(),
                 message_key: "error.keystore_init_failed",
                 fallback: format!("Failed to initialize keystore: {}", e),
