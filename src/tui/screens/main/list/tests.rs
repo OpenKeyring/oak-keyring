@@ -944,7 +944,7 @@ fn record_item_3_lines_at_full_width() {
     let record = make_record(Uuid::new_v4(), "TestRecord", "test@example.com");
     let item = build_record_item(&record, false, false, true, true, 120, None);
     // Should have 3 lines: title, subtitle, separator
-    assert!(item.height() >= 3);
+    assert_eq!(item.height(), 3);
 }
 
 #[test]
@@ -952,7 +952,7 @@ fn record_item_2_lines_at_minimum_width() {
     let record = make_record(Uuid::new_v4(), "TestRecord", "test@example.com");
     let item = build_record_item(&record, false, false, true, true, 90, None);
     // Should have 2 lines at minimum width: title, separator (no subtitle)
-    assert!(item.height() >= 2);
+    assert_eq!(item.height(), 2);
 }
 
 #[test]
@@ -960,5 +960,13 @@ fn trash_item_2_lines_at_minimum_width() {
     let record = make_trash_record(Uuid::new_v4(), "TestRecord", 5);
     let item = build_trash_item(&record, false, false, true, true, 90, 30);
     // Should have 2 lines at minimum width: title, separator (no meta)
-    assert!(item.height() >= 2);
+    assert_eq!(item.height(), 2);
+}
+
+#[test]
+fn trash_item_3_lines_at_full_width() {
+    let record = make_trash_record(Uuid::new_v4(), "TestRecord", 5);
+    let item = build_trash_item(&record, false, false, true, true, 120, 30);
+    // Should have 3 lines at full width: title, metadata, separator
+    assert_eq!(item.height(), 3);
 }
