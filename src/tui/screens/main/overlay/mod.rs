@@ -74,7 +74,7 @@ pub enum OverlayKeyResult {
     /// User confirmed the action described by `variant`.
     ConfirmAction { variant: ConfirmVariant },
     /// Copy a historical password entry to the clipboard.
-    CopyHistoryPassword { record_id: Uuid, index: usize },
+    CopyHistoryPassword { history_id: i64 },
     /// Copy the generated password to the clipboard.
     CopyGeneratedPassword { password: String },
     /// Add a tag to the selected records.
@@ -186,8 +186,7 @@ impl OverlayManager {
                     password_history::HistoryAction::CopySelected => {
                         if state.selected_index < state.entries.len() {
                             OverlayKeyResult::CopyHistoryPassword {
-                                record_id: state.record_id,
-                                index: state.selected_index,
+                                history_id: state.entries[state.selected_index].id,
                             }
                         } else {
                             OverlayKeyResult::Consumed
