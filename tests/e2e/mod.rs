@@ -1,1 +1,2 @@
-// TODO: E2E tests for critical user flows
+pub mod config_lifecycle_test;
+pub mod sync_lifecycle_test;
