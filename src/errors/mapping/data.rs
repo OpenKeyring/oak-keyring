@@ -95,11 +95,12 @@ impl From<DbError> for crate::errors::ServiceErrorBox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::ErrorLevel;
 
     #[test]
     fn sqlite_error_corruption_detected() {
         let sqlite_err = rusqlite::Error::InvalidColumnType(
-            "text".to_string(),
+            0, // column index
             "INTEGER".to_string(),
             rusqlite::types::Type::Integer,
         );
@@ -124,7 +125,7 @@ mod tests {
     #[test]
     fn sqlite_error_level_is_fatal() {
         let err = DbError::Sqlite(rusqlite::Error::InvalidColumnIndex(1));
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Fatal);
     }
 
     #[test]
@@ -155,7 +156,7 @@ mod tests {
             max: 100,
             actual: 200,
         });
-        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -174,7 +175,7 @@ mod tests {
     #[test]
     fn data_error_missing_field_error_level_is_minor() {
         let err = DbError::Data(DataError::MissingField("username"));
-        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -193,7 +194,7 @@ mod tests {
     #[test]
     fn data_error_empty_field_error_level_is_minor() {
         let err = DbError::Data(DataError::EmptyField("password"));
-        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -265,7 +266,7 @@ mod tests {
     #[test]
     fn uuid_error_level_is_minor() {
         let err = DbError::Uuid(uuid::Uuid::parse_str("bad").unwrap_err());
-        assert_eq!(err.error_level(), ErrorLevel::Minor);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -273,7 +274,7 @@ mod tests {
         let sqlite_err = rusqlite::Error::InvalidColumnIndex(42);
         let err: DbError = sqlite_err.into();
         assert!(matches!(err, DbError::Sqlite(_)));
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Fatal);
     }
 
     #[test]
@@ -281,7 +282,7 @@ mod tests {
         let err = DbError::Data(DataError::MissingField("test"));
         let boxed: crate::errors::ServiceErrorBox = err.into();
         assert_eq!(boxed.to_error_code(), ErrorCode::DataMissingField);
-        assert_eq!(boxed.error_level(), ErrorLevel::Minor);
+        assert_eq!(boxed.to_error_code().level(), ErrorLevel::Minor);
     }
 
     #[test]
@@ -304,7 +305,7 @@ mod tests {
                 DbError::Data(DataError::InvalidCredentialType("unknown".into())),
                 "credential type",
             ),
-            (DbError::Data(DataError::InvalidUuid("bad".into())), "UUID"),
+            (DbError::Data(DataError::InvalidUuid("bad".into())), "uuid"),
         ];
 
         for (err, keyword) in test_cases {

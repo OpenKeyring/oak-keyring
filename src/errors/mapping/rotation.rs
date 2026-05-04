@@ -45,45 +45,46 @@ impl From<RotationError> for crate::errors::ServiceErrorBox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::ErrorLevel;
 
     #[test]
-    fn offline_error_level_is_warning() {
+    fn offline_error_level_is_operation() {
         let err = RotationError::Offline;
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
-    fn sync_busy_error_level_is_error() {
+    fn sync_busy_error_level_is_operation() {
         let err = RotationError::SyncBusy;
-        assert_eq!(err.error_level(), ErrorLevel::Error);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
-    fn checkpoint_corrupted_error_level_is_fatal() {
+    fn checkpoint_corrupted_error_level_is_operation() {
         let err = RotationError::CheckpointCorrupted("json parse error".into());
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
-    fn max_version_exceeded_error_level_is_fatal() {
+    fn max_version_exceeded_error_level_is_operation() {
         let err = RotationError::MaxVersionExceeded {
             current: 9999,
             max: 10000,
         };
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
+        assert_eq!(err.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
     fn rotation_error_converts_to_service_error_box() {
         let err = RotationError::Offline;
         let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert_eq!(boxed.error_level(), ErrorLevel::Warning);
+        assert_eq!(boxed.to_error_code().level(), ErrorLevel::Operation);
     }
 
     #[test]
-    fn rotation_error_code_is_rotation_variant() {
+    fn rotation_error_code_is_dek_rotation_failed() {
         let err = RotationError::Internal("test".into());
-        assert!(matches!(err.error_code(), ErrorCode::Rotation(_)));
+        assert_eq!(err.to_error_code(), ErrorCode::DekRotationFailed);
     }
 }
 impl ServiceError for RotationError {
@@ -115,50 +116,5 @@ impl ServiceError for RotationError {
 
     fn to_fallback_message(&self) -> String {
         self.to_string()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn offline_error_level_is_warning() {
-        let err = RotationError::Offline;
-        assert_eq!(err.error_level(), ErrorLevel::Warning);
-    }
-
-    #[test]
-    fn sync_busy_error_level_is_error() {
-        let err = RotationError::SyncBusy;
-        assert_eq!(err.error_level(), ErrorLevel::Error);
-    }
-
-    #[test]
-    fn checkpoint_corrupted_error_level_is_fatal() {
-        let err = RotationError::CheckpointCorrupted("json parse error".into());
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
-    }
-
-    #[test]
-    fn max_version_exceeded_error_level_is_fatal() {
-        let err = RotationError::MaxVersionExceeded {
-            current: 9999,
-            max: 10000,
-        };
-        assert_eq!(err.error_level(), ErrorLevel::Fatal);
-    }
-
-    #[test]
-    fn rotation_error_converts_to_service_error_box() {
-        let err = RotationError::Offline;
-        let boxed: crate::errors::ServiceErrorBox = err.into();
-        assert_eq!(boxed.error_level(), ErrorLevel::Warning);
-    }
-
-    #[test]
-    fn rotation_error_code_is_rotation_variant() {
-        let err = RotationError::Internal("test".into());
-        assert!(matches!(err.error_code(), ErrorCode::Rotation(_)));
     }
 }
