@@ -236,11 +236,11 @@ fn build_dialog_parts(
 
         ConfirmVariant::Restore { record_name, .. } => {
             let lines = vec![Line::from(Span::styled(
-                format!("Restore \"{}\" from trash?", record_name),
+                t!("tui.trash.restore_body", name = record_name.as_str()).to_string(),
                 Style::default().fg(theme::TEXT),
             ))];
             (
-                " Confirm Restore ".to_string(),
+                format!(" {} ", t!("tui.trash.restore_title")),
                 lines,
                 confirm_label_for(variant),
             )
