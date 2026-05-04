@@ -7,6 +7,8 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use crate::tui::theme;
+
 // ── Sync Status Indicator ────────────────────────────────────────────────────
 
 /// Sync status for display in the status bar.
@@ -25,12 +27,12 @@ impl SyncDisplayStatus {
     /// Icon glyph for this status.
     pub fn icon(&self) -> &'static str {
         match self {
-            SyncDisplayStatus::Synced => "\u{2713}",
-            SyncDisplayStatus::Syncing => "\u{27F3}",
-            SyncDisplayStatus::Failed => "\u{2717}",
-            SyncDisplayStatus::NotConfigured => "\u{2014}",
-            SyncDisplayStatus::Offline => "\u{25D0}",
-            SyncDisplayStatus::Rotating => "\u{27F2}",
+            SyncDisplayStatus::Synced => theme::ICON_SUCCESS,
+            SyncDisplayStatus::Syncing => theme::ICON_SYNC_SYNCING,
+            SyncDisplayStatus::Failed => theme::ICON_ERROR,
+            SyncDisplayStatus::NotConfigured => theme::ICON_NOT_CONFIGURED,
+            SyncDisplayStatus::Offline => theme::ICON_SYNC_OFFLINE,
+            SyncDisplayStatus::Rotating => theme::ICON_SYNC_ROTATING,
         }
     }
 }
