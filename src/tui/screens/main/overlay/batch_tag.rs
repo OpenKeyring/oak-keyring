@@ -10,6 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
+use crate::t;
 use crate::tui::state::overlay_state::{BatchTagPanelFullState, TagPanelFocus};
 use crate::tui::theme;
 
@@ -46,7 +47,7 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
 
     // ── Title ────────────────────────────────────────────────────────────
     let n = state.selected_record_ids.len();
-    let title = format!(" 批量标签 — 已选 {n} 项 ");
+    let title = format!(" {} ", t!("tui.batch.batch_tag_title", n = n));
 
     let outer_block = Block::default()
         .title(title)
@@ -80,7 +81,7 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
     render_tags_section(
         frame,
         chunks[1],
-        "当前标签:",
+        &t!("tui.batch.current_tags").into_owned(),
         &state.current_tags,
         state.focus == TagPanelFocus::CurrentTags,
         state.tag_cursor,
@@ -95,7 +96,7 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
     render_tags_section(
         frame,
         chunks[2],
-        "可用标签:",
+        &t!("tui.batch.existing_tags").into_owned(),
         &state.available_tags,
         state.focus == TagPanelFocus::AvailableTags,
         available_cursor,
@@ -150,7 +151,7 @@ fn render_input_section(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
     };
 
     let input_block = Block::default()
-        .title(" 添加标签: ")
+        .title(format!(" {} ", t!("tui.batch.add_tag")))
         .title_style(Style::default().fg(theme::TEXT_SECONDARY))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
@@ -162,7 +163,7 @@ fn render_input_section(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
     // Build input display with cursor indicator
     let input_text = &state.input_text;
     let display_text = if focused {
-        format!("{input_text}█ Enter 添加")
+        format!("{}█ {}", input_text, t!("tui.batch.enter_hint"))
     } else {
         input_text.clone()
     };
@@ -200,7 +201,7 @@ fn render_tags_section(
     frame.render_widget(section_block, area);
 
     if tags.is_empty() {
-        let empty = Paragraph::new("  (无)")
+        let empty = Paragraph::new(format!("  {}", t!("tui.batch.no_tags")))
             .style(Style::default().fg(theme::TEXT_MUTED))
             .wrap(Wrap { trim: false });
         frame.render_widget(empty, inner);
@@ -237,7 +238,7 @@ fn render_done_button(frame: &mut Frame, area: Rect, state: &BatchTagPanelFullSt
     let inner = button_block.inner(area);
     frame.render_widget(button_block, area);
 
-    let button_text = " 完成 ";
+    let button_text = format!(" {} ", t!("tui.batch.done"));
     let button_style = if focused {
         Style::default()
             .fg(theme::PRIMARY)

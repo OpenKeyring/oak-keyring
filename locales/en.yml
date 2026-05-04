@@ -808,6 +808,8 @@ tui:
     done: "Done"
     select_hint: "Press Space to select passwords"
     more_items: "...and %{count} more total"
+    no_tags: "(no tags)"
+    enter_hint: "Enter to add"
 
   # ---- Health Check ----
   health:
@@ -832,3 +834,5 @@ tui:
     password_created: "Set at Creation"
     record_count: "%{count} records (max 10 retained)"
     copied_history: "Historical password copied (%{seconds}s until cleared)"
+    no_history: "No history yet"
+    copy_button: "[Copy]"
