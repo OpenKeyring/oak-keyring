@@ -19,7 +19,7 @@ pub fn render_text_input(
     width: u16,
 ) -> Vec<Line<'static>> {
     let display_value = if is_masked {
-        "\u{2022}".repeat(value.chars().count())
+        theme::ICON_PASSWORD_MASK.repeat(value.chars().count())
     } else {
         value.to_string()
     };
@@ -78,7 +78,7 @@ pub fn render_password_input_with_buttons(
     let display_value = if visible {
         value.to_string()
     } else {
-        "\u{2022}".repeat(value.chars().count())
+        theme::ICON_PASSWORD_MASK.repeat(value.chars().count())
     };
     let input_width = width.saturating_sub(label.len() as u16 + buttons.len() as u16 * 12 + 4);
     let padded = format!("{:<width$}", display_value, width = input_width as usize);
