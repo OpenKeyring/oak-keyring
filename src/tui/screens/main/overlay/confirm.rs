@@ -497,4 +497,27 @@ mod tests {
         // message + blank + 3 names (no overflow line)
         assert_eq!(lines.len(), 5);
     }
+
+    // ── Restore variant tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn restore_is_not_danger_variant() {
+        let variant = ConfirmVariant::Restore {
+            record_id: Uuid::new_v4(),
+            record_name: "test".to_string(),
+        };
+        assert!(!is_danger_variant(&variant));
+    }
+
+    #[test]
+    fn build_dialog_restore() {
+        let variant = ConfirmVariant::Restore {
+            record_id: Uuid::new_v4(),
+            record_name: "GitHub".to_string(),
+        };
+        let (title, lines, label) = build_dialog_parts(&variant, 46);
+        assert!(title.contains("Restore") || title.contains("恢复"));
+        assert!(label.contains("Restore") || label.contains("恢复"));
+        assert_eq!(lines.len(), 1); // just the message line
+    }
 }
