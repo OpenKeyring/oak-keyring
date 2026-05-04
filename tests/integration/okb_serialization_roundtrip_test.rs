@@ -1,14 +1,17 @@
-//! End-to-end tests for export-import round-trip through encryption/decryption.
+//! Serialization round-trip tests for OKB export/import through encryption/decryption.
 //!
-//! These tests verify the COMPLETE data path:
+//! These tests verify the OKB serialization layer:
 //! 1. Create ExportRecord with type-specific fields
 //! 2. Serialize and encrypt via encrypt_and_write_okb
 //! 3. Parse via OkbParser (decrypts and parses the .okb file)
 //! 4. Map via map_parsed_item
 //! 5. Verify mapped fields contain the correct values for each type
 //!
-//! This validates that Issue 46's fix works end-to-end: SSH/API credentials
-//! survive export→encrypt→decrypt→import round-trip.
+//! This validates that Issue 46's fix works at the serialization level:
+//! SSH/API type-specific fields survive encrypt→decrypt→parse round-trip.
+//!
+//! Note: The full vault chain (decrypted_record_to_export → fields_to_payload)
+//! is tested in unit tests within `src/executor/import_export.rs`.
 
 use oak_keyring::commands::types::ImportSource;
 use oak_keyring::services::import_export::export::{
@@ -26,7 +29,7 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 /// Build an ExportRecord for Login credentials.
-fn build_export_record_login(id: &str, name: &str, username: &str, password: &str) -> ExportRecord {
+fn build_login(id: &str, name: &str, username: &str, password: &str) -> ExportRecord {
     ExportRecord {
         id: id.to_string(),
         credential_type: "login".to_string(),
@@ -47,7 +50,7 @@ fn build_export_record_login(id: &str, name: &str, username: &str, password: &st
 }
 
 /// Build an ExportRecord for API credentials.
-fn build_export_record_api(id: &str, name: &str, app_id: &str, secret_key: &str) -> ExportRecord {
+fn build_api(id: &str, name: &str, app_id: &str, secret_key: &str) -> ExportRecord {
     ExportRecord {
         id: id.to_string(),
         credential_type: "api".to_string(),
@@ -68,7 +71,7 @@ fn build_export_record_api(id: &str, name: &str, app_id: &str, secret_key: &str)
 }
 
 /// Build an ExportRecord for SSH credentials with passphrase.
-fn build_export_record_ssh_with_passphrase(
+fn build_ssh_with_passphrase(
     id: &str,
     name: &str,
     public_key: &str,
@@ -95,7 +98,7 @@ fn build_export_record_ssh_with_passphrase(
 }
 
 /// Build an ExportRecord for SSH credentials without passphrase.
-fn build_export_record_ssh_without_passphrase(
+fn build_ssh_without_passphrase(
     id: &str,
     name: &str,
     public_key: &str,
@@ -120,25 +123,45 @@ fn build_export_record_ssh_without_passphrase(
     }
 }
 
-/// Perform a full round-trip: encrypt → write → parse → map.
+/// Perform OKB serialization round-trip: serialize → encrypt → decrypt → parse → map.
 ///
-/// Returns the mapped records for verification.
-fn roundtrip_via_okb(
-    records: Vec<ExportRecord>,
+/// Returns the parsed items and corresponding original records for verification.
+fn serde_roundtrip_via_okb<'a>(
+    records: &'a [ExportRecord],
     password: &str,
 ) -> Vec<(
-    ExportRecord,
+    &'a ExportRecord,
     oak_keyring::services::import_export::types::MappedRecord,
 )> {
-    // 1. Build ExportPayload
     let payload = ExportPayload {
         version: "1".to_string(),
         vault_id: Uuid::new_v4().to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
-        records: records.clone(),
+        records: records
+            .iter()
+            .map(|r| {
+                // Reconstruct without Clone — copy individual fields.
+                ExportRecord {
+                    id: r.id.clone(),
+                    credential_type: r.credential_type.clone(),
+                    name: r.name.clone(),
+                    username: r.username.clone(),
+                    password: r.password.clone(),
+                    url: r.url.clone(),
+                    notes: r.notes.clone(),
+                    tags: r.tags.clone(),
+                    is_favorite: r.is_favorite,
+                    expires_at: r.expires_at.clone(),
+                    public_key: r.public_key.clone(),
+                    private_key: r.private_key.clone(),
+                    passphrase: r.passphrase.clone(),
+                    app_id: r.app_id.clone(),
+                    secret_key: r.secret_key.clone(),
+                }
+            })
+            .collect(),
     };
 
-    // 2. Write encrypted .okb file
     let dir = tempdir().expect("tempdir must succeed");
     let output_path = dir.path().join("test.okb");
     let secure_password = SecureStr::new(password.to_string());
@@ -146,23 +169,19 @@ fn roundtrip_via_okb(
     encrypt_and_write_okb(&payload, &secure_password, &output_path)
         .expect("encrypt_and_write_okb must succeed");
 
-    // 3. Parse the .okb file (decrypts and parses)
     let parser = OkbParser;
     let parsed_items = parser
         .parse(&output_path, Some(&secure_password), None)
         .expect("parse must succeed");
 
-    // 4. Map each parsed item
-    let mapped_records: Vec<_> = parsed_items
+    parsed_items
         .iter()
         .zip(records.iter())
         .map(|(parsed, original)| {
             let mapped = map_parsed_item(parsed, ImportSource::OpenKeyringBackup);
-            (original.clone(), mapped)
+            (original, mapped)
         })
-        .collect();
-
-    mapped_records
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -170,15 +189,15 @@ fn roundtrip_via_okb(
 // ---------------------------------------------------------------------------
 
 #[test]
-fn e2e_login_credential_roundtrip() {
-    let original = build_export_record_login("rec-1", "GitHub", "alice", "s3cr3t_passw0rd!");
+fn serde_login_roundtrip() {
+    let original = build_login("rec-1", "GitHub", "alice", "s3cr3t_passw0rd!");
+    let records = [original];
 
-    let results = roundtrip_via_okb(vec![original.clone()], "export_password_123");
+    let results = serde_roundtrip_via_okb(&records, "export_password_123");
 
     assert_eq!(results.len(), 1, "should have exactly 1 record");
     let (original_export, mapped) = &results[0];
 
-    // Verify credential type inference
     assert_eq!(
         infer_credential_type(&mapped.fields),
         CredentialType::Login,
@@ -186,7 +205,6 @@ fn e2e_login_credential_roundtrip() {
     );
     assert_eq!(mapped.credential_type, CredentialType::Login);
 
-    // Verify Login fields
     assert_eq!(mapped.fields.get("name").unwrap(), &original_export.name);
     assert_eq!(
         mapped.fields.get("username").unwrap(),
@@ -204,14 +222,10 @@ fn e2e_login_credential_roundtrip() {
         mapped.fields.get("notes").unwrap(),
         original_export.notes.as_ref().unwrap()
     );
-
-    // Verify tags
     assert_eq!(
         mapped.tags,
         original_export.tags.as_ref().unwrap().as_slice()
     );
-
-    // Verify favorite
     assert_eq!(
         mapped.fields.get("is_favorite").unwrap(),
         &original_export.is_favorite.unwrap().to_string()
@@ -219,20 +233,20 @@ fn e2e_login_credential_roundtrip() {
 }
 
 #[test]
-fn e2e_api_credential_roundtrip() {
-    let original = build_export_record_api(
+fn serde_api_roundtrip() {
+    let original = build_api(
         "rec-2",
         "AWS API",
         "AKIAIOSFODNN7EXAMPLE",
         "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
     );
 
-    let results = roundtrip_via_okb(vec![original.clone()], "export_password_456");
+    let records = [original];
+    let results = serde_roundtrip_via_okb(&records, "export_password_456");
 
     assert_eq!(results.len(), 1, "should have exactly 1 record");
     let (original_export, mapped) = &results[0];
 
-    // Verify credential type inference
     assert_eq!(
         infer_credential_type(&mapped.fields),
         CredentialType::Api,
@@ -240,7 +254,6 @@ fn e2e_api_credential_roundtrip() {
     );
     assert_eq!(mapped.credential_type, CredentialType::Api);
 
-    // Verify API fields (Issue 46 fix)
     assert_eq!(mapped.fields.get("name").unwrap(), &original_export.name);
     assert_eq!(
         mapped.fields.get("app_id").unwrap(),
@@ -260,14 +273,10 @@ fn e2e_api_credential_roundtrip() {
         mapped.fields.get("notes").unwrap(),
         original_export.notes.as_ref().unwrap()
     );
-
-    // Verify tags
     assert_eq!(
         mapped.tags,
         original_export.tags.as_ref().unwrap().as_slice()
     );
-
-    // Verify favorite
     assert_eq!(
         mapped.fields.get("is_favorite").unwrap(),
         &original_export.is_favorite.unwrap().to_string()
@@ -275,8 +284,8 @@ fn e2e_api_credential_roundtrip() {
 }
 
 #[test]
-fn e2e_ssh_credential_with_passphrase_roundtrip() {
-    let original = build_export_record_ssh_with_passphrase(
+fn serde_ssh_with_passphrase_roundtrip() {
+    let original = build_ssh_with_passphrase(
         "rec-3",
         "Production Server",
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExamplePublicKey alice@deploy",
@@ -284,12 +293,12 @@ fn e2e_ssh_credential_with_passphrase_roundtrip() {
         "key_passphrase",
     );
 
-    let results = roundtrip_via_okb(vec![original.clone()], "export_password_789");
+    let records = [original];
+    let results = serde_roundtrip_via_okb(&records, "export_password_789");
 
     assert_eq!(results.len(), 1, "should have exactly 1 record");
     let (original_export, mapped) = &results[0];
 
-    // Verify credential type inference
     assert_eq!(
         infer_credential_type(&mapped.fields),
         CredentialType::Ssh,
@@ -297,7 +306,6 @@ fn e2e_ssh_credential_with_passphrase_roundtrip() {
     );
     assert_eq!(mapped.credential_type, CredentialType::Ssh);
 
-    // Verify SSH fields (Issue 46 fix)
     assert_eq!(mapped.fields.get("name").unwrap(), &original_export.name);
     assert_eq!(
         mapped.fields.get("public_key").unwrap(),
@@ -326,14 +334,10 @@ fn e2e_ssh_credential_with_passphrase_roundtrip() {
         mapped.fields.get("notes").unwrap(),
         original_export.notes.as_ref().unwrap()
     );
-
-    // Verify tags
     assert_eq!(
         mapped.tags,
         original_export.tags.as_ref().unwrap().as_slice()
     );
-
-    // Verify favorite
     assert_eq!(
         mapped.fields.get("is_favorite").unwrap(),
         &original_export.is_favorite.unwrap().to_string()
@@ -341,20 +345,20 @@ fn e2e_ssh_credential_with_passphrase_roundtrip() {
 }
 
 #[test]
-fn e2e_ssh_credential_without_passphrase_roundtrip() {
-    let original = build_export_record_ssh_without_passphrase(
+fn serde_ssh_without_passphrase_roundtrip() {
+    let original = build_ssh_without_passphrase(
         "rec-4",
         "GitHub",
         "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC...",
         "-----BEGIN RSA PRIVATE KEY-----\n-----END RSA PRIVATE KEY-----",
     );
 
-    let results = roundtrip_via_okb(vec![original.clone()], "export_password_abc");
+    let records = [original];
+    let results = serde_roundtrip_via_okb(&records, "export_password_abc");
 
     assert_eq!(results.len(), 1, "should have exactly 1 record");
     let (original_export, mapped) = &results[0];
 
-    // Verify credential type inference
     assert_eq!(
         infer_credential_type(&mapped.fields),
         CredentialType::Ssh,
@@ -362,7 +366,6 @@ fn e2e_ssh_credential_without_passphrase_roundtrip() {
     );
     assert_eq!(mapped.credential_type, CredentialType::Ssh);
 
-    // Verify SSH fields without passphrase (Issue 46 fix)
     assert_eq!(mapped.fields.get("name").unwrap(), &original_export.name);
     assert_eq!(
         mapped.fields.get("public_key").unwrap(),
@@ -379,14 +382,10 @@ fn e2e_ssh_credential_without_passphrase_roundtrip() {
             || mapped.fields.get("passphrase").unwrap().is_empty(),
         "passphrase should be absent or empty when not set"
     );
-
-    // Verify tags
     assert_eq!(
         mapped.tags,
         original_export.tags.as_ref().unwrap().as_slice()
     );
-
-    // Verify favorite
     assert_eq!(
         mapped.fields.get("is_favorite").unwrap(),
         &original_export.is_favorite.unwrap().to_string()
@@ -394,23 +393,23 @@ fn e2e_ssh_credential_without_passphrase_roundtrip() {
 }
 
 #[test]
-fn e2e_mixed_credential_types_roundtrip() {
+fn serde_mixed_types_roundtrip() {
     let records = vec![
-        build_export_record_login("rec-1", "GitHub", "alice", "pass123"),
-        build_export_record_api(
+        build_login("rec-1", "GitHub", "alice", "pass123"),
+        build_api(
             "rec-2",
             "Stripe API",
             "sk_test_4eC39HqLyjWDarjtT1zdp7dc",
-            "sk_live_51H...", // Truncated for brevity
+            "sk_live_51H...",
         ),
-        build_export_record_ssh_with_passphrase(
+        build_ssh_with_passphrase(
             "rec-3",
             "Deploy Server",
             "ssh-ed25519 AAAAC3...",
             "-----BEGIN OPENSSH PRIVATE KEY-----\n...",
             "deploy_key_pass",
         ),
-        build_export_record_ssh_without_passphrase(
+        build_ssh_without_passphrase(
             "rec-4",
             "GitLab",
             "ssh-rsa AAAAB3...",
@@ -418,15 +417,13 @@ fn e2e_mixed_credential_types_roundtrip() {
         ),
     ];
 
-    let results = roundtrip_via_okb(records.clone(), "mixed_export_password");
+    let results = serde_roundtrip_via_okb(&records, "mixed_export_password");
 
     assert_eq!(results.len(), 4, "should have all 4 records");
 
-    // Verify each record
-    for (original_export, mapped) in results {
+    for (original_export, mapped) in &results {
         let id = &original_export.id;
 
-        // Find the original record by ID
         let original = records
             .iter()
             .find(|r| r.id == *id)
@@ -483,7 +480,6 @@ fn e2e_mixed_credential_types_roundtrip() {
             ),
         }
 
-        // Verify common fields
         assert_eq!(mapped.fields.get("name").unwrap(), &original.name);
         assert_eq!(mapped.tags, original.tags.as_ref().unwrap().as_slice());
     }
