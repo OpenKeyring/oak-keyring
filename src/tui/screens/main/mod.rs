@@ -173,6 +173,7 @@ impl MainScreen {
     ) -> MainKeyResult {
         let mut messages = Vec::new();
         let mut overlay = None;
+        let mut result_command: Option<Box<Command>> = None;
 
         // If inline rename is active, route all keys to it first
         if state.sidebar.is_tag_management() && state.sidebar.tag_management.is_renaming() {
@@ -392,7 +393,11 @@ impl MainScreen {
                         messages.push(Message::ExitVisualMode);
                     }
                     let filter = state.sidebar.current_filter();
-                    state.current_filter = filter;
+                    state.current_filter = filter.clone();
+                    result_command = Some(Box::new(Command::LoadRecordList {
+                        filter,
+                        sort: state.current_sort.clone(),
+                    }));
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
                     state.sidebar.move_up();
@@ -401,7 +406,11 @@ impl MainScreen {
                         messages.push(Message::ExitVisualMode);
                     }
                     let filter = state.sidebar.current_filter();
-                    state.current_filter = filter;
+                    state.current_filter = filter.clone();
+                    result_command = Some(Box::new(Command::LoadRecordList {
+                        filter,
+                        sort: state.current_sort.clone(),
+                    }));
                 }
                 KeyCode::Enter => {
                     if matches!(
@@ -468,7 +477,7 @@ impl MainScreen {
         MainKeyResult {
             messages,
             overlay,
-            command: None,
+            command: result_command,
             focused_panel: None,
         }
     }
@@ -976,6 +985,23 @@ mod tests {
             screen.handle_key_event(make_key(KeyCode::Char('f')), &mut state, PanelId::List);
         assert!(result.command.is_none());
         assert!(result.overlay.is_none());
+    }
+
+    #[test]
+    fn trash_jk_navigation_works() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Char('j')), &mut state, PanelId::List);
+        assert_eq!(state.list.selected_index, Some(1));
+
+        screen.handle_key_event(make_key(KeyCode::Char('k')), &mut state, PanelId::List);
+        assert_eq!(state.list.selected_index, Some(0));
     }
 }
 
