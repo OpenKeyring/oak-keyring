@@ -330,6 +330,39 @@ mod tests {
         assert_eq!(infer_credential_type(&fields), CredentialType::Login);
     }
 
+    #[test]
+    fn infer_type_explicit_credential_type_overrides_heuristic() {
+        // When credential_type field is present, it takes priority over field-based heuristics
+        let mut fields = HashMap::new();
+        fields.insert("credential_type".into(), "ssh".into());
+        fields.insert("username".into(), "alice".into());
+        fields.insert("password".into(), "s3cret".into());
+        // Without credential_type, this would be Login, but with it, should be Ssh
+        assert_eq!(infer_credential_type(&fields), CredentialType::Ssh);
+    }
+
+    #[test]
+    fn infer_type_explicit_api_overrides_login_heuristic() {
+        // OKB export with API type and legacy username/password fields
+        let mut fields = HashMap::new();
+        fields.insert("credential_type".into(), "api".into());
+        fields.insert("username".into(), "alice".into());
+        fields.insert("password".into(), "s3cret".into());
+        // Without credential_type, this would be Login, but with it, should be Api
+        assert_eq!(infer_credential_type(&fields), CredentialType::Api);
+    }
+
+    #[test]
+    fn infer_type_ignores_invalid_credential_type() {
+        // Invalid credential_type value should fall back to heuristic
+        let mut fields = HashMap::new();
+        fields.insert("credential_type".into(), "invalid_type".into());
+        fields.insert("username".into(), "alice".into());
+        fields.insert("password".into(), "s3cret".into());
+        // Invalid credential_type is ignored, heuristic applies
+        assert_eq!(infer_credential_type(&fields), CredentialType::Login);
+    }
+
     // -- apply_field_mapping --
 
     #[test]
