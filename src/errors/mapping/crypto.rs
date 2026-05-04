@@ -1,26 +1,40 @@
 use crate::crypto::CryptoError;
 use crate::errors::service_error::ServiceError;
-use crate::errors::{ErrorCode, ErrorLevel};
+use crate::errors::ErrorCode;
 
 impl ServiceError for CryptoError {
-    fn error_code(&self) -> ErrorCode {
-        ErrorCode::Crypto(self.to_string())
+    fn to_error_code(&self) -> ErrorCode {
+        match self {
+            CryptoError::DecryptionFailed => ErrorCode::CryptoDecryptionFailed,
+            CryptoError::EncryptionFailed => ErrorCode::CryptoEncryptionFailed,
+            CryptoError::InvalidKey => ErrorCode::CryptoKeyDerivationFailed,
+            CryptoError::InvalidNonce => ErrorCode::CryptoInvalidNonce,
+            CryptoError::DerivationFailed => ErrorCode::CryptoKeyDerivationFailed,
+        }
     }
 
     // CryptoError variants are opaque unit types — they carry no structured data.
     // Context (record_id, record_name) should be attached by the service layer
     // when wrapping CryptoError into a higher-level error type.
-    fn error_context(&self) -> Option<crate::errors::ErrorContext> {
-        None
+    fn to_error_context(&self) -> crate::errors::ErrorContext {
+        crate::errors::ErrorContext::new()
     }
 
-    fn error_level(&self) -> ErrorLevel {
+    fn to_fallback_message(&self) -> String {
         match self {
-            CryptoError::EncryptionFailed => ErrorLevel::Fatal,
-            CryptoError::DecryptionFailed => ErrorLevel::Error,
-            CryptoError::InvalidKey => ErrorLevel::Error,
-            CryptoError::InvalidNonce => ErrorLevel::Error,
-            CryptoError::DerivationFailed => ErrorLevel::Error,
+            CryptoError::DecryptionFailed => {
+                "Decryption failed. The data may be corrupted or the wrong key was used".to_string()
+            }
+            CryptoError::EncryptionFailed => "Encryption failed due to a system error".to_string(),
+            CryptoError::InvalidKey => {
+                "Invalid cryptographic key. The key may be malformed or have an incorrect length".to_string()
+            }
+            CryptoError::InvalidNonce => {
+                "Invalid nonce. The nonce may be malformed or have an incorrect length".to_string()
+            }
+            CryptoError::DerivationFailed => {
+                "Key derivation failed. The password or parameters may be invalid".to_string()
+            }
         }
     }
 }
