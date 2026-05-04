@@ -91,10 +91,39 @@ tui:
     strength_label: "Strength:"
     confirm_button: "Confirm"
     mnemonic_language_label: "Mnemonic Language"
+    # ---- Onboarding path validation ----
+    path_not_directory: "Path exists but is not a directory"
+    path_no_write: "No write permission for this directory"
+    path_not_empty: "Directory is not empty — files may be overwritten"
+    path_cannot_read: "Cannot read directory: %{dir}"
+    path_valid: "Path is valid"
+    path_no_parent_write: "No write permission for parent directory"
+    path_will_create: "Directory will be created automatically"
     mnemonic_language_option_en: "English"
     mnemonic_language_option_zh_cn: "中文(简体)"
     mnemonic_language_warning: "⚠ Cannot be changed after creation"
     mnemonic_language_hint_restore: "Select the language used when creating the vault"
+    # ---- Unlock screen enhancements ----
+    tagline_secure: "Secure"
+    tagline_private: "Private"
+    tagline_yours: "Yours"
+    password_title: " MASTER PASSWORD "
+    recovery_title: " RECOVERY KEY "
+    recovery_prompt: "Enter your recovery key words…"
+    vault_unlocked: "Vault unlocked"
+    password_hint: "Your master password unlocks your encrypted data"
+    recovery_hint: "Your recovery key unlocks your encrypted data"
+    tab_to_recovery: "Press Tab to use recovery key"
+    tab_to_password: "Press Tab to use master password"
+    # ---- Set/Change password enhancements ----
+    new_password_placeholder: "Enter new password"
+    confirm_new_placeholder: "Confirm new password"
+    input_hint: "Tab: switch field | Enter: submit | Esc: back"
+    password_too_short: "Password must be at least 8 characters"
+    password_empty: "Password cannot be empty"
+    verify_current_title: "Verify Current Password"
+    verify_current_hint: "Enter your current master password to continue"
+    verify_current_placeholder: "Enter current password"
 
   # ---- U2: Main Layout ----
   main:
@@ -491,6 +520,9 @@ tui:
     source_csv: "CSV File"
     source_select_hint: "Select the format of your import file"
     file_path: "File Path"
+    file_path_required: "File path is required"
+    password_required: "Password is required for this source"
+    master_password_required: "Master password is required to authorize export"
     browse_button: "Browse..."
     preview_title: "Preview"
     preview_count: "%{count} items to import"
@@ -541,12 +573,16 @@ tui:
     filter_type_system: "System Events"
     total_records: "%{count} records total"
     deleted_password_hint: "This password has been permanently deleted"
+    no_related_records: "No related records for this entry"
+    sort_created: "Created"
+    sort_updated: "Updated"
 
   # ---- U11: Cross-Cutting ----
   notification:
     saved: "Saved"
     copied_password: "Password copied"
     copied_username: "Username copied"
+    copied_to_clipboard: "Copied to clipboard"
     clipboard_clearing: "%{seconds}s until cleared"
     clipboard_cleared: "Clipboard cleared"
     deleted: "Deleted"
@@ -651,6 +687,10 @@ tui:
     skip_current: "Skip (keep local)"
     keep_all_local: "Keep All Local"
     diff_marker: "diff"
+    no_conflicts: "No conflicts to resolve"
+    select_version: "Select version"
+    confirm_selection: "Confirm"
+    toggle_password: "Show/Hide password"
 
   # ---- Trash / Delete ----
   trash:
