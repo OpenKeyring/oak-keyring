@@ -677,6 +677,46 @@ tui:
     section_tags: "Tag Management"
     section_sync: "Sync"
     close_hint: "F1/Esc Close"
+    # Navigation shortcuts
+    nav_up: "Move up"
+    nav_down: "Move down"
+    nav_tab: "Switch panel"
+    nav_enter: "Confirm"
+    nav_esc: "Back/Close"
+    # Action shortcuts
+    action_search: "Search"
+    action_new: "New"
+    action_edit: "Edit"
+    action_delete: "Delete"
+    action_favorite: "Favorite"
+    action_sort: "Sort"
+    action_multiselect: "Multiselect mode"
+    action_config: "Settings"
+    action_audit: "Audit log"
+    action_quit: "Quit"
+    # Password details shortcuts
+    pwd_copy: "Copy password"
+    pwd_copy_username: "Copy username"
+    pwd_toggle: "Show/Hide password"
+    pwd_history: "Password history"
+    # Trash shortcuts
+    trash_restore: "Restore record"
+    trash_permanent_delete: "Permanent delete"
+    trash_empty: "Empty trash"
+    # Multiselect shortcuts
+    ms_toggle: "Select/Deselect"
+    ms_move: "Move up/down"
+    ms_select_all: "Select all/Deselect"
+    ms_batch_delete: "Batch delete"
+    ms_batch_tag: "Batch tag"
+    ms_exit: "Exit multiselect"
+    # Tag management shortcuts
+    tag_add: "Add tag"
+    tag_rename: "Rename tag"
+    tag_delete: "Delete tag"
+    tag_save: "Save"
+    # Sync shortcuts
+    sync_manual: "Manual sync"
 
   status_bar:
     lock_unlocked: "Unlocked"

@@ -676,6 +676,46 @@ tui:
     section_tags: "标签管理"
     section_sync: "同步"
     close_hint: "F1/Esc 关闭"
+    # Navigation shortcuts
+    nav_up: "上移"
+    nav_down: "下移"
+    nav_tab: "切换面板"
+    nav_enter: "确认"
+    nav_esc: "返回/关闭"
+    # Action shortcuts
+    action_search: "搜索"
+    action_new: "新建"
+    action_edit: "编辑"
+    action_delete: "删除"
+    action_favorite: "收藏"
+    action_sort: "排序"
+    action_multiselect: "多选模式"
+    action_config: "配置页"
+    action_audit: "审计日志"
+    action_quit: "退出"
+    # Password details shortcuts
+    pwd_copy: "复制密码"
+    pwd_copy_username: "复制用户名"
+    pwd_toggle: "显示/隐藏密码"
+    pwd_history: "密码历史"
+    # Trash shortcuts
+    trash_restore: "恢复记录"
+    trash_permanent_delete: "永久删除"
+    trash_empty: "清空回收站"
+    # Multiselect shortcuts
+    ms_toggle: "选中/取消"
+    ms_move: "上下移动"
+    ms_select_all: "全选/取消"
+    ms_batch_delete: "批量删除"
+    ms_batch_tag: "批量打标签"
+    ms_exit: "退出多选"
+    # Tag management shortcuts
+    tag_add: "添加标签"
+    tag_rename: "重命名标签"
+    tag_delete: "删除标签"
+    tag_save: "保存"
+    # Sync shortcuts
+    sync_manual: "手动同步"
 
   status_bar:
     lock_unlocked: "已解锁"
