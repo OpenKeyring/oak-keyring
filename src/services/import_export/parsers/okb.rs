@@ -57,6 +57,12 @@ struct OkbRecord {
     tags: Option<Vec<String>>,
     is_favorite: Option<bool>,
     expires_at: Option<String>,
+    // Type-specific fields (Issue 46)
+    public_key: Option<String>,
+    private_key: Option<String>,
+    passphrase: Option<String>,
+    app_id: Option<String>,
+    secret_key: Option<String>,
 }
 
 // -- OkbParser ------------------------------------------------------------------
@@ -149,6 +155,12 @@ impl FormatParser for OkbParser {
                     fields.insert("is_favorite".into(), fav.to_string());
                 }
                 insert_optional(&mut fields, "expires_at", r.expires_at);
+                // Type-specific fields (Issue 46)
+                insert_optional(&mut fields, "public_key", r.public_key);
+                insert_optional(&mut fields, "private_key", r.private_key);
+                insert_optional(&mut fields, "passphrase", r.passphrase);
+                insert_optional(&mut fields, "app_id", r.app_id);
+                insert_optional(&mut fields, "secret_key", r.secret_key);
 
                 ParsedItem {
                     source_id: r.id,
@@ -261,24 +273,29 @@ mod tests {
                     "credential_type": "api",
                     "name": "AWS Key",
                     "username": null,
-                    "password": "secret-key-123",
+                    "password": null,
                     "url": null,
                     "notes": "production key",
                     "tags": ["cloud", "aws"],
                     "is_favorite": true,
-                    "expires_at": "2025-12-31T23:59:59Z"
+                    "expires_at": "2025-12-31T23:59:59Z",
+                    "app_id": "AKIA123",
+                    "secret_key": "secret-key-123"
                 },
                 {
                     "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
                     "credential_type": "ssh",
                     "name": "GitHub SSH",
-                    "username": "git",
+                    "username": null,
                     "password": null,
                     "url": null,
                     "notes": "ed25519 key",
                     "tags": [],
                     "is_favorite": null,
-                    "expires_at": null
+                    "expires_at": null,
+                    "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLE",
+                    "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nEXAMPLE\n-----END OPENSSH PRIVATE KEY-----",
+                    "passphrase": null
                 }
             ]
         }"#
@@ -339,12 +356,20 @@ mod tests {
             "2025-12-31T23:59:59Z"
         );
         assert_eq!(items[1].tags, vec!["cloud", "aws"]);
+        // Verify type-specific fields (Issue 46)
+        assert!(items[1].fields.contains_key("app_id"));
+        assert_eq!(items[1].fields.get("app_id").unwrap(), "AKIA123");
+        assert!(items[1].fields.contains_key("secret_key"));
+        assert_eq!(items[1].fields.get("secret_key").unwrap(), "secret-key-123");
 
         // Record 3 — ssh
         assert_eq!(items[2].source_id, "cccccccc-cccc-cccc-cccc-cccccccccccc");
         assert_eq!(items[2].fields.get("credential_type").unwrap(), "ssh");
         assert!(!items[2].fields.contains_key("password"));
         assert!(items[2].tags.is_empty());
+        // Verify type-specific fields (Issue 46)
+        assert!(items[2].fields.contains_key("public_key"));
+        assert!(items[2].fields.contains_key("private_key"));
     }
 
     #[test]

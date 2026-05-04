@@ -470,11 +470,20 @@ pub fn get_default_mapping(source: ImportSource) -> FormatMapping {
 /// Infer the vault [`CredentialType`] from the fields present in a parsed item.
 ///
 /// Detection rules (checked in order, first match wins):
+/// - `credential_type` field present and parsable → use that type (priority for OKB exports)
 /// - `username` **and** `password` present → [`CredentialType::Login`]
 /// - `app_id` **and** `secret_key` present → [`CredentialType::Api`]
 /// - `public_key` **and** `private_key` present → [`CredentialType::Ssh`]
 /// - Otherwise → [`CredentialType::Login`] (default)
 pub fn infer_credential_type(fields: &HashMap<String, String>) -> CredentialType {
+    // Priority 1: Check for explicit credential_type field (from OKB exports)
+    if let Some(type_str) = fields.get("credential_type") {
+        if let Ok(cred_type) = CredentialType::from_db_str(type_str) {
+            return cred_type;
+        }
+    }
+
+    // Priority 2: Fallback to heuristic field-based detection
     let has = |key: &str| fields.contains_key(key);
 
     if has("username") && has("password") {
