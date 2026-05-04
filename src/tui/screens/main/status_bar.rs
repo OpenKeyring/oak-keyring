@@ -61,22 +61,6 @@ const SHORTCUTS_VISUAL_ASCII: &str = "Space Select  A All  D BatchDel  T BatchTa
 const VISUAL_INDICATOR_UNICODE: &str = "VISUAL";
 const VISUAL_INDICATOR_ASCII: &str = "[VISUAL]";
 
-// ── Sync indicator strings (unicode) ─────────────────────────────────────────
-
-const SYNC_SYNCED_UNICODE: &str = "\u{2713} \u{5DF2}\u{540C}\u{6B65}"; // ✓ 已同步
-const SYNC_SYNCING_UNICODE: &str = "\u{27F3} \u{540C}\u{6B65}\u{4E2D}"; // ⟳ 同步中
-const SYNC_FAILED_UNICODE: &str = "\u{2717} \u{540C}\u{6B65}\u{5931}\u{8D25}"; // ✗ 同步失败
-const SYNC_OFFLINE_UNICODE: &str = "\u{25D0} \u{79BB}\u{7EBF}"; // ◐ 离线
-const SYNC_NOT_CONFIGURED_UNICODE: &str = "\u{2014} \u{672A}\u{914D}\u{7F6E}"; // — 未配置
-
-// ── ASCII fallbacks for sync indicators ───────────────────────────────────────
-
-const SYNC_SYNCED_ASCII: &str = "+ Synced";
-const SYNC_SYNCING_ASCII: &str = "~ Syncing";
-const SYNC_FAILED_ASCII: &str = "x Sync failed";
-const SYNC_OFFLINE_ASCII: &str = "o Offline";
-const SYNC_NOT_CONFIGURED_ASCII: &str = "- Not configured";
-
 /// Panel responsible for rendering the status bar.
 pub struct StatusBarPanel;
 
@@ -152,7 +136,8 @@ impl StatusBarPanel {
         match state.health_check_phase {
             HealthCheckPhase::Checking => {
                 let (icon, text) = if unicode {
-                    ("\u{1F50D}", " \u{6B63}\u{5728}\u{68C0}\u{67E5}...") // "🔍 正在检查..."
+                    (theme::ICON_SEARCH, " \u{6B63}\u{5728}\u{68C0}\u{67E5}...")
+                // "🔍 正在检查..."
                 } else {
                     ("[?]", " Checking...")
                 };
@@ -169,7 +154,7 @@ impl StatusBarPanel {
             } => {
                 let (icon, text) = if unicode {
                     (
-                        "\u{26A0}",
+                        theme::ICON_WARNING,
                         format!(
                             " \u{6709}\u{9700}\u{6CE8}\u{610F} W{} C{} D{}",
                             weak, compromised, duplicate_groups
@@ -193,9 +178,9 @@ impl StatusBarPanel {
             }
             HealthCheckPhase::AllSecure => {
                 let text = if unicode {
-                    "\u{2714} \u{5168}\u{90E8}\u{5B89}\u{5168}" // "✔ 全部安全"
+                    format!("{} 全部安全", theme::ICON_SUCCESS)
                 } else {
-                    "+ AllSecure"
+                    "+ AllSecure".to_string()
                 };
                 all_spans.push(Span::styled(SEPARATOR, sep_style));
                 all_spans.push(Span::styled(
@@ -205,9 +190,9 @@ impl StatusBarPanel {
             }
             HealthCheckPhase::Skipped => {
                 let text = if unicode {
-                    "\u{2014} \u{8DF3}\u{8FC7}\u{6CC4}\u{9732}\u{68C0}\u{6D4B}" // "— 跳过泄露检测"
+                    format!("{} 跳过泄露检测", theme::ICON_NOT_CONFIGURED)
                 } else {
-                    "- HIBP skipped"
+                    "- HIBP skipped".to_string()
                 };
                 all_spans.push(Span::styled(SEPARATOR, sep_style));
                 all_spans.push(Span::styled(
@@ -279,41 +264,41 @@ fn visual_shortcuts_text(unicode: bool) -> &'static str {
 }
 
 /// Return the sync indicator display string.
-fn sync_indicator_text(sync: &SyncIndicator, unicode: bool) -> &'static str {
+fn sync_indicator_text(sync: &SyncIndicator, unicode: bool) -> String {
     match sync {
         SyncIndicator::Synced => {
             if unicode {
-                SYNC_SYNCED_UNICODE
+                format!("{} 已同步", theme::ICON_SUCCESS)
             } else {
-                SYNC_SYNCED_ASCII
+                "+ Synced".to_string()
             }
         }
         SyncIndicator::Syncing => {
             if unicode {
-                SYNC_SYNCING_UNICODE
+                format!("{} 同步中", theme::ICON_SYNC_SYNCING)
             } else {
-                SYNC_SYNCING_ASCII
+                "~ Syncing".to_string()
             }
         }
         SyncIndicator::Failed => {
             if unicode {
-                SYNC_FAILED_UNICODE
+                format!("{} 同步失败", theme::ICON_ERROR)
             } else {
-                SYNC_FAILED_ASCII
+                "x Sync failed".to_string()
             }
         }
         SyncIndicator::Offline => {
             if unicode {
-                SYNC_OFFLINE_UNICODE
+                format!("{} 离线", theme::ICON_SYNC_OFFLINE)
             } else {
-                SYNC_OFFLINE_ASCII
+                "o Offline".to_string()
             }
         }
         SyncIndicator::NotConfigured => {
             if unicode {
-                SYNC_NOT_CONFIGURED_UNICODE
+                format!("{} 未配置", theme::ICON_NOT_CONFIGURED)
             } else {
-                SYNC_NOT_CONFIGURED_ASCII
+                "- Not configured".to_string()
             }
         }
     }
@@ -334,13 +319,12 @@ fn sync_color(sync: &SyncIndicator) -> Color {
 fn status_message_text(msg: &Option<StatusMessage>) -> Option<String> {
     match msg {
         Some(StatusMessage::RecordCount(n)) => Some(format!("{}\u{6761}\u{5BC6}\u{7801}", n)), // "{n} 条密码"
-        Some(StatusMessage::ClipboardCountdown { field, seconds }) => {
-            Some(format!(
-                "\u{2713} \u{5DF2}\u{590D}\u{5236}{}\u{FF08}{}s \u{540E}\u{6E05}\u{9664}\u{FF09}",
-                field, seconds
-            ))
-            // "✓ 已复制{field}（{seconds}s 后清除）"
-        }
+        Some(StatusMessage::ClipboardCountdown { field, seconds }) => Some(format!(
+            "{} 已复制{}（{}s 后清除）",
+            theme::ICON_SUCCESS,
+            field,
+            seconds
+        )),
         Some(StatusMessage::Temporary { text, .. }) => Some(text.clone()),
         Some(StatusMessage::Search(q)) => Some(format!("\u{641C}\u{7D22}: {}...", q)), // "搜索: {q}..."
         None => None,
