@@ -116,7 +116,7 @@ impl AuditLogScreen {
             Paragraph::new(" 输入关键词...").style(Style::default().fg(theme::TEXT_PLACEHOLDER))
         } else {
             let cursor = if self.state.focused_area == AuditFocus::SearchInput {
-                &theme::ICON_PIPE[..] // vertical bar cursor
+                theme::ICON_PIPE
             } else {
                 ""
             };

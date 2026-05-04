@@ -91,14 +91,14 @@ mod tests {
     #[test]
     fn invalid_unicode_shows_cross() {
         let out = cell_content(&ValidationKind::Invalid("bad".into()), true);
-        assert!(out.contains('\u{2715}'), "should contain ✕");
+        assert!(out.contains('\u{2717}'), "should contain ✗");
     }
 
     #[test]
     fn invalid_ascii_shows_x() {
         let out = cell_content(&ValidationKind::Invalid("bad".into()), false);
         assert!(out.contains('x'), "should contain ASCII x");
-        assert!(!out.contains('\u{2715}'), "should not contain ✕");
+        assert!(!out.contains('\u{2717}'), "should not contain ✗");
     }
 
     #[test]
