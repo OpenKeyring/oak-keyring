@@ -473,6 +473,11 @@ fn sample_export_records() -> Vec<super::export::ExportRecord> {
         tags: Some(vec!["test".to_string()]),
         is_favorite: Some(false),
         expires_at: None,
+        public_key: None,
+        private_key: None,
+        passphrase: None,
+        app_id: None,
+        secret_key: None,
     }]
 }
 
