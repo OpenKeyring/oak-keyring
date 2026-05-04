@@ -99,6 +99,8 @@ tui:
     path_valid: "Path is valid"
     path_no_parent_write: "No write permission for parent directory"
     path_will_create: "Directory will be created automatically"
+    path_cannot_create: "Cannot create directory path"
+    path_invalid: "Invalid path"
     mnemonic_language_option_en: "English"
     mnemonic_language_option_zh_cn: "中文(简体)"
     mnemonic_language_warning: "⚠ Cannot be changed after creation"
