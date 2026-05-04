@@ -119,11 +119,11 @@ fn is_danger_variant(variant: &ConfirmVariant) -> bool {
 /// Determine the confirm button label for the given variant.
 fn confirm_label_for(variant: &ConfirmVariant) -> String {
     match variant {
-        ConfirmVariant::SoftDelete { .. } => t!("tui.overlay.confirm_button").into_owned(),
-        ConfirmVariant::HardDelete { .. } => t!("tui.trash.permanent_delete_title").into_owned(),
-        ConfirmVariant::EmptyTrash { .. } => t!("tui.trash.empty_trash_title").into_owned(),
-        ConfirmVariant::BatchSoftDelete { .. } => t!("tui.overlay.confirm_button").into_owned(),
-        ConfirmVariant::TagDelete { .. } => t!("tui.tag.confirm_delete_tag").into_owned(),
+        ConfirmVariant::SoftDelete { .. } => t!("tui.overlay.confirm_button").to_string(),
+        ConfirmVariant::HardDelete { .. } => t!("tui.trash.permanent_delete_title").to_string(),
+        ConfirmVariant::EmptyTrash { .. } => t!("tui.trash.empty_trash_title").to_string(),
+        ConfirmVariant::BatchSoftDelete { .. } => t!("tui.overlay.confirm_button").to_string(),
+        ConfirmVariant::TagDelete { .. } => t!("tui.tag.confirm_delete_tag").to_string(),
     }
 }
 
@@ -141,20 +141,17 @@ fn build_dialog_parts(
             ..
         } => {
             let mut lines = vec![line_with_name(
-                &t!("tui.trash.move_to_trash", name = record_name.as_str()).into_owned(),
+                t!("tui.trash.move_to_trash", name = record_name.as_str()).as_ref(),
             )];
             if let Some(days) = auto_delete_days {
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
-                    format!(
-                        "  {}",
-                        t!("tui.trash.auto_delete_notice", days = days).into_owned()
-                    ),
+                    format!("  {}", t!("tui.trash.auto_delete_notice", days = days)),
                     Style::default().fg(theme::TEXT_SECONDARY),
                 )));
             }
             (
-                format!(" {} ", t!("tui.overlay.confirm_button").into_owned()),
+                format!(" {} ", t!("tui.overlay.confirm_button")),
                 lines,
                 confirm_label_for(variant),
             )
@@ -169,7 +166,7 @@ fn build_dialog_parts(
                 .into_owned(),
             )];
             (
-                format!(" {} ", t!("tui.overlay.warning_title").into_owned()),
+                format!(" {} ", t!("tui.overlay.warning_title")),
                 lines,
                 confirm_label_for(variant),
             )
@@ -177,11 +174,11 @@ fn build_dialog_parts(
 
         ConfirmVariant::EmptyTrash { count } => {
             let lines = vec![Line::from(Span::styled(
-                t!("tui.trash.empty_trash_body", count = count).into_owned(),
+                t!("tui.trash.empty_trash_body", count = count),
                 Style::default().fg(theme::TEXT),
             ))];
             (
-                format!(" {} ", t!("tui.overlay.warning_title").into_owned()),
+                format!(" {} ", t!("tui.overlay.warning_title")),
                 lines,
                 confirm_label_for(variant),
             )
@@ -190,7 +187,7 @@ fn build_dialog_parts(
         ConfirmVariant::BatchSoftDelete { record_names, .. } => {
             let count = record_names.len();
             let mut lines = vec![Line::from(Span::styled(
-                t!("tui.batch.batch_delete_body", count = count).into_owned(),
+                t!("tui.batch.batch_delete_body", count = count),
                 Style::default().fg(theme::TEXT),
             ))];
             lines.push(Line::from(""));
@@ -204,13 +201,13 @@ fn build_dialog_parts(
                 lines.push(Line::from(Span::styled(
                     format!(
                         "  {}",
-                        t!("tui.batch.more_items", count = record_names.len()).into_owned()
+                        t!("tui.batch.more_items", count = record_names.len())
                     ),
                     Style::default().fg(theme::TEXT_MUTED),
                 )));
             }
             (
-                format!(" {} ", t!("tui.overlay.confirm_button").into_owned()),
+                format!(" {} ", t!("tui.overlay.confirm_button")),
                 lines,
                 confirm_label_for(variant),
             )
@@ -221,18 +218,15 @@ fn build_dialog_parts(
             affected_count,
         } => {
             let mut lines = vec![line_with_name(
-                &t!("tui.tag.delete_body", name = tag_name.as_str()).into_owned(),
+                t!("tui.tag.delete_body", name = tag_name.as_str()).as_ref(),
             )];
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                format!(
-                    "  {}",
-                    t!("tui.tag.used_by_count", count = affected_count).into_owned()
-                ),
+                format!("  {}", t!("tui.tag.used_by_count", count = affected_count)),
                 Style::default().fg(theme::TEXT_SECONDARY),
             )));
             (
-                format!(" {} ", t!("tui.overlay.confirm_button").into_owned()),
+                format!(" {} ", t!("tui.overlay.confirm_button")),
                 lines,
                 confirm_label_for(variant),
             )
@@ -244,7 +238,7 @@ fn build_dialog_parts(
 
 /// Build the button line with Cancel and Confirm buttons.
 fn render_buttons(focused: ConfirmButton, confirm_label: &str, is_danger: bool) -> Line<'static> {
-    let cancel_text = format!(" {} ", t!("tui.overlay.cancel_button").into_owned());
+    let cancel_text = format!(" {} ", t!("tui.overlay.cancel_button"));
     let confirm_text = format!(" {} ", confirm_label);
 
     let cancel_style = if matches!(focused, ConfirmButton::Cancel) {

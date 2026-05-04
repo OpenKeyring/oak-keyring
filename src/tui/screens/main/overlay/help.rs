@@ -42,174 +42,174 @@ fn all_groups() -> Vec<ShortcutGroup> {
     vec![
         // 0 — Navigation
         ShortcutGroup {
-            label: t!("tui.help.category_nav").into_owned(),
+            label: t!("tui.help.category_nav").to_string(),
             shortcuts: vec![
                 Shortcut {
                     key: "↑/k".to_string(),
-                    desc: t!("tui.help.nav_up").into_owned(),
+                    desc: t!("tui.help.nav_up").to_string(),
                 },
                 Shortcut {
                     key: "↓/j".to_string(),
-                    desc: t!("tui.help.nav_down").into_owned(),
+                    desc: t!("tui.help.nav_down").to_string(),
                 },
                 Shortcut {
                     key: "Tab".to_string(),
-                    desc: t!("tui.help.nav_tab").into_owned(),
+                    desc: t!("tui.help.nav_tab").to_string(),
                 },
                 Shortcut {
                     key: "Enter".to_string(),
-                    desc: t!("tui.help.nav_enter").into_owned(),
+                    desc: t!("tui.help.nav_enter").to_string(),
                 },
                 Shortcut {
                     key: "Esc".to_string(),
-                    desc: t!("tui.help.nav_esc").into_owned(),
+                    desc: t!("tui.help.nav_esc").to_string(),
                 },
             ],
         },
         // 1 — Actions
         ShortcutGroup {
-            label: t!("tui.help.category_action").into_owned(),
+            label: t!("tui.help.category_action").to_string(),
             shortcuts: vec![
                 Shortcut {
                     key: "Ctrl+K".to_string(),
-                    desc: t!("tui.help.action_search").into_owned(),
+                    desc: t!("tui.help.action_search").to_string(),
                 },
                 Shortcut {
                     key: "n".to_string(),
-                    desc: t!("tui.help.action_new").into_owned(),
+                    desc: t!("tui.help.action_new").to_string(),
                 },
                 Shortcut {
                     key: "e".to_string(),
-                    desc: t!("tui.help.action_edit").into_owned(),
+                    desc: t!("tui.help.action_edit").to_string(),
                 },
                 Shortcut {
                     key: "d".to_string(),
-                    desc: t!("tui.help.action_delete").into_owned(),
+                    desc: t!("tui.help.action_delete").to_string(),
                 },
                 Shortcut {
                     key: "f".to_string(),
-                    desc: t!("tui.help.action_favorite").into_owned(),
+                    desc: t!("tui.help.action_favorite").to_string(),
                 },
                 Shortcut {
                     key: "s".to_string(),
-                    desc: t!("tui.help.action_sort").into_owned(),
+                    desc: t!("tui.help.action_sort").to_string(),
                 },
                 Shortcut {
                     key: "v".to_string(),
-                    desc: t!("tui.help.action_multiselect").into_owned(),
+                    desc: t!("tui.help.action_multiselect").to_string(),
                 },
                 Shortcut {
                     key: "g".to_string(),
-                    desc: t!("tui.help.action_config").into_owned(),
+                    desc: t!("tui.help.action_config").to_string(),
                 },
                 Shortcut {
                     key: "l".to_string(),
-                    desc: t!("tui.help.action_audit").into_owned(),
+                    desc: t!("tui.help.action_audit").to_string(),
                 },
                 Shortcut {
                     key: "q".to_string(),
-                    desc: t!("tui.help.action_quit").into_owned(),
+                    desc: t!("tui.help.action_quit").to_string(),
                 },
             ],
         },
         // 2 — Password Details
         ShortcutGroup {
-            label: t!("tui.help.section_password_details").into_owned(),
+            label: t!("tui.help.section_password_details").to_string(),
             shortcuts: vec![
                 Shortcut {
                     key: "c".to_string(),
-                    desc: t!("tui.help.pwd_copy").into_owned(),
+                    desc: t!("tui.help.pwd_copy").to_string(),
                 },
                 Shortcut {
                     key: "u".to_string(),
-                    desc: t!("tui.help.pwd_copy_username").into_owned(),
+                    desc: t!("tui.help.pwd_copy_username").to_string(),
                 },
                 Shortcut {
                     key: "p".to_string(),
-                    desc: t!("tui.help.pwd_toggle").into_owned(),
+                    desc: t!("tui.help.pwd_toggle").to_string(),
                 },
                 Shortcut {
                     key: "H".to_string(),
-                    desc: t!("tui.help.pwd_history").into_owned(),
+                    desc: t!("tui.help.pwd_history").to_string(),
                 },
             ],
         },
         // 3 — Trash
         ShortcutGroup {
-            label: t!("tui.help.section_trash").into_owned(),
+            label: t!("tui.help.section_trash").to_string(),
             shortcuts: vec![
                 Shortcut {
                     key: "r".to_string(),
-                    desc: t!("tui.help.trash_restore").into_owned(),
+                    desc: t!("tui.help.trash_restore").to_string(),
                 },
                 Shortcut {
                     key: "D".to_string(),
-                    desc: t!("tui.help.trash_permanent_delete").into_owned(),
+                    desc: t!("tui.help.trash_permanent_delete").to_string(),
                 },
                 Shortcut {
                     key: "a".to_string(),
-                    desc: t!("tui.help.trash_empty").into_owned(),
+                    desc: t!("tui.help.trash_empty").to_string(),
                 },
             ],
         },
         // 4 — Multiselect(v)
         ShortcutGroup {
-            label: t!("tui.help.section_multiselect").into_owned(),
+            label: t!("tui.help.section_multiselect").to_string(),
             shortcuts: vec![
                 Shortcut {
                     key: "Space".to_string(),
-                    desc: t!("tui.help.ms_toggle").into_owned(),
+                    desc: t!("tui.help.ms_toggle").to_string(),
                 },
                 Shortcut {
                     key: "j/k".to_string(),
-                    desc: t!("tui.help.ms_move").into_owned(),
+                    desc: t!("tui.help.ms_move").to_string(),
                 },
                 Shortcut {
                     key: "a".to_string(),
-                    desc: t!("tui.help.ms_select_all").into_owned(),
+                    desc: t!("tui.help.ms_select_all").to_string(),
                 },
                 Shortcut {
                     key: "d".to_string(),
-                    desc: t!("tui.help.ms_batch_delete").into_owned(),
+                    desc: t!("tui.help.ms_batch_delete").to_string(),
                 },
                 Shortcut {
                     key: "t".to_string(),
-                    desc: t!("tui.help.ms_batch_tag").into_owned(),
+                    desc: t!("tui.help.ms_batch_tag").to_string(),
                 },
                 Shortcut {
                     key: "Esc/v".to_string(),
-                    desc: t!("tui.help.ms_exit").into_owned(),
+                    desc: t!("tui.help.ms_exit").to_string(),
                 },
             ],
         },
         // 5 — Tag Management(m)
         ShortcutGroup {
-            label: t!("tui.help.section_tags").into_owned(),
+            label: t!("tui.help.section_tags").to_string(),
             shortcuts: vec![
                 Shortcut {
                     key: "m".to_string(),
-                    desc: t!("tui.help.tag_add").into_owned(),
+                    desc: t!("tui.help.tag_add").to_string(),
                 },
                 Shortcut {
                     key: "r".to_string(),
-                    desc: t!("tui.help.tag_rename").into_owned(),
+                    desc: t!("tui.help.tag_rename").to_string(),
                 },
                 Shortcut {
                     key: "d".to_string(),
-                    desc: t!("tui.help.tag_delete").into_owned(),
+                    desc: t!("tui.help.tag_delete").to_string(),
                 },
                 Shortcut {
                     key: "s".to_string(),
-                    desc: t!("tui.help.tag_save").into_owned(),
+                    desc: t!("tui.help.tag_save").to_string(),
                 },
             ],
         },
         // 6 — Sync
         ShortcutGroup {
-            label: t!("tui.help.section_sync").into_owned(),
+            label: t!("tui.help.section_sync").to_string(),
             shortcuts: vec![Shortcut {
                 key: "Ctrl+R".to_string(),
-                desc: t!("tui.help.sync_manual").into_owned(),
+                desc: t!("tui.help.sync_manual").to_string(),
             }],
         },
     ]
