@@ -96,8 +96,8 @@ impl ImportExportScreen {
             let empty = bar_total - filled;
             let bar_str = format!(
                 "{}{}",
-                "\u{2588}".repeat(filled as usize),
-                "\u{2591}".repeat(empty as usize)
+                theme::ICON_PROGRESS_FILL.repeat(filled as usize),
+                theme::ICON_PROGRESS_EMPTY.repeat(empty as usize)
             );
             let label = format!("Strength: {} {}", s.level.label_zh(), bar_str);
             let color = Self::strength_color(&s.level);

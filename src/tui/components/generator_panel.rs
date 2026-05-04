@@ -16,6 +16,7 @@ pub fn render_generator_panel(
     state: &GeneratorState,
     is_embedded: bool,
     width: u16,
+    unicode: bool,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
 
@@ -67,7 +68,7 @@ pub fn render_generator_panel(
 
     // Strength bar
     if let Some(ref strength) = state.strength {
-        lines.push(strength_bar::render_strength_bar(strength));
+        lines.push(strength_bar::render_strength_bar(strength, unicode));
     } else {
         lines.push(strength_bar::render_empty_strength_bar());
     }
@@ -217,14 +218,14 @@ mod tests {
     #[test]
     fn render_standalone_random_has_style_selector() {
         let state = GeneratorState::new();
-        let lines = render_generator_panel(&state, false, 56);
+        let lines = render_generator_panel(&state, false, 56, true);
         assert!(!lines.is_empty());
     }
 
     #[test]
     fn render_embedded_has_no_style_selector() {
         let state = GeneratorState::new();
-        let lines = render_generator_panel(&state, true, 56);
+        let lines = render_generator_panel(&state, true, 56, true);
         let has_style = lines
             .iter()
             .any(|l| l.spans.iter().any(|s| s.content.contains("风格")));
@@ -234,7 +235,7 @@ mod tests {
     #[test]
     fn render_panel_has_preview() {
         let state = GeneratorState::new();
-        let lines = render_generator_panel(&state, false, 56);
+        let lines = render_generator_panel(&state, false, 56, true);
         let has_preview = lines
             .iter()
             .any(|l| l.spans.iter().any(|s| s.content.contains(&state.preview)));

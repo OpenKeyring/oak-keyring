@@ -241,7 +241,7 @@ impl Screen for PasswordGeneratorScreen {
         // Generator content panel
         let content_area = chunks[1];
         let width = content_area.width;
-        let panel_lines = generator_panel::render_generator_panel(&self.state, false, width);
+        let panel_lines = generator_panel::render_generator_panel(&self.state, false, width, true); // TODO: wire up unicode from AppState
         let paragraph = Paragraph::new(panel_lines);
         frame.render_widget(paragraph, content_area);
 

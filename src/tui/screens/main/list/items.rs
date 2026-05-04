@@ -73,14 +73,22 @@ pub(super) fn health_badge(issue: Option<&HealthIssue>, unicode: bool) -> Option
             ))
         }
         HealthIssue::Weak => {
-            let icon = if unicode { "\u{26A0}" } else { "!" }; // ⚠ / !
+            let icon = if unicode {
+                theme::ICON_WARNING
+            } else {
+                theme::ascii::ICON_WARNING
+            };
             Some(Span::styled(
                 format!(" {}\u{5F31}", icon), // " ⚠弱"
                 Style::default().fg(theme::WARNING),
             ))
         }
         HealthIssue::Duplicate { group_size } => {
-            let icon = if unicode { "\u{26A0}" } else { "!" }; // ⚠ / !
+            let icon = if unicode {
+                theme::ICON_WARNING
+            } else {
+                theme::ascii::ICON_WARNING
+            };
             Some(Span::styled(
                 format!(" {}\u{91CD}\u{590D}({})", icon, group_size), // " ⚠重复(N)"
                 Style::default().fg(theme::WARNING),

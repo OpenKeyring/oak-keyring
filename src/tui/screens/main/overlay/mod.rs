@@ -135,7 +135,7 @@ impl OverlayManager {
     }
 
     /// Render the active overlay (if any) on top of the main screen.
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
+    pub fn render(&self, frame: &mut Frame, area: Rect, unicode: bool) {
         if let Some(ref overlay) = self.active {
             match overlay {
                 ActiveOverlay::Help => help::render_help(frame, area),
@@ -153,7 +153,7 @@ impl OverlayManager {
                     error_dialog::render_error_dialog(frame, area, state);
                 }
                 ActiveOverlay::PasswordGenerator(state) => {
-                    generator::render_generator(frame, area, state);
+                    generator::render_generator(frame, area, state, unicode);
                 }
             }
         }
