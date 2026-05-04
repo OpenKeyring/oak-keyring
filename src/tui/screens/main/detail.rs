@@ -117,34 +117,28 @@ impl DetailPanel {
                 }
                 Some(remaining) => {
                     let tier = trash_warning_tier(remaining);
-                    let days_str = format!("{}", t!("tui.config.days", n = remaining.max(0)));
+                    let days_raw = remaining.max(0);
                     let (dot_color, remaining_text) = match tier {
                         TrashWarningTier::Safe => (
                             theme::TEXT_SECONDARY,
-                            format!(
-                                " · {}",
-                                t!("tui.trash.auto_delete_in", days = days_str.as_str())
-                            ),
+                            format!(" · {}", t!("tui.trash.auto_delete_in", days = days_raw)),
                         ),
                         TrashWarningTier::Moderate => (
                             theme::WARNING,
-                            format!(
-                                " · {}",
-                                t!("tui.trash.auto_delete_in", days = days_str.as_str())
-                            ),
+                            format!(" · {}", t!("tui.trash.auto_delete_in", days = days_raw)),
                         ),
                         TrashWarningTier::Urgent => (
                             theme::WARNING,
                             format!(
                                 " \u{26A0} {}",
-                                t!("tui.trash.auto_delete_in", days = days_str.as_str())
+                                t!("tui.trash.auto_delete_in", days = days_raw)
                             ),
                         ),
                         TrashWarningTier::Critical => (
                             theme::ERROR,
                             format!(
                                 " \u{26A0} {}",
-                                t!("tui.trash.auto_delete_in", days = days_str.as_str())
+                                t!("tui.trash.auto_delete_in", days = days_raw)
                             ),
                         ),
                     };
@@ -195,14 +189,13 @@ impl DetailPanel {
                     theme::ascii::ICON_WARNING
                 };
                 if let Some(dt) = record.expires_at {
+                    let now = chrono::Local::now().date_naive();
+                    let days = (dt.date_naive() - now).num_days().max(0);
                     markers.push(Span::styled(
                         format!(
                             "{} {}",
                             icon,
-                            t!(
-                                "tui.password_detail.expiry_warning",
-                                days = dt.format("%Y-%m-%d")
-                            )
+                            t!("tui.password_detail.expiry_warning", days = days)
                         ),
                         Style::default().fg(theme::WARNING),
                     ));
@@ -215,14 +208,13 @@ impl DetailPanel {
                     theme::ascii::ICON_ERROR
                 };
                 if let Some(dt) = record.expires_at {
+                    let now = chrono::Local::now().date_naive();
+                    let days = (now - dt.date_naive()).num_days().max(0);
                     markers.push(Span::styled(
                         format!(
                             "{} {}",
                             icon,
-                            t!(
-                                "tui.password_detail.expiry_expired",
-                                days = dt.format("%Y-%m-%d")
-                            )
+                            t!("tui.password_detail.expiry_expired", days = days)
                         ),
                         Style::default().fg(theme::ERROR),
                     ));

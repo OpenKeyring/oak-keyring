@@ -36,7 +36,24 @@ pub fn render_strength_bar(strength: &PasswordStrength, unicode: bool) -> Line<'
         Span::styled(empty_char.repeat(empty), Style::default().fg(theme::BORDER)),
         Span::raw(" "),
         Span::styled(
-            strength.level.label_zh().to_string(),
+            match strength.level {
+                crate::crypto::strength::StrengthLevel::VeryWeak => {
+                    t!("tui.generator.strength_too_weak")
+                }
+                crate::crypto::strength::StrengthLevel::Weak => {
+                    t!("tui.generator.strength_weak")
+                }
+                crate::crypto::strength::StrengthLevel::Fair => {
+                    t!("tui.generator.strength_fair")
+                }
+                crate::crypto::strength::StrengthLevel::Strong => {
+                    t!("tui.generator.strength_strong")
+                }
+                crate::crypto::strength::StrengthLevel::VeryStrong => {
+                    t!("tui.generator.strength_very_strong")
+                }
+            }
+            .to_string(),
             Style::default().fg(color),
         ),
     ])
