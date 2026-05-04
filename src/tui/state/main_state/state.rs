@@ -759,6 +759,9 @@ impl MainScreenState {
                     ConfirmVariant::SoftDelete { record_id, .. } => {
                         ScreenResult::Command(Box::new(Command::SoftDeleteRecord { id: record_id }))
                     }
+                    ConfirmVariant::Restore { record_id, .. } => {
+                        ScreenResult::Command(Box::new(Command::RestoreRecord { id: record_id }))
+                    }
                     ConfirmVariant::HardDelete { record_id, .. } => {
                         ScreenResult::Command(Box::new(Command::HardDeleteRecord { id: record_id }))
                     }

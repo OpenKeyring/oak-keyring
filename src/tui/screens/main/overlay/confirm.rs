@@ -1,4 +1,4 @@
-//! Confirmation dialog overlay — renders one of 5 confirm variants with Cancel/Confirm buttons.
+//! Confirmation dialog overlay — renders one of 6 confirm variants with Cancel/Confirm buttons.
 //!
 //! Variants:
 //! - **SoftDelete**: move record to trash (reversible)
@@ -6,6 +6,7 @@
 //! - **EmptyTrash**: empty the trash (irreversible)
 //! - **BatchSoftDelete**: move multiple records to trash (reversible)
 //! - **TagDelete**: delete a tag (irreversible)
+//! - **Restore**: restore a record from trash (reversible)
 
 use ratatui::{
     layout::{Alignment, Rect},
@@ -124,6 +125,7 @@ fn confirm_label_for(variant: &ConfirmVariant) -> String {
         ConfirmVariant::EmptyTrash { .. } => t!("tui.trash.empty_trash_title").to_string(),
         ConfirmVariant::BatchSoftDelete { .. } => t!("tui.overlay.confirm_button").to_string(),
         ConfirmVariant::TagDelete { .. } => t!("tui.tag.confirm_delete_tag").to_string(),
+        ConfirmVariant::Restore { .. } => t!("tui.trash.restore_button").to_string(),
     }
 }
 
@@ -227,6 +229,18 @@ fn build_dialog_parts(
             )));
             (
                 format!(" {} ", t!("tui.overlay.confirm_button")),
+                lines,
+                confirm_label_for(variant),
+            )
+        }
+
+        ConfirmVariant::Restore { record_name, .. } => {
+            let lines = vec![Line::from(Span::styled(
+                format!("Restore \"{}\" from trash?", record_name),
+                Style::default().fg(theme::TEXT),
+            ))];
+            (
+                " Confirm Restore ".to_string(),
                 lines,
                 confirm_label_for(variant),
             )
