@@ -13,7 +13,7 @@ const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 24;
 
 /// A single record for export serialization.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct ExportRecord {
     pub id: String,
     pub credential_type: String,
