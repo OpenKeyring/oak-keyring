@@ -1,4 +1,3 @@
-pub mod cancellation;
 pub mod clipboard;
 pub mod config;
 pub mod config_impl;
