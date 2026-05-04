@@ -10,6 +10,7 @@
 use oak_keyring::commands::types::ConflictResolution;
 use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
+use oak_keyring::errors::ErrorCode;
 use oak_keyring::executor::CommandExecutor;
 use oak_keyring::services::sync::SyncService;
 use oak_keyring::types::credential::EncryptedPayload;
@@ -201,12 +202,7 @@ async fn trigger_sync_not_configured_returns_error() {
     let result = recv_command_result(&mut result_rx).await;
     match result {
         CommandResult::Error { code, .. } => {
-            let msg = code.to_string();
-            assert!(
-                msg.contains("not_configured"),
-                "expected not_configured error, got: {}",
-                msg
-            );
+            assert_eq!(code, ErrorCode::SyncNotConfigured);
         }
         other => panic!("Expected Error, got {:?}", other),
     }
@@ -310,12 +306,7 @@ async fn sync_with_locked_vault_completes_without_uploads() {
     let result = recv_command_result(&mut ctx.result_rx).await;
     match result {
         CommandResult::Error { code, .. } => {
-            let msg = code.to_string();
-            assert!(
-                msg.contains("locked"),
-                "expected vault locked error, got: {}",
-                msg
-            );
+            assert_eq!(code, ErrorCode::ExecutorVaultLocked);
         }
         other => panic!("Expected vault locked Error, got {:?}", other),
     }
@@ -395,12 +386,7 @@ async fn resolve_conflict_without_sync_returns_error() {
     let result = recv_command_result(&mut result_rx).await;
     match result {
         CommandResult::Error { code, .. } => {
-            let msg = code.to_string();
-            assert!(
-                msg.contains("not_configured"),
-                "expected not_configured error, got: {}",
-                msg
-            );
+            assert_eq!(code, ErrorCode::SyncNotConfigured);
         }
         other => panic!("Expected Error, got {:?}", other),
     }
