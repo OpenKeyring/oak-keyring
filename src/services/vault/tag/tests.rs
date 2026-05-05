@@ -5,7 +5,7 @@ use crate::services::vault::VaultService;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::record::CreateRecordParams;
 use crate::types::sensitive::SecureStr;
-use crate::types::tag::TagSortMeta;
+
 use rusqlite::Connection;
 
 /// Helper: create an in-memory VaultService with schema initialized.
@@ -877,7 +877,7 @@ fn list_tags_with_stats_excludes_soft_deleted_records_from_count_and_last_used_a
         })
         .expect("create_record must succeed");
 
-    let id2 = svc
+    let _id2 = svc
         .create_record(CreateRecordParams {
             credential_type: CredentialType::Login,
             payload: EncryptedPayload::Login {
