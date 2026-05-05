@@ -6,9 +6,7 @@ use uuid::Uuid;
 use crate::commands::types::*;
 use crate::config::AppConfig;
 use crate::errors::{ErrorCode, ErrorContext};
-use crate::types::{
-    DecryptedRecord, HealthIssue, PasswordHistoryView, SecureStr, SyncStats, Tag, TuiRecord,
-};
+use crate::types::{DecryptedRecord, PasswordHistoryView, SecureStr, SyncStats, Tag, TuiRecord};
 
 /// Service → UI execution result.
 ///
