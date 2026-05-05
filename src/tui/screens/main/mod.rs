@@ -21,7 +21,6 @@ use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, 
 use crate::tui::screens::main::sidebar::SidebarPanel;
 use crate::tui::screens::main::status_bar::StatusBarPanel;
 use crate::tui::state::main_state::{MainScreenState, SidebarCategory, SidebarItem};
-use crate::tui::state::tag_management::TagSortOrder;
 use crate::tui::theme;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -399,11 +398,14 @@ impl MainScreen {
                     }
                 }
                 KeyCode::Char('m') => {
-                    let is_on_tag = state.sidebar.selected_tag_name().is_some();
+                    let is_on_tag_or_header = matches!(
+                        state.sidebar.items.get(state.sidebar.selected_index),
+                        Some(SidebarItem::Tag(_, _)) | Some(SidebarItem::TagHeader)
+                    );
                     if state.sidebar.is_tag_management() {
                         state.sidebar.exit_tag_management();
                         messages.push(Message::ExitTagManagement);
-                    } else if is_on_tag && state.sidebar.tags_expanded {
+                    } else if is_on_tag_or_header && state.sidebar.tags_expanded {
                         state.sidebar.enter_tag_management();
                         messages.push(Message::EnterTagManagement);
                     }
@@ -608,41 +610,13 @@ pub struct MainKeyResult {
 
 /// Sort the sidebar tags according to the current sort order.
 fn sort_sidebar_tags(sidebar: &mut crate::tui::state::main_state::SidebarState) {
-    let sort_order = sidebar.tag_management.sort_order;
-    sidebar.tags.sort_by(|a, b| {
-        let meta_a = sidebar.tag_metadata.get(&a.id);
-        let meta_b = sidebar.tag_metadata.get(&b.id);
-        match sort_order {
-            TagSortOrder::Frequency => {
-                let count_a = meta_a.map(|m| m.record_count).unwrap_or(0);
-                let count_b = meta_b.map(|m| m.record_count).unwrap_or(0);
-                count_b
-                    .cmp(&count_a) // descending
-                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-                // tiebreak
-            }
-            TagSortOrder::Alphabetical => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            TagSortOrder::RecentlyUsed => {
-                let time_a = meta_a.map(|m| m.last_used_at).unwrap_or(0);
-                let time_b = meta_b.map(|m| m.last_used_at).unwrap_or(0);
-                // Tags with last_used_at=0 go to the end
-                match (time_a, time_b) {
-                    (0, 0) => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-                    (0, _) => std::cmp::Ordering::Greater, // a goes after b
-                    (_, 0) => std::cmp::Ordering::Less,    // b goes after a
-                    _ => time_b
-                        .cmp(&time_a) // descending
-                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
-                }
-            }
-        }
-    });
-    sidebar.rebuild();
+    sidebar.sort_tags_by_current_order();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::state::tag_management::TagSortOrder;
 
     #[test]
     fn focus_cycle_forward() {
