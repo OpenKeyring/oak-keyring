@@ -298,6 +298,27 @@ impl DetailPanelState {
         })
     }
 
+    /// Returns the currently focused field if it is toggleable (supports
+    /// show/hide), otherwise falls back to the first primary password-like
+    /// field found by [`password_field`].
+    ///
+    /// This is used by the `p` key handler so that pressing `p` on a focused
+    /// passphrase field decrypts the passphrase rather than jumping to the
+    /// private key / password field.
+    pub fn current_toggleable_field(&self) -> Option<&DetailField> {
+        self.record.as_ref().and_then(|r| {
+            let focused_idx = self.focused_field;
+            r.fields.get(focused_idx).and_then(|f| {
+                if f.toggleable {
+                    Some(f)
+                } else {
+                    // Fallback: find the primary password-like field
+                    self.password_field()
+                }
+            })
+        })
+    }
+
     pub fn username_field(&self) -> Option<&DetailField> {
         self.record.as_ref().and_then(|r| {
             r.fields.iter().find(|f| {
