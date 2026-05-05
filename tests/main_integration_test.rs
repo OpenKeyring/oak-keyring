@@ -12,6 +12,8 @@ use ratatui::Terminal;
 
 #[test]
 fn main_screen_renders_with_data() {
+    oak_keyring::tui::i18n::init("zh-CN");
+
     let backend = TestBackend::new(120, 30);
     let mut terminal = Terminal::new(backend).unwrap();
     let screen = MainScreen::new();

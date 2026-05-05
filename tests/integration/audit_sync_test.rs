@@ -179,6 +179,8 @@ fn test_audit_log_enter_navigates_to_record() {
 
 #[test]
 fn test_audit_log_enter_no_record() {
+    oak_keyring::tui::i18n::init("zh-CN");
+
     let mut screen = AuditLogScreen::new();
     let (mut ctx, _rx) = make_ctx();
 
