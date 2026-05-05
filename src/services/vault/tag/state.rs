@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 use crate::services::vault::VaultService;
-use crate::types::tag::Tag;
+use crate::types::tag::{Tag, TagSortMeta};
 
 use crate::services::vault::record::db_error_to_vault;
 
@@ -35,6 +35,44 @@ impl VaultService {
                     name: row.get(1)?,
                 },
                 row.get::<_, usize>(2)?,
+            ))
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// List all tags with usage statistics for sorting.
+    ///
+    /// Returns tags with [`TagSortMeta`] containing:
+    /// - `record_count`: Number of non-deleted records with this tag
+    /// - `last_used_at`: Unix timestamp of the most recently updated record (0 if none)
+    ///
+    /// Results are ordered alphabetically by tag name.
+    pub fn list_tags_with_stats(&self) -> Result<Vec<(Tag, TagSortMeta)>, VaultError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.name, COUNT(r.id) as record_count,
+                    COALESCE(MAX(r.updated_at), 0) as last_used_at
+             FROM tags t
+             LEFT JOIN record_tags rt ON rt.tag_id = t.id
+             LEFT JOIN records r ON rt.record_id = r.id AND r.deleted = 0
+             GROUP BY t.id, t.name
+             ORDER BY t.name",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                Tag {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                },
+                TagSortMeta {
+                    record_count: row.get(2)?,
+                    last_used_at: row.get(3)?,
+                },
             ))
         })?;
 

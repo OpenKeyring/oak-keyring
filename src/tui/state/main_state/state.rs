@@ -12,7 +12,7 @@ use crate::tui::state::animation::EffectKind;
 use crate::tui::state::detail_state::{DetailFieldKind, DetailPanelState, FieldValue};
 use crate::tui::state::list_state::{ListMode, ListPanelState};
 use crate::tui::state::overlay_state::HistoryEntry;
-use crate::tui::state::tag_management::TagManagementState;
+use crate::tui::state::tag_management::{TagManagementState, TagSortOrder};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::{CredentialType, SecureStr, Tag};
 
@@ -64,8 +64,8 @@ pub enum SidebarItem {
     Separator,
     /// A collapsible "Tags" section header.
     TagHeader,
-    /// A single tag entry.
-    Tag(String),
+    /// A single tag entry with its associated record count.
+    Tag(String, usize), // (name, record_count)
     /// Password generator shortcut.
     Generator,
     /// Configuration screen shortcut.
@@ -106,6 +106,8 @@ pub struct SidebarState {
     pub tag_management: TagManagementState,
     /// Available tags (populated from data layer).
     pub tags: Vec<Tag>,
+    /// Tag metadata for sorting (populated from TagsLoaded command result).
+    pub tag_metadata: std::collections::HashMap<i64, crate::types::tag::TagSortMeta>,
     /// Record counts per category.
     pub category_counts: CategoryCounts,
 }
@@ -120,6 +122,7 @@ impl Default for SidebarState {
             tag_management_mode: false,
             tag_management: TagManagementState::default(),
             tags: Vec::new(),
+            tag_metadata: std::collections::HashMap::new(),
             category_counts: CategoryCounts::default(),
         };
         state.rebuild();
@@ -159,7 +162,12 @@ impl SidebarState {
 
         if self.tags_expanded {
             for tag in &self.tags {
-                items.push(SidebarItem::Tag(tag.name.clone()));
+                let count = self
+                    .tag_metadata
+                    .get(&tag.id)
+                    .map(|m| m.record_count)
+                    .unwrap_or(0);
+                items.push(SidebarItem::Tag(tag.name.clone(), count));
             }
         }
 
@@ -207,7 +215,7 @@ impl SidebarState {
         }
         match &self.items[self.selected_index] {
             SidebarItem::Category(cat) => cat.to_filter(),
-            SidebarItem::Tag(name) => RecordFilter::Tag(name.clone()),
+            SidebarItem::Tag(name, _) => RecordFilter::Tag(name.clone()),
             // Generator and Config are shortcuts, not record filters
             SidebarItem::Generator
             | SidebarItem::Config
@@ -266,10 +274,42 @@ impl SidebarState {
         self.tag_management_mode
     }
 
+    /// Sort the tags vector according to the current sort order, then rebuild items.
+    pub fn sort_tags_by_current_order(&mut self) {
+        let sort_order = self.tag_management.sort_order;
+        self.tags.sort_by(|a, b| {
+            let meta_a = self.tag_metadata.get(&a.id);
+            let meta_b = self.tag_metadata.get(&b.id);
+            match sort_order {
+                TagSortOrder::Frequency => {
+                    let count_a = meta_a.map(|m| m.record_count).unwrap_or(0);
+                    let count_b = meta_b.map(|m| m.record_count).unwrap_or(0);
+                    count_b
+                        .cmp(&count_a)
+                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                }
+                TagSortOrder::Alphabetical => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                TagSortOrder::RecentlyUsed => {
+                    let time_a = meta_a.map(|m| m.last_used_at).unwrap_or(0);
+                    let time_b = meta_b.map(|m| m.last_used_at).unwrap_or(0);
+                    match (time_a, time_b) {
+                        (0, 0) => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                        (0, _) => std::cmp::Ordering::Greater,
+                        (_, 0) => std::cmp::Ordering::Less,
+                        _ => time_b
+                            .cmp(&time_a)
+                            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+                    }
+                }
+            }
+        });
+        self.rebuild();
+    }
+
     /// Get the name of the currently selected tag item, if any.
     pub fn selected_tag_name(&self) -> Option<&str> {
         if self.selected_index < self.items.len() {
-            if let SidebarItem::Tag(name) = &self.items[self.selected_index] {
+            if let SidebarItem::Tag(name, _) = &self.items[self.selected_index] {
                 return Some(name);
             }
         }
@@ -824,6 +864,42 @@ impl Screen for MainScreenState {
                         }
                         ScreenResult::Continue
                     }
+                    // Handle TagsLoaded — populate sidebar tags, apply sort, rebuild
+                    CommandResult::TagsLoaded { tags, tag_stats } => {
+                        self.sidebar.tags = tags;
+                        self.sidebar.tag_metadata = tag_stats;
+                        self.sidebar.sort_tags_by_current_order();
+                        ScreenResult::Continue
+                    }
+                    // Handle TagRenamed — reload tags and record list
+                    CommandResult::TagRenamed { .. } => {
+                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        // Also reload record list in case tag filter is active
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    // Handle TagDeleted — reload tags and record list
+                    CommandResult::TagDeleted { .. } => {
+                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    // Handle BatchTagAdded — reload tags
+                    CommandResult::BatchTagAdded { .. } => {
+                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        ScreenResult::Continue
+                    }
+                    // Handle BatchTagRemoved — reload tags
+                    CommandResult::BatchTagRemoved { .. } => {
+                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        ScreenResult::Continue
+                    }
                     _ => ScreenResult::Continue,
                 }
             }
@@ -855,6 +931,8 @@ impl Screen for MainScreenState {
             filter: self.current_filter.clone(),
             sort: self.current_sort.clone(),
         });
+        // Load tags for sidebar
+        let _ = ctx.command_tx.try_send(Command::LoadTags);
     }
 
     fn on_unmount(&mut self) {

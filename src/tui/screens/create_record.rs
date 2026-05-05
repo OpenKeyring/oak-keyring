@@ -555,7 +555,7 @@ impl Screen for CreateRecordScreen {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key, ctx),
             Message::CommandCompleted(result) => match result {
-                CommandResult::TagsLoaded { tags } => {
+                CommandResult::TagsLoaded { tags, tag_stats: _ } => {
                     self.all_tags = tags.into_iter().map(|tag| tag.name).collect();
                     ScreenResult::Continue
                 }
@@ -594,6 +594,7 @@ mod tests {
     use crate::commands::result::CommandResult;
     use crate::types::tag::Tag;
     use crossterm::event::{KeyCode, KeyModifiers};
+    use std::collections::HashMap;
     use tokio::sync::mpsc;
 
     fn make_screen() -> CreateRecordScreen {
@@ -647,7 +648,10 @@ mod tests {
             },
         ];
         let result = screen.update(
-            Message::CommandCompleted(CommandResult::TagsLoaded { tags }),
+            Message::CommandCompleted(CommandResult::TagsLoaded {
+                tags,
+                tag_stats: HashMap::new(),
+            }),
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));

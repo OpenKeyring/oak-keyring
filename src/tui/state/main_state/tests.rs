@@ -78,7 +78,7 @@ fn sidebar_tag_filter() {
     let tag_idx = sidebar
         .items
         .iter()
-        .position(|i| matches!(i, SidebarItem::Tag(_)))
+        .position(|i| matches!(i, SidebarItem::Tag(_, _)))
         .expect("tag item should exist");
     sidebar.selected_index = tag_idx;
     assert_eq!(
@@ -117,8 +117,8 @@ fn sidebar_build_items_structure() {
     ));
     assert!(matches!(items[7], SidebarItem::Separator));
     assert!(matches!(items[8], SidebarItem::TagHeader));
-    assert!(matches!(items[9], SidebarItem::Tag(ref t) if t == "personal"));
-    assert!(matches!(items[10], SidebarItem::Tag(ref t) if t == "work"));
+    assert!(matches!(items[9], SidebarItem::Tag(ref t, _) if t == "personal"));
+    assert!(matches!(items[10], SidebarItem::Tag(ref t, _) if t == "work"));
     assert!(matches!(items[11], SidebarItem::Separator));
     assert!(matches!(items[12], SidebarItem::Generator));
     assert!(matches!(items[13], SidebarItem::Config));
@@ -139,7 +139,7 @@ fn sidebar_collapsed_tags_hidden() {
     // No Tag items should appear when collapsed
     let tag_count = items
         .iter()
-        .filter(|i| matches!(i, SidebarItem::Tag(_)))
+        .filter(|i| matches!(i, SidebarItem::Tag(_, _)))
         .count();
     assert_eq!(tag_count, 0);
 
@@ -447,13 +447,16 @@ fn sidebar_toggle_tags() {
         ..Default::default()
     };
     state.rebuild();
-    assert!(state.items.iter().any(|i| matches!(i, SidebarItem::Tag(_))));
+    assert!(state
+        .items
+        .iter()
+        .any(|i| matches!(i, SidebarItem::Tag(_, _))));
     state.toggle_tags();
     assert!(!state.tags_expanded);
     assert!(state
         .items
         .iter()
-        .all(|i| !matches!(i, SidebarItem::Tag(_))));
+        .all(|i| !matches!(i, SidebarItem::Tag(_, _))));
     state.toggle_tags();
     assert!(state.tags_expanded);
 }
@@ -521,7 +524,7 @@ fn tag_header_collapse_returns_focus_to_header() {
     let tag_idx = sidebar
         .items
         .iter()
-        .position(|i| matches!(i, SidebarItem::Tag(_)))
+        .position(|i| matches!(i, SidebarItem::Tag(_, _)))
         .unwrap();
     sidebar.selected_index = tag_idx;
 

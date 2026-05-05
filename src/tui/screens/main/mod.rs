@@ -21,7 +21,6 @@ use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, 
 use crate::tui::screens::main::sidebar::SidebarPanel;
 use crate::tui::screens::main::status_bar::StatusBarPanel;
 use crate::tui::state::main_state::{MainScreenState, SidebarCategory, SidebarItem};
-use crate::tui::state::tag_management::TagSortOrder;
 use crate::tui::theme;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -399,11 +398,14 @@ impl MainScreen {
                     }
                 }
                 KeyCode::Char('m') => {
-                    let is_on_tag = state.sidebar.selected_tag_name().is_some();
+                    let is_on_tag_or_header = matches!(
+                        state.sidebar.items.get(state.sidebar.selected_index),
+                        Some(SidebarItem::Tag(_, _)) | Some(SidebarItem::TagHeader)
+                    );
                     if state.sidebar.is_tag_management() {
                         state.sidebar.exit_tag_management();
                         messages.push(Message::ExitTagManagement);
-                    } else if is_on_tag && state.sidebar.tags_expanded {
+                    } else if is_on_tag_or_header && state.sidebar.tags_expanded {
                         state.sidebar.enter_tag_management();
                         messages.push(Message::EnterTagManagement);
                     }
@@ -608,18 +610,13 @@ pub struct MainKeyResult {
 
 /// Sort the sidebar tags according to the current sort order.
 fn sort_sidebar_tags(sidebar: &mut crate::tui::state::main_state::SidebarState) {
-    let sort_order = sidebar.tag_management.sort_order;
-    sidebar.tags.sort_by(|a, b| match sort_order {
-        TagSortOrder::Frequency => a.name.cmp(&b.name),
-        TagSortOrder::Alphabetical => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        TagSortOrder::RecentlyUsed => a.name.cmp(&b.name),
-    });
-    sidebar.rebuild();
+    sidebar.sort_tags_by_current_order();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::state::tag_management::TagSortOrder;
 
     #[test]
     fn focus_cycle_forward() {
@@ -749,7 +746,7 @@ mod tests {
             .sidebar
             .items
             .iter()
-            .position(|i| matches!(i, SidebarItem::Tag(_)))
+            .position(|i| matches!(i, SidebarItem::Tag(_, _)))
             .unwrap();
         state.sidebar.selected_index = tag_idx;
 
@@ -990,6 +987,229 @@ mod tests {
 
         screen.handle_key_event(make_key(KeyCode::Char('k')), &mut state, PanelId::List);
         assert_eq!(state.list.selected_index, Some(0));
+    }
+
+    // ── Tag sorting tests ───────────────────────────────────────────────────────
+
+    use crate::tui::state::main_state::SidebarState;
+    use crate::types::tag::TagSortMeta;
+    use std::collections::HashMap;
+
+    #[test]
+    fn sort_tags_by_frequency() {
+        let mut sidebar = SidebarState {
+            tags_expanded: true,
+            tags: vec![
+                Tag {
+                    id: 1,
+                    name: "work".into(),
+                },
+                Tag {
+                    id: 2,
+                    name: "personal".into(),
+                },
+                Tag {
+                    id: 3,
+                    name: "finance".into(),
+                },
+            ],
+            tag_metadata: HashMap::from([
+                (
+                    1,
+                    TagSortMeta {
+                        record_count: 5,
+                        last_used_at: 0,
+                    },
+                ),
+                (
+                    2,
+                    TagSortMeta {
+                        record_count: 2,
+                        last_used_at: 0,
+                    },
+                ),
+                (
+                    3,
+                    TagSortMeta {
+                        record_count: 8,
+                        last_used_at: 0,
+                    },
+                ),
+            ]),
+            ..Default::default()
+        };
+        sidebar.tag_management.sort_order = TagSortOrder::Frequency;
+        sort_sidebar_tags(&mut sidebar);
+
+        let names: Vec<&str> = sidebar.tags.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["finance", "work", "personal"]); // 8, 5, 2 descending
+    }
+
+    #[test]
+    fn sort_tags_by_frequency_tiebreak_by_name() {
+        let mut sidebar = SidebarState {
+            tags_expanded: true,
+            tags: vec![
+                Tag {
+                    id: 1,
+                    name: "beta".into(),
+                },
+                Tag {
+                    id: 2,
+                    name: "alpha".into(),
+                },
+            ],
+            tag_metadata: HashMap::from([
+                (
+                    1,
+                    TagSortMeta {
+                        record_count: 5,
+                        last_used_at: 0,
+                    },
+                ),
+                (
+                    2,
+                    TagSortMeta {
+                        record_count: 5,
+                        last_used_at: 0,
+                    },
+                ),
+            ]),
+            ..Default::default()
+        };
+        sidebar.tag_management.sort_order = TagSortOrder::Frequency;
+        sort_sidebar_tags(&mut sidebar);
+
+        let names: Vec<&str> = sidebar.tags.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["alpha", "beta"]); // same count, alphabetical tiebreak
+    }
+
+    #[test]
+    fn sort_tags_by_recently_used() {
+        let mut sidebar = SidebarState {
+            tags_expanded: true,
+            tags: vec![
+                Tag {
+                    id: 1,
+                    name: "work".into(),
+                },
+                Tag {
+                    id: 2,
+                    name: "personal".into(),
+                },
+                Tag {
+                    id: 3,
+                    name: "finance".into(),
+                },
+            ],
+            tag_metadata: HashMap::from([
+                (
+                    1,
+                    TagSortMeta {
+                        record_count: 0,
+                        last_used_at: 1000,
+                    },
+                ),
+                (
+                    2,
+                    TagSortMeta {
+                        record_count: 0,
+                        last_used_at: 3000,
+                    },
+                ),
+                (
+                    3,
+                    TagSortMeta {
+                        record_count: 0,
+                        last_used_at: 500,
+                    },
+                ),
+            ]),
+            ..Default::default()
+        };
+        sidebar.tag_management.sort_order = TagSortOrder::RecentlyUsed;
+        sort_sidebar_tags(&mut sidebar);
+
+        let names: Vec<&str> = sidebar.tags.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["personal", "work", "finance"]); // 3000, 1000, 500 descending
+    }
+
+    #[test]
+    fn sort_tags_by_recently_used_zero_goes_last() {
+        let mut sidebar = SidebarState {
+            tags_expanded: true,
+            tags: vec![
+                Tag {
+                    id: 1,
+                    name: "work".into(),
+                },
+                Tag {
+                    id: 2,
+                    name: "unused".into(),
+                },
+                Tag {
+                    id: 3,
+                    name: "personal".into(),
+                },
+            ],
+            tag_metadata: HashMap::from([
+                (
+                    1,
+                    TagSortMeta {
+                        record_count: 1,
+                        last_used_at: 1000,
+                    },
+                ),
+                (
+                    2,
+                    TagSortMeta {
+                        record_count: 0,
+                        last_used_at: 0,
+                    },
+                ),
+                (
+                    3,
+                    TagSortMeta {
+                        record_count: 1,
+                        last_used_at: 500,
+                    },
+                ),
+            ]),
+            ..Default::default()
+        };
+        sidebar.tag_management.sort_order = TagSortOrder::RecentlyUsed;
+        sort_sidebar_tags(&mut sidebar);
+
+        let names: Vec<&str> = sidebar.tags.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["work", "personal", "unused"]); // 0 goes last, tiebreak by name
+    }
+
+    #[test]
+    fn sort_tags_alphabetical_case_insensitive() {
+        let mut sidebar = SidebarState {
+            tags_expanded: true,
+            tags: vec![
+                Tag {
+                    id: 1,
+                    name: "Zebra".into(),
+                },
+                Tag {
+                    id: 2,
+                    name: "alpha".into(),
+                },
+                Tag {
+                    id: 3,
+                    name: "Beta".into(),
+                },
+            ],
+            tag_metadata: HashMap::new(),
+            ..Default::default()
+        };
+        sidebar.tag_management.sort_order = TagSortOrder::Alphabetical;
+        sort_sidebar_tags(&mut sidebar);
+
+        let names: Vec<&str> = sidebar.tags.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["alpha", "Beta", "Zebra"]); // case-insensitive
     }
 }
 

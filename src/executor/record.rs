@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::commands::types::{FieldSelector, RecordFilter, RecordSort};
@@ -9,6 +10,7 @@ use crate::crypto::password::{
 use crate::crypto::strength::evaluate_strength;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::types::record::{CreateRecordParams, UpdateRecordParams};
+use crate::types::tag::TagSortMeta;
 use crate::types::{
     CredentialType, DecryptedRecord, EncryptedPayload, PasswordHistoryView, SecureStr,
 };
@@ -330,10 +332,14 @@ pub fn handle_load_password_history(
 
 #[tracing::instrument(skip_all)]
 pub fn handle_load_tags(executor: &mut CommandExecutor) -> CommandResult {
-    match executor.vault.list_tags() {
-        Ok(tags_with_counts) => {
-            let tags: Vec<_> = tags_with_counts.into_iter().map(|(t, _)| t).collect();
-            CommandResult::TagsLoaded { tags }
+    match executor.vault.list_tags_with_stats() {
+        Ok(tags_with_stats) => {
+            let tags: Vec<_> = tags_with_stats.iter().map(|(t, _)| t.clone()).collect();
+            let tag_stats: HashMap<i64, TagSortMeta> = tags_with_stats
+                .into_iter()
+                .map(|(t, meta)| (t.id, meta))
+                .collect();
+            CommandResult::TagsLoaded { tags, tag_stats }
         }
         Err(e) => vault_error(e, "Failed to load tags"),
     }

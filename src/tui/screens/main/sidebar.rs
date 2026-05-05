@@ -61,10 +61,13 @@ impl SidebarPanel {
 
         frame.render_stateful_widget(list, area, &mut list_state);
 
+        // Read the scroll offset after rendering to position inline rename correctly
+        let list_offset = list_state.offset();
+
         // Render inline rename edit box overlay if active
         if state.tag_management_mode {
             if let Some(ref edit) = state.tag_management.inline_edit {
-                render_inline_rename(frame, area, state, edit, unicode);
+                render_inline_rename(frame, area, state, edit, unicode, list_offset);
             }
         }
     }
@@ -164,7 +167,7 @@ fn build_list_item<'a>(
                 )))
             }
         }
-        SidebarItem::Tag(name) => {
+        SidebarItem::Tag(name, count) => {
             if state.tag_management_mode {
                 let display = format!("{}{}", TAG_INDENT, name);
                 let edit_icon = if unicode { "\u{270E}" } else { "[e]" };
@@ -188,7 +191,7 @@ fn build_list_item<'a>(
                     ),
                 ]))
             } else {
-                let display = format!("{}{}", TAG_INDENT, name);
+                let display = format!("{}{} ({})", TAG_INDENT, name, count);
                 ListItem::new(Line::from(Span::styled(
                     display,
                     Style::default().fg(theme::TEXT),
@@ -273,6 +276,7 @@ fn render_inline_rename(
     state: &SidebarState,
     edit: &crate::tui::state::tag_management::InlineEditState,
     unicode: bool,
+    list_offset: usize,
 ) {
     // Find the visual row position of the currently selected tag
     let tag_idx = state.selected_index;
@@ -280,8 +284,8 @@ fn render_inline_rename(
         return;
     }
 
-    // Calculate the y position for the overlay
-    let y_offset = area.y + tag_idx as u16;
+    // Calculate the y position for the overlay, accounting for scroll offset
+    let y_offset = area.y + tag_idx.saturating_sub(list_offset) as u16;
     if y_offset >= area.y + area.height {
         return; // Out of visible area
     }
@@ -426,8 +430,8 @@ mod tests {
     #[test]
     fn build_list_item_tag_has_content() {
         let state = SidebarState::default();
-        let item = build_list_item(&SidebarItem::Tag("work".into()), &state, true, 50);
-        // Tag item should have non-zero width (indent + "work")
+        let item = build_list_item(&SidebarItem::Tag("work".into(), 0), &state, true, 50);
+        // Tag item should have non-zero width (indent + "work" + count)
         assert!(item.width() > 0);
     }
 
@@ -454,7 +458,7 @@ mod tests {
             &SidebarItem::Category(SidebarCategory::Favorites),
             &SidebarItem::Separator,
             &SidebarItem::TagHeader,
-            &SidebarItem::Tag("test".into()),
+            &SidebarItem::Tag("test".into(), 0),
             &SidebarItem::Generator,
             &SidebarItem::Config,
         ];
@@ -572,6 +576,96 @@ mod tests {
         assert!(
             result.contains("Sort") || result.contains('\u{6309}') || result.contains("按"),
             "should show sort indicator"
+        );
+    }
+
+    #[test]
+    fn inline_rename_accounts_for_scroll_offset() {
+        use crate::tui::state::tag_management::InlineEditState;
+        use crate::types::Tag;
+
+        // Unique marker that does NOT appear in any tag name.
+        const MARKER: &str = "RENAMING_VISIBLE_MARKER";
+
+        // Build a sidebar with enough tags to fill a small terminal and cause scrolling.
+        // Layout: Brand, Sep, All, Favorites, Expired, Health, Trash, Sep, TagHeader,
+        // then 10 tags, Sep, Generator, Config = 24 items.
+        let tags: Vec<Tag> = (0..10)
+            .map(|i| Tag {
+                id: i + 1,
+                name: format!("tag_{:02}", i),
+            })
+            .collect();
+
+        let mut state = SidebarState {
+            tags_expanded: true,
+            tags,
+            tag_management_mode: true,
+            tag_management: crate::tui::state::tag_management::TagManagementState {
+                // Use the marker as the edit text so the overlay is distinguishable
+                // from the regular tag list item text.
+                inline_edit: Some(InlineEditState {
+                    original_name: "tag_09".to_string(),
+                    text: MARKER.to_string(),
+                    cursor: MARKER.len(),
+                    conflict: false,
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        state.rebuild();
+
+        // Select the last tag (index 18: Brand(0), Sep(1), All(2), Fav(3), Exp(4),
+        // Health(5), Trash(6), Sep(7), TagHeader(8), tag_00(9)..tag_09(18))
+        state.selected_index = 18;
+
+        // Render into a short area (height 12) so the list must scroll.
+        // With 24 items and height 12, offset should be > 0 after rendering.
+        let backend = ratatui::backend::TestBackend::new(40, 12);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                SidebarPanel::view(frame, frame.area(), &state, true, true);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        let result = format!("{:?}", buf);
+
+        // The overlay must render the unique marker in the visible area.
+        // Without the scroll-offset fix, y_offset would be out of bounds and
+        // the overlay would not be drawn at all.
+        assert!(
+            result.contains(MARKER),
+            "inline rename overlay should be visible with scroll offset, \
+             marker '{MARKER}' not found in rendered buffer"
+        );
+
+        // Verify the marker appears on a specific visible row.
+        // Iterate rows using content() and area().
+        let area = buf.area();
+        let width = area.width as usize;
+        let marker_row = (0..area.height as usize).find(|row| {
+            let start = row * width;
+            let end = start + width;
+            let row_str: String = buf.content()[start..end]
+                .iter()
+                .map(|c| c.symbol())
+                .collect();
+            row_str.contains(MARKER)
+        });
+        assert!(
+            marker_row.is_some(),
+            "marker should appear in a visible row"
+        );
+        // The marker row must be within the rendered area
+        let row = marker_row.unwrap();
+        assert!(
+            row < area.height as usize,
+            "marker row {} should be within visible area (0..{})",
+            row,
+            area.height
         );
     }
 }
