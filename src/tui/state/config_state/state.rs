@@ -491,6 +491,9 @@ pub struct ConfigScreenState {
     pub about: AboutInfo,
     /// Sync provider connection status (UI indicator).
     pub sync_status: SyncConnectionStatus,
+    /// Error message from the last failed sync connection test.
+    /// Displayed inline alongside the Disconnected status indicator.
+    pub sync_error_message: Option<String>,
     /// Active overlay (dropdown or dialog), if any.
     pub overlay: Option<ConfigOverlay>,
     /// Pending mode for ImportExport screen navigation.
@@ -542,6 +545,7 @@ impl ConfigScreenState {
         } else {
             SyncConnectionStatus::Disconnected
         };
+        self.sync_error_message = None;
     }
 
     /// Populate config forms while preserving navigation state restored from history.

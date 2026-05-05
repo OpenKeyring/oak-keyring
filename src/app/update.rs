@@ -257,6 +257,12 @@ fn handle_message(
                         .notification
                         .enqueue(StatusMessage::warning(format!("{} cancelled", operation)));
                 }
+                CommandResult::MasterPasswordChanged => {
+                    app.state
+                        .shared
+                        .notification
+                        .enqueue(StatusMessage::success("Master password updated".into()));
+                }
                 _ => {} // Screen-specific results handled below
             }
             // Also route to current screen for screen-specific result handling.

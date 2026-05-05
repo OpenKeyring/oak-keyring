@@ -42,6 +42,7 @@ pub fn render(
     status: SyncConnectionStatus,
     gdrive_auth_status: GDriveAuthStatus,
     last_sync: Option<DateTime<Utc>>,
+    sync_error_message: Option<&str>,
     focused: usize,
 ) {
     let dim_style = Style::default().fg(theme::TEXT_SECONDARY).bold();
@@ -200,14 +201,18 @@ pub fn render(
             ),
             ratatui::style::Color::Rgb(158, 206, 106),
         ),
-        SyncConnectionStatus::Disconnected => (
-            format!(
+        SyncConnectionStatus::Disconnected => {
+            let base = format!(
                 "{} {}",
                 theme::ICON_ERROR,
                 t!("tui.config.sync_disconnected")
-            ),
-            ratatui::style::Color::Rgb(247, 118, 142),
-        ),
+            );
+            let text = match sync_error_message {
+                Some(err) if !err.is_empty() => format!("{}: {}", base, err),
+                _ => base,
+            };
+            (text, ratatui::style::Color::Rgb(247, 118, 142))
+        }
         SyncConnectionStatus::NotConfigured => (
             format!(
                 "{} {}",
