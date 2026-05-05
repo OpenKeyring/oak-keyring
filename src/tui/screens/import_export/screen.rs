@@ -5,7 +5,9 @@ use ratatui::layout::Rect;
 use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
-use crate::commands::types::{CsvColumnMapping, ExportScope, ImportPreview, ImportSource};
+use crate::commands::types::{
+    CsvColumnMapping, ExportFormat, ExportScope, ImportPreview, ImportSource,
+};
 use crate::commands::{Command, Message};
 use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel};
 use crate::t;
@@ -44,6 +46,7 @@ pub struct ImportExportScreen {
     // Export state
     pub export_step: ExportStep,
     pub export_focus: ExportFocus,
+    pub export_format: ExportFormat,
     pub export_scope_option: ExportScopeOption,
     pub export_password: String,
     pub export_confirm_password: String,
@@ -91,11 +94,12 @@ impl ImportExportScreen {
 
             export_step: ExportStep::Form,
             export_focus: ExportFocus::Scope,
+            export_format: ExportFormat::Okb,
             export_scope_option: ExportScopeOption::All,
             export_password: String::new(),
             export_confirm_password: String::new(),
             export_password_strength: None,
-            export_output_path: default_export_path(),
+            export_output_path: default_export_path(ExportFormat::Okb),
             master_password: String::new(),
             export_result_path: None,
             export_record_count: 0,
@@ -132,6 +136,26 @@ impl ImportExportScreen {
         } else {
             self.export_password_strength = Some(evaluate_strength(&self.export_password));
         }
+    }
+
+    fn update_export_path_extension(&mut self) {
+        if self.export_output_path.is_empty() {
+            return;
+        }
+        let path = PathBuf::from(&self.export_output_path);
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("keyring-backup");
+        let ext = match self.export_format {
+            ExportFormat::Okb => "okb",
+            ExportFormat::Csv => "csv",
+        };
+        let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        self.export_output_path = parent
+            .join(format!("{stem}.{ext}"))
+            .to_string_lossy()
+            .to_string();
     }
 
     pub(super) fn current_source(&self) -> ImportSource {
@@ -198,6 +222,7 @@ impl ImportExportScreen {
             ImportExportMode::Export => {
                 self.export_step = ExportStep::Form;
                 self.export_focus = ExportFocus::Scope;
+                self.export_format = ExportFormat::Okb;
             }
         }
     }
@@ -600,19 +625,33 @@ impl ImportExportScreen {
             KeyCode::Esc => return self.go_back(),
             KeyCode::Tab => {
                 self.export_focus = match self.export_focus {
+                    ExportFocus::Format => ExportFocus::Scope,
                     ExportFocus::Scope => ExportFocus::ExportPassword,
                     ExportFocus::ExportPassword => ExportFocus::ConfirmPassword,
                     ExportFocus::ConfirmPassword => ExportFocus::OutputPath,
-                    ExportFocus::OutputPath => ExportFocus::Scope,
+                    ExportFocus::OutputPath => ExportFocus::Format,
                 };
             }
             KeyCode::BackTab => {
                 self.export_focus = match self.export_focus {
-                    ExportFocus::Scope => ExportFocus::OutputPath,
+                    ExportFocus::Format => ExportFocus::OutputPath,
+                    ExportFocus::Scope => ExportFocus::Format,
                     ExportFocus::ExportPassword => ExportFocus::Scope,
                     ExportFocus::ConfirmPassword => ExportFocus::ExportPassword,
                     ExportFocus::OutputPath => ExportFocus::ConfirmPassword,
                 };
+            }
+            KeyCode::Up if self.export_focus == ExportFocus::Format => {
+                if self.export_format != ExportFormat::Okb {
+                    self.export_format = ExportFormat::Okb;
+                    self.update_export_path_extension();
+                }
+            }
+            KeyCode::Down if self.export_focus == ExportFocus::Format => {
+                if self.export_format != ExportFormat::Csv {
+                    self.export_format = ExportFormat::Csv;
+                    self.update_export_path_extension();
+                }
             }
             KeyCode::Up if self.export_focus == ExportFocus::Scope => {
                 self.export_scope_option = match self.export_scope_option {
@@ -636,6 +675,7 @@ impl ImportExportScreen {
                 }
             }
             KeyCode::Char(c) => match self.export_focus {
+                ExportFocus::Format => {}
                 ExportFocus::ExportPassword => {
                     self.export_password.push(c);
                     self.update_export_strength();
@@ -649,6 +689,7 @@ impl ImportExportScreen {
                 ExportFocus::Scope => {}
             },
             KeyCode::Backspace => match self.export_focus {
+                ExportFocus::Format => {}
                 ExportFocus::ExportPassword => {
                     self.export_password.pop();
                     self.update_export_strength();
@@ -667,13 +708,15 @@ impl ImportExportScreen {
     }
 
     fn validate_export_form(&mut self) -> ScreenResult {
-        if self.export_password.len() < 8 {
-            self.error_message = Some(t!("tui.entry.password_too_short").to_string());
-            return ScreenResult::Continue;
-        }
-        if self.export_password != self.export_confirm_password {
-            self.error_message = Some(t!("tui.entry.password_mismatch").to_string());
-            return ScreenResult::Continue;
+        if self.export_format == ExportFormat::Okb {
+            if self.export_password.len() < 8 {
+                self.error_message = Some(t!("tui.entry.password_too_short").to_string());
+                return ScreenResult::Continue;
+            }
+            if self.export_password != self.export_confirm_password {
+                self.error_message = Some(t!("tui.entry.password_mismatch").to_string());
+                return ScreenResult::Continue;
+            }
         }
         if self.export_output_path.is_empty() {
             self.error_message = Some(t!("tui.import_export.output_path_required").to_string());
@@ -726,6 +769,7 @@ impl ImportExportScreen {
 
                 let cmd = Command::ExecuteExport {
                     scope,
+                    format: self.export_format,
                     output_path: PathBuf::from(&self.export_output_path),
                     export_password: SecureStr::new(export_pw),
                     master_password: SecureStr::new(master_pw),
@@ -760,7 +804,11 @@ impl ImportExportScreen {
                 self.import_step = ImportStep::Complete;
                 ScreenResult::Continue
             }
-            CommandResult::ExportCompleted { path, record_count } => {
+            CommandResult::ExportCompleted {
+                path,
+                record_count,
+                format: _,
+            } => {
                 self.export_result_path = Some(path);
                 self.export_record_count = record_count;
                 self.export_step = ExportStep::Complete;

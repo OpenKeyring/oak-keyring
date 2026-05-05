@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-use crate::commands::types::{CsvColumnMapping, ExportScope, ImportSource};
+use crate::commands::types::{CsvColumnMapping, ExportFormat, ExportScope, ImportSource};
 use crate::errors::mapping::import_export::ImportExportError;
 use crate::services::import_export::duplicate::ExistingRecordKey;
 use crate::services::import_export::types::{ExportSessionStatus, ImportSessionStatus};
@@ -511,6 +511,7 @@ fn create_export_session_returns_id() {
     let id = service
         .create_export_session(
             ExportScope::All,
+            ExportFormat::Okb,
             valid_export_password(),
             valid_export_path(&dir),
         )
@@ -530,7 +531,12 @@ fn create_export_session_rejects_short_password() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let short_pw = SecureStr::new("1234567".to_string());
 
-    let result = service.create_export_session(ExportScope::All, short_pw, valid_export_path(&dir));
+    let result = service.create_export_session(
+        ExportScope::All,
+        ExportFormat::Okb,
+        short_pw,
+        valid_export_path(&dir),
+    );
 
     assert!(result.is_err());
     assert!(
@@ -547,7 +553,12 @@ fn create_export_session_rejects_non_okb_path() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let bad_path = dir.path().join("export.txt");
 
-    let result = service.create_export_session(ExportScope::All, valid_export_password(), bad_path);
+    let result = service.create_export_session(
+        ExportScope::All,
+        ExportFormat::Okb,
+        valid_export_password(),
+        bad_path,
+    );
 
     assert!(result.is_err());
     assert!(
@@ -570,6 +581,7 @@ fn execute_export_writes_file_and_completes() {
     let id = service
         .create_export_session(
             ExportScope::All,
+            ExportFormat::Okb,
             valid_export_password(),
             output_path.clone(),
         )
@@ -599,6 +611,7 @@ fn execute_export_rejects_empty_records() {
     let id = service
         .create_export_session(
             ExportScope::All,
+            ExportFormat::Okb,
             valid_export_password(),
             valid_export_path(&dir),
         )
@@ -626,6 +639,7 @@ fn execute_export_rejects_wrong_status() {
     let id = service
         .create_export_session(
             ExportScope::All,
+            ExportFormat::Okb,
             valid_export_password(),
             valid_export_path(&dir),
         )
@@ -665,6 +679,7 @@ fn cancel_export_session_changes_status() {
     let id = service
         .create_export_session(
             ExportScope::All,
+            ExportFormat::Okb,
             valid_export_password(),
             valid_export_path(&dir),
         )
@@ -675,5 +690,90 @@ fn cancel_export_session_changes_status() {
     assert_eq!(
         service.export_session_status(id),
         Some(ExportSessionStatus::Failed)
+    );
+}
+
+// -- Test 23: create_export_session with Csv format skips password validation --
+
+#[test]
+fn create_export_session_csv_skips_password_validation() {
+    let mut service = ImportExportService::new();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let csv_path = dir.path().join("export.csv");
+
+    let result = service.create_export_session(
+        ExportScope::All,
+        ExportFormat::Csv,
+        SecureStr::new(String::new()), // empty password — should be OK for CSV
+        csv_path,
+    );
+
+    assert!(result.is_ok(), "CSV session should accept empty password");
+}
+
+// -- Test 24: create_export_session with Csv rejects .okb path --
+
+#[test]
+fn create_export_session_csv_rejects_okb_path() {
+    let mut service = ImportExportService::new();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let okb_path = dir.path().join("export.okb");
+
+    let result = service.create_export_session(
+        ExportScope::All,
+        ExportFormat::Csv,
+        SecureStr::new(String::new()),
+        okb_path,
+    );
+
+    assert!(result.is_err(), "CSV session should reject .okb path");
+}
+
+// -- Test 25: execute_export with Csv writes valid CSV (integration) --
+
+#[test]
+fn execute_export_csv_writes_valid_csv() {
+    let mut service = ImportExportService::new();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let csv_path = dir.path().join("export.csv");
+
+    let id = service
+        .create_export_session(
+            ExportScope::All,
+            ExportFormat::Csv,
+            SecureStr::new(String::new()),
+            csv_path.clone(),
+        )
+        .expect("create CSV session");
+
+    let records = sample_export_records();
+    let (result_path, count) = service
+        .execute_export(id, || Ok(records), "550e8400-e29b-41d4-a716-446655440000")
+        .expect("execute CSV export");
+
+    assert_eq!(result_path, csv_path);
+    assert_eq!(count, 1);
+    assert!(csv_path.exists(), "CSV file should exist");
+
+    // Verify output is valid CSV (not encrypted binary).
+    let data = std::fs::read(&csv_path).expect("read CSV file");
+    assert_eq!(
+        &data[0..3],
+        &[0xEF, 0xBB, 0xBF],
+        "file should start with UTF-8 BOM"
+    );
+
+    let text = std::str::from_utf8(&data[3..]).expect("valid UTF-8");
+    assert!(
+        text.contains("credential_type"),
+        "CSV should contain header"
+    );
+    assert!(
+        text.contains("TestRecord"),
+        "CSV should contain record name"
+    );
+    assert!(
+        text.contains("user@example.com"),
+        "CSV should contain record username"
     );
 }

@@ -632,6 +632,10 @@ tui:
     exporting_progress: "Encrypting and writing export file..."
     export_complete_title: "Export Complete"
     saved_to: "Saved to: %{path}"
+    export_format_label: "Export Format:"
+    format_okb: ".okb (Encrypted Backup)"
+    format_csv: ".csv (Plaintext)"
+    csv_security_warning: "Warning: CSV exports are unencrypted plaintext. Do not share this file."
     records_exported: "Records exported: %{count}"
 
   # ---- U10: Audit Log ----

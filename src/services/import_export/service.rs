@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::commands::types::{CsvColumnMapping, ExportScope, ImportPreview, ImportSource};
+use crate::commands::types::{
+    CsvColumnMapping, ExportFormat, ExportScope, ImportPreview, ImportSource,
+};
 use crate::errors::mapping::import_export::ImportExportError;
 use crate::services::import_export::duplicate::{detect_duplicates, ExistingRecordKey};
 use crate::services::import_export::mapping::map_parsed_item;
@@ -469,19 +471,26 @@ impl ImportExportService {
     pub fn create_export_session(
         &mut self,
         scope: ExportScope,
+        format: ExportFormat,
         export_password: SecureStr,
         output_path: PathBuf,
     ) -> Result<Uuid, ImportExportError> {
-        // Validate password.
-        super::export::validate_export_password(&export_password)?;
-
-        // Validate output path.
-        super::export::validate_export_path(&output_path)?;
+        // Validate based on format.
+        match format {
+            ExportFormat::Okb => {
+                super::export::validate_export_password(&export_password)?;
+                super::export::validate_export_path(&output_path)?;
+            }
+            ExportFormat::Csv => {
+                super::export::validate_export_csv_path(&output_path)?;
+            }
+        }
 
         let id = Uuid::new_v4();
         let session = ExportSession {
             id,
             scope,
+            format,
             export_password,
             output_path,
             status: ExportSessionStatus::Created,
@@ -554,17 +563,20 @@ impl ImportExportService {
             records,
         };
 
-        // 6. Encrypt and write. Borrow password directly from session to avoid
-        //    creating an unprotected intermediate String copy (C1 fix).
-        let (output_path, encrypted_size) = {
+        // 6. Write output in the selected format.
+        let (output_path, output_size) = {
             let session = self
                 .export_sessions
                 .get(&session_id)
                 .ok_or(ImportExportError::SessionNotFound(session_id))?;
 
             let path = session.output_path.clone();
-            let size =
-                super::export::encrypt_and_write_okb(&payload, &session.export_password, &path)?;
+            let size = match session.format {
+                ExportFormat::Okb => {
+                    super::export::encrypt_and_write_okb(&payload, &session.export_password, &path)?
+                }
+                ExportFormat::Csv => super::export::write_csv(&payload, &path)?,
+            };
             (path, size)
         };
 
@@ -576,7 +588,7 @@ impl ImportExportService {
                 .ok_or(ImportExportError::SessionNotFound(session_id))?;
             session.status = ExportSessionStatus::Completed;
             session.record_count = record_count;
-            session.encrypted_size = Some(encrypted_size);
+            session.encrypted_size = Some(output_size);
             session.completed_at = Some(Utc::now());
         }
 

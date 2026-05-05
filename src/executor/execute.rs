@@ -256,12 +256,14 @@ impl CommandExecutor {
                 output_path,
                 export_password,
                 master_password,
+                format,
             } => import_export::handle_execute_export(
                 self,
                 scope,
                 output_path,
                 export_password,
                 master_password,
+                format,
             ),
 
             // ── Config Operations ─────────────────────────

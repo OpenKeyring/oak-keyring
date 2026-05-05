@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::commands::types::{CsvColumnMapping, ExportScope, FailedItem, ImportSource, ReviewItem};
+use crate::commands::types::{
+    CsvColumnMapping, ExportFormat, ExportScope, FailedItem, ImportSource, ReviewItem,
+};
 use crate::types::{CredentialType, SecureStr};
 
 // ---------------------------------------------------------------------------
@@ -73,6 +75,7 @@ pub struct ImportSession {
 pub struct ExportSession {
     pub id: Uuid,
     pub scope: ExportScope,
+    pub format: ExportFormat,
     pub export_password: SecureStr,
     pub output_path: PathBuf,
     pub status: ExportSessionStatus,
