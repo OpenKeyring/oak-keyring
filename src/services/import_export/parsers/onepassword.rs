@@ -238,13 +238,13 @@ fn parse_secure_note_item(index: usize, item: &OnePuxItem) -> ParsedItem {
 }
 
 // ---------------------------------------------------------------------------
-// OpVaultParser — stub for future .opvault support
+// OpVaultParser — 1Password .opvault format parser
 // ---------------------------------------------------------------------------
 
-/// Placeholder parser for 1Password `.opvault` format.
+/// Parser for 1Password `.opvault` format (local vault directory).
 ///
-/// Returns [`ImportExportError::UnsupportedFormat`] for all operations.
-/// Full implementation will be added in a future task.
+/// Decrypts entries using PBKDF2-HMAC-SHA512 + AES-256-CBC and converts
+/// to `ParsedItem`. Supports Login (001), Password (005), and Secure Note (110).
 pub struct OpVaultParser;
 
 impl FormatParser for OpVaultParser {
@@ -254,13 +254,11 @@ impl FormatParser for OpVaultParser {
 
     fn parse(
         &self,
-        _path: &Path,
-        _password: Option<&SecureStr>,
+        path: &Path,
+        password: Option<&SecureStr>,
         _csv_mapping: Option<&CsvColumnMapping>,
     ) -> Result<Vec<ParsedItem>, ImportExportError> {
-        Err(ImportExportError::UnsupportedFormat(
-            ".opvault format is not yet supported".to_string(),
-        ))
+        super::opvault::parser::parse_opvault(path, password)
     }
 
     fn requires_password(&self) -> bool {
@@ -268,13 +266,23 @@ impl FormatParser for OpVaultParser {
     }
 
     fn validate_file(&self, path: &Path) -> Result<(), ImportExportError> {
-        // .opvault is a directory, not a file.
         if !path.exists() {
             return Err(ImportExportError::FileNotFound(path.to_path_buf()));
         }
         if !path.is_dir() {
             return Err(ImportExportError::InvalidFormat(
                 "expected .opvault directory".to_string(),
+            ));
+        }
+        let default_dir = path.join("default");
+        if !default_dir.is_dir() {
+            return Err(ImportExportError::InvalidFormat(
+                "expected .opvault/default/ directory".to_string(),
+            ));
+        }
+        if !default_dir.join("profile.js").exists() {
+            return Err(ImportExportError::InvalidFormat(
+                "expected .opvault/default/profile.js".to_string(),
             ));
         }
         Ok(())
