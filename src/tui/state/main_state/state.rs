@@ -106,6 +106,8 @@ pub struct SidebarState {
     pub tag_management: TagManagementState,
     /// Available tags (populated from data layer).
     pub tags: Vec<Tag>,
+    /// Tag metadata for sorting (populated from TagsLoaded command result).
+    pub tag_metadata: std::collections::HashMap<i64, crate::types::tag::TagSortMeta>,
     /// Record counts per category.
     pub category_counts: CategoryCounts,
 }
@@ -120,6 +122,7 @@ impl Default for SidebarState {
             tag_management_mode: false,
             tag_management: TagManagementState::default(),
             tags: Vec::new(),
+            tag_metadata: std::collections::HashMap::new(),
             category_counts: CategoryCounts::default(),
         };
         state.rebuild();
@@ -824,6 +827,42 @@ impl Screen for MainScreenState {
                         }
                         ScreenResult::Continue
                     }
+                    // Handle TagsLoaded — populate sidebar tags
+                    CommandResult::TagsLoaded { tags, tag_stats } => {
+                        self.sidebar.tags = tags;
+                        self.sidebar.tag_metadata = tag_stats;
+                        self.sidebar.rebuild();
+                        ScreenResult::Continue
+                    }
+                    // Handle TagRenamed — reload tags and record list
+                    CommandResult::TagRenamed { .. } => {
+                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        // Also reload record list in case tag filter is active
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    // Handle TagDeleted — reload tags and record list
+                    CommandResult::TagDeleted { .. } => {
+                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    // Handle BatchTagAdded — reload tags
+                    CommandResult::BatchTagAdded { .. } => {
+                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        ScreenResult::Continue
+                    }
+                    // Handle BatchTagRemoved — reload tags
+                    CommandResult::BatchTagRemoved { .. } => {
+                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        ScreenResult::Continue
+                    }
                     _ => ScreenResult::Continue,
                 }
             }
@@ -855,6 +894,8 @@ impl Screen for MainScreenState {
             filter: self.current_filter.clone(),
             sort: self.current_sort.clone(),
         });
+        // Load tags for sidebar
+        let _ = ctx.command_tx.try_send(Command::LoadTags);
     }
 
     fn on_unmount(&mut self) {
