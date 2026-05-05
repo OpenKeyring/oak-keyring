@@ -2820,3 +2820,28 @@ fn password_history_loaded_opens_overlay() {
         other => panic!("Expected PasswordHistory overlay, got {:?}", other),
     }
 }
+
+// ── Task 8: Help overlay toggle test ─────────────────────────────────────────
+
+#[test]
+fn question_mark_opens_help_overlay() {
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let mut state = MainScreenState::default();
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let _result = state.update(Message::KeyEvent(make_key(KeyCode::Char('?'))), &mut ctx);
+
+    assert!(state.overlay_manager.is_active());
+    match state.overlay_manager.get() {
+        Some(crate::tui::screens::main::overlay::ActiveOverlay::Help) => {}
+        other => panic!("Expected Help overlay, got {:?}", other),
+    }
+}
