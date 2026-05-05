@@ -3,10 +3,12 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::commands::types::ImportSource;
 use crate::tui::theme::{
-    self, Styles, PRIMARY, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY, WARNING,
+    self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY,
+    WARNING,
 };
 
 use super::screen::ImportExportScreen;
+use super::types::ScopeHintStyle;
 use super::types::*;
 
 // ── View: Import SourceSelect ───────────────────────────────────────────────
@@ -59,7 +61,7 @@ impl ImportExportScreen {
         let source_items: Vec<ratatui::text::Line> = IMPORT_SOURCES
             .iter()
             .enumerate()
-            .map(|(i, (_, name, needs_pw, scope_hint))| {
+            .map(|(i, (_, name, needs_pw, (hint_text, hint_style)))| {
                 let prefix = if i == self.selected_source_idx {
                     " \u{25B6} "
                 } else {
@@ -84,9 +86,14 @@ impl ImportExportScreen {
                     ratatui::text::Span::raw("")
                 };
                 let sep = ratatui::text::Span::styled("  ", ratatui::style::Style::default());
+                let hint_color = match hint_style {
+                    ScopeHintStyle::Full => SUCCESS,
+                    ScopeHintStyle::Partial => WARNING,
+                    ScopeHintStyle::Limited => ERROR,
+                };
                 let hint_span = ratatui::text::Span::styled(
-                    *scope_hint,
-                    ratatui::style::Style::default().fg(TEXT_MUTED),
+                    *hint_text,
+                    ratatui::style::Style::default().fg(hint_color),
                 );
                 ratatui::text::Line::from(vec![name_span, pw_hint, sep, hint_span])
             })
