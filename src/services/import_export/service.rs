@@ -176,6 +176,7 @@ impl ImportExportService {
             failed: summary.failed,
             review_items: summary.review_items.clone(),
             failed_items: summary.failed_items.clone(),
+            item_passed: summary.item_passed.clone(),
         };
 
         // Read CSV headers for CSV sources
@@ -247,14 +248,19 @@ impl ImportExportService {
     ///
     /// **Closure signature:**
     /// `(CredentialType, HashMap<String, String>, Vec<String>) -> Result<Uuid, String>`
-    pub fn execute_import<F>(
+    ///
+    /// `progress_fn` is an optional callback invoked after processing each record:
+    /// `(current_index, total_count, item_name)`.
+    pub fn execute_import<F, P>(
         &mut self,
         session_id: Uuid,
         existing_keys: HashSet<ExistingRecordKey>,
         mut vault_create_fn: F,
+        progress_fn: Option<P>,
     ) -> Result<ImportResult, ImportExportError>
     where
         F: FnMut(CredentialType, HashMap<String, String>, Vec<String>) -> Result<Uuid, String>,
+        P: Fn(usize, usize, &str),
     {
         // 1. Verify session status is Validated.
         let import_as_notes = {
@@ -281,13 +287,22 @@ impl ImportExportService {
             session.status = ImportSessionStatus::Importing;
         }
 
-        // 3. Extract mapped records and review items from session.
-        let (records, review_records): (Vec<MappedRecord>, Vec<MappedRecord>) = {
+        // 3. Extract mapped records, review items, and per-item validation flags.
+        let (records, review_records, item_passed): (
+            Vec<MappedRecord>,
+            Vec<MappedRecord>,
+            Vec<bool>,
+        ) = {
             let session = self
                 .import_sessions
                 .get(&session_id)
                 .ok_or(ImportExportError::SessionNotFound(session_id))?;
             let mapped = session.mapped_records.clone();
+            let passed = session
+                .validation_result
+                .as_ref()
+                .map(|vr| vr.item_passed.clone())
+                .unwrap_or_default();
 
             // When import_as_notes is enabled, convert review_items into
             // additional MappedRecords so they are imported as note entries
@@ -320,7 +335,7 @@ impl ImportExportService {
             } else {
                 Vec::new()
             };
-            (mapped, review_mapped)
+            (mapped, review_mapped, passed)
         };
 
         // 4. Run duplicate detection against provided existing keys.
@@ -348,10 +363,26 @@ impl ImportExportService {
         let mut reviewed: usize = 0;
         let mut skipped: usize = 0;
         let mut failed: usize = 0;
+        let mut validation_failed: usize = 0;
 
-        // 5. Import non-duplicate records (including review_records as notes).
+        // 5. Import non-duplicate, non-validation-failed records
+        //    (including review_records as notes).
+        let total_records = records.len() + review_records.len();
         for (i, record) in records.iter().enumerate() {
-            if dup_flags[i] {
+            if let Some(ref progress) = progress_fn {
+                progress(
+                    i + 1,
+                    total_records,
+                    record.fields.get("name").map(|s| s.as_str()).unwrap_or(""),
+                );
+            }
+
+            // Skip records that failed validation (G5).
+            if i < item_passed.len() && !item_passed[i] {
+                validation_failed += 1;
+                continue;
+            }
+            if i < dup_flags.len() && dup_flags[i] {
                 skipped += 1;
                 continue;
             }
@@ -367,7 +398,15 @@ impl ImportExportService {
         }
 
         // 5b. Import review_records as notes — count as reviewed.
-        for record in &review_records {
+        for (j, record) in review_records.iter().enumerate() {
+            if let Some(ref progress) = progress_fn {
+                progress(
+                    records.len() + j + 1,
+                    total_records,
+                    record.fields.get("name").map(|s| s.as_str()).unwrap_or(""),
+                );
+            }
+
             match vault_create_fn(
                 record.credential_type,
                 record.fields.clone(),
@@ -385,6 +424,7 @@ impl ImportExportService {
             reviewed,
             skipped,
             failed,
+            validation_failed,
             duration_ms,
         };
 

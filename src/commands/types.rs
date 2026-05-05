@@ -194,6 +194,17 @@ pub struct FailedItem {
     pub reason: String,
 }
 
+/// Reason a record was skipped or failed during import.
+///
+/// Used in `CommandResult::ImportCompleted` to break down non-imported records
+/// by cause, so the UI can display a categorized summary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SkipReason {
+    Duplicate,
+    ValidationFailed,
+    VaultWriteError,
+}
+
 /// Confirm dialog action variants
 #[derive(Debug, Clone)]
 pub enum ConfirmVariant {
