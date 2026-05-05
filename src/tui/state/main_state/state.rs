@@ -12,7 +12,7 @@ use crate::tui::state::animation::EffectKind;
 use crate::tui::state::detail_state::{DetailFieldKind, DetailPanelState, FieldValue};
 use crate::tui::state::list_state::{ListMode, ListPanelState};
 use crate::tui::state::overlay_state::HistoryEntry;
-use crate::tui::state::tag_management::TagManagementState;
+use crate::tui::state::tag_management::{TagManagementState, TagSortOrder};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::{CredentialType, SecureStr, Tag};
 
@@ -272,6 +272,38 @@ impl SidebarState {
     /// Whether tag management mode is active.
     pub fn is_tag_management(&self) -> bool {
         self.tag_management_mode
+    }
+
+    /// Sort the tags vector according to the current sort order, then rebuild items.
+    pub fn sort_tags_by_current_order(&mut self) {
+        let sort_order = self.tag_management.sort_order;
+        self.tags.sort_by(|a, b| {
+            let meta_a = self.tag_metadata.get(&a.id);
+            let meta_b = self.tag_metadata.get(&b.id);
+            match sort_order {
+                TagSortOrder::Frequency => {
+                    let count_a = meta_a.map(|m| m.record_count).unwrap_or(0);
+                    let count_b = meta_b.map(|m| m.record_count).unwrap_or(0);
+                    count_b
+                        .cmp(&count_a)
+                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                }
+                TagSortOrder::Alphabetical => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                TagSortOrder::RecentlyUsed => {
+                    let time_a = meta_a.map(|m| m.last_used_at).unwrap_or(0);
+                    let time_b = meta_b.map(|m| m.last_used_at).unwrap_or(0);
+                    match (time_a, time_b) {
+                        (0, 0) => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                        (0, _) => std::cmp::Ordering::Greater,
+                        (_, 0) => std::cmp::Ordering::Less,
+                        _ => time_b
+                            .cmp(&time_a)
+                            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+                    }
+                }
+            }
+        });
+        self.rebuild();
     }
 
     /// Get the name of the currently selected tag item, if any.
@@ -832,11 +864,11 @@ impl Screen for MainScreenState {
                         }
                         ScreenResult::Continue
                     }
-                    // Handle TagsLoaded — populate sidebar tags
+                    // Handle TagsLoaded — populate sidebar tags, apply sort, rebuild
                     CommandResult::TagsLoaded { tags, tag_stats } => {
                         self.sidebar.tags = tags;
                         self.sidebar.tag_metadata = tag_stats;
-                        self.sidebar.rebuild();
+                        self.sidebar.sort_tags_by_current_order();
                         ScreenResult::Continue
                     }
                     // Handle TagRenamed — reload tags and record list

@@ -578,4 +578,54 @@ mod tests {
             "should show sort indicator"
         );
     }
+
+    #[test]
+    fn inline_rename_accounts_for_scroll_offset() {
+        use crate::tui::state::tag_management::InlineEditState;
+        use crate::types::Tag;
+
+        // Build a sidebar with enough tags to fill a small terminal and cause scrolling.
+        // Layout: Brand, Sep, All, Favorites, Expired, Health, Trash, Sep, TagHeader,
+        // then 10 tags, Sep, Generator, Config = 24 items.
+        let tags: Vec<Tag> = (0..10)
+            .map(|i| Tag {
+                id: i + 1,
+                name: format!("tag_{:02}", i),
+            })
+            .collect();
+
+        let mut state = SidebarState {
+            tags_expanded: true,
+            tags,
+            tag_management_mode: true,
+            tag_management: crate::tui::state::tag_management::TagManagementState {
+                inline_edit: Some(InlineEditState::new("tag_09")),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        state.rebuild();
+
+        // Select the last tag (index 18: Brand(0), Sep(1), All(2), Fav(3), Exp(4),
+        // Health(5), Trash(6), Sep(7), TagHeader(8), tag_00(9)..tag_09(18))
+        state.selected_index = 18;
+
+        // Render into a short area (height 12) so the list must scroll.
+        // With 24 items and height 12, offset should be > 0 after rendering.
+        let backend = ratatui::backend::TestBackend::new(40, 12);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                SidebarPanel::view(frame, frame.area(), &state, true, true);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        let result = format!("{:?}", buf);
+        // The edit overlay should render "tag_09" text somewhere in the visible area.
+        assert!(
+            result.contains("tag_09"),
+            "inline rename overlay should be visible with scroll offset"
+        );
+    }
 }
