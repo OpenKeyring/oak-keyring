@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-use crate::commands::types::{CsvColumnMapping, ExportScope, ImportSource};
+use crate::commands::types::{CsvColumnMapping, ExportFormat, ExportScope, ImportSource};
 use crate::errors::mapping::import_export::ImportExportError;
 use crate::services::import_export::duplicate::ExistingRecordKey;
 use crate::services::import_export::types::{ExportSessionStatus, ImportSessionStatus};
@@ -511,6 +511,7 @@ fn create_export_session_returns_id() {
     let id = service
         .create_export_session(
             ExportScope::All,
+            ExportFormat::Okb,
             valid_export_password(),
             valid_export_path(&dir),
         )
@@ -530,7 +531,12 @@ fn create_export_session_rejects_short_password() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let short_pw = SecureStr::new("1234567".to_string());
 
-    let result = service.create_export_session(ExportScope::All, short_pw, valid_export_path(&dir));
+    let result = service.create_export_session(
+        ExportScope::All,
+        ExportFormat::Okb,
+        short_pw,
+        valid_export_path(&dir),
+    );
 
     assert!(result.is_err());
     assert!(
@@ -547,7 +553,12 @@ fn create_export_session_rejects_non_okb_path() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let bad_path = dir.path().join("export.txt");
 
-    let result = service.create_export_session(ExportScope::All, valid_export_password(), bad_path);
+    let result = service.create_export_session(
+        ExportScope::All,
+        ExportFormat::Okb,
+        valid_export_password(),
+        bad_path,
+    );
 
     assert!(result.is_err());
     assert!(
@@ -570,6 +581,7 @@ fn execute_export_writes_file_and_completes() {
     let id = service
         .create_export_session(
             ExportScope::All,
+            ExportFormat::Okb,
             valid_export_password(),
             output_path.clone(),
         )
@@ -599,6 +611,7 @@ fn execute_export_rejects_empty_records() {
     let id = service
         .create_export_session(
             ExportScope::All,
+            ExportFormat::Okb,
             valid_export_password(),
             valid_export_path(&dir),
         )
@@ -626,6 +639,7 @@ fn execute_export_rejects_wrong_status() {
     let id = service
         .create_export_session(
             ExportScope::All,
+            ExportFormat::Okb,
             valid_export_password(),
             valid_export_path(&dir),
         )
@@ -665,6 +679,7 @@ fn cancel_export_session_changes_status() {
     let id = service
         .create_export_session(
             ExportScope::All,
+            ExportFormat::Okb,
             valid_export_password(),
             valid_export_path(&dir),
         )

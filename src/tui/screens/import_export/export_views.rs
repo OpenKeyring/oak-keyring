@@ -1,9 +1,10 @@
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
+use crate::commands::types::ExportFormat;
 use crate::t;
 use crate::tui::theme::{
-    self, Styles, PRIMARY, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY,
+    self, Styles, PRIMARY, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY, WARNING,
 };
 
 use super::screen::ImportExportScreen;
@@ -15,7 +16,7 @@ impl ImportExportScreen {
     pub(super) fn view_export_form(&self, frame: &mut ratatui::Frame, area: Rect) {
         let outer = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(20),
+            Constraint::Length(22),
             Constraint::Fill(1),
         ])
         .split(area);
@@ -36,14 +37,67 @@ impl ImportExportScreen {
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
 
-        // Format info (AC17: recovery key mention)
-        let format_info = Paragraph::new(format!(
-            "{} {}",
-            theme::ICON_INFO,
-            t!("tui.import_export.format_info")
-        ))
-        .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
-        .alignment(Alignment::Center);
+        // Format selector
+        let format_header = Paragraph::new(t!("tui.import_export.export_format_label").to_string())
+            .style(ratatui::style::Style::default().fg(TEXT));
+        let format_options = [
+            (
+                t!("tui.import_export.format_okb").to_string(),
+                ExportFormat::Okb,
+            ),
+            (
+                t!("tui.import_export.format_csv").to_string(),
+                ExportFormat::Csv,
+            ),
+        ];
+        let format_items: Vec<ratatui::text::Line> = format_options
+            .iter()
+            .map(|(label, opt)| {
+                let is_selected = self.export_format == *opt;
+                let marker = if is_selected { ">" } else { " " };
+                let style = if is_selected && self.export_focus == ExportFocus::Format {
+                    Styles::selected_focused()
+                } else if is_selected {
+                    ratatui::style::Style::default().fg(PRIMARY)
+                } else {
+                    ratatui::style::Style::default().fg(TEXT_SECONDARY)
+                };
+                ratatui::text::Line::from(ratatui::text::Span::styled(
+                    format!(" {} {}", marker, label),
+                    style,
+                ))
+            })
+            .collect();
+        let format_list = Paragraph::new(format_items);
+
+        // Security warning for CSV
+        let csv_warning = if self.export_format == ExportFormat::Csv {
+            Some(
+                Paragraph::new(format!(
+                    "{} {}",
+                    theme::ICON_WARNING,
+                    t!("tui.import_export.csv_security_warning")
+                ))
+                .style(ratatui::style::Style::default().fg(WARNING)),
+            )
+        } else {
+            None
+        };
+
+        // Format info (AC17: recovery key mention) — only for Okb
+        let format_info = if self.export_format == ExportFormat::Okb {
+            Some(
+                Paragraph::new(format!(
+                    "{} {}",
+                    theme::ICON_INFO,
+                    t!("tui.import_export.format_info")
+                ))
+                .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
+                .alignment(Alignment::Center),
+            )
+        } else {
+            None
+        };
 
         // Scope selector
         let scope_header = Paragraph::new(t!("tui.import_export.export_scope_label").to_string())
@@ -189,65 +243,81 @@ impl ImportExportScreen {
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
 
+        let is_okb = self.export_format == ExportFormat::Okb;
+        let has_warning = csv_warning.is_some();
+
         let rows = Layout::vertical([
-            Constraint::Length(1), // title
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // scope header
-            Constraint::Length(3), // scope list
-            Constraint::Length(3), // export password
-            Constraint::Length(1), // strength bar
-            Constraint::Length(3), // confirm password
-            Constraint::Length(1), // match indicator
-            Constraint::Length(1), // gap
-            Constraint::Length(3), // output path
-            Constraint::Length(1), // error or gap
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // hint
+            Constraint::Length(1),                               // 0  title
+            Constraint::Length(1),                               // 1  gap
+            Constraint::Length(1),                               // 2  format header
+            Constraint::Length(2),                               // 3  format list (2 items)
+            Constraint::Length(if has_warning { 1 } else { 0 }), // 4 csv warning
+            Constraint::Length(if is_okb { 1 } else { 0 }),      // 5  format info
+            Constraint::Length(1),                               // 6  scope header
+            Constraint::Length(3),                               // 7  scope list
+            Constraint::Length(if is_okb { 3 } else { 0 }),      // 8  export password
+            Constraint::Length(if is_okb { 1 } else { 0 }),      // 9  strength bar
+            Constraint::Length(if is_okb { 3 } else { 0 }),      // 10 confirm password
+            Constraint::Length(if is_okb { 1 } else { 0 }),      // 11 match indicator
+            Constraint::Length(1),                               // 12 gap
+            Constraint::Length(3),                               // 13 output path
+            Constraint::Length(1),                               // 14 error or gap
+            Constraint::Length(1),                               // 15 gap
+            Constraint::Length(1),                               // 16 hint
         ])
         .split(content_area);
 
         frame.render_widget(title, rows[0]);
         // gap at rows[1]
-        frame.render_widget(format_info, rows[1]);
-        frame.render_widget(scope_header, rows[2]);
-        frame.render_widget(scope_list, rows[3]);
+        frame.render_widget(format_header, rows[2]);
+        frame.render_widget(format_list, rows[3]);
+        if let Some(ref w) = csv_warning {
+            frame.render_widget(w.clone(), rows[4]);
+        }
+        if let Some(ref info) = format_info {
+            frame.render_widget(info.clone(), rows[5]);
+        }
+        frame.render_widget(scope_header, rows[6]);
+        frame.render_widget(scope_list, rows[7]);
 
-        // Export password
-        frame.render_widget(pw_block, rows[4]);
-        let pw_inner = Layout::vertical([Constraint::Length(1)]).split(rows[4])[0];
-        let pw_padded =
-            Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(pw_inner);
-        frame.render_widget(pw_display, pw_padded[1]);
+        if is_okb {
+            // Export password
+            frame.render_widget(pw_block, rows[8]);
+            let pw_inner = Layout::vertical([Constraint::Length(1)]).split(rows[8])[0];
+            let pw_padded =
+                Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(pw_inner);
+            frame.render_widget(pw_display, pw_padded[1]);
 
-        // Strength
-        frame.render_widget(strength_line, rows[5]);
+            // Strength
+            frame.render_widget(strength_line, rows[9]);
 
-        // Confirm password
-        frame.render_widget(confirm_block, rows[6]);
-        let confirm_inner = Layout::vertical([Constraint::Length(1)]).split(rows[6])[0];
-        let confirm_padded =
-            Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(confirm_inner);
-        frame.render_widget(confirm_display, confirm_padded[1]);
+            // Confirm password
+            frame.render_widget(confirm_block, rows[10]);
+            let confirm_inner = Layout::vertical([Constraint::Length(1)]).split(rows[10])[0];
+            let confirm_padded = Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)])
+                .split(confirm_inner);
+            frame.render_widget(confirm_display, confirm_padded[1]);
 
-        // Match indicator
-        if let Some(ref ml) = match_line {
-            frame.render_widget(ml.clone(), rows[7]);
+            // Match indicator
+            if let Some(ref ml) = match_line {
+                frame.render_widget(ml.clone(), rows[11]);
+            }
         }
 
         // Output path
-        frame.render_widget(path_block, rows[9]);
-        let path_inner = Layout::vertical([Constraint::Length(1)]).split(rows[9])[0];
+        frame.render_widget(path_block, rows[13]);
+        let path_inner = Layout::vertical([Constraint::Length(1)]).split(rows[13])[0];
         let path_padded =
             Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(path_inner);
         frame.render_widget(path_display, path_padded[1]);
 
         // Error
         if let Some(ref el) = error_line {
-            frame.render_widget(el.clone(), rows[10]);
+            frame.render_widget(el.clone(), rows[14]);
         }
 
         // Hint
-        frame.render_widget(hint, rows[12]);
+        frame.render_widget(hint, rows[16]);
     }
 }
 

@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::commands::types::{CsvColumnMapping, ExportScope, ImportPreview, ImportSource};
+use crate::commands::types::{
+    CsvColumnMapping, ExportFormat, ExportScope, ImportPreview, ImportSource,
+};
 use crate::errors::mapping::import_export::ImportExportError;
 use crate::services::import_export::duplicate::{detect_duplicates, ExistingRecordKey};
 use crate::services::import_export::mapping::map_parsed_item;
@@ -469,6 +471,7 @@ impl ImportExportService {
     pub fn create_export_session(
         &mut self,
         scope: ExportScope,
+        format: ExportFormat,
         export_password: SecureStr,
         output_path: PathBuf,
     ) -> Result<Uuid, ImportExportError> {
@@ -482,6 +485,7 @@ impl ImportExportService {
         let session = ExportSession {
             id,
             scope,
+            format,
             export_password,
             output_path,
             status: ExportSessionStatus::Created,

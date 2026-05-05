@@ -170,6 +170,135 @@ pub fn encrypt_and_write_okb(
     Ok(buf.len())
 }
 
+/// Write the export payload as a UTF-8 BOM CSV file.
+///
+/// The CSV includes all 15 columns for all credential types:
+/// `id, credential_type, name, username, password, url, notes, tags, is_favorite, expires_at, public_key, private_key, passphrase, app_id, secret_key`
+///
+/// Empty/None fields are written as empty strings. Tags are joined with `;`.
+/// The file starts with a UTF-8 BOM (EF BB BF) for Excel compatibility.
+///
+/// Returns the total number of bytes written.
+pub fn write_csv(payload: &ExportPayload, output_path: &Path) -> Result<usize, ImportExportError> {
+    let mut buf = Vec::new();
+
+    // UTF-8 BOM for Excel compatibility.
+    buf.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+
+    {
+        let mut wtr = csv::Writer::from_writer(&mut buf);
+
+        // Header row.
+        wtr.write_record([
+            "id",
+            "credential_type",
+            "name",
+            "username",
+            "password",
+            "url",
+            "notes",
+            "tags",
+            "is_favorite",
+            "expires_at",
+            "public_key",
+            "private_key",
+            "passphrase",
+            "app_id",
+            "secret_key",
+        ])
+        .map_err(|e| ImportExportError::FileWriteError {
+            path: output_path.to_path_buf(),
+            reason: format!("failed to write CSV header: {e}"),
+        })?;
+
+        // Data rows.
+        for record in &payload.records {
+            let tags = record
+                .tags
+                .as_ref()
+                .map(|t| t.join(";"))
+                .unwrap_or_default();
+            let is_favorite = record
+                .is_favorite
+                .map(|v| if v { "true" } else { "false" })
+                .unwrap_or("");
+
+            wtr.write_record([
+                &record.id,
+                &record.credential_type,
+                &record.name,
+                record.username.as_deref().unwrap_or(""),
+                record.password.as_deref().unwrap_or(""),
+                record.url.as_deref().unwrap_or(""),
+                record.notes.as_deref().unwrap_or(""),
+                &tags,
+                is_favorite,
+                record.expires_at.as_deref().unwrap_or(""),
+                record.public_key.as_deref().unwrap_or(""),
+                record.private_key.as_deref().unwrap_or(""),
+                record.passphrase.as_deref().unwrap_or(""),
+                record.app_id.as_deref().unwrap_or(""),
+                record.secret_key.as_deref().unwrap_or(""),
+            ])
+            .map_err(|e| ImportExportError::FileWriteError {
+                path: output_path.to_path_buf(),
+                reason: format!("failed to write CSV record: {e}"),
+            })?;
+        }
+
+        wtr.flush().map_err(|e| ImportExportError::FileWriteError {
+            path: output_path.to_path_buf(),
+            reason: format!("failed to flush CSV: {e}"),
+        })?;
+    }
+
+    // Atomic write: write to temp file first, then rename.
+    let tmp_path = output_path.with_extension("csv.tmp");
+    std::fs::write(&tmp_path, &buf).map_err(|e| ImportExportError::FileWriteError {
+        path: tmp_path.clone(),
+        reason: e.to_string(),
+    })?;
+
+    std::fs::rename(&tmp_path, output_path).map_err(|e| ImportExportError::FileWriteError {
+        path: output_path.to_path_buf(),
+        reason: format!("atomic rename failed: {e}"),
+    })?;
+
+    Ok(buf.len())
+}
+
+/// Validate that the output path has .csv extension and parent exists.
+pub fn validate_export_csv_path(path: &Path) -> Result<(), ImportExportError> {
+    match path.extension() {
+        Some(ext) if ext == "csv" => {}
+        _ => {
+            return Err(ImportExportError::InvalidFormat(
+                "output file must have .csv extension".to_string(),
+            ));
+        }
+    }
+
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => {
+            if !parent.exists() {
+                return Err(ImportExportError::FileWriteError {
+                    path: path.to_path_buf(),
+                    reason: "parent directory does not exist".to_string(),
+                });
+            }
+        }
+        Some(_) => {}
+        None => {
+            return Err(ImportExportError::FileWriteError {
+                path: path.to_path_buf(),
+                reason: "cannot determine parent directory".to_string(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,6 +494,207 @@ mod tests {
         assert!(
             !tmp_path.exists(),
             "temp file should have been renamed away"
+        );
+    }
+
+    // -- Test 9: write_csv produces valid CSV with BOM and headers --
+
+    #[test]
+    fn write_csv_produces_valid_csv_with_bom() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().join("export.csv");
+        let payload = sample_payload();
+
+        write_csv(&payload, &path).expect("write should succeed");
+
+        let data = std::fs::read(&path).expect("read output file");
+
+        // Verify UTF-8 BOM
+        assert_eq!(
+            &data[0..3],
+            &[0xEF, 0xBB, 0xBF],
+            "file should start with UTF-8 BOM"
+        );
+
+        let text = std::str::from_utf8(&data[3..]).expect("valid UTF-8");
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(!lines.is_empty(), "CSV should have at least a header line");
+
+        // Verify header row contains all expected columns
+        let header = lines[0];
+        assert!(
+            header.contains("credential_type"),
+            "header should have credential_type"
+        );
+        assert!(header.contains("name"), "header should have name");
+        assert!(header.contains("username"), "header should have username");
+        assert!(header.contains("password"), "header should have password");
+        assert!(header.contains("url"), "header should have url");
+        assert!(header.contains("notes"), "header should have notes");
+        assert!(header.contains("tags"), "header should have tags");
+        assert!(
+            header.contains("public_key"),
+            "header should have public_key"
+        );
+        assert!(header.contains("app_id"), "header should have app_id");
+
+        // Verify at least one data row
+        assert!(lines.len() > 1, "CSV should have at least one data row");
+    }
+
+    // -- Test 10: write_csv handles all credential types --
+
+    #[test]
+    fn write_csv_handles_all_credential_types() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().join("export.csv");
+
+        let payload = ExportPayload {
+            version: "1.0".to_string(),
+            vault_id: "test-vault".to_string(),
+            exported_at: "2026-05-05T00:00:00Z".to_string(),
+            records: vec![
+                ExportRecord {
+                    id: "1".to_string(),
+                    credential_type: "login".to_string(),
+                    name: "Gmail".to_string(),
+                    username: Some("user@gmail.com".to_string()),
+                    password: Some("s3cret".to_string()),
+                    url: Some("https://gmail.com".to_string()),
+                    notes: Some("My email".to_string()),
+                    tags: Some(vec!["email".to_string()]),
+                    is_favorite: Some(true),
+                    expires_at: None,
+                    public_key: None,
+                    private_key: None,
+                    passphrase: None,
+                    app_id: None,
+                    secret_key: None,
+                },
+                ExportRecord {
+                    id: "2".to_string(),
+                    credential_type: "ssh".to_string(),
+                    name: "GitHub SSH".to_string(),
+                    username: None,
+                    password: None,
+                    url: None,
+                    notes: None,
+                    tags: None,
+                    is_favorite: None,
+                    expires_at: None,
+                    public_key: Some("ssh-rsa AAAA...".to_string()),
+                    private_key: Some("-----BEGIN...".to_string()),
+                    passphrase: Some("ssh_pass".to_string()),
+                    app_id: None,
+                    secret_key: None,
+                },
+                ExportRecord {
+                    id: "3".to_string(),
+                    credential_type: "api".to_string(),
+                    name: "AWS API".to_string(),
+                    username: None,
+                    password: None,
+                    url: None,
+                    notes: None,
+                    tags: Some(vec!["cloud".to_string(), "aws".to_string()]),
+                    is_favorite: Some(false),
+                    expires_at: None,
+                    public_key: None,
+                    private_key: None,
+                    passphrase: None,
+                    app_id: Some("AKIAIOSFODNN7".to_string()),
+                    secret_key: Some("wJalrXUtnFEMI/K7MDENG".to_string()),
+                },
+            ],
+        };
+
+        write_csv(&payload, &path).expect("write should succeed");
+
+        let data = std::fs::read_to_string(&path).expect("read file");
+        // Skip BOM (3 bytes for UTF-8 BOM character)
+        let text = &data[3..];
+        let lines: Vec<&str> = text.lines().collect();
+
+        // Header + 3 data rows
+        assert_eq!(lines.len(), 4, "should have header + 3 data rows");
+
+        // Verify login row
+        assert!(lines[1].contains("user@gmail.com"));
+        assert!(lines[1].contains("s3cret"));
+
+        // Verify SSH row
+        assert!(lines[2].contains("ssh-rsa AAAA..."));
+        assert!(lines[2].contains("ssh_pass"));
+
+        // Verify API row
+        assert!(lines[3].contains("AKIAIOSFODNN7"));
+        assert!(lines[3].contains("wJalrXUtnFEMI/K7MDENG"));
+    }
+
+    // -- Test 11: write_csv escapes special characters --
+
+    #[test]
+    fn write_csv_escapes_special_characters() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().join("export.csv");
+
+        let payload = ExportPayload {
+            version: "1.0".to_string(),
+            vault_id: "test".to_string(),
+            exported_at: "2026-05-05T00:00:00Z".to_string(),
+            records: vec![ExportRecord {
+                id: "1".to_string(),
+                credential_type: "login".to_string(),
+                name: "Entry, with comma".to_string(),
+                username: Some("user\nmultiline".to_string()),
+                password: Some("pass\"quotes".to_string()),
+                url: None,
+                notes: None,
+                tags: Some(vec!["tag,one".to_string(), "tag;two".to_string()]),
+                is_favorite: None,
+                expires_at: None,
+                public_key: None,
+                private_key: None,
+                passphrase: None,
+                app_id: None,
+                secret_key: None,
+            }],
+        };
+
+        write_csv(&payload, &path).expect("write should succeed");
+        let data = std::fs::read(&path);
+        assert!(data.is_ok());
+        let binding = data.unwrap();
+        let text = String::from_utf8_lossy(&binding);
+        assert!(
+            text.contains("Entry, with comma"),
+            "comma in name should be preserved"
+        );
+    }
+
+    // -- Test 12: validate_export_csv_path accepts .csv --
+
+    #[test]
+    fn validate_export_csv_path_accepts_csv() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().join("export.csv");
+        assert!(validate_export_csv_path(&path).is_ok());
+    }
+
+    // -- Test 13: validate_export_csv_path rejects non-.csv --
+
+    #[test]
+    fn validate_export_csv_path_rejects_non_csv() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().join("export.txt");
+        let result = validate_export_csv_path(&path);
+        assert!(result.is_err());
+        assert!(
+            matches!(
+                result.unwrap_err(),
+                ImportExportError::InvalidFormat(msg) if msg.contains(".csv")
+            ),
+            "expected InvalidFormat mentioning .csv"
         );
     }
 }
