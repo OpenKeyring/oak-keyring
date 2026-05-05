@@ -178,12 +178,20 @@ impl ImportExportService {
             failed_items: summary.failed_items.clone(),
         };
 
+        // Read CSV headers for CSV sources
+        let csv_headers = if source == ImportSource::Csv {
+            read_csv_headers(&file_path).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         let preview = ImportPreview {
             importable: summary.importable,
             needs_review: summary.needs_review,
             failed: summary.failed,
             review_items: summary.review_items,
             failed_items: summary.failed_items,
+            csv_headers,
         };
 
         // 7. Update session.
@@ -222,6 +230,7 @@ impl ImportExportService {
             failed: vr.failed,
             review_items: vr.review_items.clone(),
             failed_items: vr.failed_items.clone(),
+            csv_headers: Vec::new(),
         })
     }
 
@@ -560,6 +569,32 @@ impl ImportExportService {
     /// Return the status of a session, if it exists.
     pub fn session_status(&self, session_id: Uuid) -> Option<ImportSessionStatus> {
         self.import_sessions.get(&session_id).map(|s| s.status)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper functions
+// ---------------------------------------------------------------------------
+
+fn read_csv_headers(path: &std::path::Path) -> Result<Vec<String>, ImportExportError> {
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_path(path)
+        .map_err(|e| ImportExportError::FileReadError {
+            path: path.to_path_buf(),
+            reason: e.to_string(),
+        })?;
+    let mut record = csv::StringRecord::new();
+    if rdr
+        .read_record(&mut record)
+        .map_err(|e| ImportExportError::FileReadError {
+            path: path.to_path_buf(),
+            reason: e.to_string(),
+        })?
+    {
+        Ok(record.iter().map(|s| s.to_string()).collect())
+    } else {
+        Ok(Vec::new())
     }
 }
 
