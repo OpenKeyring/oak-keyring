@@ -1,13 +1,15 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::commands::types::{
-    CsvColumnMapping, ExportScope, ImportSource, RecordFilter, RecordSort, SortDirection, SortField,
+    CsvColumnMapping, ExportScope, ImportSource, RecordFilter, RecordSort, SkipReason,
+    SortDirection, SortField,
 };
-use crate::commands::CommandResult;
+use crate::commands::{CommandResult, Message};
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::services::import_export::duplicate::ExistingRecordKey;
 use crate::services::import_export::export::ExportRecord;
+use crate::services::import_export::types::ImportResult;
 use crate::types::record::{CreateRecordParams, DecryptedRecord};
 use crate::types::{CredentialType, EncryptedPayload, SecureStr};
 
@@ -107,6 +109,7 @@ pub fn handle_execute_import(
     // Step 3: Execute import with a closure that creates vault records.
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
     let import_cancel = executor.cancel_token().clone();
+    let progress_tx = executor.result_tx.clone();
 
     let result = match executor.import_export.execute_import(
         session_id,
@@ -129,6 +132,13 @@ pub fn handle_execute_import(
                 .create_record(params)
                 .map_err(|e| e.to_string())
         },
+        Some(move |current, total, name: &str| {
+            let _ = progress_tx.try_send(Message::ImportProgress {
+                current,
+                total,
+                current_name: name.to_string(),
+            });
+        }),
     ) {
         Ok(r) => {
             if executor.cancel_token().is_cancelled() {
@@ -180,8 +190,9 @@ pub fn handle_execute_import(
     CommandResult::ImportCompleted {
         imported_count,
         reviewed_count,
-        failed_count,
         skipped_count: result.skipped,
+        failed_count,
+        skip_breakdown: build_skip_breakdown(&result),
     }
 }
 
@@ -435,6 +446,21 @@ fn fields_to_payload(
             notes: fields.get("notes").cloned(),
         },
     }
+}
+
+/// Build a `SkipReason` → count breakdown from an `ImportResult`.
+fn build_skip_breakdown(result: &ImportResult) -> HashMap<SkipReason, usize> {
+    let mut breakdown = HashMap::new();
+    if result.skipped > 0 {
+        breakdown.insert(SkipReason::Duplicate, result.skipped);
+    }
+    if result.validation_failed > 0 {
+        breakdown.insert(SkipReason::ValidationFailed, result.validation_failed);
+    }
+    if result.failed > 0 {
+        breakdown.insert(SkipReason::VaultWriteError, result.failed);
+    }
+    breakdown
 }
 
 #[cfg(test)]

@@ -242,14 +242,26 @@ fn handle_message(
                             record_count
                         )));
                 }
-                CommandResult::ImportCompleted { imported_count, .. } => {
+                CommandResult::ImportCompleted {
+                    imported_count,
+                    skipped_count,
+                    failed_count,
+                    ..
+                } => {
+                    let mut parts = vec![format!(
+                        "Import completed: {} records imported",
+                        imported_count
+                    )];
+                    if *skipped_count > 0 {
+                        parts.push(format!("{} skipped", skipped_count));
+                    }
+                    if *failed_count > 0 {
+                        parts.push(format!("{} failed", failed_count));
+                    }
                     app.state
                         .shared
                         .notification
-                        .enqueue(StatusMessage::success(format!(
-                            "Import completed: {} records imported",
-                            imported_count
-                        )));
+                        .enqueue(StatusMessage::success(parts.join(", ")));
                 }
                 CommandResult::Cancelled { operation, .. } => {
                     app.state

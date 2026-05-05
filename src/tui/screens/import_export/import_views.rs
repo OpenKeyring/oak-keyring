@@ -575,9 +575,31 @@ impl ImportExportScreen {
 
 impl ImportExportScreen {
     pub(super) fn view_import_complete(&self, frame: &mut ratatui::Frame, area: Rect) {
+        use crate::commands::types::SkipReason;
+
+        // Count breakdown lines to compute layout height.
+        let mut line_count: u16 = 3; // title + gaps + hint
+        if self.imported_count > 0 {
+            line_count += 1;
+        }
+        if self.reviewed_count > 0 {
+            line_count += 1;
+        }
+        if self.skipped_count > 0 {
+            line_count += 1;
+        }
+        for &count in self.skip_breakdown.values() {
+            if count > 0 {
+                line_count += 1;
+            }
+        }
+        if self.failed_count > 0 {
+            line_count += 1;
+        }
+
         let outer = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(9),
+            Constraint::Min(line_count),
             Constraint::Fill(1),
         ])
         .split(area);
@@ -593,22 +615,63 @@ impl ImportExportScreen {
 
         let content_area = h_layout[1];
 
+        let mut constraints = vec![
+            Constraint::Length(1), // title
+            Constraint::Length(1), // gap
+        ];
+
+        if self.imported_count > 0 {
+            constraints.push(Constraint::Length(1));
+        }
+        if self.reviewed_count > 0 {
+            constraints.push(Constraint::Length(1));
+        }
+        if self.skipped_count > 0 {
+            constraints.push(Constraint::Length(1));
+        }
+        let breakdown_keys: Vec<SkipReason> = self
+            .skip_breakdown
+            .iter()
+            .filter(|(_, &c)| c > 0)
+            .map(|(&k, _)| k)
+            .collect();
+        for _ in &breakdown_keys {
+            constraints.push(Constraint::Length(1));
+        }
+        if self.failed_count > 0 {
+            constraints.push(Constraint::Length(1));
+        }
+        constraints.push(Constraint::Length(1)); // gap
+        constraints.push(Constraint::Length(1)); // hint
+
+        let rows = Layout::vertical(constraints).split(content_area);
+
+        let mut row_idx = 0usize;
+
         let title = Paragraph::new(t!("tui.import_export.complete_title").to_string())
             .style(Styles::success_text())
             .alignment(Alignment::Center);
+        frame.render_widget(title, rows[row_idx]);
+        row_idx += 2; // skip title + gap
 
-        let imported_line = Paragraph::new(format!(
-            "{} {}",
-            theme::ICON_SUCCESS,
-            t!(
-                "tui.import_export.records_imported",
-                count = self.imported_count
-            )
-        ))
-        .style(Styles::success_text());
+        // Imported
+        if self.imported_count > 0 {
+            let line = Paragraph::new(format!(
+                "{} {}",
+                theme::ICON_SUCCESS,
+                t!(
+                    "tui.import_export.records_imported",
+                    count = self.imported_count
+                )
+            ))
+            .style(Styles::success_text());
+            frame.render_widget(line, rows[row_idx]);
+            row_idx += 1;
+        }
 
-        let reviewed_line = if self.reviewed_count > 0 {
-            Paragraph::new(format!(
+        // Reviewed (imported as notes)
+        if self.reviewed_count > 0 {
+            let line = Paragraph::new(format!(
                 "{} {}",
                 theme::ICON_WARNING,
                 t!(
@@ -616,27 +679,14 @@ impl ImportExportScreen {
                     count = self.reviewed_count
                 )
             ))
-            .style(Styles::warning_text())
-        } else {
-            Paragraph::new("").style(ratatui::style::Style::default().fg(TEXT_MUTED))
-        };
+            .style(Styles::warning_text());
+            frame.render_widget(line, rows[row_idx]);
+            row_idx += 1;
+        }
 
-        let failed_line = if self.failed_count > 0 {
-            Paragraph::new(format!(
-                "{} {}",
-                theme::ICON_ERROR,
-                t!(
-                    "tui.import_export.records_failed",
-                    count = self.failed_count
-                )
-            ))
-            .style(Styles::error_text())
-        } else {
-            Paragraph::new("").style(ratatui::style::Style::default().fg(TEXT_MUTED))
-        };
-
-        let skipped_line = if self.skipped_count > 0 {
-            Paragraph::new(format!(
+        // Skipped
+        if self.skipped_count > 0 {
+            let line = Paragraph::new(format!(
                 "{} {}",
                 theme::ICON_WARNING,
                 t!(
@@ -644,34 +694,57 @@ impl ImportExportScreen {
                     count = self.skipped_count
                 )
             ))
-            .style(Styles::warning_text())
-        } else {
-            Paragraph::new("").style(ratatui::style::Style::default().fg(TEXT_MUTED))
-        };
+            .style(Styles::warning_text());
+            frame.render_widget(line, rows[row_idx]);
+            row_idx += 1;
 
-        let rows = Layout::vertical([
-            Constraint::Length(1), // title
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // imported
-            Constraint::Length(1), // reviewed
-            Constraint::Length(1), // failed or skipped
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // hint
-        ])
-        .split(content_area);
-
-        frame.render_widget(title, rows[0]);
-        frame.render_widget(imported_line, rows[2]);
-        frame.render_widget(reviewed_line, rows[3]);
-        if self.failed_count > 0 {
-            frame.render_widget(failed_line, rows[4]);
-        } else {
-            frame.render_widget(skipped_line, rows[4]);
+            // Breakdown by reason
+            for reason in &breakdown_keys {
+                let count = self.skip_breakdown.get(reason).copied().unwrap_or(0);
+                let (label, style) = match reason {
+                    SkipReason::Duplicate => (
+                        "Duplicates",
+                        ratatui::style::Style::default().fg(TEXT_SECONDARY),
+                    ),
+                    SkipReason::ValidationFailed => (
+                        "Validation failed",
+                        ratatui::style::Style::default().fg(WARNING),
+                    ),
+                    SkipReason::VaultWriteError => (
+                        "Vault write errors",
+                        ratatui::style::Style::default().fg(theme::ERROR),
+                    ),
+                };
+                let detail =
+                    Paragraph::new(format!("    {}: {} records", label, count)).style(style);
+                frame.render_widget(detail, rows[row_idx]);
+                row_idx += 1;
+            }
         }
+
+        // Failed
+        if self.failed_count > 0 {
+            let line = Paragraph::new(format!(
+                "{} {}",
+                theme::ICON_ERROR,
+                t!(
+                    "tui.import_export.records_failed",
+                    count = self.failed_count
+                )
+            ))
+            .style(Styles::error_text());
+            frame.render_widget(line, rows[row_idx]);
+            row_idx += 1;
+        }
+
+        // Skip gap
+        row_idx += 1;
 
         let hint = Paragraph::new(t!("tui.import_export.hint_back_config").to_string())
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[6]);
+        if row_idx < rows.len() {
+            frame.render_widget(hint, rows[row_idx]);
+        }
     }
 }
