@@ -97,6 +97,8 @@ pub struct ValidationResult {
     pub failed: usize,
     pub review_items: Vec<ReviewItem>,
     pub failed_items: Vec<FailedItem>,
+    /// Per-item pass status, indexed in same order as mapped_records.
+    pub item_passed: Vec<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +144,7 @@ pub struct ImportResult {
     pub reviewed: usize,
     pub skipped: usize,
     pub failed: usize,
+    pub validation_failed: usize,
     pub duration_ms: u64,
 }
 
@@ -240,6 +243,7 @@ mod tests {
         assert_eq!(result.reviewed, 0);
         assert_eq!(result.skipped, 0);
         assert_eq!(result.failed, 0);
+        assert_eq!(result.validation_failed, 0);
         assert_eq!(result.duration_ms, 0);
     }
 
@@ -250,6 +254,7 @@ mod tests {
             reviewed: 2,
             skipped: 1,
             failed: 0,
+            validation_failed: 0,
             duration_ms: 350,
         };
         assert_eq!(result.imported, 10);
@@ -313,6 +318,7 @@ mod tests {
                 name: "entry-b".to_string(),
                 reason: "corrupt data".to_string(),
             }],
+            item_passed: vec![true; 100],
         };
 
         assert_eq!(result.total_items, 100);

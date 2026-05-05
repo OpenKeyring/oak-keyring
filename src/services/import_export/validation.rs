@@ -337,6 +337,9 @@ pub struct ImportValidationSummary {
     pub review_items: Vec<ReviewItem>,
     /// Details for items that failed validation.
     pub failed_items: Vec<FailedItem>,
+    /// Per-item pass status, indexed in same order as parsed_items.
+    /// true = passed or needs_review; false = failed validation.
+    pub item_passed: Vec<bool>,
 }
 
 /// Validates a batch of parsed items against the given rules.
@@ -357,6 +360,7 @@ pub fn validate_items(items: &[ParsedItem], rules: &[ValidationRule]) -> ImportV
         failed: 0,
         review_items: Vec::new(),
         failed_items: Vec::new(),
+        item_passed: Vec::with_capacity(items.len()),
     };
 
     for item in items {
@@ -371,6 +375,7 @@ pub fn validate_items(items: &[ParsedItem], rules: &[ValidationRule]) -> ImportV
 
         if has_failures {
             summary.failed += 1;
+            summary.item_passed.push(false);
             // Record only the first failure reason for this item.
             for result in &results {
                 if let FieldValidation::Fail { field, message } = result {
@@ -383,6 +388,7 @@ pub fn validate_items(items: &[ParsedItem], rules: &[ValidationRule]) -> ImportV
             }
         } else if has_warnings {
             summary.needs_review += 1;
+            summary.item_passed.push(true);
             // Record only the first warning reason for this item.
             for result in &results {
                 if let FieldValidation::NeedsReview { field, message } = result {
@@ -395,6 +401,7 @@ pub fn validate_items(items: &[ParsedItem], rules: &[ValidationRule]) -> ImportV
             }
         } else {
             summary.importable += 1;
+            summary.item_passed.push(true);
         }
     }
 

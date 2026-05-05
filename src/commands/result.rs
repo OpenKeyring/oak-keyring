@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use uuid::Uuid;
@@ -131,8 +132,9 @@ pub enum CommandResult {
     ImportCompleted {
         imported_count: usize,
         reviewed_count: usize,
-        failed_count: usize,
         skipped_count: usize,
+        failed_count: usize,
+        skip_breakdown: HashMap<SkipReason, usize>,
     },
     ExportCompleted {
         path: PathBuf,
@@ -293,8 +295,15 @@ mod exhaustive_tests {
                     reviewed_count,
                     failed_count,
                     skipped_count,
+                    skip_breakdown,
                 } => {
-                    let _ = (imported_count, reviewed_count, failed_count, skipped_count);
+                    let _ = (
+                        imported_count,
+                        reviewed_count,
+                        failed_count,
+                        skipped_count,
+                        skip_breakdown,
+                    );
                 }
                 CommandResult::ExportCompleted { .. } => {}
                 // Vault Results
