@@ -61,10 +61,13 @@ impl SidebarPanel {
 
         frame.render_stateful_widget(list, area, &mut list_state);
 
+        // Read the scroll offset after rendering to position inline rename correctly
+        let list_offset = list_state.offset();
+
         // Render inline rename edit box overlay if active
         if state.tag_management_mode {
             if let Some(ref edit) = state.tag_management.inline_edit {
-                render_inline_rename(frame, area, state, edit, unicode);
+                render_inline_rename(frame, area, state, edit, unicode, list_offset);
             }
         }
     }
@@ -273,6 +276,7 @@ fn render_inline_rename(
     state: &SidebarState,
     edit: &crate::tui::state::tag_management::InlineEditState,
     unicode: bool,
+    list_offset: usize,
 ) {
     // Find the visual row position of the currently selected tag
     let tag_idx = state.selected_index;
@@ -280,8 +284,8 @@ fn render_inline_rename(
         return;
     }
 
-    // Calculate the y position for the overlay
-    let y_offset = area.y + tag_idx as u16;
+    // Calculate the y position for the overlay, accounting for scroll offset
+    let y_offset = area.y + tag_idx.saturating_sub(list_offset) as u16;
     if y_offset >= area.y + area.height {
         return; // Out of visible area
     }
