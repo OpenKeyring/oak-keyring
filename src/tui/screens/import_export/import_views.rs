@@ -710,10 +710,7 @@ impl ImportExportScreen {
                         "Validation failed",
                         ratatui::style::Style::default().fg(WARNING),
                     ),
-                    SkipReason::VaultWriteError => (
-                        "Vault write errors",
-                        ratatui::style::Style::default().fg(theme::ERROR),
-                    ),
+                    _ => continue,
                 };
                 let detail =
                     Paragraph::new(format!("    {}: {} records", label, count)).style(style);

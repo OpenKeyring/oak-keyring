@@ -457,9 +457,6 @@ fn build_skip_breakdown(result: &ImportResult) -> HashMap<SkipReason, usize> {
     if result.validation_failed > 0 {
         breakdown.insert(SkipReason::ValidationFailed, result.validation_failed);
     }
-    if result.failed > 0 {
-        breakdown.insert(SkipReason::VaultWriteError, result.failed);
-    }
     breakdown
 }
 
@@ -929,5 +926,24 @@ mod tests {
             }
             _ => panic!("expected Ssh payload"),
         }
+    }
+
+    #[test]
+    fn build_skip_breakdown_excludes_vault_write_error() {
+        use crate::services::import_export::types::ImportResult;
+
+        let result = ImportResult {
+            imported: 5,
+            reviewed: 0,
+            skipped: 3,
+            failed: 2,
+            validation_failed: 1,
+            duration_ms: 100,
+        };
+        let breakdown = build_skip_breakdown(&result);
+
+        assert_eq!(breakdown.get(&SkipReason::Duplicate), Some(&3));
+        assert_eq!(breakdown.get(&SkipReason::ValidationFailed), Some(&1));
+        assert_eq!(breakdown.get(&SkipReason::VaultWriteError), None);
     }
 }
