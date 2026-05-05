@@ -119,7 +119,12 @@ fn full_import_csv_produces_correct_result() {
 
     let existing: HashSet<ExistingRecordKey> = HashSet::new();
     let result = service
-        .execute_import(id, existing, success_create_fn())
+        .execute_import(
+            id,
+            existing,
+            success_create_fn(),
+            None::<fn(usize, usize, &str)>,
+        )
         .expect("execute import");
 
     assert_eq!(result.imported, 3);
@@ -149,7 +154,12 @@ fn operations_on_invalid_uuid_return_session_not_found() {
     assert!(result.is_err());
 
     let existing: HashSet<ExistingRecordKey> = HashSet::new();
-    let result = service.execute_import(bogus_id, existing, success_create_fn());
+    let result = service.execute_import(
+        bogus_id,
+        existing,
+        success_create_fn(),
+        None::<fn(usize, usize, &str)>,
+    );
     assert!(result.is_err());
 
     let result = service.cancel_import(bogus_id);
@@ -178,7 +188,12 @@ fn execute_on_created_session_returns_invalid_status() {
 
     // Do NOT validate first — attempt to import directly.
     let existing: HashSet<ExistingRecordKey> = HashSet::new();
-    let result = service.execute_import(id, existing, success_create_fn());
+    let result = service.execute_import(
+        id,
+        existing,
+        success_create_fn(),
+        None::<fn(usize, usize, &str)>,
+    );
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -318,7 +333,12 @@ fn import_skips_duplicate_records() {
     });
 
     let result = service
-        .execute_import(id, existing, success_create_fn())
+        .execute_import(
+            id,
+            existing,
+            success_create_fn(),
+            None::<fn(usize, usize, &str)>,
+        )
         .expect("execute import");
 
     assert_eq!(result.imported, 2);
@@ -357,7 +377,7 @@ fn import_tracks_vault_create_failures() {
     };
 
     let result = service
-        .execute_import(id, existing, fail_fn)
+        .execute_import(id, existing, fail_fn, None::<fn(usize, usize, &str)>)
         .expect("execute");
 
     assert_eq!(result.imported, 2);

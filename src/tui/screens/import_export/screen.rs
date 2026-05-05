@@ -36,9 +36,10 @@ pub struct ImportExportScreen {
     pub import_progress_name: String,
     pub imported_count: usize,
     pub reviewed_count: usize,
-    pub failed_count: usize,
     pub skipped_count: usize,
+    pub failed_count: usize,
     pub csv_headers: Vec<String>,
+    pub skip_breakdown: std::collections::HashMap<crate::commands::types::SkipReason, usize>,
 
     // Export state
     pub export_step: ExportStep,
@@ -83,9 +84,10 @@ impl ImportExportScreen {
             import_progress_name: String::new(),
             imported_count: 0,
             reviewed_count: 0,
-            failed_count: 0,
             skipped_count: 0,
+            failed_count: 0,
             csv_headers: Vec::new(),
+            skip_breakdown: std::collections::HashMap::new(),
 
             export_step: ExportStep::Form,
             export_focus: ExportFocus::Scope,
@@ -302,8 +304,9 @@ impl Screen for ImportExportScreen {
         self.import_progress_name.clear();
         self.imported_count = 0;
         self.reviewed_count = 0;
-        self.failed_count = 0;
         self.skipped_count = 0;
+        self.failed_count = 0;
+        self.skip_breakdown.clear();
         self.export_result_path = None;
         self.export_record_count = 0;
         self.export_password_strength = None;
@@ -745,13 +748,15 @@ impl ImportExportScreen {
             CommandResult::ImportCompleted {
                 imported_count,
                 reviewed_count,
-                failed_count,
                 skipped_count,
+                failed_count,
+                skip_breakdown,
             } => {
                 self.imported_count = imported_count;
                 self.reviewed_count = reviewed_count;
-                self.failed_count = failed_count;
                 self.skipped_count = skipped_count;
+                self.failed_count = failed_count;
+                self.skip_breakdown = skip_breakdown;
                 self.import_step = ImportStep::Complete;
                 ScreenResult::Continue
             }
