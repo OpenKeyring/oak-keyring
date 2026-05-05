@@ -64,8 +64,8 @@ pub enum SidebarItem {
     Separator,
     /// A collapsible "Tags" section header.
     TagHeader,
-    /// A single tag entry.
-    Tag(String),
+    /// A single tag entry with its associated record count.
+    Tag(String, usize), // (name, record_count)
     /// Password generator shortcut.
     Generator,
     /// Configuration screen shortcut.
@@ -162,7 +162,12 @@ impl SidebarState {
 
         if self.tags_expanded {
             for tag in &self.tags {
-                items.push(SidebarItem::Tag(tag.name.clone()));
+                let count = self
+                    .tag_metadata
+                    .get(&tag.id)
+                    .map(|m| m.record_count)
+                    .unwrap_or(0);
+                items.push(SidebarItem::Tag(tag.name.clone(), count));
             }
         }
 
@@ -210,7 +215,7 @@ impl SidebarState {
         }
         match &self.items[self.selected_index] {
             SidebarItem::Category(cat) => cat.to_filter(),
-            SidebarItem::Tag(name) => RecordFilter::Tag(name.clone()),
+            SidebarItem::Tag(name, _) => RecordFilter::Tag(name.clone()),
             // Generator and Config are shortcuts, not record filters
             SidebarItem::Generator
             | SidebarItem::Config
@@ -272,7 +277,7 @@ impl SidebarState {
     /// Get the name of the currently selected tag item, if any.
     pub fn selected_tag_name(&self) -> Option<&str> {
         if self.selected_index < self.items.len() {
-            if let SidebarItem::Tag(name) = &self.items[self.selected_index] {
+            if let SidebarItem::Tag(name, _) = &self.items[self.selected_index] {
                 return Some(name);
             }
         }

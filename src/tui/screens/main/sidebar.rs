@@ -164,7 +164,7 @@ fn build_list_item<'a>(
                 )))
             }
         }
-        SidebarItem::Tag(name) => {
+        SidebarItem::Tag(name, count) => {
             if state.tag_management_mode {
                 let display = format!("{}{}", TAG_INDENT, name);
                 let edit_icon = if unicode { "\u{270E}" } else { "[e]" };
@@ -188,7 +188,7 @@ fn build_list_item<'a>(
                     ),
                 ]))
             } else {
-                let display = format!("{}{}", TAG_INDENT, name);
+                let display = format!("{}{} ({})", TAG_INDENT, name, count);
                 ListItem::new(Line::from(Span::styled(
                     display,
                     Style::default().fg(theme::TEXT),
@@ -426,8 +426,8 @@ mod tests {
     #[test]
     fn build_list_item_tag_has_content() {
         let state = SidebarState::default();
-        let item = build_list_item(&SidebarItem::Tag("work".into()), &state, true, 50);
-        // Tag item should have non-zero width (indent + "work")
+        let item = build_list_item(&SidebarItem::Tag("work".into(), 0), &state, true, 50);
+        // Tag item should have non-zero width (indent + "work" + count)
         assert!(item.width() > 0);
     }
 
@@ -454,7 +454,7 @@ mod tests {
             &SidebarItem::Category(SidebarCategory::Favorites),
             &SidebarItem::Separator,
             &SidebarItem::TagHeader,
-            &SidebarItem::Tag("test".into()),
+            &SidebarItem::Tag("test".into(), 0),
             &SidebarItem::Generator,
             &SidebarItem::Config,
         ];

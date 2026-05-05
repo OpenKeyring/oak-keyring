@@ -11,9 +11,9 @@ expression: terminal.backend()
 "🗑 回收站 (3)                                       创建你的第一个密码                                                   " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " "), (52, " "), (54, " "), (56, " "), (58, " "), (60, " "), (62, " "), (64, " "), (66, " "), (68, " ")]
 "──────────────────────────────────────────────────                                                                      "
 "▾ # 标签                                                                                                                " Hidden by multi-width symbols: [(5, " "), (7, " ")]
-"  work                                                                                                                  "
-"  personal                                                                                                              "
-"  finance                                                                                                               "
+"  work (0)                                                                                                              "
+"  personal (0)                                                                                                          "
+"  finance (0)                                                                                                           "
 "──────────────────────────────────────────────────                                                                      "
 "✦ 生成器                                                                                                                " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
 "✦ 配置                                                                                                                  " Hidden by multi-width symbols: [(3, " "), (5, " ")]
