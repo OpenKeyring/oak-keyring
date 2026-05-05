@@ -460,8 +460,10 @@ pub struct MainScreenState {
     /// Animation effect to trigger on the next update cycle.
     /// Set when overlay opens/closes, consumed by update.rs.
     pub pending_animation: Option<EffectKind>,
-    /// When true, the next `RecordListLoaded` should auto-select the first record
-    /// and fetch its detail. Set by sidebar filter change, reset after consumption.
+    /// Controls auto-selection on the next `RecordListLoaded`.
+    /// When true, the handler auto-selects index 0 and sends `LoadRecordDetail`.
+    /// Set to true by sidebar filter changes and record creation;
+    /// reset to false after the flag is consumed.
     pub list_auto_select: bool,
 }
 
@@ -596,7 +598,7 @@ impl Screen for MainScreenState {
                         self.status_bar.clipboard_countdown = Some(clear_after_seconds as u32);
                         ScreenResult::Continue
                     }
-                    CommandResult::RecordCreated { id: _ } => {
+                    CommandResult::RecordCreated { .. } => {
                         // Auto-select the first record (newly created) when list reloads
                         self.list_auto_select = true;
                         let _ = ctx.command_tx.try_send(Command::LoadRecordList {
@@ -671,6 +673,10 @@ impl Screen for MainScreenState {
                         ScreenResult::Continue
                     }
                     CommandResult::RecordRestored { id } => {
+                        // Clear detail if it shows the restored record
+                        if self.detail.record.as_ref().is_some_and(|r| r.id == id) {
+                            self.detail.clear();
+                        }
                         self.list.records.retain(|r| r.id != id);
                         // Reload list after restore
                         let _ = ctx.command_tx.try_send(Command::LoadRecordList {
