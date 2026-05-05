@@ -584,6 +584,9 @@ mod tests {
         use crate::tui::state::tag_management::InlineEditState;
         use crate::types::Tag;
 
+        // Unique marker that does NOT appear in any tag name.
+        const MARKER: &str = "RENAMING_VISIBLE_MARKER";
+
         // Build a sidebar with enough tags to fill a small terminal and cause scrolling.
         // Layout: Brand, Sep, All, Favorites, Expired, Health, Trash, Sep, TagHeader,
         // then 10 tags, Sep, Generator, Config = 24 items.
@@ -599,7 +602,14 @@ mod tests {
             tags,
             tag_management_mode: true,
             tag_management: crate::tui::state::tag_management::TagManagementState {
-                inline_edit: Some(InlineEditState::new("tag_09")),
+                // Use the marker as the edit text so the overlay is distinguishable
+                // from the regular tag list item text.
+                inline_edit: Some(InlineEditState {
+                    original_name: "tag_09".to_string(),
+                    text: MARKER.to_string(),
+                    cursor: MARKER.len(),
+                    conflict: false,
+                }),
                 ..Default::default()
             },
             ..Default::default()
@@ -622,10 +632,40 @@ mod tests {
 
         let buf = terminal.backend().buffer().clone();
         let result = format!("{:?}", buf);
-        // The edit overlay should render "tag_09" text somewhere in the visible area.
+
+        // The overlay must render the unique marker in the visible area.
+        // Without the scroll-offset fix, y_offset would be out of bounds and
+        // the overlay would not be drawn at all.
         assert!(
-            result.contains("tag_09"),
-            "inline rename overlay should be visible with scroll offset"
+            result.contains(MARKER),
+            "inline rename overlay should be visible with scroll offset, \
+             marker '{MARKER}' not found in rendered buffer"
+        );
+
+        // Verify the marker appears on a specific visible row.
+        // Iterate rows using content() and area().
+        let area = buf.area();
+        let width = area.width as usize;
+        let marker_row = (0..area.height as usize).find(|row| {
+            let start = row * width;
+            let end = start + width;
+            let row_str: String = buf.content()[start..end]
+                .iter()
+                .map(|c| c.symbol())
+                .collect();
+            row_str.contains(MARKER)
+        });
+        assert!(
+            marker_row.is_some(),
+            "marker should appear in a visible row"
+        );
+        // The marker row must be within the rendered area
+        let row = marker_row.unwrap();
+        assert!(
+            row < area.height as usize,
+            "marker row {} should be within visible area (0..{})",
+            row,
+            area.height
         );
     }
 }
