@@ -249,8 +249,10 @@ fn on_mount_sends_load_record_list_with_current_filter() {
         config: &config,
     };
 
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::Favorites;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::Favorites,
+        ..Default::default()
+    };
     state.on_mount(&mut ctx);
 
     let cmd = rx
@@ -1707,8 +1709,10 @@ fn record_updated_does_not_refresh_detail_when_record_no_longer_in_filtered_list
     use crate::commands::result::CommandResult;
 
     let record_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::All;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::All,
+        ..Default::default()
+    };
     state.list.records = vec![make_test_record(Some(record_id))];
     state.list.selected_index = Some(0);
     state.detail.record = Some(make_detail_view(record_id, false));
@@ -2078,11 +2082,13 @@ fn favorite_toggled_updates_detail_is_favorite() {
     use crate::commands::result::CommandResult;
 
     let record_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::All;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::All,
+        ..Default::default()
+    };
     state.list.records = vec![make_test_record(Some(record_id))];
     state.detail.record = Some(make_detail_view(record_id, false));
-    assert_eq!(state.detail.record.as_ref().unwrap().is_favorite, false);
+    assert!(!state.detail.record.as_ref().unwrap().is_favorite);
 
     let (tx, _rx) = mpsc::channel(16);
     let config = crate::config::AppConfig::default();
@@ -2100,8 +2106,8 @@ fn favorite_toggled_updates_detail_is_favorite() {
     );
 
     assert!(matches!(result, ScreenResult::Continue));
-    assert_eq!(state.detail.record.as_ref().unwrap().is_favorite, true);
-    assert_eq!(state.list.records[0].is_favorite, true);
+    assert!(state.detail.record.as_ref().unwrap().is_favorite);
+    assert!(state.list.records[0].is_favorite);
 }
 
 #[test]
@@ -2110,8 +2116,10 @@ fn favorite_toggled_does_not_update_detail_when_not_showing() {
 
     let toggled_id = Uuid::new_v4();
     let detail_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::All;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::All,
+        ..Default::default()
+    };
     state.list.records = vec![
         make_test_record(Some(toggled_id)),
         make_test_record(Some(detail_id)),
@@ -2135,9 +2143,9 @@ fn favorite_toggled_does_not_update_detail_when_not_showing() {
 
     assert!(matches!(result, ScreenResult::Continue));
     // Detail record's is_favorite should NOT be updated (it's a different record)
-    assert_eq!(state.detail.record.as_ref().unwrap().is_favorite, false);
+    assert!(!state.detail.record.as_ref().unwrap().is_favorite);
     // List record's is_favorite should be updated
-    assert_eq!(state.list.records[0].is_favorite, true);
+    assert!(state.list.records[0].is_favorite);
 }
 
 #[test]
@@ -2145,8 +2153,10 @@ fn favorite_toggled_removes_from_list_when_viewing_favorites() {
     use crate::commands::result::CommandResult;
 
     let record_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::Favorites;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::Favorites,
+        ..Default::default()
+    };
     state.list.records = vec![make_test_record(Some(record_id))];
     state.list.selected_index = Some(0);
     state.detail.record = Some(make_detail_view(record_id, true));
@@ -2173,7 +2183,7 @@ fn favorite_toggled_removes_from_list_when_viewing_favorites() {
     // selected_index should be None since list is empty
     assert_eq!(state.list.selected_index, None);
     // Detail record's is_favorite should still be updated
-    assert_eq!(state.detail.record.as_ref().unwrap().is_favorite, false);
+    assert!(!state.detail.record.as_ref().unwrap().is_favorite);
 }
 
 // ── RecordDetailLoaded tests ─────────────────────────────────
@@ -2589,6 +2599,86 @@ fn p_on_detail_sends_decrypt_field() {
     }
     // toggle_password() was called which sets password_visible = true
     assert!(state.detail.password_visible);
+}
+
+#[test]
+fn p_on_focused_passphrase_sends_decrypt_passphrase() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Detail,
+        ..Default::default()
+    };
+    state.detail.record = Some(make_ssh_detail_view(id, false));
+    // Focus on Passphrase field (index 2 in SSH detail: PublicKey=0, PrivateKey=1, Passphrase=2)
+    state.detail.focused_field = 2;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('p'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::DecryptField { id: cmd_id, field } => {
+                assert_eq!(*cmd_id, id);
+                assert_eq!(*field, FieldSelector::Passphrase);
+            }
+            other => panic!("Expected DecryptField(Passphrase), got {:?}", other),
+        }
+    }
+    assert!(state.detail.password_visible);
+}
+
+#[test]
+fn field_decrypted_passphrase_only_reveals_passphrase_not_private_key() {
+    use crate::commands::result::CommandResult;
+    use crate::tui::state::detail_state::{DetailFieldKind, FieldValue};
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.detail.record = Some(make_ssh_detail_view(id, false));
+    // Focus on Passphrase field (index 2)
+    state.detail.focused_field = 2;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let value = SecureStr::new("ssh_passphrase_value".to_string());
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::FieldDecrypted {
+            id,
+            field: FieldSelector::Passphrase,
+            value,
+        }),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+
+    // Verify Passphrase field was revealed, but PrivateKey stayed masked
+    let fields = &state.detail.record.as_ref().unwrap().fields;
+    let private_key = fields
+        .iter()
+        .find(|f| f.kind == DetailFieldKind::PrivateKey)
+        .unwrap();
+    assert!(matches!(private_key.value, FieldValue::Masked));
+    let passphrase = fields
+        .iter()
+        .find(|f| f.kind == DetailFieldKind::Passphrase)
+        .unwrap();
+    assert!(matches!(passphrase.value, FieldValue::Revealed(ref v) if v == "ssh_passphrase_value"));
 }
 
 #[test]

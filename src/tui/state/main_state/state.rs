@@ -1006,7 +1006,7 @@ impl MainScreenState {
                     KeyCode::Char('p') => {
                         let needs_decrypt = self.detail.toggle_password();
                         if needs_decrypt {
-                            if let Some(field) = self.detail.password_field() {
+                            if let Some(field) = self.detail.current_toggleable_field() {
                                 let selector = detail_field_kind_to_selector(field.kind);
                                 return ScreenResult::Command(Box::new(Command::DecryptField {
                                     id,
