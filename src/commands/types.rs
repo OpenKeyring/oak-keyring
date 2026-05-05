@@ -175,6 +175,8 @@ pub struct ImportPreview {
     pub failed: usize,
     pub review_items: Vec<ReviewItem>,
     pub failed_items: Vec<FailedItem>,
+    /// Detected CSV column headers (only set for CSV source).
+    pub csv_headers: Vec<String>,
 }
 
 /// Item needing manual review during import

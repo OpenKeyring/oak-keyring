@@ -35,7 +35,10 @@ pub struct ImportExportScreen {
     pub import_progress_total: usize,
     pub import_progress_name: String,
     pub imported_count: usize,
+    pub reviewed_count: usize,
+    pub failed_count: usize,
     pub skipped_count: usize,
+    pub csv_headers: Vec<String>,
 
     // Export state
     pub export_step: ExportStep,
@@ -79,7 +82,10 @@ impl ImportExportScreen {
             import_progress_total: 0,
             import_progress_name: String::new(),
             imported_count: 0,
+            reviewed_count: 0,
+            failed_count: 0,
             skipped_count: 0,
+            csv_headers: Vec::new(),
 
             export_step: ExportStep::Form,
             export_focus: ExportFocus::Scope,
@@ -290,10 +296,13 @@ impl Screen for ImportExportScreen {
         self.master_password.clear();
         self.error_message = None;
         self.preview = None;
+        self.csv_headers.clear();
         self.import_progress_current = 0;
         self.import_progress_total = 0;
         self.import_progress_name.clear();
         self.imported_count = 0;
+        self.reviewed_count = 0;
+        self.failed_count = 0;
         self.skipped_count = 0;
         self.export_result_path = None;
         self.export_record_count = 0;
@@ -729,14 +738,19 @@ impl ImportExportScreen {
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
             CommandResult::ImportValidated { preview } => {
+                self.csv_headers = preview.csv_headers.clone();
                 self.preview = Some(preview);
                 ScreenResult::Continue
             }
             CommandResult::ImportCompleted {
                 imported_count,
+                reviewed_count,
+                failed_count,
                 skipped_count,
             } => {
                 self.imported_count = imported_count;
+                self.reviewed_count = reviewed_count;
+                self.failed_count = failed_count;
                 self.skipped_count = skipped_count;
                 self.import_step = ImportStep::Complete;
                 ScreenResult::Continue

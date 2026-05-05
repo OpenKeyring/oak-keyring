@@ -2,6 +2,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use crate::tui::screens::import_export::ScopeHintStyle;
 use crate::tui::theme::{
     self, BORDER, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_SECONDARY, WARNING,
 };
@@ -30,7 +31,7 @@ impl OnboardingScreen {
             Line::raw(""),
         ];
 
-        for (i, (_, name, _, scope_hint)) in IMPORT_SOURCES.iter().enumerate() {
+        for (i, (_, name, _, (hint_text, hint_style_enum))) in IMPORT_SOURCES.iter().enumerate() {
             let prefix = if i == self.selected_source_idx {
                 " \u{25B6} "
             } else {
@@ -43,11 +44,16 @@ impl OnboardingScreen {
             } else {
                 Style::default().fg(TEXT)
             };
-            let hint_style = Style::default().fg(TEXT_MUTED);
+            let hint_color = match hint_style_enum {
+                ScopeHintStyle::Full => SUCCESS,
+                ScopeHintStyle::Partial => WARNING,
+                ScopeHintStyle::Limited => ERROR,
+            };
+            let hint_style = Style::default().fg(hint_color);
             lines.push(Line::from(vec![
                 Span::styled(prefix.to_string(), name_style),
                 Span::styled((*name).to_string(), name_style),
-                Span::styled(format!("  {}", scope_hint), hint_style),
+                Span::styled(format!("  {}", hint_text), hint_style),
             ]));
         }
 

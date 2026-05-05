@@ -61,39 +61,64 @@ pub enum ExportScopeOption {
 
 // ── Source metadata ─────────────────────────────────────────────────────────
 
-pub const IMPORT_SOURCES: [(ImportSource, &str, bool, &str); 6] = [
+pub const IMPORT_SOURCES: [(ImportSource, &str, bool, (&str, ScopeHintStyle)); 6] = [
     (
         ImportSource::KeePass,
         "KeePass (.kdbx)",
         true,
-        "Password / URL / Notes",
+        ("Password / URL / Notes", ScopeHintStyle::Full),
     ),
     (
         ImportSource::OnePassword1pux,
         "1Password (.1pux)",
         false,
-        "Password / TOTP  ⚠ Custom fields",
+        (
+            "Password / TOTP  \u{26A0} Custom fields",
+            ScopeHintStyle::Partial,
+        ),
     ),
     (
         ImportSource::OnePasswordOpvault,
         "1Password (.opvault)",
         true,
-        "Password / TOTP  ⚠ Custom fields",
+        (
+            "Password / TOTP  \u{26A0} Custom fields",
+            ScopeHintStyle::Partial,
+        ),
     ),
     (
         ImportSource::Bitwarden,
         "Bitwarden (.json)",
         true,
-        "Password / TOTP / URL  ✗ Attachments",
+        (
+            "Password / TOTP / URL  \u{2717} Attachments",
+            ScopeHintStyle::Limited,
+        ),
     ),
-    (ImportSource::Csv, "CSV", false, "Column-mapped fields"),
+    (
+        ImportSource::Csv,
+        "CSV",
+        false,
+        ("Column-mapped fields", ScopeHintStyle::Full),
+    ),
     (
         ImportSource::OpenKeyringBackup,
         "OpenKeyring Backup (.okb)",
         false,
-        "All data",
+        ("All data", ScopeHintStyle::Full),
     ),
 ];
+
+/// Visual style category for a source's scope hint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopeHintStyle {
+    /// All data types fully supported
+    Full,
+    /// Some data types have limitations
+    Partial,
+    /// Some data types are unsupported
+    Limited,
+}
 
 #[allow(dead_code)]
 pub(super) fn source_display(source: ImportSource) -> &'static str {
