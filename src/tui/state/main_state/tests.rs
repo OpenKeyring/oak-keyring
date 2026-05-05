@@ -1,10 +1,10 @@
 use super::*;
 use crate::commands::types::{
-    ConfirmButton, ConfirmDialogState, ConfirmVariant, Overlay, RecordFilter,
+    ConfirmButton, ConfirmDialogState, ConfirmVariant, FieldSelector, Overlay, RecordFilter,
 };
 use crate::commands::{Command, Message};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
-use crate::types::Tag;
+use crate::types::{SecureStr, Tag};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -267,9 +267,7 @@ fn on_mount_sends_load_record_list_with_current_filter() {
 #[test]
 fn record_list_loaded_populates_records_and_total() {
     use crate::commands::result::CommandResult;
-    use crate::commands::types::PanelId;
     use crate::commands::Message;
-    use crate::tui::state::list_state::ListPanelState;
     use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
     use crate::types::credential::CredentialType;
     use crate::types::record::TuiRecord;
@@ -2384,4 +2382,441 @@ fn jk_in_list_normal_mode_handles_empty_list() {
     let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('k'))), &mut ctx);
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(state.list.selected_index, None);
+}
+
+// ── Task 7: Detail panel keyboard shortcut tests ─────────────────────────────
+
+fn make_detail_view_with_fields(id: Uuid, is_favorite: bool) -> DetailViewData {
+    use crate::tui::state::detail_state::{DetailField, DetailFieldKind, FieldValue};
+    DetailViewData {
+        id,
+        name: "Test Detail".to_string(),
+        subtitle: String::new(),
+        credential_type: CredentialType::Login,
+        is_favorite,
+        expires_at: None,
+        expiry_status: ExpiryStatus::None,
+        tags: Vec::new(),
+        notes: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        fields: vec![
+            DetailField {
+                label: "Username".to_string(),
+                value: FieldValue::Plain("user".to_string()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::Username,
+            },
+            DetailField {
+                label: "Password".to_string(),
+                value: FieldValue::Masked,
+                copyable: true,
+                toggleable: true,
+                kind: DetailFieldKind::Password,
+            },
+        ],
+        password_strength: None,
+        deleted_at: None,
+    }
+}
+
+#[test]
+fn p_on_detail_sends_decrypt_field() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('p'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::DecryptField { id: cmd_id, field } => {
+                assert_eq!(*cmd_id, id);
+                assert_eq!(*field, FieldSelector::Password);
+            }
+            other => panic!("Expected DecryptField, got {:?}", other),
+        }
+    }
+    // toggle_password() was called which sets password_visible = true
+    assert!(state.detail.password_visible);
+}
+
+#[test]
+fn p_on_detail_without_record_opens_generator() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = None;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let _result = state.update(Message::KeyEvent(make_key(KeyCode::Char('p'))), &mut ctx);
+
+    // Should still open password generator (fallthrough to Layer 2)
+    assert!(state.overlay_manager.is_active());
+}
+
+#[test]
+fn c_on_detail_copies_password() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('c'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::CopyToClipboard {
+                id: cmd_id,
+                field: FieldSelector::Password,
+            } => {
+                assert_eq!(*cmd_id, id);
+            }
+            other => panic!("Expected CopyToClipboard(Password), got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn u_on_detail_copies_username() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('u'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::CopyToClipboard {
+                id: cmd_id,
+                field: FieldSelector::Username,
+            } => {
+                assert_eq!(*cmd_id, id);
+            }
+            other => panic!("Expected CopyToClipboard(Username), got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn enter_on_detail_copies_current_field() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+    state.detail.focused_field = 0; // Username
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Enter)), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::CopyToClipboard {
+                id: cmd_id,
+                field: FieldSelector::Username,
+            } => {
+                assert_eq!(*cmd_id, id);
+            }
+            other => panic!("Expected CopyToClipboard(Username), got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn f_on_detail_toggles_favorite() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+    assert!(!state.detail.record.as_ref().unwrap().is_favorite);
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('f'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::ToggleFavorite {
+                id: cmd_id,
+                is_favorite,
+            } => {
+                assert_eq!(*cmd_id, id);
+                assert!(*is_favorite);
+            }
+            other => panic!("Expected ToggleFavorite, got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn d_on_detail_opens_delete_confirm() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let _result = state.update(Message::KeyEvent(make_key(KeyCode::Char('d'))), &mut ctx);
+
+    assert!(state.overlay_manager.is_active());
+    match state.overlay_manager.get() {
+        Some(crate::tui::screens::main::overlay::ActiveOverlay::ConfirmDialog {
+            variant, ..
+        }) => {
+            assert!(matches!(variant, ConfirmVariant::SoftDelete { .. }));
+        }
+        other => panic!("Expected ConfirmDialog overlay, got {:?}", other),
+    }
+}
+
+#[test]
+fn H_on_detail_loads_password_history() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('H'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::LoadPasswordHistory { record_id } => {
+                assert_eq!(*record_id, id);
+            }
+            other => panic!("Expected LoadPasswordHistory, got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn j_on_detail_moves_field_down() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+    state.detail.focused_field = 0; // Username
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let _result = state.update(Message::KeyEvent(make_key(KeyCode::Char('j'))), &mut ctx);
+
+    // Should have moved to password field (index 1)
+    assert_eq!(state.detail.focused_field, 1);
+}
+
+#[test]
+fn k_on_detail_moves_field_up() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+    state.detail.focused_field = 1; // Password
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let _result = state.update(Message::KeyEvent(make_key(KeyCode::Char('k'))), &mut ctx);
+
+    // Should have moved to username field (index 0)
+    assert_eq!(state.detail.focused_field, 0);
+}
+
+#[test]
+fn field_decrypted_updates_password_visibility() {
+    use crate::commands::result::CommandResult;
+    use crate::commands::types::FieldSelector;
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+    state.detail.password_visible = false;
+
+    let value = SecureStr::new("revealed-password".to_string());
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::FieldDecrypted {
+            id,
+            field: FieldSelector::Password,
+            value,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.detail.password_visible);
+    if let Some(ref record) = state.detail.record {
+        let password_field = &record.fields[1]; // Password at index 1
+        match &password_field.value {
+            crate::tui::state::detail_state::FieldValue::Revealed(s) => {
+                assert_eq!(s, "revealed-password");
+            }
+            other => panic!("Expected Revealed, got {:?}", other),
+        }
+    } else {
+        panic!("Expected detail record");
+    }
+}
+
+#[test]
+fn password_history_loaded_opens_overlay() {
+    use crate::commands::result::CommandResult;
+    use crate::types::PasswordHistoryView;
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+
+    let history = vec![PasswordHistoryView {
+        id: 1,
+        password: SecureStr::new("old-password".to_string()),
+        changed_at: chrono::Utc::now(),
+    }];
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::PasswordHistoryLoaded { history }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    // Verify overlay is active and is PasswordHistory
+    assert!(state.overlay_manager.is_active());
+    match state.overlay_manager.get() {
+        Some(crate::tui::screens::main::overlay::ActiveOverlay::PasswordHistory(phs)) => {
+            assert_eq!(phs.entries.len(), 1);
+            assert_eq!(phs.record_name, "Test Detail");
+        }
+        other => panic!("Expected PasswordHistory overlay, got {:?}", other),
+    }
 }
