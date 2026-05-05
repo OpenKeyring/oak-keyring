@@ -5,12 +5,12 @@ use crate::commands::types::{
     ConfirmVariant, FieldSelector, Overlay, PanelId, RecordFilter, RecordSort, Screen as ScreenEnum,
 };
 use crate::commands::{Command, Message};
-use crate::tui::screens::main::overlay::OverlayKeyResult;
-use crate::tui::screens::main::overlay::OverlayManager;
+use crate::tui::screens::main::overlay::{ActiveOverlay, OverlayKeyResult, OverlayManager};
 use crate::tui::screens::main::MainScreen;
 use crate::tui::state::animation::EffectKind;
-use crate::tui::state::detail_state::DetailPanelState;
+use crate::tui::state::detail_state::{DetailFieldKind, DetailPanelState, FieldValue};
 use crate::tui::state::list_state::{ListMode, ListPanelState};
+use crate::tui::state::overlay_state::HistoryEntry;
 use crate::tui::state::tag_management::TagManagementState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::{SecureStr, Tag};
@@ -731,6 +731,55 @@ impl Screen for MainScreenState {
                         self.detail = DetailPanelState::with_record(view_data);
                         self.detail.health_issue = health_issue;
                         self.detail.is_trash = self.current_filter == RecordFilter::Trash;
+                        // Reset password visibility on new detail load
+                        self.detail.password_visible = false;
+                        ScreenResult::Continue
+                    }
+                    // Handle FieldDecrypted — reveal field value
+                    CommandResult::FieldDecrypted {
+                        id,
+                        field: _,
+                        value,
+                    } => {
+                        self.detail.password_visible = true;
+                        if let Some(ref mut record) = self.detail.record {
+                            if record.id == id {
+                                for f in &mut record.fields {
+                                    if f.toggleable && matches!(f.value, FieldValue::Masked) {
+                                        f.value = FieldValue::Revealed(value.get().clone());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        ScreenResult::Continue
+                    }
+                    // Handle PasswordHistoryLoaded — open overlay
+                    CommandResult::PasswordHistoryLoaded { history } => {
+                        let record_info =
+                            self.detail.record.as_ref().map(|r| (r.id, r.name.clone()));
+                        let entries: Vec<HistoryEntry> = history
+                            .into_iter()
+                            .map(|entry| {
+                                // Discard SecureStr password — copying uses CopyHistoryPassword by id
+                                let _ = entry.password;
+                                HistoryEntry {
+                                    id: entry.id,
+                                    changed_at: entry.changed_at,
+                                    description: crate::t!("tui.entry.password_label").to_string(),
+                                }
+                            })
+                            .collect();
+                        if let Some((record_id, record_name)) = record_info {
+                            self.overlay_manager
+                                .open(Overlay::PasswordHistory { record_id });
+                            if let Some(ActiveOverlay::PasswordHistory(state)) =
+                                self.overlay_manager.get_mut()
+                            {
+                                state.entries = entries;
+                                state.record_name = record_name;
+                            }
+                        }
                         ScreenResult::Continue
                     }
                     _ => ScreenResult::Continue,
@@ -903,6 +952,103 @@ impl MainScreenState {
             }
         }
 
+        // ── Task 7: Detail panel keyboard shortcuts ──
+        if self.focused_panel == PanelId::Detail {
+            if let Some(ref record) = self.detail.record {
+                let id = record.id;
+                let is_favorite = record.is_favorite;
+                let record_name = record.name.clone();
+
+                match key.code {
+                    // Step 1: p — toggle password visibility (context-sensitive)
+                    KeyCode::Char('p') => {
+                        let needs_decrypt = self.detail.toggle_password();
+                        if needs_decrypt {
+                            if let Some(field) = self.detail.password_field() {
+                                let selector = detail_field_kind_to_selector(field.kind);
+                                return ScreenResult::Command(Box::new(Command::DecryptField {
+                                    id,
+                                    field: selector,
+                                }));
+                            }
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    // Step 2a: c — copy password field
+                    KeyCode::Char('c') => {
+                        if let Some(field) = self.detail.password_field() {
+                            let selector = detail_field_kind_to_selector(field.kind);
+                            return ScreenResult::Command(Box::new(Command::CopyToClipboard {
+                                id,
+                                field: selector,
+                            }));
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    // Step 2b: u — copy username field
+                    KeyCode::Char('u') => {
+                        if let Some(field) = self.detail.username_field() {
+                            let selector = detail_field_kind_to_selector(field.kind);
+                            return ScreenResult::Command(Box::new(Command::CopyToClipboard {
+                                id,
+                                field: selector,
+                            }));
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    // Step 2c: Enter — copy currently focused field
+                    KeyCode::Enter => {
+                        if let Some(field) = self.detail.current_field() {
+                            let selector = detail_field_kind_to_selector(field.kind);
+                            return ScreenResult::Command(Box::new(Command::CopyToClipboard {
+                                id,
+                                field: selector,
+                            }));
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    // Step 3: f — toggle favorite
+                    KeyCode::Char('f') => {
+                        return ScreenResult::Command(Box::new(Command::ToggleFavorite {
+                            id,
+                            is_favorite: !is_favorite,
+                        }));
+                    }
+                    // Step 4: d — delete with confirm
+                    KeyCode::Char('d') => {
+                        self.overlay_manager.open(Overlay::ConfirmDialog(
+                            crate::commands::types::ConfirmDialogState {
+                                variant: ConfirmVariant::SoftDelete {
+                                    record_id: id,
+                                    record_name,
+                                    auto_delete_days: None,
+                                },
+                                focused_button: crate::commands::types::ConfirmButton::Cancel,
+                            },
+                        ));
+                        self.pending_animation = Some(EffectKind::ModalAppear);
+                        return ScreenResult::Continue;
+                    }
+                    // Step 5: H — password history
+                    KeyCode::Char('H') => {
+                        return ScreenResult::Command(Box::new(Command::LoadPasswordHistory {
+                            record_id: id,
+                        }));
+                    }
+                    // Step 6: field navigation (up/k, down/j)
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        self.detail.move_field_up();
+                        return ScreenResult::Continue;
+                    }
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        self.detail.move_field_down();
+                        return ScreenResult::Continue;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Layer 2: Global shortcuts
         match key.code {
             KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
@@ -1038,5 +1184,21 @@ impl MainScreenState {
                 ScreenResult::Continue
             }
         }
+    }
+}
+
+/// Convert a [`DetailFieldKind`] to the corresponding [`FieldSelector`] for
+/// clipboard copy and field decryption commands.
+fn detail_field_kind_to_selector(kind: DetailFieldKind) -> FieldSelector {
+    match kind {
+        DetailFieldKind::Username | DetailFieldKind::AppId | DetailFieldKind::PublicKey => {
+            FieldSelector::Username
+        }
+        DetailFieldKind::Password
+        | DetailFieldKind::SecretKey
+        | DetailFieldKind::PrivateKey
+        | DetailFieldKind::Passphrase => FieldSelector::Password,
+        DetailFieldKind::Url => FieldSelector::Url,
+        DetailFieldKind::Notes => FieldSelector::Notes,
     }
 }
