@@ -749,7 +749,7 @@ mod tests {
             .sidebar
             .items
             .iter()
-            .position(|i| matches!(i, SidebarItem::Tag(_)))
+            .position(|i| matches!(i, SidebarItem::Tag(_, _)))
             .unwrap();
         state.sidebar.selected_index = tag_idx;
 
