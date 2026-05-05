@@ -47,6 +47,7 @@ pub enum FieldSelector {
     Username,
     Url,
     Notes,
+    Passphrase,
 }
 
 /// Application lifecycle phase (TEA state)

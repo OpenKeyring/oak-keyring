@@ -99,6 +99,20 @@ pub(super) fn extract_field(
             FieldSelector::Notes,
         ) => Ok(SecureStr::new(notes)),
 
+        (
+            CredentialType::Ssh,
+            EncryptedPayload::Ssh {
+                passphrase: Some(pp),
+                ..
+            },
+            FieldSelector::Passphrase,
+        ) => Ok(pp),
+        // Ssh + Passphrase with None value
+        (CredentialType::Ssh, _, FieldSelector::Passphrase) => Err(VaultError::InvalidField {
+            record_type: CredentialType::Ssh,
+            field: FieldSelector::Passphrase,
+        }),
+
         // ── Catch-all: field missing or credential-type/payload mismatch ──
         _ => Err(VaultError::InvalidField {
             record_type: ct,

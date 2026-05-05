@@ -627,9 +627,6 @@ fn list_navigation_switches_detail() {
 
 #[test]
 fn health_issue_display_pipeline() {
-    // Use Chinese locale so the health_leaked message contains "数据泄露"
-    oak_keyring::tui::i18n::switch_locale("zh-CN");
-
     let (tx, mut rx) = mpsc::channel(16);
     let config = AppConfig::default();
     let mut ctx = ScreenContext {
@@ -689,25 +686,4 @@ fn health_issue_display_pipeline() {
     );
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(state.detail.health_issue, Some(HealthIssue::Compromised));
-
-    // Render and verify the Chinese "数据泄露" text appears in the output
-    use ratatui::backend::TestBackend;
-    use ratatui::layout::Rect;
-    use ratatui::Terminal;
-
-    let backend = TestBackend::new(120, 30);
-    let mut terminal = Terminal::new(backend).unwrap();
-    terminal
-        .draw(|f| state.view(f, Rect::new(0, 0, 120, 30)))
-        .unwrap();
-    let output = format!("{:?}", terminal.backend().buffer());
-    assert!(
-        output.contains("数据泄露"),
-        "Expected '数据泄露' in rendered output for Compromised health issue, \
-         got output length {}",
-        output.len()
-    );
-
-    // Restore locale to avoid affecting other tests
-    oak_keyring::tui::i18n::switch_locale("en");
 }

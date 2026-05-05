@@ -1688,20 +1688,63 @@ fn record_updated_refreshes_detail_when_showing() {
         &mut ctx,
     );
 
-    // First message: LoadRecordList
+    // Only LoadRecordList is sent immediately; detail refresh is deferred
     let cmd1 = rx.try_recv().expect("Should send LoadRecordList");
     assert!(matches!(cmd1, Command::LoadRecordList { .. }));
 
-    // Second message: LoadRecordDetail (because detail was showing the updated record)
-    let cmd2 = rx
-        .try_recv()
-        .expect("Should send LoadRecordDetail after RecordUpdated when detail was showing");
-    match cmd2 {
-        Command::LoadRecordDetail { id } => {
-            assert_eq!(id, record_id);
-        }
-        other => panic!("Expected LoadRecordDetail, got {:?}", other),
-    }
+    // No immediate LoadRecordDetail
+    assert!(
+        rx.try_recv().is_err(),
+        "Should NOT send LoadRecordDetail immediately (deferred to RecordListLoaded)"
+    );
+
+    // pending_detail_refresh is set for the deferred load
+    assert_eq!(state.pending_detail_refresh, Some(record_id));
+}
+
+#[test]
+fn record_updated_does_not_refresh_detail_when_record_no_longer_in_filtered_list() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::All;
+    state.list.records = vec![make_test_record(Some(record_id))];
+    state.list.selected_index = Some(0);
+    state.detail.record = Some(make_detail_view(record_id, false));
+    assert!(state.detail.record.is_some());
+    assert_eq!(state.detail.record.as_ref().unwrap().id, record_id);
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    // Send RecordUpdated
+    let _result = state.update(
+        Message::CommandCompleted(CommandResult::RecordUpdated { id: record_id }),
+        &mut ctx,
+    );
+
+    // Drain LoadRecordList
+    let _cmd = rx.try_recv().expect("Should send LoadRecordList");
+
+    // Now simulate a list reload where the record is no longer present
+    // (e.g. editing made it not match the filter)
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: vec![], // empty — record filtered out
+            total: 0,
+        }),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+
+    // Detail should be cleared since the record is no longer in the list
+    assert!(state.detail.record.is_none());
+    assert_eq!(state.pending_detail_refresh, None);
 }
 
 #[test]
@@ -2421,6 +2464,98 @@ fn make_detail_view_with_fields(id: Uuid, is_favorite: bool) -> DetailViewData {
     }
 }
 
+fn make_ssh_detail_view(id: Uuid, is_favorite: bool) -> DetailViewData {
+    use crate::tui::state::detail_state::{DetailField, DetailFieldKind, FieldValue};
+    DetailViewData {
+        id,
+        name: "SSH Key".to_string(),
+        subtitle: String::new(),
+        credential_type: CredentialType::Ssh,
+        is_favorite,
+        expires_at: None,
+        expiry_status: ExpiryStatus::None,
+        tags: Vec::new(),
+        notes: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        fields: vec![
+            DetailField {
+                label: "Public Key".to_string(),
+                value: FieldValue::Plain("ssh-rsa AAA...".to_string()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::PublicKey,
+            },
+            DetailField {
+                label: "Private Key".to_string(),
+                value: FieldValue::Masked,
+                copyable: true,
+                toggleable: true,
+                kind: DetailFieldKind::PrivateKey,
+            },
+            DetailField {
+                label: "Passphrase".to_string(),
+                value: FieldValue::Masked,
+                copyable: true,
+                toggleable: true,
+                kind: DetailFieldKind::Passphrase,
+            },
+        ],
+        password_strength: None,
+        deleted_at: None,
+    }
+}
+
+#[test]
+fn ssh_passphrase_maps_to_passphrase_selector() {
+    use crate::tui::state::detail_state::DetailFieldKind;
+    assert_eq!(
+        detail_field_kind_to_selector(DetailFieldKind::Passphrase),
+        FieldSelector::Passphrase
+    );
+}
+
+#[test]
+fn field_decrypted_updates_correct_field() {
+    use crate::commands::result::CommandResult;
+    use crate::tui::state::detail_state::{DetailFieldKind, FieldValue};
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.detail.record = Some(make_ssh_detail_view(id, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    // Send FieldDecrypted with FieldSelector::Passphrase
+    let value = SecureStr::new("my_ssh_passphrase".to_string());
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::FieldDecrypted {
+            id,
+            field: FieldSelector::Passphrase,
+            value,
+        }),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+
+    // Verify Passphrase field was revealed, but PrivateKey stayed masked
+    let fields = &state.detail.record.as_ref().unwrap().fields;
+    let private_key = fields
+        .iter()
+        .find(|f| f.kind == DetailFieldKind::PrivateKey)
+        .unwrap();
+    assert!(matches!(private_key.value, FieldValue::Masked));
+    let passphrase = fields
+        .iter()
+        .find(|f| f.kind == DetailFieldKind::Passphrase)
+        .unwrap();
+    assert!(matches!(passphrase.value, FieldValue::Revealed(ref v) if v == "my_ssh_passphrase"));
+}
+
 #[test]
 fn p_on_detail_sends_decrypt_field() {
     use crate::commands::types::PanelId;
@@ -2656,7 +2791,7 @@ fn d_on_detail_opens_delete_confirm() {
 }
 
 #[test]
-fn H_on_detail_loads_password_history() {
+fn h_on_detail_loads_password_history() {
     use crate::commands::types::PanelId;
 
     fn make_key(code: KeyCode) -> KeyEvent {
