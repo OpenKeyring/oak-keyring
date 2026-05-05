@@ -1,6 +1,7 @@
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
+use crate::t;
 use crate::tui::theme::{
     self, Styles, PRIMARY, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY,
 };
@@ -31,25 +32,35 @@ impl ImportExportScreen {
         let content_area = h_layout[1];
 
         // Title
-        let title = Paragraph::new("Export Data")
+        let title = Paragraph::new(t!("tui.import_export.export_title").to_string())
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
 
         // Format info (AC17: recovery key mention)
         let format_info = Paragraph::new(format!(
-            "{} Only .okb format. Decryptable via password or Recovery Key",
-            theme::ICON_INFO
+            "{} {}",
+            theme::ICON_INFO,
+            t!("tui.import_export.format_info")
         ))
         .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
         .alignment(Alignment::Center);
 
         // Scope selector
-        let scope_header =
-            Paragraph::new("Export Scope:").style(ratatui::style::Style::default().fg(TEXT));
+        let scope_header = Paragraph::new(t!("tui.import_export.export_scope_label").to_string())
+            .style(ratatui::style::Style::default().fg(TEXT));
         let scope_options = [
-            ("All records", ExportScopeOption::All),
-            ("Current filter", ExportScopeOption::CurrentFilter),
-            ("By tag", ExportScopeOption::ByTag),
+            (
+                t!("tui.import_export.scope_all").to_string(),
+                ExportScopeOption::All,
+            ),
+            (
+                t!("tui.import_export.scope_current_filter").to_string(),
+                ExportScopeOption::CurrentFilter,
+            ),
+            (
+                t!("tui.import_export.scope_by_tag").to_string(),
+                ExportScopeOption::ByTag,
+            ),
         ];
         let scope_items: Vec<ratatui::text::Line> = scope_options
             .iter()
@@ -80,9 +91,9 @@ impl ImportExportScreen {
         let pw_block = Block::default()
             .borders(Borders::ALL)
             .border_style(pw_border)
-            .title(" Export Password ");
+            .title(t!("tui.import_export.export_password_label").to_string());
         let pw_display = if self.export_password.is_empty() {
-            Paragraph::new("Enter export password")
+            Paragraph::new(t!("tui.import_export.export_password_placeholder").to_string())
                 .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
             Paragraph::new(Self::display_password(&self.export_password))
@@ -115,9 +126,9 @@ impl ImportExportScreen {
         let confirm_block = Block::default()
             .borders(Borders::ALL)
             .border_style(confirm_border)
-            .title(" Confirm Password ");
+            .title(t!("tui.import_export.confirm_password_label").to_string());
         let confirm_display = if self.export_confirm_password.is_empty() {
-            Paragraph::new("Confirm export password")
+            Paragraph::new(t!("tui.import_export.confirm_password_placeholder").to_string())
                 .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
             Paragraph::new(Self::display_password(&self.export_confirm_password))
@@ -129,13 +140,21 @@ impl ImportExportScreen {
             if !self.export_password.is_empty() && !self.export_confirm_password.is_empty() {
                 if self.export_password == self.export_confirm_password {
                     Some(
-                        Paragraph::new(format!("{} Passwords match", theme::ICON_SUCCESS))
-                            .style(Styles::success_text()),
+                        Paragraph::new(format!(
+                            "{} {}",
+                            theme::ICON_SUCCESS,
+                            t!("tui.import_export.passwords_match")
+                        ))
+                        .style(Styles::success_text()),
                     )
                 } else {
                     Some(
-                        Paragraph::new(format!("{} Passwords do not match", theme::ICON_ERROR))
-                            .style(Styles::error_text()),
+                        Paragraph::new(format!(
+                            "{} {}",
+                            theme::ICON_ERROR,
+                            t!("tui.import_export.passwords_mismatch")
+                        ))
+                        .style(Styles::error_text()),
                     )
                 }
             } else {
@@ -151,9 +170,9 @@ impl ImportExportScreen {
         let path_block = Block::default()
             .borders(Borders::ALL)
             .border_style(path_border)
-            .title(" Output Path ");
+            .title(t!("tui.import_export.output_path_label").to_string());
         let path_display = if self.export_output_path.is_empty() {
-            Paragraph::new("~/Documents/keyring-backup.okb")
+            Paragraph::new(t!("tui.import_export.output_path_placeholder").to_string())
                 .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
             Paragraph::new(&*self.export_output_path)
@@ -166,10 +185,9 @@ impl ImportExportScreen {
         });
 
         // Hint
-        let hint =
-            Paragraph::new("Tab: switch fields | \u{2191}\u{2193}: select scope | Esc: back")
-                .style(ratatui::style::Style::default().fg(TEXT_MUTED))
-                .alignment(Alignment::Center);
+        let hint = Paragraph::new(t!("tui.import_export.mode_hint_export").to_string())
+            .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+            .alignment(Alignment::Center);
 
         let rows = Layout::vertical([
             Constraint::Length(1), // title
@@ -259,19 +277,24 @@ impl ImportExportScreen {
 
         let content_area = h_layout[1];
 
-        let title = Paragraph::new("Authorize Export")
+        let title = Paragraph::new(t!("tui.import_export.authorize_title").to_string())
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
 
-        let subtitle = Paragraph::new(format!(
-            "Export {} to: {}",
-            match self.export_scope_option {
-                ExportScopeOption::All => "all records",
-                ExportScopeOption::CurrentFilter => "filtered records",
-                ExportScopeOption::ByTag => "tagged records",
-            },
-            self.export_output_path,
-        ))
+        let subtitle = Paragraph::new(
+            t!(
+                "tui.import_export.authorize_subtitle",
+                scope = match self.export_scope_option {
+                    ExportScopeOption::All => t!("tui.import_export.scope_all").to_string(),
+                    ExportScopeOption::CurrentFilter => {
+                        t!("tui.import_export.scope_current_filter").to_string()
+                    }
+                    ExportScopeOption::ByTag => t!("tui.import_export.scope_by_tag").to_string(),
+                },
+                path = self.export_output_path
+            )
+            .to_string(),
+        )
         .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
         .alignment(Alignment::Center);
 
@@ -280,10 +303,10 @@ impl ImportExportScreen {
         let pw_block = Block::default()
             .borders(Borders::ALL)
             .border_style(pw_border)
-            .title(" Master Password ");
+            .title(t!("tui.import_export.master_password_label").to_string());
 
         let pw_display = if self.master_password.is_empty() {
-            Paragraph::new("Enter master password to authorize")
+            Paragraph::new(t!("tui.import_export.master_password_placeholder").to_string())
                 .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
             Paragraph::new(Self::display_password(&self.master_password))
@@ -295,7 +318,7 @@ impl ImportExportScreen {
             Paragraph::new(format!("{} {}", theme::ICON_ERROR, msg)).style(Styles::error_text())
         });
 
-        let hint = Paragraph::new("Enter: export | Esc: back")
+        let hint = Paragraph::new(t!("tui.import_export.hint_export").to_string())
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
 
@@ -350,15 +373,15 @@ impl ImportExportScreen {
 
         let content_area = h_layout[1];
 
-        let title = Paragraph::new("Exporting...")
+        let title = Paragraph::new(t!("tui.import_export.exporting_title").to_string())
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
 
-        let progress = Paragraph::new("Encrypting and writing export file...")
+        let progress = Paragraph::new(t!("tui.import_export.exporting_progress").to_string())
             .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
             .alignment(Alignment::Center);
 
-        let hint = Paragraph::new("Please wait...")
+        let hint = Paragraph::new(t!("tui.import_export.hint_wait").to_string())
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
 
@@ -399,7 +422,7 @@ impl ImportExportScreen {
 
         let content_area = h_layout[1];
 
-        let title = Paragraph::new("Export Complete")
+        let title = Paragraph::new(t!("tui.import_export.export_complete_title").to_string())
             .style(Styles::success_text())
             .alignment(Alignment::Center);
 
@@ -410,21 +433,24 @@ impl ImportExportScreen {
             .unwrap_or_else(|| self.export_output_path.clone());
 
         let path_line = Paragraph::new(format!(
-            "{} Saved to: {}",
+            "{} {}",
             theme::ICON_SUCCESS,
-            path_display
+            t!("tui.import_export.saved_to", path = path_display)
         ))
         .style(Styles::success_text())
         .wrap(Wrap { trim: true });
 
         let count_line = Paragraph::new(format!(
-            "{} Records exported: {}",
+            "{} {}",
             theme::ICON_SUCCESS,
-            self.export_record_count
+            t!(
+                "tui.import_export.records_exported",
+                count = self.export_record_count
+            )
         ))
         .style(Styles::success_text());
 
-        let hint = Paragraph::new("Enter: back to config")
+        let hint = Paragraph::new(t!("tui.import_export.hint_back_config").to_string())
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
 
