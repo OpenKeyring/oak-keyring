@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::commands::types::*;
 use crate::config::AppConfig;
 use crate::errors::{ErrorCode, ErrorContext};
+use crate::types::tag::TagSortMeta;
 use crate::types::{DecryptedRecord, PasswordHistoryView, SecureStr, SyncStats, Tag, TuiRecord};
 
 /// Service → UI execution result.
@@ -72,6 +73,7 @@ pub enum CommandResult {
     // ── Tag Results ──────────────────────────
     TagsLoaded {
         tags: Vec<Tag>,
+        tag_stats: HashMap<i64, TagSortMeta>,
     },
     TagRenamed {
         old_name: String,
