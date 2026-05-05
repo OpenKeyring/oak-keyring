@@ -1551,6 +1551,28 @@ fn make_test_record(id_override: Option<Uuid>) -> TuiRecord {
     }
 }
 
+#[allow(dead_code)]
+fn make_test_record_with_id(id: Uuid) -> TuiRecord {
+    TuiRecord {
+        id,
+        credential_type: CredentialType::Login,
+        name: "Test Record".to_string(),
+        subtitle: String::new(),
+        is_favorite: false,
+        is_expired: false,
+        expires_at: None,
+        has_weak_password: false,
+        is_compromised: false,
+        duplicate_group_size: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        deleted: false,
+        deleted_at: None,
+        tags: Vec::new(),
+        sync_status: None,
+    }
+}
+
 fn make_detail_view(id: Uuid, is_favorite: bool) -> DetailViewData {
     DetailViewData {
         id,
@@ -1685,6 +1707,54 @@ fn record_updated_refreshes_detail_when_showing() {
 }
 
 #[test]
+fn record_updated_does_not_refresh_detail_when_showing_different_record() {
+    use crate::commands::result::CommandResult;
+
+    let updated_id = Uuid::new_v4();
+    let detail_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::All;
+    state.list.records = vec![
+        make_test_record(Some(updated_id)),
+        make_test_record(Some(detail_id)),
+    ];
+    state.list.selected_index = Some(1);
+    state.detail.record = Some(make_detail_view(detail_id, false));
+    assert!(state.detail.record.is_some());
+    assert_eq!(state.detail.record.as_ref().unwrap().id, detail_id);
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordUpdated { id: updated_id }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+
+    // Should send LoadRecordList
+    let cmd = rx
+        .try_recv()
+        .expect("Should send LoadRecordList after RecordUpdated");
+    assert!(matches!(cmd, Command::LoadRecordList { .. }));
+
+    // Should NOT send LoadRecordDetail (detail was showing a different record)
+    assert!(
+        rx.try_recv().is_err(),
+        "Should not send LoadRecordDetail when detail shows a different record"
+    );
+
+    // Detail should still be showing the original record
+    assert!(state.detail.record.is_some());
+    assert_eq!(state.detail.record.as_ref().unwrap().id, detail_id);
+}
+
+#[test]
 fn record_deleted_clears_detail_when_showing() {
     use crate::commands::result::CommandResult;
 
@@ -1775,6 +1845,64 @@ fn record_restored_triggers_list_refresh() {
     let cmd = rx
         .try_recv()
         .expect("Should send LoadRecordList after RecordRestored");
+    assert!(matches!(cmd, Command::LoadRecordList { .. }));
+}
+
+#[test]
+fn record_restored_clears_detail_when_showing() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::Trash;
+    state.list.records = vec![make_test_record(Some(record_id))];
+    state.list.selected_index = Some(0);
+    state.detail.record = Some(make_detail_view(record_id, false));
+    assert!(state.detail.record.is_some());
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordRestored { id: record_id }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    // Detail should be cleared because it was showing the restored record
+    assert!(state.detail.record.is_none());
+}
+
+#[test]
+fn record_destroyed_triggers_list_refresh() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::Trash;
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordDestroyed { id: record_id }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+
+    // Should send LoadRecordList
+    let cmd = rx
+        .try_recv()
+        .expect("Should send LoadRecordList after RecordDestroyed");
     assert!(matches!(cmd, Command::LoadRecordList { .. }));
 }
 
@@ -1969,6 +2097,42 @@ fn favorite_toggled_does_not_update_detail_when_not_showing() {
     assert_eq!(state.detail.record.as_ref().unwrap().is_favorite, false);
     // List record's is_favorite should be updated
     assert_eq!(state.list.records[0].is_favorite, true);
+}
+
+#[test]
+fn favorite_toggled_removes_from_list_when_viewing_favorites() {
+    use crate::commands::result::CommandResult;
+
+    let record_id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.current_filter = RecordFilter::Favorites;
+    state.list.records = vec![make_test_record(Some(record_id))];
+    state.list.selected_index = Some(0);
+    state.detail.record = Some(make_detail_view(record_id, true));
+    assert_eq!(state.list.records.len(), 1);
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::FavoriteToggled {
+            id: record_id,
+            is_favorite: false,
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    // Record should be removed from list when unfavoriting while viewing Favorites
+    assert!(state.list.records.is_empty());
+    // selected_index should be None since list is empty
+    assert_eq!(state.list.selected_index, None);
+    // Detail record's is_favorite should still be updated
+    assert_eq!(state.detail.record.as_ref().unwrap().is_favorite, false);
 }
 
 // ── Overlay result dispatch tests ────────────────────────────
