@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{layout::Rect, Frame};
+use uuid::Uuid;
 
 use crate::commands::types::{
     ConfirmVariant, FieldSelector, Overlay, PanelId, RecordFilter, RecordSort, Screen as ScreenEnum,
@@ -13,7 +14,7 @@ use crate::tui::state::list_state::{ListMode, ListPanelState};
 use crate::tui::state::overlay_state::HistoryEntry;
 use crate::tui::state::tag_management::TagManagementState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
-use crate::types::{SecureStr, Tag};
+use crate::types::{CredentialType, SecureStr, Tag};
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -465,6 +466,12 @@ pub struct MainScreenState {
     /// Set to true by sidebar filter changes and record creation;
     /// reset to false after the flag is consumed.
     pub list_auto_select: bool,
+    /// Pending record ID to refresh in detail after the next list reload.
+    /// Set by `RecordUpdated` when the detail panel was showing the updated
+    /// record; consumed and cleared by `RecordListLoaded`. If the record no
+    /// longer appears in the reloaded list (e.g. filtered view), detail is
+    /// cleared instead.
+    pub pending_detail_refresh: Option<Uuid>,
 }
 
 impl Default for MainScreenState {
@@ -484,6 +491,7 @@ impl Default for MainScreenState {
             overlay_manager: OverlayManager::new(),
             pending_animation: None,
             list_auto_select: false,
+            pending_detail_refresh: None,
         }
     }
 }
@@ -580,6 +588,7 @@ impl Screen for MainScreenState {
                             FieldSelector::Username => "用户名",
                             FieldSelector::Url => "网址",
                             FieldSelector::Notes => "备注",
+                            FieldSelector::Passphrase => "SSH 密码短语",
                         };
                         self.status_bar.status_message = Some(StatusMessage::ClipboardCountdown {
                             field: field_name.to_string(),
@@ -614,9 +623,12 @@ impl Screen for MainScreenState {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
-                        // Refresh detail if it was showing the updated record
+                        // Defer detail refresh until list reload completes.
+                        // If the updated record no longer matches the current
+                        // filter, the list reload will clear detail instead
+                        // of sending a stale LoadRecordDetail.
                         if was_showing_detail {
-                            let _ = ctx.command_tx.try_send(Command::LoadRecordDetail { id });
+                            self.pending_detail_refresh = Some(id);
                         }
                         ScreenResult::Continue
                     }
@@ -656,6 +668,19 @@ impl Screen for MainScreenState {
                             self.list.adjust_scroll();
                             self.list_auto_select = false;
                         }
+
+                        // Handle pending detail refresh from RecordUpdated.
+                        // Only refresh if the record is still in the filtered list.
+                        if let Some(refresh_id) = self.pending_detail_refresh.take() {
+                            if self.list.records.iter().any(|r| r.id == refresh_id) {
+                                let _ = ctx
+                                    .command_tx
+                                    .try_send(Command::LoadRecordDetail { id: refresh_id });
+                            } else {
+                                self.detail.clear();
+                            }
+                        }
+
                         ScreenResult::Continue
                     }
                     CommandResult::RecordDeleted { id } => {
@@ -736,18 +761,35 @@ impl Screen for MainScreenState {
                         ScreenResult::Continue
                     }
                     // Handle FieldDecrypted — reveal field value
-                    CommandResult::FieldDecrypted {
-                        id,
-                        field: _,
-                        value,
-                    } => {
+                    CommandResult::FieldDecrypted { id, field, value } => {
                         self.detail.password_visible = true;
                         if let Some(ref mut record) = self.detail.record {
                             if record.id == id {
-                                for f in &mut record.fields {
-                                    if f.toggleable && matches!(f.value, FieldValue::Masked) {
-                                        f.value = FieldValue::Revealed(value.get().clone());
-                                        break;
+                                // Map FieldSelector back to DetailFieldKind based on
+                                // credential type, so the revealed value goes to the
+                                // correct field (not just the first masked toggleable).
+                                let target_kind = match field {
+                                    FieldSelector::Username => match record.credential_type {
+                                        CredentialType::Login | CredentialType::Ssh => {
+                                            Some(DetailFieldKind::Username)
+                                        }
+                                        CredentialType::Api => Some(DetailFieldKind::AppId),
+                                    },
+                                    FieldSelector::Password => match record.credential_type {
+                                        CredentialType::Login => Some(DetailFieldKind::Password),
+                                        CredentialType::Api => Some(DetailFieldKind::SecretKey),
+                                        CredentialType::Ssh => Some(DetailFieldKind::PrivateKey),
+                                    },
+                                    FieldSelector::Passphrase => Some(DetailFieldKind::Passphrase),
+                                    // Url and Notes are not decryptable/toggleable
+                                    FieldSelector::Url | FieldSelector::Notes => None,
+                                };
+                                if let Some(target_kind) = target_kind {
+                                    for f in &mut record.fields {
+                                        if f.kind == target_kind && f.toggleable {
+                                            f.value = FieldValue::Revealed(value.get().clone());
+                                            break;
+                                        }
                                     }
                                 }
                             }
@@ -1194,15 +1236,15 @@ impl MainScreenState {
 
 /// Convert a [`DetailFieldKind`] to the corresponding [`FieldSelector`] for
 /// clipboard copy and field decryption commands.
-fn detail_field_kind_to_selector(kind: DetailFieldKind) -> FieldSelector {
+pub(super) fn detail_field_kind_to_selector(kind: DetailFieldKind) -> FieldSelector {
     match kind {
         DetailFieldKind::Username | DetailFieldKind::AppId | DetailFieldKind::PublicKey => {
             FieldSelector::Username
         }
-        DetailFieldKind::Password
-        | DetailFieldKind::SecretKey
-        | DetailFieldKind::PrivateKey
-        | DetailFieldKind::Passphrase => FieldSelector::Password,
+        DetailFieldKind::Password | DetailFieldKind::SecretKey | DetailFieldKind::PrivateKey => {
+            FieldSelector::Password
+        }
+        DetailFieldKind::Passphrase => FieldSelector::Passphrase,
         DetailFieldKind::Url => FieldSelector::Url,
         DetailFieldKind::Notes => FieldSelector::Notes,
     }
