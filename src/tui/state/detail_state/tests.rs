@@ -240,7 +240,7 @@ fn build_from_login_record() {
         tags: vec!["dev".into()],
     };
 
-    let data = DetailPanelState::build_from_record(&record);
+    let data = DetailPanelState::build_from_record(&record, None);
     assert_eq!(data.name, "GitHub");
     assert!(data.is_favorite);
     assert_eq!(data.fields.len(), 4); // username, password, url, notes
@@ -273,7 +273,7 @@ fn build_from_api_record() {
         tags: vec![],
     };
 
-    let data = DetailPanelState::build_from_record(&record);
+    let data = DetailPanelState::build_from_record(&record, None);
     assert_eq!(data.name, "Cloud API");
     assert_eq!(data.fields.len(), 2); // AppID, SecretKey
     assert_eq!(data.fields[0].kind, DetailFieldKind::AppId);
@@ -302,7 +302,7 @@ fn build_from_ssh_record() {
         tags: vec![],
     };
 
-    let data = DetailPanelState::build_from_record(&record);
+    let data = DetailPanelState::build_from_record(&record, None);
     assert_eq!(data.fields.len(), 3); // PublicKey, PrivateKey, Passphrase
     assert_eq!(data.fields[0].kind, DetailFieldKind::PublicKey);
     assert!(matches!(data.fields[0].value, FieldValue::Plain(_)));
