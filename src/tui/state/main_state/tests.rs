@@ -2237,3 +2237,151 @@ fn restore_confirm_dispatches_command() {
         panic!("Expected Command result, got {:?}", result);
     }
 }
+
+// ── Task 6: List normal mode j/k navigation tests ────────────────────────────
+
+#[test]
+fn j_in_list_normal_mode_moves_down_and_loads_detail() {
+    use crate::commands::types::PanelId;
+    use crate::types::credential::CredentialType;
+    use crate::types::record::TuiRecord;
+
+    fn make_test_record() -> TuiRecord {
+        TuiRecord {
+            id: uuid::Uuid::new_v4(),
+            credential_type: CredentialType::Login,
+            name: "Test".to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: Vec::new(),
+            sync_status: None,
+        }
+    }
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let records: Vec<TuiRecord> = (0..3).map(|_| make_test_record()).collect();
+    let mut state = MainScreenState::default();
+    state.list = crate::tui::state::list_state::ListPanelState::with_records(records);
+    state.focused_panel = PanelId::List;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    // Press j — should move down to index 1
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('j'))), &mut ctx);
+    assert_eq!(state.list.selected_index, Some(1));
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::LoadRecordDetail { id } => {
+                assert_eq!(*id, state.list.records[1].id);
+            }
+            other => panic!("Expected LoadRecordDetail, got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn k_in_list_normal_mode_moves_up_and_loads_detail() {
+    use crate::commands::types::PanelId;
+    use crate::types::credential::CredentialType;
+    use crate::types::record::TuiRecord;
+
+    fn make_test_record() -> TuiRecord {
+        TuiRecord {
+            id: uuid::Uuid::new_v4(),
+            credential_type: CredentialType::Login,
+            name: "Test".to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: Vec::new(),
+            sync_status: None,
+        }
+    }
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let records: Vec<TuiRecord> = (0..3).map(|_| make_test_record()).collect();
+    let mut state = MainScreenState::default();
+    state.list = crate::tui::state::list_state::ListPanelState::with_records(records);
+    state.list.selected_index = Some(2);
+    state.focused_panel = PanelId::List;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    // Press k — should move up to index 1
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('k'))), &mut ctx);
+    assert_eq!(state.list.selected_index, Some(1));
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    if let ScreenResult::Command(cmd) = result {
+        match &*cmd {
+            Command::LoadRecordDetail { id } => {
+                assert_eq!(*id, state.list.records[1].id);
+            }
+            other => panic!("Expected LoadRecordDetail, got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn jk_in_list_normal_mode_handles_empty_list() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::List;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    // Press j with empty list — should be Continue (no command)
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('j'))), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.list.selected_index, None);
+
+    // Press k with empty list — should be Continue (no command)
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('k'))), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.list.selected_index, None);
+}

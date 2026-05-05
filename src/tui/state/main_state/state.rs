@@ -875,6 +875,34 @@ impl MainScreenState {
             }
         }
 
+        // ── Task 6: List normal mode j/k navigation with detail loading ──
+        if self.focused_panel == PanelId::List
+            && !self.list.is_searching()
+            && !self.list.is_visual()
+        {
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.list.move_down();
+                    if let Some(record) = self.list.selected_record() {
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                            id: record.id,
+                        }));
+                    }
+                    return ScreenResult::Continue;
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.list.move_up();
+                    if let Some(record) = self.list.selected_record() {
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                            id: record.id,
+                        }));
+                    }
+                    return ScreenResult::Continue;
+                }
+                _ => {}
+            }
+        }
+
         // Layer 2: Global shortcuts
         match key.code {
             KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
