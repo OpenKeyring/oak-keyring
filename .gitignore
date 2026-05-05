@@ -3,6 +3,7 @@
 
 # Build artifacts
 /target/
+/tools/*/target/
 *.rlib
 
 # IDE
