@@ -105,6 +105,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
             state.sync_status,
             state.gdrive_auth_status.clone(),
             state.last_sync,
+            state.sync_error_message.as_deref(),
             focused,
         ),
         ConfigTab::Security => super::security::render(
