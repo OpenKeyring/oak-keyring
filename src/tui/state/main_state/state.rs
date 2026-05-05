@@ -1,19 +1,20 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{layout::Rect, Frame};
+use uuid::Uuid;
 
 use crate::commands::types::{
     ConfirmVariant, FieldSelector, Overlay, PanelId, RecordFilter, RecordSort, Screen as ScreenEnum,
 };
 use crate::commands::{Command, Message};
-use crate::tui::screens::main::overlay::OverlayKeyResult;
-use crate::tui::screens::main::overlay::OverlayManager;
+use crate::tui::screens::main::overlay::{ActiveOverlay, OverlayKeyResult, OverlayManager};
 use crate::tui::screens::main::MainScreen;
 use crate::tui::state::animation::EffectKind;
-use crate::tui::state::detail_state::DetailPanelState;
+use crate::tui::state::detail_state::{DetailFieldKind, DetailPanelState, FieldValue};
 use crate::tui::state::list_state::{ListMode, ListPanelState};
+use crate::tui::state::overlay_state::HistoryEntry;
 use crate::tui::state::tag_management::TagManagementState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
-use crate::types::{SecureStr, Tag};
+use crate::types::{CredentialType, SecureStr, Tag};
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -460,6 +461,17 @@ pub struct MainScreenState {
     /// Animation effect to trigger on the next update cycle.
     /// Set when overlay opens/closes, consumed by update.rs.
     pub pending_animation: Option<EffectKind>,
+    /// Controls auto-selection on the next `RecordListLoaded`.
+    /// When true, the handler auto-selects index 0 and sends `LoadRecordDetail`.
+    /// Set to true by sidebar filter changes and record creation;
+    /// reset to false after the flag is consumed.
+    pub list_auto_select: bool,
+    /// Pending record ID to refresh in detail after the next list reload.
+    /// Set by `RecordUpdated` when the detail panel was showing the updated
+    /// record; consumed and cleared by `RecordListLoaded`. If the record no
+    /// longer appears in the reloaded list (e.g. filtered view), detail is
+    /// cleared instead.
+    pub pending_detail_refresh: Option<Uuid>,
 }
 
 impl Default for MainScreenState {
@@ -478,6 +490,8 @@ impl Default for MainScreenState {
             trash_retention_days: 30,
             overlay_manager: OverlayManager::new(),
             pending_animation: None,
+            list_auto_select: false,
+            pending_detail_refresh: None,
         }
     }
 }
@@ -574,6 +588,7 @@ impl Screen for MainScreenState {
                             FieldSelector::Username => "用户名",
                             FieldSelector::Url => "网址",
                             FieldSelector::Notes => "备注",
+                            FieldSelector::Passphrase => "SSH 密码短语",
                         };
                         self.status_bar.status_message = Some(StatusMessage::ClipboardCountdown {
                             field: field_name.to_string(),
@@ -592,23 +607,87 @@ impl Screen for MainScreenState {
                         self.status_bar.clipboard_countdown = Some(clear_after_seconds as u32);
                         ScreenResult::Continue
                     }
+                    CommandResult::RecordCreated { .. } => {
+                        // Auto-select the first record (newly created) when list reloads
+                        self.list_auto_select = true;
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    CommandResult::RecordUpdated { id } => {
+                        let was_showing_detail =
+                            self.detail.record.as_ref().is_some_and(|r| r.id == id);
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        // Defer detail refresh until list reload completes.
+                        // If the updated record no longer matches the current
+                        // filter, the list reload will clear detail instead
+                        // of sending a stale LoadRecordDetail.
+                        if was_showing_detail {
+                            self.pending_detail_refresh = Some(id);
+                        }
+                        ScreenResult::Continue
+                    }
                     CommandResult::RecordListLoaded { records, total } => {
+                        let prev_selected_index = self.list.selected_index;
                         self.list.records = records;
                         self.list.total_count = total;
-                        // Normalize selection after loading
-                        self.list.selected_index = if self.list.records.is_empty() {
-                            None
+                        self.status_bar.record_count = total;
+
+                        if self.list_auto_select && !self.list.records.is_empty() {
+                            // Auto-select first record (sidebar filter change or record creation)
+                            self.list.selected_index = Some(0);
+                            self.list.scroll_offset = 0;
+                            self.list_auto_select = false;
+                            let id = self.list.records[0].id;
+                            let _ = ctx.command_tx.try_send(Command::LoadRecordDetail { id });
+                        } else if self.list.records.is_empty() {
+                            self.list.selected_index = None;
+                            self.list.scroll_offset = 0;
+                            self.detail.clear();
+                            self.list_auto_select = false;
                         } else {
-                            Some(
-                                self.list
-                                    .selected_index
-                                    .unwrap_or(0)
-                                    .min(self.list.records.len() - 1),
-                            )
-                        };
+                            // Cursor recovery: keep selected_index, clamp if OOB
+                            match prev_selected_index {
+                                Some(idx) if idx < self.list.records.len() => {
+                                    self.list.selected_index = Some(idx);
+                                }
+                                Some(_) => {
+                                    // OOB — clamp to last
+                                    self.list.selected_index = Some(self.list.records.len() - 1);
+                                }
+                                None => {
+                                    // No previous selection (initial load) — keep None
+                                    self.list.selected_index = None;
+                                }
+                            }
+                            self.list.adjust_scroll();
+                            self.list_auto_select = false;
+                        }
+
+                        // Handle pending detail refresh from RecordUpdated.
+                        // Only refresh if the record is still in the filtered list.
+                        if let Some(refresh_id) = self.pending_detail_refresh.take() {
+                            if self.list.records.iter().any(|r| r.id == refresh_id) {
+                                let _ = ctx
+                                    .command_tx
+                                    .try_send(Command::LoadRecordDetail { id: refresh_id });
+                            } else {
+                                self.detail.clear();
+                            }
+                        }
+
                         ScreenResult::Continue
                     }
                     CommandResult::RecordDeleted { id } => {
+                        // Clear detail if it shows the deleted record
+                        if self.detail.record.as_ref().is_some_and(|r| r.id == id) {
+                            self.detail.clear();
+                        }
                         self.list.records.retain(|r| r.id != id);
                         self.list.cleanup_after_batch(&[id]);
                         // Reload to get accurate counts
@@ -619,6 +698,10 @@ impl Screen for MainScreenState {
                         ScreenResult::Continue
                     }
                     CommandResult::RecordRestored { id } => {
+                        // Clear detail if it shows the restored record
+                        if self.detail.record.as_ref().is_some_and(|r| r.id == id) {
+                            self.detail.clear();
+                        }
                         self.list.records.retain(|r| r.id != id);
                         // Reload list after restore
                         let _ = ctx.command_tx.try_send(Command::LoadRecordList {
@@ -637,8 +720,15 @@ impl Screen for MainScreenState {
                         ScreenResult::Continue
                     }
                     CommandResult::FavoriteToggled { id, is_favorite } => {
+                        // Update the list record
                         if let Some(record) = self.list.records.iter_mut().find(|r| r.id == id) {
                             record.is_favorite = is_favorite;
+                        }
+                        // Also update the detail record if currently displayed
+                        if let Some(record) = self.detail.record.as_mut() {
+                            if record.id == id {
+                                record.is_favorite = is_favorite;
+                            }
                         }
                         // When viewing Favorites, unfavorite should remove the row
                         if matches!(self.current_filter, RecordFilter::Favorites) && !is_favorite {
@@ -656,10 +746,82 @@ impl Screen for MainScreenState {
                         }
                         ScreenResult::Continue
                     }
-                    CommandResult::RecordDetailLoaded { record } => {
-                        let view_data = DetailPanelState::build_from_record(&record);
+                    CommandResult::RecordDetailLoaded {
+                        record,
+                        password_strength,
+                        health_issue,
+                    } => {
+                        let view_data =
+                            DetailPanelState::build_from_record(&record, password_strength);
                         self.detail = DetailPanelState::with_record(view_data);
+                        self.detail.health_issue = health_issue;
                         self.detail.is_trash = self.current_filter == RecordFilter::Trash;
+                        // Reset password visibility on new detail load
+                        self.detail.password_visible = false;
+                        ScreenResult::Continue
+                    }
+                    // Handle FieldDecrypted — reveal field value
+                    CommandResult::FieldDecrypted { id, field, value } => {
+                        self.detail.password_visible = true;
+                        if let Some(ref mut record) = self.detail.record {
+                            if record.id == id {
+                                // Map FieldSelector back to DetailFieldKind based on
+                                // credential type, so the revealed value goes to the
+                                // correct field (not just the first masked toggleable).
+                                let target_kind = match field {
+                                    FieldSelector::Username => match record.credential_type {
+                                        CredentialType::Login | CredentialType::Ssh => {
+                                            Some(DetailFieldKind::Username)
+                                        }
+                                        CredentialType::Api => Some(DetailFieldKind::AppId),
+                                    },
+                                    FieldSelector::Password => match record.credential_type {
+                                        CredentialType::Login => Some(DetailFieldKind::Password),
+                                        CredentialType::Api => Some(DetailFieldKind::SecretKey),
+                                        CredentialType::Ssh => Some(DetailFieldKind::PrivateKey),
+                                    },
+                                    FieldSelector::Passphrase => Some(DetailFieldKind::Passphrase),
+                                    // Url and Notes are not decryptable/toggleable
+                                    FieldSelector::Url | FieldSelector::Notes => None,
+                                };
+                                if let Some(target_kind) = target_kind {
+                                    for f in &mut record.fields {
+                                        if f.kind == target_kind && f.toggleable {
+                                            f.value = FieldValue::Revealed(value.get().clone());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        ScreenResult::Continue
+                    }
+                    // Handle PasswordHistoryLoaded — open overlay
+                    CommandResult::PasswordHistoryLoaded { history } => {
+                        let record_info =
+                            self.detail.record.as_ref().map(|r| (r.id, r.name.clone()));
+                        let entries: Vec<HistoryEntry> = history
+                            .into_iter()
+                            .map(|entry| {
+                                // Discard SecureStr password — copying uses CopyHistoryPassword by id
+                                let _ = entry.password;
+                                HistoryEntry {
+                                    id: entry.id,
+                                    changed_at: entry.changed_at,
+                                    description: crate::t!("tui.entry.password_label").to_string(),
+                                }
+                            })
+                            .collect();
+                        if let Some((record_id, record_name)) = record_info {
+                            self.overlay_manager
+                                .open(Overlay::PasswordHistory { record_id });
+                            if let Some(ActiveOverlay::PasswordHistory(state)) =
+                                self.overlay_manager.get_mut()
+                            {
+                                state.entries = entries;
+                                state.record_name = record_name;
+                            }
+                        }
                         ScreenResult::Continue
                     }
                     _ => ScreenResult::Continue,
@@ -756,10 +918,188 @@ impl MainScreenState {
             }
         }
 
+        // Sidebar j/k — filter change triggers LoadRecordList
+        if self.focused_panel == PanelId::Sidebar {
+            let is_renaming =
+                self.sidebar.is_tag_management() && self.sidebar.tag_management.is_renaming();
+            if !is_renaming {
+                match key.code {
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        let old_filter = self.sidebar.current_filter();
+                        self.sidebar.move_down();
+                        // Exit visual mode on sidebar navigation (U3 Spec)
+                        if self.list.is_visual() {
+                            self.list.exit_visual();
+                        }
+                        let new_filter = self.sidebar.current_filter();
+                        if new_filter != old_filter {
+                            self.current_filter = new_filter.clone();
+                            self.detail.clear();
+                            self.list_auto_select = true;
+                            return ScreenResult::Command(Box::new(Command::LoadRecordList {
+                                filter: new_filter,
+                                sort: self.current_sort.clone(),
+                            }));
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        let old_filter = self.sidebar.current_filter();
+                        self.sidebar.move_up();
+                        if self.list.is_visual() {
+                            self.list.exit_visual();
+                        }
+                        let new_filter = self.sidebar.current_filter();
+                        if new_filter != old_filter {
+                            self.current_filter = new_filter.clone();
+                            self.detail.clear();
+                            self.list_auto_select = true;
+                            return ScreenResult::Command(Box::new(Command::LoadRecordList {
+                                filter: new_filter,
+                                sort: self.current_sort.clone(),
+                            }));
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // ── Task 6: List normal mode j/k navigation with detail loading ──
+        if self.focused_panel == PanelId::List
+            && !self.list.is_searching()
+            && !self.list.is_visual()
+        {
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.list.move_down();
+                    if let Some(record) = self.list.selected_record() {
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                            id: record.id,
+                        }));
+                    }
+                    return ScreenResult::Continue;
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.list.move_up();
+                    if let Some(record) = self.list.selected_record() {
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                            id: record.id,
+                        }));
+                    }
+                    return ScreenResult::Continue;
+                }
+                _ => {}
+            }
+        }
+
+        // ── Task 7: Detail panel keyboard shortcuts ──
+        if self.focused_panel == PanelId::Detail {
+            if let Some(ref record) = self.detail.record {
+                let id = record.id;
+                let is_favorite = record.is_favorite;
+                let record_name = record.name.clone();
+
+                match key.code {
+                    // Step 1: p — toggle password visibility (context-sensitive)
+                    KeyCode::Char('p') => {
+                        let needs_decrypt = self.detail.toggle_password();
+                        if needs_decrypt {
+                            if let Some(field) = self.detail.current_toggleable_field() {
+                                let selector = detail_field_kind_to_selector(field.kind);
+                                return ScreenResult::Command(Box::new(Command::DecryptField {
+                                    id,
+                                    field: selector,
+                                }));
+                            }
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    // Step 2a: c — copy password field
+                    KeyCode::Char('c') => {
+                        if let Some(field) = self.detail.password_field() {
+                            let selector = detail_field_kind_to_selector(field.kind);
+                            return ScreenResult::Command(Box::new(Command::CopyToClipboard {
+                                id,
+                                field: selector,
+                            }));
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    // Step 2b: u — copy username field
+                    KeyCode::Char('u') => {
+                        if let Some(field) = self.detail.username_field() {
+                            let selector = detail_field_kind_to_selector(field.kind);
+                            return ScreenResult::Command(Box::new(Command::CopyToClipboard {
+                                id,
+                                field: selector,
+                            }));
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    // Step 2c: Enter — copy currently focused field
+                    KeyCode::Enter => {
+                        if let Some(field) = self.detail.current_field() {
+                            let selector = detail_field_kind_to_selector(field.kind);
+                            return ScreenResult::Command(Box::new(Command::CopyToClipboard {
+                                id,
+                                field: selector,
+                            }));
+                        }
+                        return ScreenResult::Continue;
+                    }
+                    // Step 3: f — toggle favorite
+                    KeyCode::Char('f') => {
+                        return ScreenResult::Command(Box::new(Command::ToggleFavorite {
+                            id,
+                            is_favorite: !is_favorite,
+                        }));
+                    }
+                    // Step 4: d — delete with confirm
+                    KeyCode::Char('d') => {
+                        self.overlay_manager.open(Overlay::ConfirmDialog(
+                            crate::commands::types::ConfirmDialogState {
+                                variant: ConfirmVariant::SoftDelete {
+                                    record_id: id,
+                                    record_name,
+                                    auto_delete_days: None,
+                                },
+                                focused_button: crate::commands::types::ConfirmButton::Cancel,
+                            },
+                        ));
+                        self.pending_animation = Some(EffectKind::ModalAppear);
+                        return ScreenResult::Continue;
+                    }
+                    // Step 5: H — password history
+                    KeyCode::Char('H') => {
+                        return ScreenResult::Command(Box::new(Command::LoadPasswordHistory {
+                            record_id: id,
+                        }));
+                    }
+                    // Step 6: field navigation (up/k, down/j)
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        self.detail.move_field_up();
+                        return ScreenResult::Continue;
+                    }
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        self.detail.move_field_down();
+                        return ScreenResult::Continue;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Layer 2: Global shortcuts
         match key.code {
             KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
             KeyCode::Char('l') => ScreenResult::NavigateTo(ScreenEnum::AuditLog),
+            KeyCode::Char('?') => {
+                self.overlay_manager.open(Overlay::Help);
+                self.pending_animation = Some(EffectKind::ModalAppear);
+                ScreenResult::Continue
+            }
             KeyCode::Char('p') => {
                 self.overlay_manager.open(Overlay::PasswordGenerator);
                 self.pending_animation = Some(EffectKind::ModalAppear);
@@ -891,5 +1231,21 @@ impl MainScreenState {
                 ScreenResult::Continue
             }
         }
+    }
+}
+
+/// Convert a [`DetailFieldKind`] to the corresponding [`FieldSelector`] for
+/// clipboard copy and field decryption commands.
+pub(super) fn detail_field_kind_to_selector(kind: DetailFieldKind) -> FieldSelector {
+    match kind {
+        DetailFieldKind::Username | DetailFieldKind::AppId | DetailFieldKind::PublicKey => {
+            FieldSelector::Username
+        }
+        DetailFieldKind::Password | DetailFieldKind::SecretKey | DetailFieldKind::PrivateKey => {
+            FieldSelector::Password
+        }
+        DetailFieldKind::Passphrase => FieldSelector::Passphrase,
+        DetailFieldKind::Url => FieldSelector::Url,
+        DetailFieldKind::Notes => FieldSelector::Notes,
     }
 }

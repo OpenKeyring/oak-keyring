@@ -2049,6 +2049,54 @@ fn decrypt_field_password_writes_audit_record_view_password() {
     assert_eq!(view_entry.record_name.as_deref(), Some("TestLogin"));
 }
 
+// --- decrypt_field: Passphrase field writes audit RecordViewPassword ---
+
+#[test]
+fn decrypt_field_passphrase_writes_audit_record_view_password() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    // Create an SSH record with a passphrase
+    let id = svc
+        .create_record(CreateRecordParams {
+            credential_type: CredentialType::Ssh,
+            payload: EncryptedPayload::Ssh {
+                name: "SshAuditCheck".to_string(),
+                public_key: "ssh-rsa AAAA...".to_string(),
+                private_key: Some(SecureStr::new("private-key-content".to_string())),
+                passphrase: Some(SecureStr::new("ssh-passphrase".to_string())),
+                notes: None,
+            },
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("create_record must succeed");
+
+    // One audit entry from create_record
+    let before =
+        queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+    assert_eq!(before.len(), 1, "one audit entry from create_record");
+
+    svc.decrypt_field(id, FieldSelector::Passphrase)
+        .expect("decrypt_field(Passphrase) must succeed");
+
+    let after =
+        queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+    assert_eq!(
+        after.len(),
+        2,
+        "two audit entries after decrypt_field(Passphrase)"
+    );
+
+    let view_entry = after
+        .iter()
+        .find(|e| e.operation == AuditOperation::RecordViewPassword)
+        .expect("expected a RecordViewPassword audit entry");
+    assert_eq!(view_entry.record_id, Some(id));
+    assert_eq!(view_entry.record_name.as_deref(), Some("SshAuditCheck"));
+}
+
 // --- decrypt_field: non-Password fields do NOT write audit ---
 
 #[test]

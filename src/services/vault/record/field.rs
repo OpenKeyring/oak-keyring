@@ -16,8 +16,8 @@ impl VaultService {
     /// Decrypt and return a single field from a record.
     ///
     /// Unlike `get_decrypted_record`, this method provides fine-grained
-    /// audit control: only `FieldSelector::Password` triggers a
-    /// `RecordViewPassword` audit entry.
+    /// audit control: only `FieldSelector::Password` and
+    /// `FieldSelector::Passphrase` trigger a `RecordViewPassword` audit entry.
     ///
     /// Returns `VaultError::InvalidField` when the field does not exist
     /// for the credential type (e.g. `Url` on an SSH record) or when the
@@ -41,7 +41,7 @@ impl VaultService {
         let record_name = decrypted_payload.name().to_string();
         let value = extract_field(stored.credential_type, decrypted_payload, field)?;
 
-        if matches!(field, FieldSelector::Password) {
+        if matches!(field, FieldSelector::Password | FieldSelector::Passphrase) {
             queries::insert_audit_entry(
                 &self.conn,
                 AuditOperation::RecordViewPassword,

@@ -42,6 +42,8 @@ pub enum CommandResult {
     },
     RecordDetailLoaded {
         record: DecryptedRecord,
+        password_strength: Option<crate::crypto::strength::PasswordStrength>,
+        health_issue: Option<HealthIssue>,
     },
     RecordForEditLoaded {
         record: DecryptedRecord,

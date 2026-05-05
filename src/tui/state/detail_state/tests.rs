@@ -240,7 +240,7 @@ fn build_from_login_record() {
         tags: vec!["dev".into()],
     };
 
-    let data = DetailPanelState::build_from_record(&record);
+    let data = DetailPanelState::build_from_record(&record, None);
     assert_eq!(data.name, "GitHub");
     assert!(data.is_favorite);
     assert_eq!(data.fields.len(), 4); // username, password, url, notes
@@ -273,7 +273,7 @@ fn build_from_api_record() {
         tags: vec![],
     };
 
-    let data = DetailPanelState::build_from_record(&record);
+    let data = DetailPanelState::build_from_record(&record, None);
     assert_eq!(data.name, "Cloud API");
     assert_eq!(data.fields.len(), 2); // AppID, SecretKey
     assert_eq!(data.fields[0].kind, DetailFieldKind::AppId);
@@ -302,10 +302,119 @@ fn build_from_ssh_record() {
         tags: vec![],
     };
 
-    let data = DetailPanelState::build_from_record(&record);
+    let data = DetailPanelState::build_from_record(&record, None);
     assert_eq!(data.fields.len(), 3); // PublicKey, PrivateKey, Passphrase
     assert_eq!(data.fields[0].kind, DetailFieldKind::PublicKey);
     assert!(matches!(data.fields[0].value, FieldValue::Plain(_)));
     assert_eq!(data.fields[1].kind, DetailFieldKind::PrivateKey);
     assert!(matches!(data.fields[1].value, FieldValue::Masked));
+}
+
+// ── API data helpers ────────────────────────────────────────────────────
+
+fn make_api_data() -> DetailViewData {
+    DetailViewData {
+        id: Uuid::new_v4(),
+        name: "Cloud API Key".into(),
+        subtitle: "api.cloud.example.com".into(),
+        credential_type: CrateCredentialType::Api,
+        is_favorite: false,
+        expires_at: None,
+        expiry_status: ExpiryStatus::None,
+        tags: vec![],
+        notes: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        fields: vec![
+            DetailField {
+                label: t!("tui.entry.app_id_label").to_string(),
+                value: FieldValue::Plain("app_1234567890".into()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::AppId,
+            },
+            DetailField {
+                label: t!("tui.entry.secret_key_label").to_string(),
+                value: FieldValue::Masked,
+                copyable: true,
+                toggleable: true,
+                kind: DetailFieldKind::SecretKey,
+            },
+        ],
+        password_strength: None,
+        deleted_at: None,
+    }
+}
+
+fn make_ssh_data() -> DetailViewData {
+    DetailViewData {
+        id: Uuid::new_v4(),
+        name: "Production SSH Key".into(),
+        subtitle: String::new(),
+        credential_type: CrateCredentialType::Ssh,
+        is_favorite: false,
+        expires_at: None,
+        expiry_status: ExpiryStatus::None,
+        tags: vec![],
+        notes: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        fields: vec![
+            DetailField {
+                label: t!("tui.entry.public_key_label").to_string(),
+                value: FieldValue::Plain("ssh-rsa AAAA...".into()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::PublicKey,
+            },
+            DetailField {
+                label: t!("tui.entry.private_key_label").to_string(),
+                value: FieldValue::Masked,
+                copyable: true,
+                toggleable: true,
+                kind: DetailFieldKind::PrivateKey,
+            },
+            DetailField {
+                label: t!("tui.entry.passphrase_label").to_string(),
+                value: FieldValue::Masked,
+                copyable: true,
+                toggleable: true,
+                kind: DetailFieldKind::Passphrase,
+            },
+        ],
+        password_strength: None,
+        deleted_at: None,
+    }
+}
+
+// ── password_field() accessor tests ─────────────────────────────────────
+
+#[test]
+fn password_field_api_returns_secret_key() {
+    let state = DetailPanelState::with_record(make_api_data());
+    let pf = state.password_field().unwrap();
+    assert_eq!(pf.kind, DetailFieldKind::SecretKey);
+}
+
+#[test]
+fn password_field_ssh_returns_private_key() {
+    let state = DetailPanelState::with_record(make_ssh_data());
+    let pf = state.password_field().unwrap();
+    assert_eq!(pf.kind, DetailFieldKind::PrivateKey);
+}
+
+// ── username_field() accessor tests ─────────────────────────────────────
+
+#[test]
+fn username_field_api_returns_app_id() {
+    let state = DetailPanelState::with_record(make_api_data());
+    let uf = state.username_field().unwrap();
+    assert_eq!(uf.kind, DetailFieldKind::AppId);
+}
+
+#[test]
+fn username_field_ssh_returns_public_key() {
+    let state = DetailPanelState::with_record(make_ssh_data());
+    let uf = state.username_field().unwrap();
+    assert_eq!(uf.kind, DetailFieldKind::PublicKey);
 }
