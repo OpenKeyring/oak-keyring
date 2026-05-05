@@ -144,20 +144,25 @@ impl ProviderAdapter for WebDavAdapter {
 
 /// Creates a CloudStorage instance from SyncConfig.
 ///
-/// This factory function:
-/// - Matches on `config.provider` to determine the provider type
-/// - For `Disabled` → returns `ProviderNotSupported`
-/// - For unimplemented providers (all except WebDAV) → returns `ProviderNotSupported`
-/// - For `WebDav` → validates config, creates operator, returns `CloudStorage`
+/// Matches on `config.provider` and delegates to the corresponding adapter.
+///
+/// **Implemented providers** (all validate config + create OpenDAL operator):
+/// - WebDAV, iCloud, SFTP
+/// - S3, AliyunOSS, TencentCOS, HuaweiOBS
+/// - GoogleDrive (OAuth2 PKCE with built-in credentials)
+/// - Dropbox (OAuth2 with user-provided credentials)
+///
+/// **Stub providers** (adapter exists but `create_operator()` returns `ProviderNotSupported`):
+/// - OneDrive, AliyunDrive, Upyun — deferred to future implementation
 ///
 /// # Errors
 ///
 /// Returns `SyncError::ProviderNotSupported` if:
 /// - Provider is `Disabled`
-/// - Provider is not yet implemented (J-06 through J-19)
+/// - Provider adapter returns `ProviderNotSupported` (OneDrive, AliyunDrive, Upyun)
 ///
 /// Returns `SyncError::ConfigValidationFailed` if:
-/// - WebDAV config is missing or invalid
+/// - Provider config is missing or fails validation
 pub fn create_cloud_storage(config: &SyncConfig) -> Result<crate::cloud::CloudStorage, SyncError> {
     let provider_str = provider_name(config.provider);
 
