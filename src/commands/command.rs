@@ -200,6 +200,7 @@ pub enum Command {
         output_path: PathBuf,
         export_password: SecureStr,
         master_password: SecureStr,
+        format: ExportFormat,
     },
 
     // ── Config Operations ─────────────────────────

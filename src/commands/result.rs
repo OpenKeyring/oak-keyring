@@ -139,6 +139,7 @@ pub enum CommandResult {
     ExportCompleted {
         path: PathBuf,
         record_count: usize,
+        format: ExportFormat,
     },
 
     // ── Vault Results ────────────────────────

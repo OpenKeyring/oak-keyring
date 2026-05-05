@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::commands::types::{
-    CsvColumnMapping, ExportScope, ImportSource, RecordFilter, RecordSort, SkipReason,
-    SortDirection, SortField,
+    CsvColumnMapping, ExportFormat, ExportScope, ImportSource, RecordFilter, RecordSort,
+    SkipReason, SortDirection, SortField,
 };
 use crate::commands::{CommandResult, Message};
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
@@ -207,6 +207,7 @@ pub fn handle_execute_export(
     output_path: PathBuf,
     export_password: SecureStr,
     master_password: SecureStr,
+    format: ExportFormat,
 ) -> CommandResult {
     if executor.cancel_token().is_cancelled() {
         return CommandResult::cancelled("export_execute");
@@ -224,22 +225,23 @@ pub fn handle_execute_export(
 
     // Step 2: Create export session.
     let scope_desc = format!("{:?}", scope);
-    let session_id =
-        match executor
-            .import_export
-            .create_export_session(scope, export_password, output_path)
-        {
-            Ok(id) => id,
-            Err(e) => {
-                let err: &dyn ServiceError = &e;
-                return CommandResult::Error {
-                    code: err.to_error_code(),
-                    context: err.to_error_context(),
-                    message_key: "error.export_session_create_failed",
-                    fallback: format!("Failed to create export session: {}", e),
-                };
-            }
-        };
+    let session_id = match executor.import_export.create_export_session(
+        scope,
+        format,
+        export_password,
+        output_path,
+    ) {
+        Ok(id) => id,
+        Err(e) => {
+            let err: &dyn ServiceError = &e;
+            return CommandResult::Error {
+                code: err.to_error_code(),
+                context: err.to_error_context(),
+                message_key: "error.export_session_create_failed",
+                fallback: format!("Failed to create export session: {}", e),
+            };
+        }
+    };
 
     // Step 3: Execute export with a closure that collects records from vault.
     let filter = RecordFilter::All;
@@ -313,6 +315,7 @@ pub fn handle_execute_export(
     CommandResult::ExportCompleted {
         path: result_path,
         record_count,
+        format,
     }
 }
 
@@ -556,6 +559,7 @@ mod tests {
             std::path::PathBuf::from("export.okb"),
             SecureStr::new("export_pass".to_string()),
             SecureStr::new("master_pass".to_string()),
+            ExportFormat::Okb,
         );
 
         assert!(matches!(

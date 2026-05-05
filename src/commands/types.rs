@@ -108,6 +108,15 @@ pub enum ExportScope {
     ByTag(String),
 }
 
+/// Export file format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportFormat {
+    /// Encrypted binary backup (.okb)
+    Okb,
+    /// Plaintext CSV (.csv)
+    Csv,
+}
+
 /// Audit log time range filter
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuditTimeRange {

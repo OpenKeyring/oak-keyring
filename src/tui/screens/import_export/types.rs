@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::commands::types::ImportSource;
+use crate::commands::types::{ExportFormat, ImportSource};
 
 // ── Enums ───────────────────────────────────────────────────────────────────
 
@@ -45,6 +45,7 @@ pub enum ImportFocus {
 /// Focus targets within the Export Form step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFocus {
+    Format,
     Scope,
     ExportPassword,
     ConfirmPassword,
@@ -137,10 +138,14 @@ pub fn source_needs_password(source: ImportSource) -> bool {
         .unwrap_or(false)
 }
 
-pub(super) fn default_export_path() -> String {
+pub(super) fn default_export_path(format: ExportFormat) -> String {
+    let ext = match format {
+        ExportFormat::Okb => "okb",
+        ExportFormat::Csv => "csv",
+    };
     dirs::document_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("keyring-backup.okb")
+        .join(format!("keyring-backup.{ext}"))
         .to_string_lossy()
         .to_string()
 }

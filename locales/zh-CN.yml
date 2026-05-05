@@ -631,6 +631,10 @@ tui:
     exporting_progress: "正在加密并写入导出文件..."
     export_complete_title: "导出完成"
     saved_to: "已保存至：%{path}"
+    export_format_label: "导出格式："
+    format_okb: ".okb（加密备份）"
+    format_csv: ".csv（明文）"
+    csv_security_warning: "警告：CSV 导出为明文无加密，请勿分享此文件。"
     records_exported: "已导出记录：%{count} 条"
 
   # ---- U10: Audit Log ----
