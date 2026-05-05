@@ -721,7 +721,7 @@ impl Screen for MainScreenState {
                         }
                         ScreenResult::Continue
                     }
-                    CommandResult::RecordDetailLoaded { record } => {
+                    CommandResult::RecordDetailLoaded { record, .. } => {
                         let view_data = DetailPanelState::build_from_record(&record);
                         self.detail = DetailPanelState::with_record(view_data);
                         self.detail.is_trash = self.current_filter == RecordFilter::Trash;
