@@ -708,13 +708,15 @@ impl ImportExportScreen {
     }
 
     fn validate_export_form(&mut self) -> ScreenResult {
-        if self.export_password.len() < 8 {
-            self.error_message = Some(t!("tui.entry.password_too_short").to_string());
-            return ScreenResult::Continue;
-        }
-        if self.export_password != self.export_confirm_password {
-            self.error_message = Some(t!("tui.entry.password_mismatch").to_string());
-            return ScreenResult::Continue;
+        if self.export_format == ExportFormat::Okb {
+            if self.export_password.len() < 8 {
+                self.error_message = Some(t!("tui.entry.password_too_short").to_string());
+                return ScreenResult::Continue;
+            }
+            if self.export_password != self.export_confirm_password {
+                self.error_message = Some(t!("tui.entry.password_mismatch").to_string());
+                return ScreenResult::Continue;
+            }
         }
         if self.export_output_path.is_empty() {
             self.error_message = Some(t!("tui.import_export.output_path_required").to_string());

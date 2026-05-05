@@ -475,11 +475,16 @@ impl ImportExportService {
         export_password: SecureStr,
         output_path: PathBuf,
     ) -> Result<Uuid, ImportExportError> {
-        // Validate password.
-        super::export::validate_export_password(&export_password)?;
-
-        // Validate output path.
-        super::export::validate_export_path(&output_path)?;
+        // Validate based on format.
+        match format {
+            ExportFormat::Okb => {
+                super::export::validate_export_password(&export_password)?;
+                super::export::validate_export_path(&output_path)?;
+            }
+            ExportFormat::Csv => {
+                super::export::validate_export_csv_path(&output_path)?;
+            }
+        }
 
         let id = Uuid::new_v4();
         let session = ExportSession {
@@ -558,17 +563,20 @@ impl ImportExportService {
             records,
         };
 
-        // 6. Encrypt and write. Borrow password directly from session to avoid
-        //    creating an unprotected intermediate String copy (C1 fix).
-        let (output_path, encrypted_size) = {
+        // 6. Write output in the selected format.
+        let (output_path, output_size) = {
             let session = self
                 .export_sessions
                 .get(&session_id)
                 .ok_or(ImportExportError::SessionNotFound(session_id))?;
 
             let path = session.output_path.clone();
-            let size =
-                super::export::encrypt_and_write_okb(&payload, &session.export_password, &path)?;
+            let size = match session.format {
+                ExportFormat::Okb => {
+                    super::export::encrypt_and_write_okb(&payload, &session.export_password, &path)?
+                }
+                ExportFormat::Csv => super::export::write_csv(&payload, &path)?,
+            };
             (path, size)
         };
 
@@ -580,7 +588,7 @@ impl ImportExportService {
                 .ok_or(ImportExportError::SessionNotFound(session_id))?;
             session.status = ExportSessionStatus::Completed;
             session.record_count = record_count;
-            session.encrypted_size = Some(encrypted_size);
+            session.encrypted_size = Some(output_size);
             session.completed_at = Some(Utc::now());
         }
 
