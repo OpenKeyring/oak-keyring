@@ -55,7 +55,7 @@ csv = "1"
 regex = "1"
 
 # KeePass .kdbx parsing
-keepass = "0.7"
+keepass = "0.12"
 
 # 1Password .1pux (ZIP) parsing
 zip = "2"

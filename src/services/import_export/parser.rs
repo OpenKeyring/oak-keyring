@@ -1,10 +1,15 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use zeroize::Zeroize;
+
 use crate::commands::types::CsvColumnMapping;
 use crate::commands::types::ImportSource;
 use crate::errors::mapping::import_export::ImportExportError;
 use crate::types::SecureStr;
+
+// Field keys that contain secrets and must be redacted in Debug output.
+const SENSITIVE_FIELD_KEYS: &[&str] = &["password", "private_key", "passphrase", "secret_key"];
 
 // ---------------------------------------------------------------------------
 // ParsedItem — universal intermediate representation
@@ -15,7 +20,11 @@ use crate::types::SecureStr;
 /// Each parser converts its native format into a flat map of string fields
 /// plus optional tags. Downstream mapping converts `ParsedItem` into
 /// application-level record types.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// **Security**: sensitive field values (password, private_key, etc.) are
+/// zeroized when this struct is dropped. `Clone` is intentionally omitted
+/// to prevent uncontrolled copies of credentials in memory.
+#[derive(PartialEq, Eq)]
 pub struct ParsedItem {
     /// Identifier from the source file (e.g. KeePass UUID, CSV row number).
     pub source_id: String,
@@ -23,6 +32,43 @@ pub struct ParsedItem {
     pub fields: HashMap<String, String>,
     /// Tags / groups carried over from the source format.
     pub tags: Vec<String>,
+}
+
+impl std::fmt::Debug for ParsedItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParsedItem")
+            .field("source_id", &self.source_id)
+            .field("fields", &RedactedFields(&self.fields))
+            .field("tags", &self.tags)
+            .finish()
+    }
+}
+
+impl Drop for ParsedItem {
+    fn drop(&mut self) {
+        self.fields.values_mut().for_each(|v| v.zeroize());
+        self.fields.clear();
+        self.tags.iter_mut().for_each(|t| t.zeroize());
+        self.tags.clear();
+        self.source_id.zeroize();
+    }
+}
+
+/// Debug helper that redacts sensitive field values.
+struct RedactedFields<'a>(&'a HashMap<String, String>);
+
+impl std::fmt::Debug for RedactedFields<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut map = f.debug_map();
+        for (key, value) in self.0 {
+            if SENSITIVE_FIELD_KEYS.contains(&key.as_str()) {
+                map.entry(key, &"[REDACTED]");
+            } else {
+                map.entry(key, value);
+            }
+        }
+        map.finish()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +220,43 @@ mod tests {
         assert_eq!(item.fields.get("title").unwrap(), "Gmail");
         assert_eq!(item.fields.get("username").unwrap(), "user@gmail.com");
         assert_eq!(item.tags, vec!["email"]);
+    }
+
+    #[test]
+    fn parsed_item_debug_redacts_sensitive_fields() {
+        let mut fields = HashMap::new();
+        fields.insert("name".to_string(), "Test Entry".to_string());
+        fields.insert("username".to_string(), "user@test.com".to_string());
+        fields.insert("password".to_string(), "s3cret123".to_string());
+        fields.insert("private_key".to_string(), "-----BEGIN KEY-----".to_string());
+
+        let item = ParsedItem {
+            source_id: "uuid-1".to_string(),
+            fields,
+            tags: vec![],
+        };
+
+        let debug = format!("{:?}", item);
+        assert!(
+            !debug.contains("s3cret123"),
+            "password should be redacted: {debug}"
+        );
+        assert!(
+            !debug.contains("BEGIN KEY"),
+            "private_key should be redacted: {debug}"
+        );
+        assert!(
+            debug.contains("[REDACTED]"),
+            "sensitive values should show [REDACTED]: {debug}"
+        );
+        assert!(
+            debug.contains("Test Entry"),
+            "non-sensitive values should be visible: {debug}"
+        );
+        assert!(
+            debug.contains("user@test.com"),
+            "username should be visible: {debug}"
+        );
     }
 
     // -- FormatParserRegistry --
