@@ -38,6 +38,7 @@ pub struct ImportExportScreen {
     pub reviewed_count: usize,
     pub failed_count: usize,
     pub skipped_count: usize,
+    pub csv_headers: Vec<String>,
 
     // Export state
     pub export_step: ExportStep,
@@ -84,6 +85,7 @@ impl ImportExportScreen {
             reviewed_count: 0,
             failed_count: 0,
             skipped_count: 0,
+            csv_headers: Vec::new(),
 
             export_step: ExportStep::Form,
             export_focus: ExportFocus::Scope,
@@ -294,6 +296,7 @@ impl Screen for ImportExportScreen {
         self.master_password.clear();
         self.error_message = None;
         self.preview = None;
+        self.csv_headers.clear();
         self.import_progress_current = 0;
         self.import_progress_total = 0;
         self.import_progress_name.clear();
@@ -735,6 +738,7 @@ impl ImportExportScreen {
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
             CommandResult::ImportValidated { preview } => {
+                self.csv_headers = preview.csv_headers.clone();
                 self.preview = Some(preview);
                 ScreenResult::Continue
             }

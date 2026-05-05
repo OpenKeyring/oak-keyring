@@ -4,7 +4,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::commands::types::ImportSource;
 use crate::tui::theme::{
     self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY,
-    WARNING,
+    TEXT_TERTIARY, WARNING,
 };
 
 use super::screen::ImportExportScreen;
@@ -163,7 +163,11 @@ impl ImportExportScreen {
 
         // CSV mapping section
         let is_csv = self.current_source() == ImportSource::Csv;
-        let csv_row_count = if is_csv { 8 } else { 0 }; // 6 fields + skip header + header label
+        let csv_row_count = if is_csv {
+            8 + if !self.csv_headers.is_empty() { 1 } else { 0 }
+        } else {
+            0
+        }; // 6 fields + skip header + header label + (optional detected headers)
 
         // Calculate row constraints
         let mut constraints = vec![
@@ -226,6 +230,15 @@ impl ImportExportScreen {
         }
 
         if is_csv {
+            // Show detected CSV headers if available from validation
+            if !self.csv_headers.is_empty() {
+                let headers_text = format!("Detected columns: {}", self.csv_headers.join(", "));
+                let detected = Paragraph::new(headers_text)
+                    .style(ratatui::style::Style::default().fg(TEXT_TERTIARY));
+                frame.render_widget(detected, rows[row_idx]);
+                row_idx += 1;
+            }
+
             // CSV column mapping header
             let csv_header =
                 Paragraph::new("Column Mapping:").style(ratatui::style::Style::default().fg(TEXT));
