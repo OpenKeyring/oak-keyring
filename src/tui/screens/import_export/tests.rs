@@ -217,6 +217,24 @@ fn import_export_restore_state_restores_navigation_without_sensitive_buffers() {
 }
 
 #[test]
+fn on_mount_resets_reviewed_and_failed_counts() {
+    let mut screen = ImportExportScreen::new();
+    screen.reviewed_count = 5;
+    screen.failed_count = 2;
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+    ScreenTrait::on_mount(&mut screen, &mut ctx);
+
+    assert_eq!(screen.reviewed_count, 0);
+    assert_eq!(screen.failed_count, 0);
+}
+
+#[test]
 fn esc_from_config_entry_uses_pop_screen_not_forward_navigation() {
     let mut screen = ImportExportScreen::new();
     screen.entry_point = ImportEntryPoint::ConfigPage;

@@ -151,13 +151,18 @@ pub fn handle_execute_import(
     };
 
     let imported_count = result.imported;
+    let reviewed_count = result.reviewed;
+    let failed_count = result.failed;
 
     // Audit log for successful import.
     if let Err(e) = executor.vault.write_audit_entry(
         crate::types::AuditOperation::VaultImport,
         None,
         None,
-        Some(format!("source={:?}, count={}", source, imported_count)),
+        Some(format!(
+            "source={:?}, imported={}, reviewed={}, failed={}, skipped={}",
+            source, imported_count, reviewed_count, failed_count, result.skipped
+        )),
     ) {
         tracing::warn!(error = %e, "Failed to write import audit log");
     }
@@ -174,6 +179,8 @@ pub fn handle_execute_import(
 
     CommandResult::ImportCompleted {
         imported_count,
+        reviewed_count,
+        failed_count,
         skipped_count: result.skipped,
     }
 }

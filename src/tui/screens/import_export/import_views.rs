@@ -533,7 +533,7 @@ impl ImportExportScreen {
     pub(super) fn view_import_complete(&self, frame: &mut ratatui::Frame, area: Rect) {
         let outer = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(8),
+            Constraint::Length(9),
             Constraint::Fill(1),
         ])
         .split(area);
@@ -560,6 +560,28 @@ impl ImportExportScreen {
         ))
         .style(Styles::success_text());
 
+        let reviewed_line = if self.reviewed_count > 0 {
+            Paragraph::new(format!(
+                "{} Partially imported: {} (check field completeness)",
+                theme::ICON_WARNING,
+                self.reviewed_count
+            ))
+            .style(Styles::warning_text())
+        } else {
+            Paragraph::new("").style(ratatui::style::Style::default().fg(TEXT_MUTED))
+        };
+
+        let failed_line = if self.failed_count > 0 {
+            Paragraph::new(format!(
+                "{} Records failed: {}",
+                theme::ICON_ERROR,
+                self.failed_count
+            ))
+            .style(Styles::error_text())
+        } else {
+            Paragraph::new("").style(ratatui::style::Style::default().fg(TEXT_MUTED))
+        };
+
         let skipped_line = if self.skipped_count > 0 {
             Paragraph::new(format!(
                 "{} Records skipped: {}",
@@ -575,7 +597,8 @@ impl ImportExportScreen {
             Constraint::Length(1), // title
             Constraint::Length(1), // gap
             Constraint::Length(1), // imported
-            Constraint::Length(1), // skipped
+            Constraint::Length(1), // reviewed
+            Constraint::Length(1), // failed or skipped
             Constraint::Length(1), // gap
             Constraint::Length(1), // hint
         ])
@@ -583,11 +606,16 @@ impl ImportExportScreen {
 
         frame.render_widget(title, rows[0]);
         frame.render_widget(imported_line, rows[2]);
-        frame.render_widget(skipped_line, rows[3]);
+        frame.render_widget(reviewed_line, rows[3]);
+        if self.failed_count > 0 {
+            frame.render_widget(failed_line, rows[4]);
+        } else {
+            frame.render_widget(skipped_line, rows[4]);
+        }
 
         let hint = Paragraph::new("Enter: back to config")
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[5]);
+        frame.render_widget(hint, rows[6]);
     }
 }

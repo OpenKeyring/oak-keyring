@@ -128,6 +128,8 @@ pub enum CommandResult {
     },
     ImportCompleted {
         imported_count: usize,
+        reviewed_count: usize,
+        failed_count: usize,
         skipped_count: usize,
     },
     ExportCompleted {
@@ -284,7 +286,14 @@ mod exhaustive_tests {
                 CommandResult::AllConflictsResolved { .. } => {}
                 // Import/Export Results
                 CommandResult::ImportValidated { .. } => {}
-                CommandResult::ImportCompleted { .. } => {}
+                CommandResult::ImportCompleted {
+                    imported_count,
+                    reviewed_count,
+                    failed_count,
+                    skipped_count,
+                } => {
+                    let _ = (imported_count, reviewed_count, failed_count, skipped_count);
+                }
                 CommandResult::ExportCompleted { .. } => {}
                 // Vault Results
                 CommandResult::VaultUnlocked => {}
