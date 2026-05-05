@@ -25,11 +25,11 @@ trait ProviderAdapter: Send + Sync {
 | **WebDAV** | ✅ | bearer_token 或 username + password |
 | **iCloud** | ✅ | 本地文件系统 (~/Library/Mobile Documents) |
 | **SFTP** | ✅ | SSH key，自动补端口 22 |
-| **Dropbox** | ⚠️ | client_id + client_secret + refresh_token (OAuth2 流程未完整实现) |
-| **Google Drive** | ✅ | OAuth2 (drive.file scope, PKCE, built-in credentials); root_path defaults to `.oak-keyring/`; tokens stored in TokenStore |
-| OneDrive | ❌ | 返回 ProviderNotSupported |
-| Aliyun Drive | ❌ | 返回 ProviderNotSupported |
-| Upyun | ❌ | 返回 ProviderNotSupported |
+| **Dropbox** | ⚠️ | client_id + client_secret + refresh_token; `create_operator()` 可用，浏览器 OAuth2 授权流程待实现 |
+| **Google Drive** | ✅ | OAuth2 PKCE (drive.file scope, built-in credentials, browser authorization); root_path defaults to `.oak-keyring/`; tokens stored in TokenStore |
+| OneDrive | ❌ Deferred | `create_operator()` 返回 ProviderNotSupported；计划采用浏览器 OAuth2 流程 |
+| Aliyun Drive | ❌ Deferred | `create_operator()` 返回 ProviderNotSupported；延后实现 |
+| Upyun | ❌ Deferred | `create_operator()` 返回 ProviderNotSupported；延后实现 |
 
 S3 兼容系列均通过 `opendal::services::S3` 配置不同 endpoint 实现。
 
