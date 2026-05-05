@@ -78,15 +78,14 @@ impl ConfigScreen {
                 self.state.clear_changes();
                 ScreenResult::Continue
             }
-            CommandResult::SyncConnectionTested {
-                success,
-                message: _,
-            } => {
-                self.state.sync_status = if success {
-                    SyncConnectionStatus::Connected
+            CommandResult::SyncConnectionTested { success, message } => {
+                if success {
+                    self.state.sync_status = SyncConnectionStatus::Connected;
+                    self.state.sync_error_message = None;
                 } else {
-                    SyncConnectionStatus::Disconnected
-                };
+                    self.state.sync_status = SyncConnectionStatus::Disconnected;
+                    self.state.sync_error_message = Some(message.clone());
+                }
                 ScreenResult::Continue
             }
             CommandResult::OAuth2Authorized {
