@@ -321,6 +321,75 @@ fn detail_with_health_duplicate() {
 }
 
 #[test]
+fn detail_wide_screen() {
+    use oak_keyring::tui::state::detail_state::*;
+    use uuid::Uuid;
+
+    let backend = TestBackend::new(120, 25);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let data = DetailViewData {
+        id: Uuid::new_v4(),
+        name: "GitHub".into(),
+        subtitle: "github.com".into(),
+        credential_type: oak_keyring::types::credential::CredentialType::Login,
+        is_favorite: true,
+        expires_at: None,
+        expiry_status: ExpiryStatus::None,
+        tags: vec!["work".into(), "dev".into()],
+        notes: Some("Personal account".into()),
+        created_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
+        updated_at: chrono::DateTime::parse_from_rfc3339("2026-04-15T12:00:00Z")
+            .unwrap()
+            .to_utc(),
+        fields: vec![
+            DetailField {
+                label: "用户名".into(),
+                value: FieldValue::Plain("octocat".into()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::Username,
+            },
+            DetailField {
+                label: "密码".into(),
+                value: FieldValue::Masked,
+                copyable: true,
+                toggleable: true,
+                kind: DetailFieldKind::Password,
+            },
+            DetailField {
+                label: "网址".into(),
+                value: FieldValue::Plain("https://github.com".into()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::Url,
+            },
+            DetailField {
+                label: "备注".into(),
+                value: FieldValue::Plain("Personal account".into()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::Notes,
+            },
+        ],
+        password_strength: Some(PasswordStrength::Strong),
+        deleted_at: None,
+    };
+    let state = DetailPanelState::with_record(data);
+    let panel = DetailPanel;
+
+    terminal
+        .draw(|frame| {
+            panel.view(frame, frame.area(), &state, true, true, &[]);
+        })
+        .unwrap();
+
+    insta::assert_snapshot!("detail_wide_screen", terminal.backend());
+}
+
+#[test]
 fn detail_narrow_width() {
     use oak_keyring::tui::state::detail_state::*;
     use uuid::Uuid;
