@@ -224,13 +224,19 @@ impl ImportExportService {
                     actual: format!("{:?}", session.status),
                 })?;
 
+        let csv_headers = if session.source == ImportSource::Csv {
+            read_csv_headers(&session.file_path).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         Ok(ImportPreview {
             importable: vr.importable,
             needs_review: vr.needs_review,
             failed: vr.failed,
             review_items: vr.review_items.clone(),
             failed_items: vr.failed_items.clone(),
-            csv_headers: Vec::new(),
+            csv_headers,
         })
     }
 
