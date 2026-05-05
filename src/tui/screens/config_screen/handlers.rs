@@ -461,6 +461,8 @@ impl ConfigScreen {
                         root_path: "/".to_string(),
                     })),
                 };
+                self.state.sync_status = SyncConnectionStatus::NotConfigured;
+                self.state.sync_error_message = None;
             }
             DropdownField::SyncMode => {
                 self.state.sync.sync_mode = match value {

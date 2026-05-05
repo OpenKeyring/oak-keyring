@@ -545,6 +545,7 @@ impl ConfigScreenState {
         } else {
             SyncConnectionStatus::Disconnected
         };
+        self.sync_error_message = None;
     }
 
     /// Populate config forms while preserving navigation state restored from history.
