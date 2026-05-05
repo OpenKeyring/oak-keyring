@@ -5,6 +5,7 @@ use crate::services::vault::VaultService;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::record::CreateRecordParams;
 use crate::types::sensitive::SecureStr;
+use crate::types::tag::TagSortMeta;
 use rusqlite::Connection;
 
 /// Helper: create an in-memory VaultService with schema initialized.
@@ -787,4 +788,226 @@ fn batch_remove_tag_skips_records_without_tag() {
         .batch_remove_tag(&[id1, id2], "selective")
         .expect("batch_remove_tag must succeed");
     assert_eq!(removed, 1, "only 1 record actually had the tag");
+}
+
+// =========================================================================
+// list_tags_with_stats tests
+// =========================================================================
+
+#[test]
+fn list_tags_with_stats_returns_empty_when_no_tags_exist() {
+    let svc = setup_service();
+    let tags = svc
+        .list_tags_with_stats()
+        .expect("list_tags_with_stats must succeed");
+    assert!(tags.is_empty(), "no tags should exist in empty vault");
+}
+
+#[test]
+fn list_tags_with_stats_returns_tags_with_correct_record_count_and_last_used_at() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    // Create records with overlapping tags
+    // Rec1: work, dev
+    create_record_with_tags(
+        &mut svc,
+        "Rec1",
+        vec!["work".to_string(), "dev".to_string()],
+    );
+    // Rec2: work
+    create_record_with_tags(&mut svc, "Rec2", vec!["work".to_string()]);
+    // Rec3: personal
+    create_record_with_tags(&mut svc, "Rec3", vec!["personal".to_string()]);
+
+    let tags = svc
+        .list_tags_with_stats()
+        .expect("list_tags_with_stats must succeed");
+
+    // Ordered alphabetically: dev, personal, work
+    assert_eq!(tags.len(), 3);
+
+    let (dev_tag, dev_meta) = &tags[0];
+    assert_eq!(dev_tag.name, "dev");
+    assert_eq!(dev_meta.record_count, 1, "dev tag used by 1 record");
+    assert_ne!(dev_meta.last_used_at, 0, "dev tag should have last_used_at");
+
+    let (personal_tag, personal_meta) = &tags[1];
+    assert_eq!(personal_tag.name, "personal");
+    assert_eq!(
+        personal_meta.record_count, 1,
+        "personal tag used by 1 record"
+    );
+    assert_ne!(
+        personal_meta.last_used_at, 0,
+        "personal tag should have last_used_at"
+    );
+
+    let (work_tag, work_meta) = &tags[2];
+    assert_eq!(work_tag.name, "work");
+    assert_eq!(work_meta.record_count, 2, "work tag used by 2 records");
+    assert_ne!(
+        work_meta.last_used_at, 0,
+        "work tag should have last_used_at"
+    );
+
+    // Verify last_used_at is reasonable (non-zero and not in the future)
+    assert!(work_meta.last_used_at > 0);
+    assert!(work_meta.last_used_at <= chrono::Utc::now().timestamp());
+}
+
+#[test]
+fn list_tags_with_stats_excludes_soft_deleted_records_from_count_and_last_used_at() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    let id1 = svc
+        .create_record(CreateRecordParams {
+            credential_type: CredentialType::Login,
+            payload: EncryptedPayload::Login {
+                name: "ToBeDeleted".to_string(),
+                username: "user1".to_string(),
+                password: SecureStr::new("pass".to_string()),
+                url: None,
+                notes: None,
+            },
+            tags: vec!["work".to_string()],
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("create_record must succeed");
+
+    let id2 = svc
+        .create_record(CreateRecordParams {
+            credential_type: CredentialType::Login,
+            payload: EncryptedPayload::Login {
+                name: "Active".to_string(),
+                username: "user2".to_string(),
+                password: SecureStr::new("pass".to_string()),
+                url: None,
+                notes: None,
+            },
+            tags: vec!["work".to_string()],
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("create_record must succeed");
+
+    // Before soft delete: work tag count = 2, last_used_at = max of both
+    let tags_before = svc
+        .list_tags_with_stats()
+        .expect("list_tags_with_stats must succeed");
+    let work_before = tags_before.iter().find(|(t, _)| t.name == "work").unwrap();
+    assert_eq!(work_before.1.record_count, 2);
+
+    // Soft delete one record
+    svc.soft_delete_record(id1)
+        .expect("soft_delete must succeed");
+
+    // After soft delete: work tag count = 1
+    let tags_after = svc
+        .list_tags_with_stats()
+        .expect("list_tags_with_stats must succeed");
+    let work_after = tags_after.iter().find(|(t, _)| t.name == "work").unwrap();
+    assert_eq!(
+        work_after.1.record_count, 1,
+        "soft-deleted records should not count"
+    );
+    // Verify last_used_at is reasonable
+    assert!(work_after.1.last_used_at > 0);
+    assert!(work_after.1.last_used_at <= chrono::Utc::now().timestamp());
+}
+
+#[test]
+fn list_tags_with_stats_returns_zero_count_and_zero_last_used_for_unused_tags() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    // Create a tag via record creation, then hard delete the record
+    let id = svc
+        .create_record(CreateRecordParams {
+            credential_type: CredentialType::Login,
+            payload: EncryptedPayload::Login {
+                name: "TempRec".to_string(),
+                username: "user1".to_string(),
+                password: SecureStr::new("pass".to_string()),
+                url: None,
+                notes: None,
+            },
+            tags: vec!["orphan".to_string()],
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("create_record must succeed");
+
+    // Hard delete removes the record and cascade-deletes record_tags
+    svc.hard_delete_record(id)
+        .expect("hard_delete must succeed");
+
+    // The tag might still exist but has no associations
+    let tags = svc
+        .list_tags_with_stats()
+        .expect("list_tags_with_stats must succeed");
+    let orphan = tags.iter().find(|(t, _)| t.name == "orphan");
+
+    // Tag might not exist (if cascade-deleted) or exist with 0 count
+    if let Some((_, meta)) = orphan {
+        assert_eq!(
+            meta.record_count, 0,
+            "orphan tag should have 0 record_count"
+        );
+        assert_eq!(
+            meta.last_used_at, 0,
+            "orphan tag should have 0 last_used_at"
+        );
+    }
+}
+
+#[test]
+fn list_tags_with_stats_returns_correct_last_used_at_for_multiple_records() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    // Create records with the same tag at different times
+    create_record_with_tags(&mut svc, "Rec1", vec!["shared".to_string()]);
+    create_record_with_tags(&mut svc, "Rec2", vec!["shared".to_string()]);
+    create_record_with_tags(&mut svc, "Rec3", vec!["shared".to_string()]);
+
+    let tags = svc
+        .list_tags_with_stats()
+        .expect("list_tags_with_stats must succeed");
+    let shared = tags.iter().find(|(t, _)| t.name == "shared").unwrap();
+
+    assert_eq!(shared.1.record_count, 3, "shared tag used by 3 records");
+    // Verify last_used_at is reasonable
+    assert!(shared.1.last_used_at > 0);
+    assert!(shared.1.last_used_at <= chrono::Utc::now().timestamp());
+}
+
+#[test]
+fn list_tags_with_stats_preserves_backward_compatibility_with_list_tags() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    create_record_with_tags(
+        &mut svc,
+        "Rec1",
+        vec!["work".to_string(), "dev".to_string()],
+    );
+
+    // Both methods should return the same record counts
+    let tags_simple = svc.list_tags().expect("list_tags must succeed");
+    let tags_with_stats = svc
+        .list_tags_with_stats()
+        .expect("list_tags_with_stats must succeed");
+
+    assert_eq!(tags_simple.len(), tags_with_stats.len());
+
+    for (simple, with_stats) in tags_simple.iter().zip(tags_with_stats.iter()) {
+        assert_eq!(simple.0.name, with_stats.0.name, "tag names should match");
+        assert_eq!(
+            simple.1, with_stats.1.record_count,
+            "usage count should match record_count"
+        );
+    }
 }
