@@ -13,6 +13,9 @@ const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 24;
 
 /// A single record for export serialization.
+///
+/// **Security**: sensitive fields (password, private_key, passphrase, secret_key)
+/// are zeroized when this struct is dropped.
 #[derive(Serialize, Deserialize)]
 pub struct ExportRecord {
     pub id: String,
@@ -47,6 +50,23 @@ pub struct ExportRecord {
     /// API secret key
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secret_key: Option<String>,
+}
+
+impl Drop for ExportRecord {
+    fn drop(&mut self) {
+        if let Some(ref mut v) = self.password {
+            v.zeroize();
+        }
+        if let Some(ref mut v) = self.private_key {
+            v.zeroize();
+        }
+        if let Some(ref mut v) = self.passphrase {
+            v.zeroize();
+        }
+        if let Some(ref mut v) = self.secret_key {
+            v.zeroize();
+        }
+    }
 }
 
 /// The full export payload.

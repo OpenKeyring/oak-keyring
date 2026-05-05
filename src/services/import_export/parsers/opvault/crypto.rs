@@ -17,7 +17,7 @@ type Aes256CbcDec = cbc::Decryptor<Aes256>;
 /// Derive encryption and HMAC keys from master password using PBKDF2-HMAC-SHA512.
 pub fn derive_keys(password: &[u8], salt: &[u8], iterations: u32) -> KeyPair {
     let mut out = [0u8; 64];
-    pbkdf2_hmac::<Sha512>(password, salt, iterations as u32, &mut out);
+    pbkdf2_hmac::<Sha512>(password, salt, iterations, &mut out);
 
     let mut enc = [0u8; 32];
     let mut mac = [0u8; 32];
@@ -75,7 +75,7 @@ pub fn decrypt_opdata01(
     let iv = &data[16..32];
     let ciphertext = &data[32..signed_end];
 
-    if ciphertext.len() % 16 != 0 {
+    if !ciphertext.len().is_multiple_of(16) {
         return Err(ImportExportError::DecryptionFailed(
             "opdata01: ciphertext not block-aligned".into(),
         ));
@@ -162,20 +162,25 @@ pub fn decrypt_keys_from_profile(
     profile: &Profile,
     password: &[u8],
 ) -> Result<DecryptedKeys, ImportExportError> {
+    let lock = profile
+        .resolve_lock()
+        .map_err(|e| ImportExportError::ParseError {
+            format: "opvault profile".into(),
+            reason: e,
+        })?;
+
     let salt = STANDARD
-        .decode(&profile.lock.salt)
+        .decode(&lock.salt)
         .map_err(|e| ImportExportError::DecryptionFailed(format!("salt base64: {e}")))?;
 
-    let derived = derive_keys(password, &salt, profile.lock.iterations);
+    let derived = derive_keys(password, &salt, lock.iterations);
 
     // Decrypt master key → SHA-512 → master key pair.
-    let master_material =
-        decrypt_opdata01_b64(&profile.lock.master_key, &derived.enc, &derived.mac)?;
+    let master_material = decrypt_opdata01_b64(&lock.master_key, &derived.enc, &derived.mac)?;
     let master = composite_key_from_material(&master_material);
 
     // Decrypt overview key → SHA-512 → overview key pair.
-    let overview_material =
-        decrypt_opdata01_b64(&profile.lock.overview_key, &derived.enc, &derived.mac)?;
+    let overview_material = decrypt_opdata01_b64(&lock.overview_key, &derived.enc, &derived.mac)?;
     let overview = composite_key_from_material(&overview_material);
 
     Ok(DecryptedKeys { master, overview })

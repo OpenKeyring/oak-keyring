@@ -287,7 +287,8 @@ impl ImportExportService {
             session.status = ImportSessionStatus::Importing;
         }
 
-        // 3. Extract mapped records, review items, and per-item validation flags.
+        // 3. Take mapped records out of session (avoids cloning credentials),
+        //    extract review items and per-item validation flags.
         let (records, review_records, item_passed): (
             Vec<MappedRecord>,
             Vec<MappedRecord>,
@@ -295,9 +296,9 @@ impl ImportExportService {
         ) = {
             let session = self
                 .import_sessions
-                .get(&session_id)
+                .get_mut(&session_id)
                 .ok_or(ImportExportError::SessionNotFound(session_id))?;
-            let mapped = session.mapped_records.clone();
+            let mapped = std::mem::take(&mut session.mapped_records);
             let passed = session
                 .validation_result
                 .as_ref()
@@ -368,13 +369,14 @@ impl ImportExportService {
         // 5. Import non-duplicate, non-validation-failed records
         //    (including review_records as notes).
         let total_records = records.len() + review_records.len();
-        for (i, record) in records.iter().enumerate() {
+        let record_names: Vec<String> = records
+            .iter()
+            .map(|r| r.fields.get("name").cloned().unwrap_or_default())
+            .collect();
+
+        for (i, mut record) in records.into_iter().enumerate() {
             if let Some(ref progress) = progress_fn {
-                progress(
-                    i + 1,
-                    total_records,
-                    record.fields.get("name").map(|s| s.as_str()).unwrap_or(""),
-                );
+                progress(i + 1, total_records, &record_names[i]);
             }
 
             // Skip records that failed validation (G5).
@@ -389,8 +391,8 @@ impl ImportExportService {
 
             match vault_create_fn(
                 record.credential_type,
-                record.fields.clone(),
-                record.tags.clone(),
+                std::mem::take(&mut record.fields),
+                std::mem::take(&mut record.tags),
             ) {
                 Ok(_uuid) => imported += 1,
                 Err(_reason) => failed += 1,
@@ -398,19 +400,20 @@ impl ImportExportService {
         }
 
         // 5b. Import review_records as notes — count as reviewed.
-        for (j, record) in review_records.iter().enumerate() {
+        let review_names: Vec<String> = review_records
+            .iter()
+            .map(|r| r.fields.get("name").cloned().unwrap_or_default())
+            .collect();
+
+        for (j, mut record) in review_records.into_iter().enumerate() {
             if let Some(ref progress) = progress_fn {
-                progress(
-                    records.len() + j + 1,
-                    total_records,
-                    record.fields.get("name").map(|s| s.as_str()).unwrap_or(""),
-                );
+                progress(record_names.len() + j + 1, total_records, &review_names[j]);
             }
 
             match vault_create_fn(
                 record.credential_type,
-                record.fields.clone(),
-                record.tags.clone(),
+                std::mem::take(&mut record.fields),
+                std::mem::take(&mut record.tags),
             ) {
                 Ok(_uuid) => reviewed += 1,
                 Err(_reason) => failed += 1,

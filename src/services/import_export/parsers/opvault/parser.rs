@@ -147,6 +147,14 @@ fn parse_entry(
             _ => {}
         }
     }
+
+    // Fallback: cat=005 stores password at details top level.
+    if password.is_empty() {
+        if let Some(ref pw) = details.password {
+            password = pw.clone();
+        }
+    }
+
     if !username.is_empty() {
         fields.insert("username".into(), username);
     }
@@ -162,26 +170,58 @@ fn parse_entry(
         }
     }
 
-    // Append sections with custom fields.
+    // Extract standard fields (username/password/url) from sections if not already set.
+    let mut section_username = String::new();
+    let mut section_password = String::new();
+    let mut section_url = String::new();
+
     for section in &details.sections {
         for sf in &section.fields {
             if let (Some(n), Some(v)) = (&sf.n, &sf.v) {
+                let val_str = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+
+                if val_str.is_empty() {
+                    continue;
+                }
+
+                // Extract standard fields from sections (only if not already set).
+                match n.as_str() {
+                    "username" if !fields.contains_key("username") => {
+                        section_username = val_str;
+                        continue;
+                    }
+                    "password" if !fields.contains_key("password") => {
+                        section_password = val_str;
+                        continue;
+                    }
+                    "url" if !fields.contains_key("url") => {
+                        section_url = val_str;
+                        continue;
+                    }
+                    _ => {}
+                }
+
+                // TOTP or custom fields → notes.
                 if n.starts_with("TOTP_") {
-                    // TOTP field.
-                    if let Some(totp_val) = v.as_str() {
-                        notes_parts.push(format!("TOTP: {totp_val}"));
-                    }
+                    notes_parts.push(format!("TOTP: {val_str}"));
                 } else if let Some(title) = &sf.t {
-                    let val_str = match v {
-                        serde_json::Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    };
-                    if !val_str.is_empty() {
-                        notes_parts.push(format!("{title}: {val_str}"));
-                    }
+                    notes_parts.push(format!("{title}: {val_str}"));
                 }
             }
         }
+    }
+
+    if !section_username.is_empty() {
+        fields.insert("username".into(), section_username);
+    }
+    if !section_password.is_empty() {
+        fields.insert("password".into(), section_password);
+    }
+    if !section_url.is_empty() {
+        fields.insert("url".into(), section_url);
     }
 
     let notes = notes_parts.join("\n");
@@ -196,7 +236,7 @@ fn parse_entry(
     };
 
     match entry.category.as_str() {
-        "001" | "005" | "110" => Ok(Some(item)),
+        "001" | "003" | "005" | "110" => Ok(Some(item)),
         _ => Ok(None), // Skip unsupported categories.
     }
 }
@@ -211,10 +251,11 @@ fn strip_js_wrapper<'a>(content: &'a str, prefix: &str) -> &'a str {
         .trim()
 }
 
-/// Strip the `ld({...})` wrapper from band files.
+/// Strip the `ld({...})` or `ld({...});` wrapper from band files.
 fn strip_ld_wrapper(content: &str) -> &str {
     let trimmed = content.trim();
-    // ld({...})
     let after = trimmed.strip_prefix("ld(").unwrap_or(trimmed);
+    // Strip optional trailing semicolon before the closing paren.
+    let after = after.strip_suffix(';').unwrap_or(after);
     after.strip_suffix(')').unwrap_or(after).trim()
 }

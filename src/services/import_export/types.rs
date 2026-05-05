@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 use crate::commands::types::{CsvColumnMapping, ExportScope, FailedItem, ImportSource, ReviewItem};
 use crate::types::{CredentialType, SecureStr};
@@ -111,7 +112,10 @@ pub struct ValidationResult {
 /// to `VaultService::create_record()` which handles encryption internally.
 /// Using `EncryptedPayload` here would require a redundant encrypt-decrypt
 /// round trip.
-#[derive(Debug, Clone)]
+///
+/// **Security**: sensitive field values are zeroized when this struct is
+/// dropped. `Clone` is intentionally omitted to prevent uncontrolled copies
+/// of credentials in memory.
 pub struct MappedRecord {
     /// Generated UUID for this mapped record.
     pub id: Uuid,
@@ -131,6 +135,55 @@ pub struct MappedRecord {
     pub notes: Option<String>,
     /// Whether a duplicate was detected in the existing vault.
     pub is_duplicate: bool,
+}
+
+// Sensitive field keys that must be redacted in Debug output.
+const MAPPED_SENSITIVE_KEYS: &[&str] = &["password", "private_key", "passphrase", "secret_key"];
+
+impl std::fmt::Debug for MappedRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MappedRecord")
+            .field("id", &self.id)
+            .field("credential_type", &self.credential_type)
+            .field("fields", &MappedRedactedFields(&self.fields))
+            .field("tags", &self.tags)
+            .field("is_favorite", &self.is_favorite)
+            .field("expires_at", &self.expires_at)
+            .field("source_item_id", &self.source_item_id)
+            .field("notes", &self.notes)
+            .field("is_duplicate", &self.is_duplicate)
+            .finish()
+    }
+}
+
+impl Drop for MappedRecord {
+    fn drop(&mut self) {
+        self.fields.values_mut().for_each(|v| v.zeroize());
+        self.fields.clear();
+        self.tags.iter_mut().for_each(|t| t.zeroize());
+        self.tags.clear();
+        if let Some(ref mut n) = self.notes {
+            n.zeroize();
+        }
+        self.source_item_id.zeroize();
+    }
+}
+
+/// Debug helper that redacts sensitive field values in MappedRecord.
+struct MappedRedactedFields<'a>(&'a HashMap<String, String>);
+
+impl std::fmt::Debug for MappedRedactedFields<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut map = f.debug_map();
+        for (key, value) in self.0 {
+            if MAPPED_SENSITIVE_KEYS.contains(&key.as_str()) {
+                map.entry(key, &"[REDACTED]");
+            } else {
+                map.entry(key, value);
+            }
+        }
+        map.finish()
+    }
 }
 
 // ---------------------------------------------------------------------------

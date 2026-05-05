@@ -28,10 +28,55 @@ pub struct ProfileLock {
 }
 
 /// profile.js top-level structure.
+///
+/// Supports two formats:
+/// - 1Password native: `{"uuid": "...", "lock": {"iterations": ..., ...}}`
+/// - KeePassXC export: `{"uuid": "...", "iterations": ..., "salt": "...", ...}` (flat)
 #[derive(Debug, Deserialize)]
 pub struct Profile {
     pub uuid: String,
-    pub lock: ProfileLock,
+    /// Nested lock object (1Password native format).
+    #[serde(default)]
+    pub lock: Option<ProfileLock>,
+    /// Flat fields (KeePassXC export format).
+    #[serde(default)]
+    pub iterations: Option<u32>,
+    #[serde(default)]
+    pub salt: Option<String>,
+    #[serde(default, rename = "masterKey")]
+    pub master_key: Option<String>,
+    #[serde(default, rename = "overviewKey")]
+    pub overview_key: Option<String>,
+}
+
+impl Profile {
+    /// Resolve lock fields from either nested `lock` or flat top-level fields.
+    pub fn resolve_lock(&self) -> Result<ProfileLock, String> {
+        if let Some(ref lock) = self.lock {
+            return Ok(ProfileLock {
+                iterations: lock.iterations,
+                salt: lock.salt.clone(),
+                master_key: lock.master_key.clone(),
+                overview_key: lock.overview_key.clone(),
+            });
+        }
+        match (
+            self.iterations,
+            &self.salt,
+            &self.master_key,
+            &self.overview_key,
+        ) {
+            (Some(iterations), Some(salt), Some(master_key), Some(overview_key)) => {
+                Ok(ProfileLock {
+                    iterations,
+                    salt: salt.clone(),
+                    master_key: master_key.clone(),
+                    overview_key: overview_key.clone(),
+                })
+            }
+            _ => Err("missing lock fields in profile".into()),
+        }
+    }
 }
 
 /// Band entry from band_*.js files.
@@ -85,6 +130,9 @@ pub struct DecryptedDetails {
     pub sections: Vec<Section>,
     #[serde(default, rename = "notesPlain")]
     pub notes_plain: Option<String>,
+    /// Top-level password (cat=005 Password items store it here, not in fields).
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 /// Item field from details.
