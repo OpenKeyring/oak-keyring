@@ -13,6 +13,7 @@ pub const TEXT: Color = Color::Rgb(192, 202, 245); // #c0caf5
 pub const TEXT_SECONDARY: Color = Color::Rgb(86, 95, 137); // #565f89
 pub const TEXT_MUTED: Color = Color::Rgb(59, 66, 97); // #3b4261
 pub const TEXT_PLACEHOLDER: Color = Color::Rgb(59, 66, 97); // #3b4261
+pub const TEXT_TERTIARY: Color = Color::Rgb(65, 72, 104); // #414868
 
 // ── Semantic Colors ─────────────────────────
 pub const BRAND: Color = Color::Rgb(187, 154, 247); // #bb9af7

@@ -217,6 +217,24 @@ fn import_export_restore_state_restores_navigation_without_sensitive_buffers() {
 }
 
 #[test]
+fn on_mount_resets_reviewed_and_failed_counts() {
+    let mut screen = ImportExportScreen::new();
+    screen.reviewed_count = 5;
+    screen.failed_count = 2;
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+    ScreenTrait::on_mount(&mut screen, &mut ctx);
+
+    assert_eq!(screen.reviewed_count, 0);
+    assert_eq!(screen.failed_count, 0);
+}
+
+#[test]
 fn esc_from_config_entry_uses_pop_screen_not_forward_navigation() {
     let mut screen = ImportExportScreen::new();
     screen.entry_point = ImportEntryPoint::ConfigPage;
@@ -225,4 +243,16 @@ fn esc_from_config_entry_uses_pop_screen_not_forward_navigation() {
     let result = screen.go_back();
 
     assert!(matches!(result, ScreenResult::PopScreen));
+}
+
+#[test]
+fn import_sources_have_scope_hint_styles() {
+    use super::ScopeHintStyle;
+
+    assert_eq!(IMPORT_SOURCES[0].3 .1, ScopeHintStyle::Full); // KeePass
+    assert_eq!(IMPORT_SOURCES[1].3 .1, ScopeHintStyle::Partial); // 1Password 1pux
+    assert_eq!(IMPORT_SOURCES[2].3 .1, ScopeHintStyle::Partial); // 1Password opvault
+    assert_eq!(IMPORT_SOURCES[3].3 .1, ScopeHintStyle::Limited); // Bitwarden
+    assert_eq!(IMPORT_SOURCES[4].3 .1, ScopeHintStyle::Full); // CSV
+    assert_eq!(IMPORT_SOURCES[5].3 .1, ScopeHintStyle::Full); // OpenKeyring Backup
 }

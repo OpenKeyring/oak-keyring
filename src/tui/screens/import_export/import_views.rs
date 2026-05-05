@@ -2,11 +2,14 @@ use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::commands::types::ImportSource;
+use crate::t;
 use crate::tui::theme::{
-    self, Styles, PRIMARY, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY, WARNING,
+    self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY,
+    TEXT_TERTIARY, WARNING,
 };
 
 use super::screen::ImportExportScreen;
+use super::types::ScopeHintStyle;
 use super::types::*;
 
 // ── View: Import SourceSelect ───────────────────────────────────────────────
@@ -34,11 +37,11 @@ impl ImportExportScreen {
 
         // Title — varies by entry point (AC18)
         let title_text = match self.entry_point {
-            ImportEntryPoint::ConfigPage => "Import Data",
+            ImportEntryPoint::ConfigPage => t!("tui.import_export.import_title").to_string(),
             ImportEntryPoint::Onboarding { step } => {
                 // Show step context in onboarding flow
                 let _ = step; // used for step number display
-                "Step 1/6 \u{00B7} Select Import Source"
+                t!("tui.import_export.step_onboarding_source").to_string()
             }
         };
         let title = Paragraph::new(title_text)
@@ -46,20 +49,19 @@ impl ImportExportScreen {
             .alignment(Alignment::Center);
 
         // Mode switch hint
-        let mode_hint =
-            Paragraph::new("Tab: switch fields | \u{2191}\u{2193}: navigate | 1=Import 2=Export")
-                .style(ratatui::style::Style::default().fg(TEXT_MUTED))
-                .alignment(Alignment::Center);
+        let mode_hint = Paragraph::new(t!("tui.import_export.mode_hint_import").to_string())
+            .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+            .alignment(Alignment::Center);
 
         // Source list header
-        let source_header =
-            Paragraph::new("Select Source:").style(ratatui::style::Style::default().fg(TEXT));
+        let source_header = Paragraph::new(t!("tui.import_export.select_source").to_string())
+            .style(ratatui::style::Style::default().fg(TEXT));
 
         // Source items
         let source_items: Vec<ratatui::text::Line> = IMPORT_SOURCES
             .iter()
             .enumerate()
-            .map(|(i, (_, name, needs_pw, scope_hint))| {
+            .map(|(i, (_, name, needs_pw, (hint_text, hint_style)))| {
                 let prefix = if i == self.selected_source_idx {
                     " \u{25B6} "
                 } else {
@@ -84,9 +86,14 @@ impl ImportExportScreen {
                     ratatui::text::Span::raw("")
                 };
                 let sep = ratatui::text::Span::styled("  ", ratatui::style::Style::default());
+                let hint_color = match hint_style {
+                    ScopeHintStyle::Full => SUCCESS,
+                    ScopeHintStyle::Partial => WARNING,
+                    ScopeHintStyle::Limited => ERROR,
+                };
                 let hint_span = ratatui::text::Span::styled(
-                    *scope_hint,
-                    ratatui::style::Style::default().fg(TEXT_MUTED),
+                    *hint_text,
+                    ratatui::style::Style::default().fg(hint_color),
                 );
                 ratatui::text::Line::from(vec![name_span, pw_hint, sep, hint_span])
             })
@@ -103,10 +110,10 @@ impl ImportExportScreen {
         let file_block = Block::default()
             .borders(Borders::ALL)
             .border_style(file_border)
-            .title(" File Path ");
+            .title(t!("tui.import_export.file_path_label").to_string());
         let file_display = if self.file_path.is_empty() {
-            let placeholder = "/path/to/import/file";
-            Paragraph::new(placeholder).style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
+            Paragraph::new(t!("tui.import_export.file_path_placeholder").to_string())
+                .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
             Paragraph::new(&*self.file_path).style(ratatui::style::Style::default().fg(TEXT))
         };
@@ -123,7 +130,7 @@ impl ImportExportScreen {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(pw_border)
-                    .title(" Decryption Password "),
+                    .title(t!("tui.import_export.password_label").to_string()),
             )
         } else {
             None
@@ -131,7 +138,7 @@ impl ImportExportScreen {
         let pw_display_maybe = if needs_password {
             if self.decrypt_password.is_empty() {
                 Some(
-                    Paragraph::new("Enter password")
+                    Paragraph::new(t!("tui.import_export.password_placeholder").to_string())
                         .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER)),
                 )
             } else {
@@ -150,13 +157,17 @@ impl ImportExportScreen {
         });
 
         // Hint
-        let hint = Paragraph::new("Enter: validate | Esc: back")
+        let hint = Paragraph::new(t!("tui.import_export.hint_validate").to_string())
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
 
         // CSV mapping section
         let is_csv = self.current_source() == ImportSource::Csv;
-        let csv_row_count = if is_csv { 8 } else { 0 }; // 6 fields + skip header + header label
+        let csv_row_count = if is_csv {
+            8 + if !self.csv_headers.is_empty() { 1 } else { 0 }
+        } else {
+            0
+        }; // 6 fields + skip header + header label + (optional detected headers)
 
         // Calculate row constraints
         let mut constraints = vec![
@@ -219,41 +230,54 @@ impl ImportExportScreen {
         }
 
         if is_csv {
+            // Show detected CSV headers if available from validation
+            if !self.csv_headers.is_empty() {
+                let headers_text = t!(
+                    "tui.import_export.detected_columns",
+                    columns = self.csv_headers.join(", ")
+                )
+                .to_string();
+                let detected = Paragraph::new(headers_text)
+                    .style(ratatui::style::Style::default().fg(TEXT_TERTIARY));
+                frame.render_widget(detected, rows[row_idx]);
+                row_idx += 1;
+            }
+
             // CSV column mapping header
-            let csv_header =
-                Paragraph::new("Column Mapping:").style(ratatui::style::Style::default().fg(TEXT));
+            let csv_header = Paragraph::new(t!("tui.import_export.column_mapping").to_string())
+                .style(ratatui::style::Style::default().fg(TEXT));
             frame.render_widget(csv_header, rows[row_idx]);
             row_idx += 1;
 
             // CSV fields
-            let csv_fields: Vec<(&str, &str, ImportFocus)> = vec![
+            let csv_fields: Vec<(String, &str, ImportFocus)> = vec![
                 (
-                    "Name column:",
+                    t!("tui.import_export.column_name").to_string(),
                     &self.csv_mapping.name_column,
                     ImportFocus::CsvName,
                 ),
                 (
-                    "Username column:",
+                    t!("tui.import_export.column_username").to_string(),
                     &self.csv_mapping.username_column,
                     ImportFocus::CsvUsername,
                 ),
                 (
-                    "Password column:",
+                    t!("tui.import_export.column_password").to_string(),
                     &self.csv_mapping.password_column,
                     ImportFocus::CsvPassword,
                 ),
                 (
-                    "URL column:",
+                    t!("tui.import_export.column_url").to_string(),
                     &self.csv_mapping.url_column,
                     ImportFocus::CsvUrl,
                 ),
                 (
-                    "Notes column:",
+                    t!("tui.import_export.column_notes").to_string(),
                     &self.csv_mapping.notes_column,
                     ImportFocus::CsvNotes,
                 ),
                 (
-                    "Tags column:",
+                    t!("tui.import_export.column_tags").to_string(),
                     self.csv_mapping.tags_column.as_deref().unwrap_or("(none)"),
                     ImportFocus::CsvTags,
                 ),
@@ -281,8 +305,12 @@ impl ImportExportScreen {
             } else {
                 "[ ]"
             };
-            let skip_line =
-                Paragraph::new(format!("  {} Skip header row", checkbox)).style(skip_style);
+            let skip_line = Paragraph::new(format!(
+                "  {} {}",
+                checkbox,
+                t!("tui.import_export.skip_header")
+            ))
+            .style(skip_style);
             frame.render_widget(skip_line, rows[row_idx]);
             row_idx += 1;
         }
@@ -324,7 +352,7 @@ impl ImportExportScreen {
 
         let content_area = h_layout[1];
 
-        let title = Paragraph::new("Import Preview")
+        let title = Paragraph::new(t!("tui.import_export.preview_title").to_string())
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
 
@@ -372,26 +400,35 @@ impl ImportExportScreen {
 
         if let Some(ref preview) = self.preview {
             let importable_line = Paragraph::new(format!(
-                "{} Importable: {}",
+                "{} {}",
                 theme::ICON_SUCCESS,
-                preview.importable
+                t!(
+                    "tui.import_export.importable_count",
+                    count = preview.importable
+                )
             ))
             .style(Styles::success_text());
             frame.render_widget(importable_line, rows[row_idx]);
             row_idx += 1;
 
             let review_line = Paragraph::new(format!(
-                "{} Needs review: {}",
+                "{} {}",
                 theme::ICON_WARNING,
-                preview.needs_review
+                t!(
+                    "tui.import_export.needs_review_count",
+                    count = preview.needs_review
+                )
             ))
             .style(Styles::warning_text());
             frame.render_widget(review_line, rows[row_idx]);
             row_idx += 1;
 
-            let failed_line =
-                Paragraph::new(format!("{} Failed: {}", theme::ICON_ERROR, preview.failed))
-                    .style(Styles::error_text());
+            let failed_line = Paragraph::new(format!(
+                "{} {}",
+                theme::ICON_ERROR,
+                t!("tui.import_export.failed_count", count = preview.failed)
+            ))
+            .style(Styles::error_text());
             frame.render_widget(failed_line, rows[row_idx]);
             row_idx += 1;
 
@@ -399,8 +436,9 @@ impl ImportExportScreen {
 
             // Review items
             if !preview.review_items.is_empty() {
-                let header = Paragraph::new("Review items:")
-                    .style(ratatui::style::Style::default().fg(TEXT));
+                let header =
+                    Paragraph::new(t!("tui.import_export.review_items_header").to_string())
+                        .style(ratatui::style::Style::default().fg(TEXT));
                 frame.render_widget(header, rows[row_idx]);
                 row_idx += 1;
 
@@ -411,9 +449,14 @@ impl ImportExportScreen {
                     row_idx += 1;
                 }
                 if preview.review_items.len() > 5 {
-                    let more =
-                        Paragraph::new(format!("  ...and {} more", preview.review_items.len() - 5))
-                            .style(ratatui::style::Style::default().fg(TEXT_MUTED));
+                    let more = Paragraph::new(format!(
+                        "  {}",
+                        t!(
+                            "tui.import_export.review_more",
+                            count = preview.review_items.len() - 5
+                        )
+                    ))
+                    .style(ratatui::style::Style::default().fg(TEXT_MUTED));
                     frame.render_widget(more, rows[row_idx]);
                     row_idx += 1;
                 }
@@ -422,7 +465,9 @@ impl ImportExportScreen {
             // Failed items
             if !preview.failed_items.is_empty() {
                 row_idx += 1; // gap
-                let header = Paragraph::new("Failed items:").style(Styles::error_text());
+                let header =
+                    Paragraph::new(t!("tui.import_export.failed_items_header").to_string())
+                        .style(Styles::error_text());
                 frame.render_widget(header, rows[row_idx]);
                 row_idx += 1;
 
@@ -436,7 +481,7 @@ impl ImportExportScreen {
         }
 
         // Hint
-        let hint = Paragraph::new("Enter: start import | Esc: back")
+        let hint = Paragraph::new(t!("tui.import_export.hint_import").to_string())
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
         if row_idx < rows.len() {
@@ -467,7 +512,7 @@ impl ImportExportScreen {
 
         let content_area = h_layout[1];
 
-        let title = Paragraph::new("Importing...")
+        let title = Paragraph::new(t!("tui.import_export.importing_title").to_string())
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
 
@@ -495,8 +540,14 @@ impl ImportExportScreen {
         let current_item = if self.import_progress_name.is_empty() {
             Paragraph::new("").style(ratatui::style::Style::default().fg(TEXT_MUTED))
         } else {
-            Paragraph::new(format!("Processing: {}", self.import_progress_name))
-                .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
+            Paragraph::new(
+                t!(
+                    "tui.import_export.processing_item",
+                    name = self.import_progress_name.as_str()
+                )
+                .to_string(),
+            )
+            .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
         };
 
         let rows = Layout::vertical([
@@ -513,7 +564,7 @@ impl ImportExportScreen {
         frame.render_widget(progress_bar, rows[2]);
         frame.render_widget(current_item, rows[3]);
 
-        let hint = Paragraph::new("Please wait...")
+        let hint = Paragraph::new(t!("tui.import_export.hint_wait").to_string())
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
         frame.render_widget(hint, rows[5]);
@@ -526,7 +577,7 @@ impl ImportExportScreen {
     pub(super) fn view_import_complete(&self, frame: &mut ratatui::Frame, area: Rect) {
         let outer = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(8),
+            Constraint::Length(9),
             Constraint::Fill(1),
         ])
         .split(area);
@@ -542,22 +593,56 @@ impl ImportExportScreen {
 
         let content_area = h_layout[1];
 
-        let title = Paragraph::new("Import Complete")
+        let title = Paragraph::new(t!("tui.import_export.complete_title").to_string())
             .style(Styles::success_text())
             .alignment(Alignment::Center);
 
         let imported_line = Paragraph::new(format!(
-            "{} Records imported: {}",
+            "{} {}",
             theme::ICON_SUCCESS,
-            self.imported_count
+            t!(
+                "tui.import_export.records_imported",
+                count = self.imported_count
+            )
         ))
         .style(Styles::success_text());
 
+        let reviewed_line = if self.reviewed_count > 0 {
+            Paragraph::new(format!(
+                "{} {}",
+                theme::ICON_WARNING,
+                t!(
+                    "tui.import_export.partially_imported",
+                    count = self.reviewed_count
+                )
+            ))
+            .style(Styles::warning_text())
+        } else {
+            Paragraph::new("").style(ratatui::style::Style::default().fg(TEXT_MUTED))
+        };
+
+        let failed_line = if self.failed_count > 0 {
+            Paragraph::new(format!(
+                "{} {}",
+                theme::ICON_ERROR,
+                t!(
+                    "tui.import_export.records_failed",
+                    count = self.failed_count
+                )
+            ))
+            .style(Styles::error_text())
+        } else {
+            Paragraph::new("").style(ratatui::style::Style::default().fg(TEXT_MUTED))
+        };
+
         let skipped_line = if self.skipped_count > 0 {
             Paragraph::new(format!(
-                "{} Records skipped: {}",
+                "{} {}",
                 theme::ICON_WARNING,
-                self.skipped_count
+                t!(
+                    "tui.import_export.records_skipped",
+                    count = self.skipped_count
+                )
             ))
             .style(Styles::warning_text())
         } else {
@@ -568,7 +653,8 @@ impl ImportExportScreen {
             Constraint::Length(1), // title
             Constraint::Length(1), // gap
             Constraint::Length(1), // imported
-            Constraint::Length(1), // skipped
+            Constraint::Length(1), // reviewed
+            Constraint::Length(1), // failed or skipped
             Constraint::Length(1), // gap
             Constraint::Length(1), // hint
         ])
@@ -576,11 +662,16 @@ impl ImportExportScreen {
 
         frame.render_widget(title, rows[0]);
         frame.render_widget(imported_line, rows[2]);
-        frame.render_widget(skipped_line, rows[3]);
+        frame.render_widget(reviewed_line, rows[3]);
+        if self.failed_count > 0 {
+            frame.render_widget(failed_line, rows[4]);
+        } else {
+            frame.render_widget(skipped_line, rows[4]);
+        }
 
-        let hint = Paragraph::new("Enter: back to config")
+        let hint = Paragraph::new(t!("tui.import_export.hint_back_config").to_string())
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[5]);
+        frame.render_widget(hint, rows[6]);
     }
 }
