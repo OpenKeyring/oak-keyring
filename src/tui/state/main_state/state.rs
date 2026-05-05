@@ -1053,6 +1053,11 @@ impl MainScreenState {
         match key.code {
             KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
             KeyCode::Char('l') => ScreenResult::NavigateTo(ScreenEnum::AuditLog),
+            KeyCode::Char('?') => {
+                self.overlay_manager.open(Overlay::Help);
+                self.pending_animation = Some(EffectKind::ModalAppear);
+                ScreenResult::Continue
+            }
             KeyCode::Char('p') => {
                 self.overlay_manager.open(Overlay::PasswordGenerator);
                 self.pending_animation = Some(EffectKind::ModalAppear);
