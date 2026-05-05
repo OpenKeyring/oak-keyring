@@ -298,6 +298,27 @@ impl DetailPanelState {
         })
     }
 
+    /// Returns the currently focused field if it is toggleable (supports
+    /// show/hide), otherwise falls back to the first primary password-like
+    /// field found by [`password_field`].
+    ///
+    /// This is used by the `p` key handler so that pressing `p` on a focused
+    /// passphrase field decrypts the passphrase rather than jumping to the
+    /// private key / password field.
+    pub fn current_toggleable_field(&self) -> Option<&DetailField> {
+        self.record.as_ref().and_then(|r| {
+            let focused_idx = self.focused_field;
+            r.fields.get(focused_idx).and_then(|f| {
+                if f.toggleable {
+                    Some(f)
+                } else {
+                    // Fallback: find the primary password-like field
+                    self.password_field()
+                }
+            })
+        })
+    }
+
     pub fn username_field(&self) -> Option<&DetailField> {
         self.record.as_ref().and_then(|r| {
             r.fields.iter().find(|f| {
@@ -309,7 +330,17 @@ impl DetailPanelState {
         })
     }
 
-    pub fn build_from_record(record: &crate::types::record::DecryptedRecord) -> DetailViewData {
+    pub fn build_from_record(
+        record: &crate::types::record::DecryptedRecord,
+        strength: Option<crate::crypto::strength::PasswordStrength>,
+    ) -> DetailViewData {
+        let mapped_strength = strength.map(|s| match s.level {
+            crate::crypto::strength::StrengthLevel::VeryWeak => PasswordStrength::VeryWeak,
+            crate::crypto::strength::StrengthLevel::Weak => PasswordStrength::Weak,
+            crate::crypto::strength::StrengthLevel::Fair => PasswordStrength::Fair,
+            crate::crypto::strength::StrengthLevel::Strong => PasswordStrength::Strong,
+            crate::crypto::strength::StrengthLevel::VeryStrong => PasswordStrength::VeryStrong,
+        });
         match record {
             crate::types::record::DecryptedRecord::Login {
                 id,
@@ -375,7 +406,7 @@ impl DetailPanelState {
                     created_at: *created_at,
                     updated_at: *updated_at,
                     fields: all_fields,
-                    password_strength: None,
+                    password_strength: mapped_strength,
                     deleted_at: None,
                 }
             }
@@ -442,7 +473,7 @@ impl DetailPanelState {
                     created_at: *created_at,
                     updated_at: *updated_at,
                     fields,
-                    password_strength: None,
+                    password_strength: mapped_strength,
                     deleted_at: None,
                 }
             }
@@ -506,7 +537,7 @@ impl DetailPanelState {
                     created_at: *created_at,
                     updated_at: *updated_at,
                     fields,
-                    password_strength: None,
+                    password_strength: mapped_strength,
                     deleted_at: None,
                 }
             }

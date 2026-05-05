@@ -9,7 +9,9 @@ use crate::crypto::password::{
 use crate::crypto::strength::evaluate_strength;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::types::record::{CreateRecordParams, UpdateRecordParams};
-use crate::types::{CredentialType, EncryptedPayload, PasswordHistoryView, SecureStr};
+use crate::types::{
+    CredentialType, DecryptedRecord, EncryptedPayload, PasswordHistoryView, SecureStr,
+};
 
 use super::CommandExecutor;
 
@@ -236,8 +238,43 @@ pub fn handle_load_record_detail(executor: &mut CommandExecutor, id: Uuid) -> Co
     attempt_lazy_migration(&mut executor.vault, id);
 
     match executor.vault.get_decrypted_record(id) {
-        Ok(record) => CommandResult::RecordDetailLoaded { record },
+        Ok(record) => {
+            // Compute password strength based on credential type.
+            let password_strength = compute_password_strength(&record);
+
+            // Query health issue from cached health report (if available).
+            // Security: password plaintext is dropped after evaluate_strength() returns.
+            let health_issue = executor
+                .health_report
+                .as_ref()
+                .and_then(|report| report.get_issue_for(record.id()));
+
+            CommandResult::RecordDetailLoaded {
+                record,
+                password_strength,
+                health_issue,
+            }
+        }
         Err(e) => vault_error(e, "Failed to load record detail"),
+    }
+}
+
+/// Compute password strength based on the credential type.
+///
+/// - Login: evaluates the `password` field
+/// - API: evaluates the `secret_key` field
+/// - SSH: returns `None` (SSH key material is not a password)
+fn compute_password_strength(
+    record: &DecryptedRecord,
+) -> Option<crate::crypto::strength::PasswordStrength> {
+    match record {
+        DecryptedRecord::Login { password, .. } => {
+            Some(crate::crypto::strength::evaluate_strength(password.get()))
+        }
+        DecryptedRecord::Api { secret_key, .. } => {
+            Some(crate::crypto::strength::evaluate_strength(secret_key.get()))
+        }
+        DecryptedRecord::Ssh { .. } => None,
     }
 }
 
@@ -436,5 +473,363 @@ pub fn handle_generate_pin(_executor: &mut CommandExecutor, length: usize) -> Co
             message_key: "error.password_generation",
             fallback: format!("Failed to generate PIN: {}", e),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::commands::types::{HealthIssue, HealthReport};
+    use crate::config::AppConfig;
+    use crate::crypto::bip39::{MnemonicLanguage, Passkey};
+    use crate::executor::config_impl::ServiceNotificationImpl;
+    use crate::executor::CommandExecutor;
+    use crate::services::clipboard::{ClipboardService, MockBackend};
+    use crate::services::health::HealthService;
+    use crate::services::import_export::ImportExportService;
+    use crate::services::vault::VaultService;
+    use crate::types::{CredentialType, EncryptedPayload, SecureStr};
+
+    use super::*;
+
+    /// Create a basic unlocked executor with no records.
+    fn make_unlocked_executor() -> CommandExecutor {
+        let conn = crate::db::schema::init_db_in_memory();
+        let mut vault = VaultService::new(conn);
+        let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
+        vault
+            .unlock_with_mnemonic(&mnemonic)
+            .expect("unlock with mnemonic");
+
+        let (result_tx, _) = mpsc::channel(64);
+        let (internal_tx, internal_rx) = mpsc::channel(64);
+
+        CommandExecutor {
+            vault,
+            sync: None,
+            health: HealthService::new(),
+            clipboard: Arc::new(ClipboardService::with_backend(
+                Box::new(MockBackend::new()),
+                30,
+            )),
+            import_export: ImportExportService::new(),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
+            config_notifier: ServiceNotificationImpl::new(),
+            vault_dir: std::path::PathBuf::from(":memory:"),
+            health_report: None,
+            last_health_check_time: None,
+            result_tx,
+            internal_tx,
+            internal_rx: Some(internal_rx),
+            shutdown_token: CancellationToken::new(),
+            operation_cancel_token: CancellationToken::new(),
+            timer_rebuild_pending: false,
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        }
+    }
+
+    /// Helper: create a Login record and return its UUID.
+    fn create_login_record(executor: &mut CommandExecutor, name: &str, password: &str) -> Uuid {
+        executor
+            .vault
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Login,
+                payload: EncryptedPayload::Login {
+                    name: name.to_string(),
+                    username: format!("user_{}", name),
+                    password: SecureStr::new(password.to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create record")
+    }
+
+    /// Helper: create an API record and return its UUID.
+    fn create_api_record(executor: &mut CommandExecutor, name: &str, secret_key: &str) -> Uuid {
+        executor
+            .vault
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Api,
+                payload: EncryptedPayload::Api {
+                    name: name.to_string(),
+                    app_id: format!("app_{}", name),
+                    secret_key: SecureStr::new(secret_key.to_string()),
+                    url: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create record")
+    }
+
+    /// Helper: create an SSH record and return its UUID.
+    fn create_ssh_record(executor: &mut CommandExecutor, name: &str) -> Uuid {
+        executor
+            .vault
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Ssh,
+                payload: EncryptedPayload::Ssh {
+                    name: name.to_string(),
+                    public_key: "ssh-rsa AAA...".to_string(),
+                    private_key: None,
+                    passphrase: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create record")
+    }
+
+    // =========================================================================
+    // handle_load_record_detail tests
+    // =========================================================================
+
+    #[test]
+    fn login_record_returns_password_strength() {
+        let mut executor = make_unlocked_executor();
+        let id = create_login_record(&mut executor, "test", "MyP@ssw0rd!23");
+
+        let result = handle_load_record_detail(&mut executor, id);
+
+        match result {
+            CommandResult::RecordDetailLoaded {
+                password_strength, ..
+            } => {
+                assert!(
+                    password_strength.is_some(),
+                    "Login record should have password strength"
+                );
+                let strength = password_strength.unwrap();
+                assert_eq!(strength.char_types, 4);
+            }
+            other => panic!("Expected RecordDetailLoaded, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn api_record_returns_password_strength() {
+        let mut executor = make_unlocked_executor();
+        let id = create_api_record(&mut executor, "test", "sk-secret-key-12345!@");
+
+        let result = handle_load_record_detail(&mut executor, id);
+
+        match result {
+            CommandResult::RecordDetailLoaded {
+                password_strength, ..
+            } => {
+                assert!(
+                    password_strength.is_some(),
+                    "API record should have password strength from secret_key"
+                );
+            }
+            other => panic!("Expected RecordDetailLoaded, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ssh_record_returns_no_password_strength() {
+        let mut executor = make_unlocked_executor();
+        let id = create_ssh_record(&mut executor, "test-host");
+
+        let result = handle_load_record_detail(&mut executor, id);
+
+        match result {
+            CommandResult::RecordDetailLoaded {
+                password_strength, ..
+            } => {
+                assert!(
+                    password_strength.is_none(),
+                    "SSH record should not have password strength"
+                );
+            }
+            other => panic!("Expected RecordDetailLoaded, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn health_issue_is_present_when_record_has_weak_password() {
+        let mut executor = make_unlocked_executor();
+        let id = create_login_record(&mut executor, "test", "weak");
+
+        // Set a health report with the record in weak_passwords
+        executor.health_report = Some(HealthReport {
+            weak_passwords: vec![id],
+            duplicate_passwords: vec![],
+            compromised: vec![],
+            expired: vec![],
+            total_checked: 1,
+        });
+
+        let result = handle_load_record_detail(&mut executor, id);
+
+        match result {
+            CommandResult::RecordDetailLoaded { health_issue, .. } => {
+                assert_eq!(
+                    health_issue,
+                    Some(HealthIssue::Weak),
+                    "Expected Weak health issue"
+                );
+            }
+            other => panic!("Expected RecordDetailLoaded, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn health_issue_is_none_when_no_health_report() {
+        let mut executor = make_unlocked_executor();
+        let id = create_login_record(&mut executor, "test", "MyP@ssw0rd!23");
+
+        // No health_report set on executor
+        assert!(executor.health_report.is_none());
+
+        let result = handle_load_record_detail(&mut executor, id);
+
+        match result {
+            CommandResult::RecordDetailLoaded { health_issue, .. } => {
+                assert!(
+                    health_issue.is_none(),
+                    "health_issue should be None when no health report exists"
+                );
+            }
+            other => panic!("Expected RecordDetailLoaded, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn health_issue_is_none_when_record_has_no_issues() {
+        let mut executor = make_unlocked_executor();
+        let id = create_login_record(&mut executor, "test", "MyP@ssw0rd!23");
+
+        // Set an empty health report (record not in any issue list)
+        executor.health_report = Some(HealthReport {
+            weak_passwords: vec![],
+            duplicate_passwords: vec![],
+            compromised: vec![],
+            expired: vec![],
+            total_checked: 1,
+        });
+
+        let result = handle_load_record_detail(&mut executor, id);
+
+        match result {
+            CommandResult::RecordDetailLoaded { health_issue, .. } => {
+                assert!(
+                    health_issue.is_none(),
+                    "health_issue should be None when record has no issues"
+                );
+            }
+            other => panic!("Expected RecordDetailLoaded, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn login_weak_password_has_low_strength_level() {
+        let mut executor = make_unlocked_executor();
+        // "a" is VeryWeak (len < 8, char_types <= 1)
+        let id = create_login_record(&mut executor, "weak", "a");
+
+        let result = handle_load_record_detail(&mut executor, id);
+
+        match result {
+            CommandResult::RecordDetailLoaded {
+                password_strength, ..
+            } => {
+                let strength = password_strength.expect("should have strength");
+                assert_eq!(
+                    strength.level,
+                    crate::crypto::strength::StrengthLevel::VeryWeak
+                );
+            }
+            other => panic!("Expected RecordDetailLoaded, got {:?}", other),
+        }
+    }
+
+    // =========================================================================
+    // compute_password_strength unit tests
+    // =========================================================================
+
+    #[test]
+    fn compute_password_strength_for_login_uses_password_field() {
+        let record = DecryptedRecord::Login {
+            id: Uuid::new_v4(),
+            is_favorite: false,
+            expires_at: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+            name: "test".to_string(),
+            username: "user".to_string(),
+            password: SecureStr::new("StrongP@ss1".to_string()),
+            url: None,
+            notes: None,
+        };
+
+        let strength = compute_password_strength(&record);
+        assert!(strength.is_some());
+        assert_eq!(
+            strength.unwrap().level,
+            crate::crypto::strength::StrengthLevel::Strong
+        );
+    }
+
+    #[test]
+    fn compute_password_strength_for_api_uses_secret_key_field() {
+        let record = DecryptedRecord::Api {
+            id: Uuid::new_v4(),
+            is_favorite: false,
+            expires_at: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+            name: "test".to_string(),
+            app_id: "app".to_string(),
+            secret_key: SecureStr::new("sk-test-key-ABC!123".to_string()),
+            url: None,
+            notes: None,
+        };
+
+        let strength = compute_password_strength(&record);
+        assert!(strength.is_some());
+    }
+
+    #[test]
+    fn compute_password_strength_for_ssh_returns_none() {
+        let record = DecryptedRecord::Ssh {
+            id: Uuid::new_v4(),
+            is_favorite: false,
+            expires_at: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+            name: "test".to_string(),
+            public_key: "ssh-rsa AAA...".to_string(),
+            private_key: None,
+            passphrase: None,
+            notes: None,
+        };
+
+        let strength = compute_password_strength(&record);
+        assert!(strength.is_none());
     }
 }

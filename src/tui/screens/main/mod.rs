@@ -173,7 +173,7 @@ impl MainScreen {
     ) -> MainKeyResult {
         let mut messages = Vec::new();
         let mut overlay = None;
-        let mut result_command: Option<Box<Command>> = None;
+        let result_command: Option<Box<Command>> = None;
 
         // If inline rename is active, route all keys to it first
         if state.sidebar.is_tag_management() && state.sidebar.tag_management.is_renaming() {
@@ -390,32 +390,6 @@ impl MainScreen {
                 };
             }
             PanelId::Sidebar => match key.code {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    state.sidebar.move_down();
-                    if state.list.is_visual() {
-                        state.list.exit_visual();
-                        messages.push(Message::ExitVisualMode);
-                    }
-                    let filter = state.sidebar.current_filter();
-                    state.current_filter = filter.clone();
-                    result_command = Some(Box::new(Command::LoadRecordList {
-                        filter,
-                        sort: state.current_sort.clone(),
-                    }));
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    state.sidebar.move_up();
-                    if state.list.is_visual() {
-                        state.list.exit_visual();
-                        messages.push(Message::ExitVisualMode);
-                    }
-                    let filter = state.sidebar.current_filter();
-                    state.current_filter = filter.clone();
-                    result_command = Some(Box::new(Command::LoadRecordList {
-                        filter,
-                        sort: state.current_sort.clone(),
-                    }));
-                }
                 KeyCode::Enter => {
                     if matches!(
                         state.sidebar.items.get(state.sidebar.selected_index),
@@ -795,10 +769,20 @@ mod tests {
 
     #[test]
     fn sidebar_navigation_exits_visual_mode() {
+        use crate::tui::traits::screen::Screen;
+
         let mut state = MainScreenState::default();
         state.list.enter_visual();
-        let screen = MainScreen::new();
-        screen.handle_key_event(make_key(KeyCode::Down), &mut state, PanelId::Sidebar);
+        state.focused_panel = PanelId::Sidebar;
+
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = crate::tui::traits::screen::ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+
+        state.update(Message::KeyEvent(make_key(KeyCode::Down)), &mut ctx);
         assert!(!state.list.is_visual());
     }
 
