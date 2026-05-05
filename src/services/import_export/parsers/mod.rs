@@ -6,3 +6,7 @@ pub mod csv;
 pub mod keepass;
 pub mod okb;
 pub mod onepassword;
+pub mod opvault;
+
+#[cfg(test)]
+mod keepass_test;

@@ -1,13 +1,14 @@
-//! 1Password import parsers for .1pux (ZIP+JSON) and .opvault (stub) formats.
+//! 1Password import parsers for .1pux (ZIP+JSON) and .opvault formats.
 //!
 //! **OnePuxParser** — reads `.1pux` files, which are ZIP archives containing
 //! an `export.data` JSON file. Only specific item categories are mapped:
 //! - `"001"` (Login): all fields
 //! - `"005"` (Password): mapped as Login
-//! - `"110"` (Secure Note): name + notes only
+//! - `"003"` (Secure Note): name + notes only
 //!
-//! **OpVaultParser** — placeholder stub that returns `UnsupportedFormat`.
-//! Full `.opvault` support will be added in a future task.
+//! Items with `state: "archived"` are skipped.
+//!
+//! **OpVaultParser** — parses `.opvault` directories (delegated to opvault module).
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -23,72 +24,93 @@ use crate::services::import_export::parser::{validate_file_common, FormatParser,
 use crate::types::SecureStr;
 
 // ---------------------------------------------------------------------------
-// Deserialization structs for .1pux JSON
+// Deserialization structs for .1pux JSON (real 1Password export format)
 // ---------------------------------------------------------------------------
 
-/// Top-level .1pux export structure.
 #[derive(Deserialize)]
 struct OnePuxExport {
     accounts: Vec<OnePuxAccount>,
 }
 
-/// A single account in the export.
 #[derive(Deserialize)]
 struct OnePuxAccount {
     vaults: Vec<OnePuxVault>,
 }
 
-/// A vault within an account.
 #[derive(Deserialize)]
 struct OnePuxVault {
     items: Vec<OnePuxItem>,
 }
 
-/// A single item in a vault.
 #[derive(Deserialize)]
 #[allow(non_snake_case)]
 struct OnePuxItem {
+    uuid: Option<String>,
     categoryUuid: String,
-    title: Option<String>,
-    login: Option<OnePuxLogin>,
-    notesPlain: Option<String>,
-    tags: Option<Vec<String>>,
+    state: Option<String>,
+    details: Option<OnePuxDetails>,
+    overview: Option<OnePuxOverview>,
 }
 
-/// Login credentials within a 1Password item.
-#[derive(Deserialize)]
-struct OnePuxLogin {
-    username: Option<String>,
+#[derive(Deserialize, Default)]
+#[allow(non_snake_case)]
+struct OnePuxDetails {
+    #[serde(default)]
+    loginFields: Vec<OnePuxLoginField>,
+    #[serde(default, rename = "notesPlain")]
+    notes_plain: Option<String>,
+    #[serde(default)]
+    sections: Vec<OnePuxSection>,
+    #[serde(default)]
     password: Option<String>,
-    urls: Option<Vec<OnePuxUrl>>,
 }
 
-/// A URL entry within 1Password login data.
 #[derive(Deserialize)]
-struct OnePuxUrl {
-    href: Option<String>,
+struct OnePuxLoginField {
+    designation: Option<String>,
+    value: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OnePuxOverview {
+    title: Option<String>,
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+    url: Option<String>,
+    #[serde(default, rename = "URLs")]
+    urls: Option<Vec<OnePuxOverviewUrl>>,
+}
+
+#[derive(Deserialize)]
+struct OnePuxOverviewUrl {
+    url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OnePuxSection {
+    #[serde(default)]
+    fields: Option<Vec<OnePuxSectionField>>,
+}
+
+#[derive(Deserialize)]
+struct OnePuxSectionField {
+    id: Option<String>,
+    title: Option<String>,
+    value: Option<serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
 // Category constants
 // ---------------------------------------------------------------------------
 
-/// 1Password category UUID for Login items.
 const CATEGORY_LOGIN: &str = "001";
-/// 1Password category UUID for Password items.
 const CATEGORY_PASSWORD: &str = "005";
-/// 1Password category UUID for Secure Note items.
-const CATEGORY_SECURE_NOTE: &str = "110";
+const CATEGORY_SECURE_NOTE: &str = "003";
 
 // ---------------------------------------------------------------------------
 // OnePuxParser — parses .1pux (ZIP + JSON) files
 // ---------------------------------------------------------------------------
 
-/// Parser for 1Password `.1pux` export files.
-///
-/// A `.1pux` file is a ZIP archive containing an `export.data` JSON file.
-/// This parser extracts items from supported categories and converts them
-/// to [`ParsedItem`] values.
 pub struct OnePuxParser;
 
 impl FormatParser for OnePuxParser {
@@ -112,7 +134,6 @@ impl FormatParser for OnePuxParser {
             reason: format!("failed to open ZIP archive: {e}"),
         })?;
 
-        // Locate and read the export.data entry.
         let mut zip_entry =
             archive
                 .by_name("export.data")
@@ -141,6 +162,12 @@ impl FormatParser for OnePuxParser {
         for account in &export.accounts {
             for vault in &account.vaults {
                 for op_item in &vault.items {
+                    // Skip archived items.
+                    if op_item.state.as_deref() == Some("archived") {
+                        global_index += 1;
+                        continue;
+                    }
+
                     match op_item.categoryUuid.as_str() {
                         CATEGORY_LOGIN | CATEGORY_PASSWORD => {
                             items.push(parse_login_item(global_index, op_item));
@@ -148,9 +175,7 @@ impl FormatParser for OnePuxParser {
                         CATEGORY_SECURE_NOTE => {
                             items.push(parse_secure_note_item(global_index, op_item));
                         }
-                        _ => {
-                            // Skip unsupported categories (Credit Card, Identity, etc.)
-                        }
+                        _ => {}
                     }
                     global_index += 1;
                 }
@@ -173,78 +198,173 @@ impl FormatParser for OnePuxParser {
 // Item parsing helpers
 // ---------------------------------------------------------------------------
 
-/// Parse a 1Password Login/Password item into a ParsedItem.
 fn parse_login_item(index: usize, item: &OnePuxItem) -> ParsedItem {
-    let mut fields = HashMap::new();
+    let overview = item.overview.as_ref();
+    let details = item.details.as_ref();
 
-    fields.insert("name".to_string(), item.title.clone().unwrap_or_default());
+    let title = overview.and_then(|o| o.title.clone()).unwrap_or_default();
+    let tags = overview.and_then(|o| o.tags.clone()).unwrap_or_default();
+    let url = extract_url(overview);
 
-    if let Some(ref login) = item.login {
-        fields.insert(
-            "username".to_string(),
-            login.username.clone().unwrap_or_default(),
-        );
-        fields.insert(
-            "password".to_string(),
-            login.password.clone().unwrap_or_default(),
-        );
+    let mut username = String::new();
+    let mut password = String::new();
 
-        let url = login
-            .urls
-            .as_ref()
-            .and_then(|urls| urls.first())
-            .and_then(|u| u.href.clone())
-            .unwrap_or_default();
-        fields.insert("url".to_string(), url);
-    } else {
-        fields.insert("username".to_string(), String::new());
-        fields.insert("password".to_string(), String::new());
-        fields.insert("url".to_string(), String::new());
+    if let Some(details) = details {
+        for field in &details.loginFields {
+            match field.designation.as_deref() {
+                Some("username") => username = field.value.clone().unwrap_or_default(),
+                Some("password") => password = field.value.clone().unwrap_or_default(),
+                _ => {}
+            }
+        }
+        // Fallback: cat=005 stores password at details top level.
+        if password.is_empty() {
+            if let Some(ref pw) = details.password {
+                password = pw.clone();
+            }
+        }
     }
 
-    fields.insert(
-        "notes".to_string(),
-        item.notesPlain.clone().unwrap_or_default(),
-    );
+    let notes = build_notes(details);
+
+    let mut fields = HashMap::new();
+    fields.insert("name".into(), title);
+    fields.insert("username".into(), username);
+    fields.insert("password".into(), password);
+    if !url.is_empty() {
+        fields.insert("url".into(), url);
+    }
+    if !notes.is_empty() {
+        fields.insert("notes".into(), notes);
+    }
 
     ParsedItem {
-        source_id: format!("1p-{index}"),
+        source_id: item.uuid.clone().unwrap_or_else(|| format!("1p-{index}")),
         fields,
-        tags: item.tags.clone().unwrap_or_default(),
+        tags,
     }
 }
 
-/// Parse a 1Password Secure Note item into a ParsedItem.
 fn parse_secure_note_item(index: usize, item: &OnePuxItem) -> ParsedItem {
+    let overview = item.overview.as_ref();
+    let details = item.details.as_ref();
+
+    let title = overview.and_then(|o| o.title.clone()).unwrap_or_default();
+    let tags = overview.and_then(|o| o.tags.clone()).unwrap_or_default();
+    let notes = build_notes(details);
+
     let mut fields = HashMap::new();
-
-    fields.insert("name".to_string(), item.title.clone().unwrap_or_default());
-
-    // Secure Notes have no login fields.
-    fields.insert("username".to_string(), String::new());
-    fields.insert("password".to_string(), String::new());
-    fields.insert("url".to_string(), String::new());
-
-    fields.insert(
-        "notes".to_string(),
-        item.notesPlain.clone().unwrap_or_default(),
-    );
+    fields.insert("name".into(), title);
+    if !notes.is_empty() {
+        fields.insert("notes".into(), notes);
+    }
 
     ParsedItem {
-        source_id: format!("1p-{index}"),
+        source_id: item.uuid.clone().unwrap_or_else(|| format!("1p-{index}")),
         fields,
-        tags: item.tags.clone().unwrap_or_default(),
+        tags,
+    }
+}
+
+/// Extract the primary URL from overview.
+fn extract_url(overview: Option<&OnePuxOverview>) -> String {
+    overview
+        .and_then(|o| {
+            o.url
+                .as_deref()
+                .filter(|u| !u.is_empty())
+                .map(String::from)
+                .or_else(|| {
+                    o.urls
+                        .as_ref()
+                        .and_then(|urls| urls.first())
+                        .and_then(|u| u.url.clone())
+                })
+        })
+        .unwrap_or_default()
+}
+
+/// Build notes string from notesPlain + section fields (TOTP, custom fields).
+fn build_notes(details: Option<&OnePuxDetails>) -> String {
+    let details = match details {
+        Some(d) => d,
+        None => return String::new(),
+    };
+
+    let mut parts = Vec::new();
+
+    if let Some(ref notes) = details.notes_plain {
+        if !notes.is_empty() {
+            parts.push(notes.clone());
+        }
+    }
+
+    for section in &details.sections {
+        if let Some(ref fields) = section.fields {
+            for sf in fields {
+                if let Some(val_str) = extract_section_value(&sf.value) {
+                    if val_str.is_empty() {
+                        continue;
+                    }
+                    if let Some(ref id) = sf.id {
+                        if id.starts_with("TOTP_") {
+                            parts.push(format!("TOTP: {val_str}"));
+                            continue;
+                        }
+                    }
+                    if let Some(ref title) = sf.title {
+                        parts.push(format!("{title}: {val_str}"));
+                    }
+                }
+            }
+        }
+    }
+
+    parts.join("\n")
+}
+
+/// Extract a string value from a section field's JSON value.
+/// Handles both plain strings and objects like {"totp": "..."}, {"string": "..."}.
+fn extract_section_value(value: &Option<serde_json::Value>) -> Option<String> {
+    let val = value.as_ref()?;
+    match val {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Object(map) => {
+            // Try known keys: "totp", "string", "concealed", "phone".
+            for key in &["totp", "string", "concealed", "phone"] {
+                if let Some(v) = map.get(*key) {
+                    if let Some(s) = v.as_str() {
+                        return Some(s.to_string());
+                    }
+                }
+            }
+            // Fallback: take first string value.
+            for v in map.values() {
+                if let Some(s) = v.as_str() {
+                    return Some(s.to_string());
+                }
+                if let Some(inner) = v.as_object() {
+                    for iv in inner.values() {
+                        if let Some(s) = iv.as_str() {
+                            return Some(s.to_string());
+                        }
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
     }
 }
 
 // ---------------------------------------------------------------------------
-// OpVaultParser — stub for future .opvault support
+// OpVaultParser — 1Password .opvault format parser
 // ---------------------------------------------------------------------------
 
-/// Placeholder parser for 1Password `.opvault` format.
+/// Parser for 1Password `.opvault` format (local vault directory).
 ///
-/// Returns [`ImportExportError::UnsupportedFormat`] for all operations.
-/// Full implementation will be added in a future task.
+/// Decrypts entries using PBKDF2-HMAC-SHA512 + AES-256-CBC and converts
+/// to `ParsedItem`. Supports Login (001), Password (005), and Secure Note (003).
 pub struct OpVaultParser;
 
 impl FormatParser for OpVaultParser {
@@ -254,13 +374,11 @@ impl FormatParser for OpVaultParser {
 
     fn parse(
         &self,
-        _path: &Path,
-        _password: Option<&SecureStr>,
+        path: &Path,
+        password: Option<&SecureStr>,
         _csv_mapping: Option<&CsvColumnMapping>,
     ) -> Result<Vec<ParsedItem>, ImportExportError> {
-        Err(ImportExportError::UnsupportedFormat(
-            ".opvault format is not yet supported".to_string(),
-        ))
+        super::opvault::parser::parse_opvault(path, password)
     }
 
     fn requires_password(&self) -> bool {
@@ -268,13 +386,23 @@ impl FormatParser for OpVaultParser {
     }
 
     fn validate_file(&self, path: &Path) -> Result<(), ImportExportError> {
-        // .opvault is a directory, not a file.
         if !path.exists() {
             return Err(ImportExportError::FileNotFound(path.to_path_buf()));
         }
         if !path.is_dir() {
             return Err(ImportExportError::InvalidFormat(
                 "expected .opvault directory".to_string(),
+            ));
+        }
+        let default_dir = path.join("default");
+        if !default_dir.is_dir() {
+            return Err(ImportExportError::InvalidFormat(
+                "expected .opvault/default/ directory".to_string(),
+            ));
+        }
+        if !default_dir.join("profile.js").exists() {
+            return Err(ImportExportError::InvalidFormat(
+                "expected .opvault/default/profile.js".to_string(),
             ));
         }
         Ok(())
@@ -336,42 +464,60 @@ mod tests {
         f
     }
 
-    /// Sample JSON with 3 login items.
+    /// Sample JSON with 3 login items (real .1pux format).
     fn three_login_items_json() -> &'static str {
         r#"{
             "accounts": [{
                 "vaults": [{
                     "items": [
                         {
+                            "uuid": "uuid-gmail",
                             "categoryUuid": "001",
-                            "title": "Gmail",
-                            "login": {
-                                "username": "user1@gmail.com",
-                                "password": "pass1",
-                                "urls": [{"href": "https://gmail.com"}]
+                            "state": "active",
+                            "overview": {
+                                "title": "Gmail",
+                                "tags": ["email"],
+                                "url": "https://gmail.com"
                             },
-                            "notesPlain": "Personal email",
-                            "tags": ["email"]
+                            "details": {
+                                "loginFields": [
+                                    {"designation": "username", "value": "user1@gmail.com"},
+                                    {"designation": "password", "value": "pass1"}
+                                ],
+                                "notesPlain": "Personal email"
+                            }
                         },
                         {
+                            "uuid": "uuid-github",
                             "categoryUuid": "001",
-                            "title": "GitHub",
-                            "login": {
-                                "username": "dev@github.com",
-                                "password": "pass2",
-                                "urls": [{"href": "https://github.com"}]
+                            "state": "active",
+                            "overview": {
+                                "title": "GitHub",
+                                "url": "https://github.com"
                             },
-                            "notesPlain": "Code repo"
+                            "details": {
+                                "loginFields": [
+                                    {"designation": "username", "value": "dev@github.com"},
+                                    {"designation": "password", "value": "pass2"}
+                                ],
+                                "notesPlain": "Code repo"
+                            }
                         },
                         {
+                            "uuid": "uuid-aws",
                             "categoryUuid": "001",
-                            "title": "AWS",
-                            "login": {
-                                "username": "admin@aws.com",
-                                "password": "pass3",
-                                "urls": [{"href": "https://aws.amazon.com"}]
+                            "state": "active",
+                            "overview": {
+                                "title": "AWS",
+                                "url": "https://aws.amazon.com"
                             },
-                            "notesPlain": "Cloud account"
+                            "details": {
+                                "loginFields": [
+                                    {"designation": "username", "value": "admin@aws.com"},
+                                    {"designation": "password", "value": "pass3"}
+                                ],
+                                "notesPlain": "Cloud account"
+                            }
                         }
                     ]
                 }]
@@ -392,7 +538,7 @@ mod tests {
 
         assert_eq!(items.len(), 3);
 
-        assert_eq!(items[0].source_id, "1p-0");
+        assert_eq!(items[0].source_id, "uuid-gmail");
         assert_eq!(items[0].fields.get("name").unwrap(), "Gmail");
         assert_eq!(items[0].fields.get("username").unwrap(), "user1@gmail.com");
         assert_eq!(items[0].fields.get("password").unwrap(), "pass1");
@@ -400,10 +546,10 @@ mod tests {
         assert_eq!(items[0].fields.get("notes").unwrap(), "Personal email");
         assert_eq!(items[0].tags, vec!["email"]);
 
-        assert_eq!(items[1].source_id, "1p-1");
+        assert_eq!(items[1].source_id, "uuid-github");
         assert_eq!(items[1].fields.get("name").unwrap(), "GitHub");
 
-        assert_eq!(items[2].source_id, "1p-2");
+        assert_eq!(items[2].source_id, "uuid-aws");
         assert_eq!(items[2].fields.get("name").unwrap(), "AWS");
     }
 
@@ -416,24 +562,38 @@ mod tests {
                 "vaults": [{
                     "items": [
                         {
+                            "uuid": "u1",
                             "categoryUuid": "001",
-                            "title": "Login Item",
-                            "login": {"username": "u1", "password": "p1"}
+                            "overview": {"title": "Login Item"},
+                            "details": {
+                                "loginFields": [
+                                    {"designation": "username", "value": "u1"},
+                                    {"designation": "password", "value": "p1"}
+                                ]
+                            }
                         },
                         {
+                            "uuid": "u2",
                             "categoryUuid": "005",
-                            "title": "Password Item",
-                            "login": {"username": "u2", "password": "p2"}
+                            "overview": {"title": "Password Item"},
+                            "details": {
+                                "loginFields": [
+                                    {"designation": "username", "value": "u2"},
+                                    {"designation": "password", "value": "p2"}
+                                ]
+                            }
                         },
                         {
-                            "categoryUuid": "110",
-                            "title": "Secure Note",
-                            "notesPlain": "secret info"
+                            "uuid": "u3",
+                            "categoryUuid": "003",
+                            "overview": {"title": "Secure Note"},
+                            "details": {"notesPlain": "secret info"}
                         },
                         {
+                            "uuid": "u4",
                             "categoryUuid": "002",
-                            "title": "Credit Card",
-                            "notesPlain": "4111..."
+                            "overview": {"title": "Credit Card"},
+                            "details": {"notesPlain": "4111..."}
                         }
                     ]
                 }]
@@ -446,29 +606,34 @@ mod tests {
             .parse(f.path(), None, None)
             .expect("parse should succeed");
 
-        assert_eq!(items.len(), 3, "only 001, 005, 110 should be included");
+        assert_eq!(items.len(), 3, "only 001, 005, 003 should be included");
         assert_eq!(items[0].fields.get("name").unwrap(), "Login Item");
         assert_eq!(items[1].fields.get("name").unwrap(), "Password Item");
         assert_eq!(items[2].fields.get("name").unwrap(), "Secure Note");
     }
 
-    // -- Test 3: URL extraction — first href used ----------------------------
+    // -- Test 3: URL extraction — overview.url preferred ----------------------
 
     #[test]
-    fn multiple_urls_uses_first_href() {
+    fn multiple_urls_uses_overview_url() {
         let json = r#"{
             "accounts": [{
                 "vaults": [{
                     "items": [{
+                        "uuid": "u1",
                         "categoryUuid": "001",
-                        "title": "Multi-URL",
-                        "login": {
-                            "username": "user",
-                            "password": "pass",
-                            "urls": [
-                                {"href": "https://primary.com"},
-                                {"href": "https://secondary.com"},
-                                {"href": "https://tertiary.com"}
+                        "overview": {
+                            "title": "Multi-URL",
+                            "url": "https://primary.com",
+                            "URLs": [
+                                {"url": "https://primary.com"},
+                                {"url": "https://secondary.com"}
+                            ]
+                        },
+                        "details": {
+                            "loginFields": [
+                                {"designation": "username", "value": "user"},
+                                {"designation": "password", "value": "pass"}
                             ]
                         }
                     }]
@@ -523,10 +688,10 @@ mod tests {
         );
     }
 
-    // -- Test 6: OpVault stub returns UnsupportedFormat ----------------------
+    // -- Test 6: OpVault requires password ----------------------------------
 
     #[test]
-    fn opvault_parser_returns_unsupported_format() {
+    fn opvault_parser_returns_password_required() {
         let parser = OpVaultParser;
         let dir = tempfile::tempdir().expect("tempdir");
 
@@ -534,8 +699,8 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            matches!(err, ImportExportError::UnsupportedFormat(ref msg) if msg.contains("opvault")),
-            "expected UnsupportedFormat mentioning opvault, got: {err:?}"
+            matches!(err, ImportExportError::PasswordRequired),
+            "expected PasswordRequired, got: {err:?}"
         );
     }
 
@@ -598,9 +763,12 @@ mod tests {
     }
 
     #[test]
-    fn opvault_validate_file_directory_returns_ok() {
+    fn opvault_validate_file_directory_with_profile_returns_ok() {
         let parser = OpVaultParser;
         let dir = tempfile::tempdir().expect("tempdir");
+        let default_dir = dir.path().join("default");
+        std::fs::create_dir_all(&default_dir).expect("create default dir");
+        std::fs::write(default_dir.join("profile.js"), "").expect("write profile.js");
         assert!(parser.validate_file(dir.path()).is_ok());
     }
 
@@ -610,8 +778,10 @@ mod tests {
             "accounts": [{
                 "vaults": [{
                     "items": [{
+                        "uuid": "u1",
                         "categoryUuid": "001",
-                        "title": "No Login Data"
+                        "overview": {"title": "No Login Data"},
+                        "details": {"loginFields": []}
                     }]
                 }]
             }]
@@ -627,19 +797,20 @@ mod tests {
         assert_eq!(items[0].fields.get("name").unwrap(), "No Login Data");
         assert_eq!(items[0].fields.get("username").unwrap(), "");
         assert_eq!(items[0].fields.get("password").unwrap(), "");
-        assert_eq!(items[0].fields.get("url").unwrap(), "");
-        assert_eq!(items[0].fields.get("notes").unwrap(), "");
+        assert!(!items[0].fields.contains_key("url"));
+        assert!(!items[0].fields.contains_key("notes"));
     }
 
     #[test]
-    fn secure_note_has_empty_login_fields() {
+    fn secure_note_has_name_and_notes_only() {
         let json = r#"{
             "accounts": [{
                 "vaults": [{
                     "items": [{
-                        "categoryUuid": "110",
-                        "title": "My Secret",
-                        "notesPlain": "shh"
+                        "uuid": "u1",
+                        "categoryUuid": "003",
+                        "overview": {"title": "My Secret"},
+                        "details": {"notesPlain": "shh"}
                     }]
                 }]
             }]
@@ -654,9 +825,9 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].fields.get("name").unwrap(), "My Secret");
         assert_eq!(items[0].fields.get("notes").unwrap(), "shh");
-        assert_eq!(items[0].fields.get("username").unwrap(), "");
-        assert_eq!(items[0].fields.get("password").unwrap(), "");
-        assert_eq!(items[0].fields.get("url").unwrap(), "");
+        assert!(!items[0].fields.contains_key("username"));
+        assert!(!items[0].fields.contains_key("password"));
+        assert!(!items[0].fields.contains_key("url"));
     }
 
     #[test]
@@ -665,10 +836,18 @@ mod tests {
             "accounts": [{
                 "vaults": [{
                     "items": [{
+                        "uuid": "u1",
                         "categoryUuid": "001",
-                        "title": "Tagged",
-                        "login": {"username": "u", "password": "p"},
-                        "tags": ["work", "important"]
+                        "overview": {
+                            "title": "Tagged",
+                            "tags": ["work", "important"]
+                        },
+                        "details": {
+                            "loginFields": [
+                                {"designation": "username", "value": "u"},
+                                {"designation": "password", "value": "p"}
+                            ]
+                        }
                     }]
                 }]
             }]
@@ -730,5 +909,168 @@ mod tests {
             msg.contains("expected .1pux"),
             "expected extension error, got: {msg}"
         );
+    }
+
+    #[test]
+    fn archived_items_are_skipped() {
+        let json = r#"{
+            "accounts": [{
+                "vaults": [{
+                    "items": [
+                        {
+                            "uuid": "u1",
+                            "categoryUuid": "001",
+                            "state": "active",
+                            "overview": {"title": "Active"},
+                            "details": {
+                                "loginFields": [
+                                    {"designation": "username", "value": "u"},
+                                    {"designation": "password", "value": "p"}
+                                ]
+                            }
+                        },
+                        {
+                            "uuid": "u2",
+                            "categoryUuid": "001",
+                            "state": "archived",
+                            "overview": {"title": "Archived"},
+                            "details": {
+                                "loginFields": [
+                                    {"designation": "username", "value": "u"},
+                                    {"designation": "password", "value": "p"}
+                                ]
+                            }
+                        }
+                    ]
+                }]
+            }]
+        }"#;
+        let f = create_1pux_file(json);
+        let parser = OnePuxParser;
+
+        let items = parser
+            .parse(f.path(), None, None)
+            .expect("parse should succeed");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].fields.get("name").unwrap(), "Active");
+    }
+
+    #[test]
+    fn password_item_uses_details_password_field() {
+        let json = r#"{
+            "accounts": [{
+                "vaults": [{
+                    "items": [{
+                        "uuid": "u1",
+                        "categoryUuid": "005",
+                        "overview": {"title": "Standalone Password"},
+                        "details": {
+                            "loginFields": [],
+                            "password": "secret123"
+                        }
+                    }]
+                }]
+            }]
+        }"#;
+        let f = create_1pux_file(json);
+        let parser = OnePuxParser;
+
+        let items = parser
+            .parse(f.path(), None, None)
+            .expect("parse should succeed");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].fields.get("name").unwrap(), "Standalone Password");
+        assert_eq!(items[0].fields.get("password").unwrap(), "secret123");
+    }
+
+    #[test]
+    fn real_1pux_parse() {
+        let path = std::path::Path::new("tests/data/1PasswordExport.1pux");
+        if !path.exists() {
+            eprintln!("Skipping: test data not found at {:?}", path);
+            return;
+        }
+        let parser = OnePuxParser;
+        let items = parser.parse(path, None, None).expect("parse 1pux");
+
+        assert_eq!(items.len(), 3, "expected 3 items, got {}", items.len());
+
+        let by_id: std::collections::HashMap<&str, &ParsedItem> =
+            items.iter().map(|i| (i.source_id.as_str(), i)).collect();
+
+        // cat=001 Login — active, with TOTP in sections
+        let login = by_id.get("55qbj3r6ftglrawryv46obdotq").expect("Login item");
+        assert_eq!(login.fields.get("name").unwrap(), "Login");
+        assert_eq!(login.fields.get("username").unwrap(), "user@example.com");
+        assert_eq!(login.fields.get("password").unwrap(), "password");
+        assert_eq!(login.fields.get("url").unwrap(), "https://example.com");
+        let notes = login.fields.get("notes").unwrap();
+        assert!(notes.contains("Note to self"), "notes: {notes}");
+        assert!(
+            notes.contains("TOTP:"),
+            "notes should contain TOTP: {notes}"
+        );
+        assert_eq!(login.tags, vec!["website"]);
+
+        // cat=005 Password — no uuid in data, source_id falls back to 1p-1
+        let pw = items
+            .iter()
+            .find(|i| i.fields.get("name").unwrap() == "UUID 005 Password")
+            .expect("Password item");
+        assert_eq!(pw.fields.get("password").unwrap(), "uuid005password");
+        assert_eq!(pw.fields.get("username").unwrap(), "");
+        assert!(!pw.fields.contains_key("url"));
+
+        // cat=003 Secure Note
+        let note = by_id
+            .get("fkfngfia2rvrrmtcbs5xvwud3i")
+            .expect("Secure Note item");
+        assert_eq!(note.fields.get("name").unwrap(), "Secure Note");
+        assert_eq!(note.fields.get("notes").unwrap(), "This is a note");
+        assert!(!note.fields.contains_key("username"));
+        assert!(!note.fields.contains_key("password"));
+        assert_eq!(note.tags, vec!["Note", "Secret Stuff"]);
+
+        // Archived item NOT included
+        assert!(
+            by_id.get("kbdznu56agh3tucxbswi72hpzq").is_none(),
+            "archived item should be skipped"
+        );
+    }
+
+    #[test]
+    fn _dump_real_1pux() {
+        let path = std::path::Path::new("tests/data/1PasswordExport.1pux");
+        if !path.exists() {
+            eprintln!("Skipping: test data not found at {:?}", path);
+            return;
+        }
+        let parser = OnePuxParser;
+        let items = parser.parse(path, None, None).expect("parse 1pux");
+
+        println!("\n=== 1PasswordExport.1pux 解析结果 ===");
+        println!("总条目数: {}\n", items.len());
+        for item in &items {
+            println!("[{}] {{", item.source_id);
+            let mut keys: Vec<&String> = item.fields.keys().collect();
+            keys.sort();
+            for key in keys {
+                let val = &item.fields[key];
+                if key == "notes" {
+                    println!("  notes: |");
+                    for line in val.lines() {
+                        println!("    {}", line);
+                    }
+                } else {
+                    println!("  {}: {}", key, val);
+                }
+            }
+            if !item.tags.is_empty() {
+                println!("  tags: {:?}", item.tags);
+            }
+            println!("}}\n");
+        }
     }
 }

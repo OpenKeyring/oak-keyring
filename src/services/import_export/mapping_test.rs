@@ -545,7 +545,7 @@ mod tests {
         assert!(record.expires_at.is_none());
 
         // Unsupported field should appear in notes
-        let notes = record.notes.unwrap();
+        let notes = record.notes.as_deref().unwrap();
         assert!(
             notes.contains("Field: custom_field = custom_value"),
             "unexpected notes: {notes}"
@@ -640,7 +640,7 @@ mod tests {
 
         // All fields are mapped by CSV default, but notes has content so it
         // should contain only the original notes text.
-        let notes = record.notes.unwrap();
+        let notes = record.notes.as_deref().unwrap();
         assert_eq!(notes, "a note");
     }
 }
