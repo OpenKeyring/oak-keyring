@@ -2135,6 +2135,70 @@ fn favorite_toggled_removes_from_list_when_viewing_favorites() {
     assert_eq!(state.detail.record.as_ref().unwrap().is_favorite, false);
 }
 
+// ── RecordDetailLoaded tests ─────────────────────────────────
+
+#[test]
+fn record_detail_loaded_populates_detail_panel_with_strength_and_health() {
+    use crate::commands::result::CommandResult;
+    use crate::commands::types::HealthIssue;
+    use crate::crypto::strength::{PasswordStrength as CryptoStrength, StrengthLevel};
+    use crate::tui::state::detail_state::PasswordStrength as DetailStrength;
+    use crate::types::record::DecryptedRecord;
+    use crate::types::sensitive::SecureStr;
+
+    let record = DecryptedRecord::Login {
+        id: Uuid::new_v4(),
+        name: "Test Record".into(),
+        username: "user".into(),
+        password: SecureStr::new("pass".into()),
+        url: None,
+        notes: None,
+        is_favorite: false,
+        expires_at: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        version: 1,
+        deleted: false,
+        deleted_at: None,
+        tags: vec![],
+    };
+
+    let strength = CryptoStrength {
+        level: StrengthLevel::Strong,
+        char_types: 4,
+        bar_fill: 12,
+    };
+    let health_issue = HealthIssue::Weak;
+
+    let mut state = MainScreenState::default();
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::RecordDetailLoaded {
+            record,
+            password_strength: Some(strength),
+            health_issue: Some(health_issue),
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.detail.record.is_some());
+    assert_eq!(
+        state.detail.record.as_ref().unwrap().password_strength,
+        Some(DetailStrength::Strong)
+    );
+    assert_eq!(state.detail.health_issue, Some(HealthIssue::Weak));
+    assert_eq!(state.detail.record.as_ref().unwrap().name, "Test Record");
+    assert!(!state.detail.password_visible);
+    assert_eq!(state.detail.focused_field, 0);
+}
+
 // ── Overlay result dispatch tests ────────────────────────────
 
 #[test]

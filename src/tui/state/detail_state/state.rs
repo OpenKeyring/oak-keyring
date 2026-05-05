@@ -309,7 +309,17 @@ impl DetailPanelState {
         })
     }
 
-    pub fn build_from_record(record: &crate::types::record::DecryptedRecord) -> DetailViewData {
+    pub fn build_from_record(
+        record: &crate::types::record::DecryptedRecord,
+        strength: Option<crate::crypto::strength::PasswordStrength>,
+    ) -> DetailViewData {
+        let mapped_strength = strength.map(|s| match s.level {
+            crate::crypto::strength::StrengthLevel::VeryWeak => PasswordStrength::VeryWeak,
+            crate::crypto::strength::StrengthLevel::Weak => PasswordStrength::Weak,
+            crate::crypto::strength::StrengthLevel::Fair => PasswordStrength::Fair,
+            crate::crypto::strength::StrengthLevel::Strong => PasswordStrength::Strong,
+            crate::crypto::strength::StrengthLevel::VeryStrong => PasswordStrength::VeryStrong,
+        });
         match record {
             crate::types::record::DecryptedRecord::Login {
                 id,
@@ -375,7 +385,7 @@ impl DetailPanelState {
                     created_at: *created_at,
                     updated_at: *updated_at,
                     fields: all_fields,
-                    password_strength: None,
+                    password_strength: mapped_strength,
                     deleted_at: None,
                 }
             }
@@ -442,7 +452,7 @@ impl DetailPanelState {
                     created_at: *created_at,
                     updated_at: *updated_at,
                     fields,
-                    password_strength: None,
+                    password_strength: mapped_strength,
                     deleted_at: None,
                 }
             }
@@ -506,7 +516,7 @@ impl DetailPanelState {
                     created_at: *created_at,
                     updated_at: *updated_at,
                     fields,
-                    password_strength: None,
+                    password_strength: mapped_strength,
                     deleted_at: None,
                 }
             }
