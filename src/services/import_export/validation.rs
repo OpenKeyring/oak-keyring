@@ -242,9 +242,9 @@ pub fn okb_rules() -> Vec<ValidationRule> {
             error_message: "name is required".into(),
         },
         ValidationRule {
-            rule_type: ValidationRuleType::Format,
-            field: Some(TargetField::Name),
-            constraint: ValidationConstraint::Equals("credential_type".into()),
+            rule_type: ValidationRuleType::Enum(vec!["login".into(), "api".into(), "ssh".into()]),
+            field: Some(TargetField::CredentialType),
+            constraint: ValidationConstraint::NotEmpty,
             error_message: "credential_type must be one of: login, api, ssh".into(),
         },
     ]
@@ -284,6 +284,7 @@ fn field_key(field: &TargetField) -> String {
         TargetField::Notes => "notes".into(),
         TargetField::Tags => "tags".into(),
         TargetField::ExpiresAt => "expires_at".into(),
+        TargetField::CredentialType => "credential_type".into(),
     }
 }
 

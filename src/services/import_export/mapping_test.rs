@@ -44,9 +44,9 @@ mod tests {
     }
 
     #[test]
-    fn okb_mapping_has_6_field_mappings() {
+    fn okb_mapping_has_7_field_mappings() {
         let m = okb_mapping();
-        assert_eq!(m.field_mappings.len(), 6);
+        assert_eq!(m.field_mappings.len(), 7);
         assert_eq!(m.source_type, ImportSource::OpenKeyringBackup);
     }
 
@@ -250,9 +250,10 @@ mod tests {
             TargetField::Notes,
             TargetField::Tags,
             TargetField::ExpiresAt,
+            TargetField::CredentialType,
         ];
         let set: HashSet<&TargetField> = all.iter().collect();
-        assert_eq!(set.len(), 12, "all 12 TargetField variants must be unique");
+        assert_eq!(set.len(), 13, "all 13 TargetField variants must be unique");
     }
 
     // -- FormatMapping construction --
