@@ -45,6 +45,8 @@ pub enum TargetField {
     Tags,
     /// Expiration date.
     ExpiresAt,
+    /// Credential type (login, api, ssh).
+    CredentialType,
 }
 
 /// Optional transformation applied to a source value before it is stored.

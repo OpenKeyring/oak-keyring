@@ -4,10 +4,24 @@
 //! - Valid OKB files with different credential types
 //! - Edge cases (special characters, long text, Unicode)
 //! - Error cases (corrupted headers, wrong versions, truncated files, wrong passwords)
+//!
+//! Full pipeline integration tests verify the complete import flow:
+//! parse → map → create in Vault → verify records
 
+use std::collections::HashSet;
+
+use oak_keyring::commands::types::{ImportSource, RecordFilter, RecordSort};
+use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
+use oak_keyring::db::schema::{initialize_metadata, initialize_schema};
+use oak_keyring::services::import_export::duplicate::ExistingRecordKey;
 use oak_keyring::services::import_export::parser::{FormatParser, ParsedItem};
 use oak_keyring::services::import_export::parsers::okb::OkbParser;
-use oak_keyring::types::SecureStr;
+use oak_keyring::services::import_export::ImportExportService;
+use oak_keyring::services::vault::VaultService;
+use oak_keyring::types::credential::EncryptedPayload;
+use oak_keyring::types::record::CreateRecordParams;
+use oak_keyring::types::{CredentialType, SecureStr};
+use rusqlite::Connection;
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -332,4 +346,244 @@ fn test_okb_wrong_password_rejected() {
         "error should mention decryption or password issue, got: {}",
         err
     );
+}
+
+// ---------------------------------------------------------------------------
+// Helper Functions for Full Pipeline Tests
+// ---------------------------------------------------------------------------
+
+/// Set up an in-memory vault for testing.
+fn setup_vault() -> VaultService {
+    let conn = Connection::open_in_memory().unwrap();
+    initialize_schema(&conn);
+    initialize_metadata(&conn);
+    let mut svc = VaultService::new(conn);
+    let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
+    svc.unlock_with_mnemonic(&mnemonic).unwrap();
+    svc
+}
+
+/// Convert field map to EncryptedPayload based on credential type.
+fn fields_to_payload(
+    cred_type: CredentialType,
+    fields: &std::collections::HashMap<String, String>,
+) -> EncryptedPayload {
+    match cred_type {
+        CredentialType::Login => EncryptedPayload::Login {
+            name: fields.get("name").cloned().unwrap_or_default(),
+            username: fields.get("username").cloned().unwrap_or_default(),
+            password: SecureStr::new(fields.get("password").cloned().unwrap_or_default()),
+            url: fields.get("url").cloned(),
+            notes: fields.get("notes").cloned(),
+        },
+        CredentialType::Api => EncryptedPayload::Api {
+            name: fields.get("name").cloned().unwrap_or_default(),
+            app_id: fields.get("app_id").cloned().unwrap_or_default(),
+            secret_key: SecureStr::new(fields.get("secret_key").cloned().unwrap_or_default()),
+            url: fields.get("url").cloned(),
+            notes: fields.get("notes").cloned(),
+        },
+        CredentialType::Ssh => EncryptedPayload::Ssh {
+            name: fields.get("name").cloned().unwrap_or_default(),
+            public_key: fields.get("public_key").cloned().unwrap_or_default(),
+            private_key: fields.get("private_key").cloned().map(SecureStr::new),
+            passphrase: fields.get("passphrase").cloned().map(SecureStr::new),
+            notes: fields.get("notes").cloned(),
+        },
+    }
+}
+
+/// Get default sort configuration.
+#[allow(dead_code)]
+fn default_sort() -> RecordSort {
+    RecordSort::default()
+}
+
+// ---------------------------------------------------------------------------
+// Full Pipeline Integration Tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_okb_basic_full_import() {
+    let path = std::path::Path::new("tests/data").join("okb_basic.okb");
+    if !path.exists() {
+        return;
+    }
+
+    let mut vault = setup_vault();
+    let mut svc = ImportExportService::new();
+
+    let session_id = svc
+        .create_import_session(
+            ImportSource::OpenKeyringBackup,
+            path,
+            Some(SecureStr::new("test-password".to_string())),
+            None,
+            false,
+        )
+        .expect("create session");
+
+    let preview = svc.validate_import_file(session_id).expect("validate");
+
+    assert_eq!(preview.importable, 3, "all 3 items should pass validation");
+    assert_eq!(preview.failed, 0, "no validation failures");
+
+    let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
+    let result = svc
+        .execute_import(
+            session_id,
+            existing_keys,
+            |cred_type, fields, tags| {
+                let payload = fields_to_payload(cred_type, &fields);
+                vault
+                    .create_record(CreateRecordParams {
+                        credential_type: cred_type,
+                        payload,
+                        tags,
+                        is_favorite: false,
+                        expires_at: None,
+                    })
+                    .map_err(|e| e.to_string())
+            },
+            None::<fn(usize, usize, &str)>,
+        )
+        .expect("execute import");
+
+    assert_eq!(result.imported, 3, "should import 3 records");
+    assert_eq!(result.failed, 0, "no failures");
+    assert_eq!(result.validation_failed, 0, "no validation failures");
+
+    // Verify records in vault
+    let records = vault
+        .list_records(&RecordFilter::All, &default_sort())
+        .unwrap();
+    assert_eq!(records.len(), 3, "vault should have 3 records");
+
+    let names: Vec<&str> = records.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"GitHub"));
+    assert!(names.contains(&"Gmail"));
+    assert!(names.contains(&"AWS Console"));
+}
+
+#[test]
+fn test_okb_mixed_types_full_import() {
+    let path = std::path::Path::new("tests/data").join("okb_mixed_types.okb");
+    if !path.exists() {
+        return;
+    }
+
+    let mut vault = setup_vault();
+    let mut svc = ImportExportService::new();
+
+    let session_id = svc
+        .create_import_session(
+            ImportSource::OpenKeyringBackup,
+            path,
+            Some(SecureStr::new("test-password".to_string())),
+            None,
+            false,
+        )
+        .expect("create session");
+
+    svc.validate_import_file(session_id).expect("validate");
+    let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
+    let result = svc
+        .execute_import(
+            session_id,
+            existing_keys,
+            |cred_type, fields, tags| {
+                let payload = fields_to_payload(cred_type, &fields);
+                vault
+                    .create_record(CreateRecordParams {
+                        credential_type: cred_type,
+                        payload,
+                        tags,
+                        is_favorite: false,
+                        expires_at: None,
+                    })
+                    .map_err(|e| e.to_string())
+            },
+            None::<fn(usize, usize, &str)>,
+        )
+        .expect("execute import");
+
+    assert_eq!(result.imported, 3, "should import 3 records");
+    assert_eq!(result.validation_failed, 0);
+
+    let records = vault
+        .list_records(&RecordFilter::All, &default_sort())
+        .unwrap();
+    assert_eq!(records.len(), 3);
+
+    // Verify all credential types present
+    let types: Vec<String> = records
+        .iter()
+        .map(|r| format!("{:?}", r.credential_type))
+        .collect();
+    assert!(types.iter().any(|t| t == "Login"), "should have Login");
+    assert!(types.iter().any(|t| t == "Api"), "should have Api");
+    assert!(types.iter().any(|t| t == "Ssh"), "should have Ssh");
+}
+
+#[test]
+fn test_okb_edge_cases_full_import() {
+    let path = std::path::Path::new("tests/data").join("okb_edge_cases.okb");
+    if !path.exists() {
+        return;
+    }
+
+    let mut vault = setup_vault();
+    let mut svc = ImportExportService::new();
+
+    let session_id = svc
+        .create_import_session(
+            ImportSource::OpenKeyringBackup,
+            path,
+            Some(SecureStr::new("test-password".to_string())),
+            None,
+            false,
+        )
+        .expect("create session");
+
+    svc.validate_import_file(session_id).expect("validate");
+    let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
+    let result = svc
+        .execute_import(
+            session_id,
+            existing_keys,
+            |cred_type, fields, tags| {
+                let payload = fields_to_payload(cred_type, &fields);
+                vault
+                    .create_record(CreateRecordParams {
+                        credential_type: cred_type,
+                        payload,
+                        tags,
+                        is_favorite: false,
+                        expires_at: None,
+                    })
+                    .map_err(|e| e.to_string())
+            },
+            None::<fn(usize, usize, &str)>,
+        )
+        .expect("execute import");
+
+    assert_eq!(result.imported, 4, "should import 4 records");
+    assert_eq!(result.validation_failed, 0);
+
+    let records = vault
+        .list_records(&RecordFilter::All, &default_sort())
+        .unwrap();
+    assert_eq!(records.len(), 4);
+
+    let names: Vec<String> = records.iter().map(|r| r.name.clone()).collect();
+    assert!(
+        names.iter().any(|n| n.contains(',')),
+        "should have special chars name"
+    );
+    assert!(names.contains(&"Long Notes".to_string()));
+    assert!(
+        names.contains(&"测试账户".to_string()),
+        "should have Chinese name"
+    );
+    assert!(names.contains(&"Minimal Entry".to_string()));
 }
