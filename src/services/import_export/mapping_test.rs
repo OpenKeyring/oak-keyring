@@ -44,9 +44,9 @@ mod tests {
     }
 
     #[test]
-    fn okb_mapping_has_6_field_mappings() {
+    fn okb_mapping_has_7_field_mappings() {
         let m = okb_mapping();
-        assert_eq!(m.field_mappings.len(), 6);
+        assert_eq!(m.field_mappings.len(), 7);
         assert_eq!(m.source_type, ImportSource::OpenKeyringBackup);
     }
 
