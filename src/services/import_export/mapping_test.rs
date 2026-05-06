@@ -250,9 +250,10 @@ mod tests {
             TargetField::Notes,
             TargetField::Tags,
             TargetField::ExpiresAt,
+            TargetField::CredentialType,
         ];
         let set: HashSet<&TargetField> = all.iter().collect();
-        assert_eq!(set.len(), 12, "all 12 TargetField variants must be unique");
+        assert_eq!(set.len(), 13, "all 13 TargetField variants must be unique");
     }
 
     // -- FormatMapping construction --

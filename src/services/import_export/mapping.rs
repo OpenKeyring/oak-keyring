@@ -414,6 +414,13 @@ pub fn okb_mapping() -> FormatMapping {
                 default_value: None,
                 transform: None,
             },
+            FieldMapping {
+                source_field: "credential_type".into(),
+                target_field: TargetField::CredentialType,
+                required: false,
+                default_value: None,
+                transform: None,
+            },
         ],
         type_mappings: vec![
             TypeMapping {
