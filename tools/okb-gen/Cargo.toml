@@ -1,0 +1,7 @@
+[package]
+name = "okb-gen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oak-keyring = { path = "../.." }
