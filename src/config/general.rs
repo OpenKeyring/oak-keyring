@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum AnimationMode {
@@ -36,10 +36,8 @@ pub fn default_vault_pathbuf() -> PathBuf {
     default_vault_path()
 }
 
-/// Returns the default vault path as a user-facing display string.
 /// Replaces the home directory prefix with `~` for compact display.
-pub fn default_vault_path_display() -> String {
-    let path = default_vault_path();
+pub fn display_path_with_tilde(path: &Path) -> String {
     if let Some(home) = dirs::home_dir() {
         let path_str = path.to_string_lossy();
         let home_str = home.to_string_lossy();
@@ -48,6 +46,11 @@ pub fn default_vault_path_display() -> String {
         }
     }
     path.to_string_lossy().to_string()
+}
+
+/// Returns the default vault path as a user-facing display string.
+pub fn default_vault_path_display() -> String {
+    display_path_with_tilde(&default_vault_path())
 }
 fn default_auto_lock() -> u64 {
     300

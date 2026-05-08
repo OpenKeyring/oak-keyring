@@ -11,7 +11,7 @@ pub mod watcher;
 use serde::{Deserialize, Serialize};
 
 pub use error::ConfigError;
-pub use general::{AnimationMode, GeneralConfig};
+pub use general::{display_path_with_tilde, AnimationMode, GeneralConfig};
 pub use manager::ConfigManager;
 pub use notification::{ConfigReloadable, ServiceNotification};
 pub use password::PasswordDefaultsConfig;

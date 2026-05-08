@@ -3,6 +3,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Paragraph;
 use ratatui::{layout::Rect, Frame};
 
+use crate::config::display_path_with_tilde;
 use crate::config::AnimationMode;
 use crate::t;
 use crate::tui::state::config_state::GeneralConfigForm;
@@ -52,7 +53,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: 
     );
 
     // Row index 1: Vault path (focused == 1)
-    let vault_display = form.vault_path.display();
+    let vault_display = display_path_with_tilde(&form.vault_path);
     let vault = format!(
         "{}          {}  [ {} ]",
         t!("tui.config.vault_path"),
