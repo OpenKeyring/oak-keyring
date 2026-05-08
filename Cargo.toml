@@ -102,6 +102,9 @@ mockall = "0.13"
 tempfile = "3"
 anyhow = "1"
 oak-keyring = { path = ".", features = ["test-helpers"] }
+expectrl = "0.8"
+strip-ansi-escapes = "0.2"
+assert_cmd = "2"
 
 [features]
 default = []

@@ -4,9 +4,20 @@ use oak_keyring::crypto::keystore::KeyStore;
 use oak_keyring::tui::i18n;
 
 fn main() {
-    let vault_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("open-keyring");
+    // In debug builds, allow OAK_VAULT_DIR override for testing (ignored in release)
+    let vault_dir = if cfg!(debug_assertions) {
+        std::env::var("OAK_VAULT_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::data_local_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join("open-keyring")
+            })
+    } else {
+        dirs::data_local_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("open-keyring")
+    };
     let config = AppConfig::load(&vault_dir).unwrap_or_else(|_| AppConfig::default_config());
 
     // Initialize i18n based on config (auto-detect or explicit locale)
