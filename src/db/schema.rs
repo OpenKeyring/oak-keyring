@@ -141,6 +141,8 @@ pub fn initialize_metadata(conn: &Connection) {
 }
 
 pub fn init_db(path: &std::path::Path) -> Connection {
+    // Ensure parent directory exists before opening database
+    std::fs::create_dir_all(path).expect("failed to create vault directory");
     let conn = Connection::open(path.join("vault.db")).expect("failed to open vault.db");
     apply_pragmas(&conn);
     initialize_schema(&conn);
