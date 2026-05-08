@@ -265,12 +265,7 @@ fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::i18n;
-
-    // Initialize locale for tests - call this at the start of each test that needs i18n
-    fn init_test_locale() {
-        i18n::init("zh-CN");
-    }
+    use crate::tui::i18n::LocaleGuard;
 
     #[test]
     fn button_toggle() {
@@ -366,7 +361,7 @@ mod tests {
 
     #[test]
     fn build_lines_contains_expected_sections() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let dialog = VaultPathDialog::new("/old/path".into(), "/new/path".into());
         let lines = dialog.build_lines(48);
 

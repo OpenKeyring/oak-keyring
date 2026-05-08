@@ -120,6 +120,7 @@ pub fn render_password_input_with_buttons(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::i18n::LocaleGuard;
 
     #[test]
     fn render_text_input_shows_label() {
@@ -129,6 +130,7 @@ mod tests {
 
     #[test]
     fn render_text_input_shows_required() {
+        let _guard = LocaleGuard::zh_cn();
         let lines = render_text_input("name", "", false, false, true, false, 60);
         let text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("\u{5FC5}\u{586B}"));

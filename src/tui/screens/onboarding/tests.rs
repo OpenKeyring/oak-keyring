@@ -3,6 +3,7 @@ use super::*;
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::Command;
+use crate::tui::i18n::LocaleGuard;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crossterm::event::{KeyCode, KeyEvent};
 
@@ -1292,6 +1293,7 @@ fn onboarding_vault_path_validate_nonexistent_directory() {
 
 #[test]
 fn onboarding_vault_path_validate_existing_empty_dir() {
+    let _guard = LocaleGuard::en();
     let dir = tempfile::tempdir().unwrap();
     let screen = OnboardingScreen {
         path_input: dir.path().to_string_lossy().to_string(),
@@ -1314,6 +1316,7 @@ fn onboarding_vault_path_validate_existing_empty_dir() {
 
 #[test]
 fn onboarding_vault_path_validate_existing_nonempty_dir() {
+    let _guard = LocaleGuard::en();
     let dir = tempfile::tempdir().unwrap();
     // Create a file to make the directory non-empty
     std::fs::write(dir.path().join("test.txt"), b"hello").unwrap();
