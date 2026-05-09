@@ -16,13 +16,12 @@
 
 use oak_keyring::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
-use oak_keyring::db::schema::{initialize_metadata, initialize_schema};
+use oak_keyring::db::schema::init_db_in_memory;
 use oak_keyring::errors::mapping::vault::VaultError;
 use oak_keyring::services::vault::VaultService;
 use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
 use oak_keyring::types::record::{CreateRecordParams, DecryptedRecord, UpdateRecordParams};
 use oak_keyring::types::sensitive::SecureStr;
-use rusqlite::Connection;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -31,9 +30,7 @@ use uuid::Uuid;
 
 /// Create an in-memory VaultService with schema initialized and crypto unlocked.
 fn setup_vault() -> VaultService {
-    let conn = Connection::open_in_memory().unwrap();
-    initialize_schema(&conn);
-    initialize_metadata(&conn);
+    let conn = init_db_in_memory();
     let mut svc = VaultService::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
     svc.unlock_with_mnemonic(&mnemonic)

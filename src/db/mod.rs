@@ -4,7 +4,7 @@ pub mod queries;
 pub mod schema;
 
 pub use queries::DbError;
-pub use schema::{init_db, init_db_in_memory};
+pub use schema::{init_db, init_db_in_memory, InitDbError};
 
 #[cfg(test)]
 mod models_test;

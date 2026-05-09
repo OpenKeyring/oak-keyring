@@ -563,13 +563,10 @@ impl RotationService {
 #[cfg(test)]
 mod service_tests {
     use super::*;
-    use crate::db::schema::{initialize_metadata, initialize_schema};
-    use rusqlite::Connection;
+    use crate::db::schema::init_db_in_memory;
 
     fn setup_vault() -> crate::services::vault::VaultService {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_schema(&conn);
-        initialize_metadata(&conn);
+        let conn = init_db_in_memory();
         crate::services::vault::VaultService::new(conn)
     }
 
@@ -615,13 +612,10 @@ mod service_tests {
 #[cfg(test)]
 mod migration_tests {
     use super::*;
-    use crate::db::schema::{initialize_metadata, initialize_schema};
-    use rusqlite::Connection;
+    use crate::db::schema::init_db_in_memory;
 
     fn setup_vault() -> crate::services::vault::VaultService {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_schema(&conn);
-        initialize_metadata(&conn);
+        let conn = init_db_in_memory();
         crate::services::vault::VaultService::new(conn)
     }
 
@@ -655,13 +649,10 @@ mod migration_tests {
 #[cfg(test)]
 mod lazy_migration_tests {
     use super::*;
-    use crate::db::schema::{initialize_metadata, initialize_schema};
-    use rusqlite::Connection;
+    use crate::db::schema::init_db_in_memory;
 
     fn setup_vault() -> crate::services::vault::VaultService {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_schema(&conn);
-        initialize_metadata(&conn);
+        let conn = init_db_in_memory();
         crate::services::vault::VaultService::new(conn)
     }
 

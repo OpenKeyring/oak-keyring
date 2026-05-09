@@ -91,13 +91,11 @@ impl VaultService {
 mod tests {
     use super::*;
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-    use crate::db::schema::{initialize_metadata, initialize_schema};
+    use crate::db::schema::init_db_in_memory;
 
     /// Helper: create an in-memory VaultService with schema ready.
     fn setup_service() -> VaultService {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_schema(&conn);
-        initialize_metadata(&conn);
+        let conn = init_db_in_memory();
         VaultService::new(conn)
     }
 

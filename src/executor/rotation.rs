@@ -314,7 +314,7 @@ mod tests {
     use crate::config::notification::ServiceNotification;
     use crate::config::AppConfig;
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-    use crate::db::schema::{initialize_metadata, initialize_schema};
+    use crate::db::schema::init_db_in_memory;
     use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
     use crate::services::clipboard::{ClipboardService, MockBackend};
     use crate::services::health::HealthService;
@@ -322,7 +322,6 @@ mod tests {
     use crate::services::rotation::save_checkpoint;
     use crate::services::sync::SyncService;
     use crate::types::rotation::{RotationCheckpoint, RotationTrigger};
-    use rusqlite::Connection;
     use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -330,9 +329,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     fn setup_vault_unlocked() -> VaultService {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_schema(&conn);
-        initialize_metadata(&conn);
+        let conn = init_db_in_memory();
         let mut vault = VaultService::new(conn);
         let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
         vault.unlock_with_mnemonic(&mnemonic).unwrap();

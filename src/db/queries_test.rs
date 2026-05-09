@@ -271,9 +271,9 @@ fn audit_log_insert_and_list() {
 fn metadata_get_set() {
     let db = fresh_db();
 
-    // schema_version is seeded by initialize_metadata
+    // schema_version is seeded by migration system
     let version = get_metadata(&db, "schema_version").unwrap();
-    assert_eq!(version.as_deref(), Some("2"));
+    assert_eq!(version.as_deref(), Some("1"));
 
     // Set a new key
     set_metadata(&db, "custom_key", "hello").unwrap();
