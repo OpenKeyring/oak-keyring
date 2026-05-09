@@ -114,7 +114,7 @@ pub fn up(conn: &Connection) -> Result<(), MigrationError> {
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| MigrationError::ClockError(e))?
+        .map_err(MigrationError::ClockError)?
         .as_secs();
     let vault_id = uuid::Uuid::new_v4().to_string();
     let device_id = uuid::Uuid::new_v4().to_string();
