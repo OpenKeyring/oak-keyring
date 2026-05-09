@@ -37,12 +37,20 @@ pub fn init_db(path: &Path) -> Result<Connection, InitDbError> {
 
         match migrations::run_migrations(&conn) {
             Ok(()) => {
-                let _ = std::fs::remove_file(path.join("vault.db.migration.bak"));
+                if let Err(e) = std::fs::remove_file(&backup_path) {
+                    tracing::warn!(error = %e, "failed to remove migration backup");
+                }
             }
             Err(e) => {
                 drop(conn);
-                let backup_path = path.join("vault.db.migration.bak");
-                let _ = std::fs::copy(&backup_path, &db_path);
+                if let Err(restore_err) = std::fs::copy(&backup_path, &db_path) {
+                    tracing::error!(
+                        migration_error = %e,
+                        restore_error = %restore_err,
+                        "migration failed AND backup restore failed"
+                    );
+                    return Err(MigrationError::RestoreFailed(restore_err).into());
+                }
                 return Err(e.into());
             }
         }
