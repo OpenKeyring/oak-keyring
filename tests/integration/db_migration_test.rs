@@ -87,10 +87,10 @@ fn init_db_creates_fresh_db_from_empty_file() {
 }
 
 #[test]
-fn init_db_restores_backup_on_migration_failure() {
+fn init_db_warns_and_continues_on_downgrade() {
     let dir = tempfile::tempdir().unwrap();
 
-    // Create a database at version 99 — downgrade path.
+    // Create a database at version 99 — newer than current SCHEMA_VERSION.
     {
         let conn = rusqlite::Connection::open(dir.path().join("vault.db")).unwrap();
         oak_keyring::db::schema::apply_pragmas(&conn).unwrap();
@@ -113,4 +113,139 @@ fn init_db_restores_backup_on_migration_failure() {
         .unwrap();
     assert_eq!(version, "99");
     conn.close().unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Backup / restore orchestration tests
+// ---------------------------------------------------------------------------
+//
+// These exercise `run_with_backup` directly. The trigger inside `init_db`
+// (`needs_migration && current > 0`) is unreachable while SCHEMA_VERSION = 1,
+// so the orchestration logic is verified independently of that gate.
+
+/// Drives `run_with_backup` with a closure that mutates the database and then
+/// fails. Verifies:
+/// - the pre-mutation state is restored from the backup
+/// - WAL-resident commits made before the call ARE captured by the backup
+///   (regression guard for the prior `std::fs::copy(vault.db)` implementation,
+///   which would have lost commits sitting in `vault.db-wal`)
+/// - the backup file is retained on failure for forensics
+#[test]
+fn run_with_backup_restores_wal_resident_data_on_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("vault.db");
+    let backup_path = dir.path().join("vault.db.bak");
+
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    oak_keyring::db::schema::apply_pragmas(&conn).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE marker (value TEXT NOT NULL);
+         INSERT INTO marker VALUES ('original');",
+    )
+    .unwrap();
+
+    // 'original' is committed but, in WAL mode without a checkpoint, lives in
+    // vault.db-wal — not in vault.db. A naive std::fs::copy of vault.db would
+    // miss it.
+    let result = oak_keyring::db::schema::run_with_backup(conn, &db_path, &backup_path, |c| {
+        c.execute("INSERT INTO marker VALUES ('mutated')", [])
+            .unwrap();
+        Err(
+            oak_keyring::db::migrations::MigrationError::ExecutionFailed {
+                version: 99,
+                name: "test_failure".to_string(),
+                source: rusqlite::Error::ExecuteReturnedResults,
+            },
+        )
+    });
+
+    assert!(result.is_err(), "work failure should propagate");
+    assert!(
+        backup_path.exists(),
+        "backup file should be retained for forensics after restore"
+    );
+
+    // Re-open the restored database. 'original' must still be present (proves
+    // the backup captured WAL-resident data); 'mutated' must be absent (proves
+    // the failed work was rolled back via restore).
+    let reopened = rusqlite::Connection::open(&db_path).unwrap();
+    let original: i64 = reopened
+        .query_row(
+            "SELECT COUNT(*) FROM marker WHERE value = 'original'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        original, 1,
+        "WAL-resident 'original' row should survive restore"
+    );
+
+    let mutated: i64 = reopened
+        .query_row(
+            "SELECT COUNT(*) FROM marker WHERE value = 'mutated'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(mutated, 0, "post-failure mutation must be rolled back");
+}
+
+#[test]
+fn run_with_backup_removes_backup_on_success() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("vault.db");
+    let backup_path = dir.path().join("vault.db.bak");
+
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    oak_keyring::db::schema::apply_pragmas(&conn).unwrap();
+    conn.execute_batch("CREATE TABLE x (y INTEGER NOT NULL);")
+        .unwrap();
+
+    let conn = oak_keyring::db::schema::run_with_backup(conn, &db_path, &backup_path, |_c| Ok(()))
+        .unwrap();
+
+    assert!(
+        !backup_path.exists(),
+        "backup should be cleaned up on successful work"
+    );
+    drop(conn);
+}
+
+#[test]
+fn run_with_backup_overwrites_stale_backup_file() {
+    // Defensive: a leftover .bak from a prior incomplete run must not corrupt
+    // a fresh backup. backup_database removes the stale file before snapshotting.
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("vault.db");
+    let backup_path = dir.path().join("vault.db.bak");
+
+    std::fs::write(&backup_path, b"garbage from a prior run").unwrap();
+
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    oak_keyring::db::schema::apply_pragmas(&conn).unwrap();
+    conn.execute_batch("CREATE TABLE t (v INTEGER);").unwrap();
+
+    let result = oak_keyring::db::schema::run_with_backup(conn, &db_path, &backup_path, |_c| {
+        Err(
+            oak_keyring::db::migrations::MigrationError::ExecutionFailed {
+                version: 99,
+                name: "test".to_string(),
+                source: rusqlite::Error::ExecuteReturnedResults,
+            },
+        )
+    });
+
+    assert!(result.is_err());
+    // The .bak file is now a real SQLite database (not the garbage), and the
+    // restored vault.db opens cleanly with the expected schema.
+    let reopened = rusqlite::Connection::open(&db_path).unwrap();
+    let count: i64 = reopened
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='t'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1, "restored database should retain pre-work schema");
 }

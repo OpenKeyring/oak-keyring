@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Database
-rusqlite = { version = "0.34", features = ["bundled"] }
+rusqlite = { version = "0.34", features = ["bundled", "backup"] }
 
 # Crypto
 argon2 = "0.5"

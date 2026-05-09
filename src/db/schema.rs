@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
@@ -30,36 +31,19 @@ pub fn init_db(path: &Path) -> Result<Connection, InitDbError> {
         );
     }
 
-    // Forward-looking scaffolding: this backup path will activate when SCHEMA_VERSION >= 2,
-    // at which point tests must be added to verify backup/restore behavior.
+    // Forward-looking scaffolding: this backup branch will activate when SCHEMA_VERSION >= 2.
+    // The orchestration logic itself is exercised end-to-end by `run_with_backup` tests.
     if needs_migration && current > 0 {
         let backup_path = path.join("vault.db.migration.bak");
-        std::fs::copy(&db_path, &backup_path).map_err(MigrationError::BackupFailed)?;
-
-        match migrations::run_migrations(&conn) {
-            Ok(()) => {
-                if let Err(e) = std::fs::remove_file(&backup_path) {
-                    tracing::warn!(error = %e, "failed to remove migration backup");
-                }
-            }
-            Err(e) => {
-                drop(conn);
-                if let Err(restore_err) = std::fs::copy(&backup_path, &db_path) {
-                    tracing::error!(
-                        migration_error = %e,
-                        restore_error = %restore_err,
-                        "migration failed AND backup restore failed"
-                    );
-                    return Err(MigrationError::RestoreFailed(restore_err).into());
-                }
-                return Err(e.into());
-            }
+        run_with_backup(conn, &db_path, &backup_path, |c| {
+            migrations::run_migrations(c)
+        })
+    } else {
+        if needs_migration {
+            migrations::run_migrations(&conn)?;
         }
-    } else if needs_migration {
-        migrations::run_migrations(&conn)?;
+        Ok(conn)
     }
-
-    Ok(conn)
 }
 
 pub fn init_db_in_memory() -> Connection {
@@ -67,6 +51,87 @@ pub fn init_db_in_memory() -> Connection {
     apply_pragmas(&conn).expect("failed to apply pragmas");
     migrations::run_migrations(&conn).expect("migration failed");
     conn
+}
+
+/// Runs `work` against `conn`, snapshotting the database to `backup_path` first
+/// and restoring on failure.
+///
+/// On success: the backup is removed.
+/// On failure: the connection is closed, any stale WAL/SHM sidecars are deleted,
+/// and the backup is copied over the main file. The backup is retained for forensics.
+///
+/// Exposed for testing — callers in production should go through `init_db`.
+pub fn run_with_backup<F>(
+    conn: Connection,
+    db_path: &Path,
+    backup_path: &Path,
+    work: F,
+) -> Result<Connection, InitDbError>
+where
+    F: FnOnce(&Connection) -> Result<(), MigrationError>,
+{
+    backup_database(&conn, backup_path)?;
+
+    match work(&conn) {
+        Ok(()) => {
+            if let Err(e) = std::fs::remove_file(backup_path) {
+                tracing::warn!(error = %e, "failed to remove migration backup");
+            }
+            Ok(conn)
+        }
+        Err(work_err) => {
+            drop(conn);
+            if let Err(restore_err) = restore_database(backup_path, db_path) {
+                tracing::error!(
+                    migration_error = %work_err,
+                    restore_error = %restore_err,
+                    "migration failed AND backup restore failed"
+                );
+                return Err(MigrationError::RestoreFailed(restore_err).into());
+            }
+            Err(work_err.into())
+        }
+    }
+}
+
+/// Snapshots `src` to `dst_path` using SQLite's online backup API.
+///
+/// The online backup API reads through the WAL, so the destination is a
+/// transaction-consistent copy of the live database — including commits that
+/// have not yet been checkpointed into the main file.
+fn backup_database(src: &Connection, dst_path: &Path) -> Result<(), MigrationError> {
+    // Connection::backup opens the destination as a SQLite database. If a stale
+    // .bak from a prior run exists, opening it would merge with that file's pages
+    // rather than producing a fresh snapshot.
+    for sidecar in [None, Some("-wal"), Some("-shm")] {
+        let p = sidecar.map_or_else(|| dst_path.to_path_buf(), |s| with_suffix(dst_path, s));
+        if p.exists() {
+            std::fs::remove_file(&p).map_err(MigrationError::BackupFailed)?;
+        }
+    }
+    src.backup(rusqlite::DatabaseName::Main, dst_path, None)
+        .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))
+}
+
+/// Restores `db_path` from `backup_path`.
+///
+/// Removes any stale WAL/SHM sidecars on the live database before copying so
+/// SQLite does not replay a partial post-failure WAL onto the restored file.
+fn restore_database(backup_path: &Path, db_path: &Path) -> std::io::Result<()> {
+    for suffix in ["-wal", "-shm"] {
+        let p = with_suffix(db_path, suffix);
+        if p.exists() {
+            std::fs::remove_file(&p)?;
+        }
+    }
+    std::fs::copy(backup_path, db_path)?;
+    Ok(())
+}
+
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut s: OsString = path.as_os_str().to_os_string();
+    s.push(suffix);
+    PathBuf::from(s)
 }
 
 #[derive(Debug, thiserror::Error)]
