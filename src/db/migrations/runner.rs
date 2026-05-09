@@ -35,8 +35,8 @@ pub(crate) fn read_current_version(conn: &Connection) -> u32 {
             tracing::warn!(version = %v, "non-numeric schema_version in metadata, treating as version 0");
             0
         }),
-        Err(_) => {
-            tracing::debug!("metadata table missing or schema_version unreadable, treating as version 0");
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to read schema_version, treating as version 0");
             0
         }
     }
@@ -104,4 +104,6 @@ pub enum MigrationError {
     BackupFailed(std::io::Error),
     #[error("restore failed: {0}")]
     RestoreFailed(std::io::Error),
+    #[error("system clock error: {0}")]
+    ClockError(std::time::SystemTimeError),
 }

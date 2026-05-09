@@ -159,7 +159,6 @@ use super::record;
 mod tests {
     use super::*;
     use crate::db::queries;
-    use rusqlite::Connection;
 
     use crate::db::schema::init_db_in_memory;
 

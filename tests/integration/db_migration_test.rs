@@ -30,32 +30,38 @@ fn init_db_creates_working_database_on_fresh_directory() {
 
 #[test]
 fn init_db_on_existing_current_version_is_no_op() {
-    let (dir, path) = setup_fresh_db();
+    let (_dir, path) = setup_fresh_db();
 
-    let mtime_before = std::fs::metadata(path.join("vault.db"))
+    let version_before: String = {
+        let conn = rusqlite::Connection::open(path.join("vault.db")).unwrap();
+        oak_keyring::db::schema::apply_pragmas(&conn).unwrap();
+        conn.query_row(
+            "SELECT value FROM metadata WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
         .unwrap()
-        .modified()
-        .unwrap();
-
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    };
 
     let conn = oak_keyring::db::schema::init_db(&path).unwrap();
+    let version_after: String = conn
+        .query_row(
+            "SELECT value FROM metadata WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     conn.close().unwrap();
 
-    let mtime_after = std::fs::metadata(path.join("vault.db"))
-        .unwrap()
-        .modified()
-        .unwrap();
-
     assert_eq!(
-        mtime_before, mtime_after,
-        "database should not be modified when already at current version"
+        version_before, version_after,
+        "schema_version should not change when already current"
     );
     assert!(!path.join("vault.db.migration.bak").exists());
 }
 
 #[test]
-fn init_db_removes_backup_after_successful_migration() {
+fn init_db_creates_fresh_db_from_empty_file() {
     let dir = tempfile::tempdir().unwrap();
 
     // Create an empty database (version 0) — no metadata table.

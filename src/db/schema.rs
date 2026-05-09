@@ -30,6 +30,8 @@ pub fn init_db(path: &Path) -> Result<Connection, InitDbError> {
         );
     }
 
+    // Forward-looking scaffolding: this backup path will activate when SCHEMA_VERSION >= 2,
+    // at which point tests must be added to verify backup/restore behavior.
     if needs_migration && current > 0 {
         let backup_path = path.join("vault.db.migration.bak");
         std::fs::copy(&db_path, &backup_path).map_err(MigrationError::BackupFailed)?;
