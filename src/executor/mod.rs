@@ -140,7 +140,7 @@ impl CommandExecutor {
         info!(vault_dir = %vault_dir.display(), "initializing CommandExecutor");
 
         // Open and initialize the SQLite database.
-        let conn = init_db(&vault_dir);
+        let conn = init_db(&vault_dir)?;
 
         // Create service instances.
         let vault = VaultService::new(conn);

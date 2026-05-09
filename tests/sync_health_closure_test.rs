@@ -11,7 +11,7 @@ use oak_keyring::cloud::{
     RecordMetadata, RecordVersionInfo,
 };
 use oak_keyring::db::queries;
-use oak_keyring::db::schema::{init_db_in_memory, initialize_metadata, initialize_schema};
+use oak_keyring::db::schema::init_db_in_memory;
 use oak_keyring::services::vault::health_sync::VaultHealthSyncAdapter;
 use oak_keyring::services::vault::VaultService;
 use oak_keyring::sync::{
@@ -45,8 +45,6 @@ fn create_test_checkpoint() -> SyncCheckpoint {
 
 fn setup_vault() -> VaultService {
     let conn = init_db_in_memory();
-    initialize_schema(&conn);
-    initialize_metadata(&conn);
     VaultService::new(conn)
 }
 

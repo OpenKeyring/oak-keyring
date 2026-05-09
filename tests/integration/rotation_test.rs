@@ -14,7 +14,7 @@
 //! | AC10| RotationService starts Idle                    | acceptance_rotation_service_starts_idle
 //! | AC11| rotation config defaults (auto_rotate=true, 90d, 1000r) | acceptance_rotation_config_defaults
 
-use oak_keyring::db::schema::{initialize_metadata, initialize_schema};
+use oak_keyring::db::schema::init_db_in_memory;
 use oak_keyring::services::rotation::{
     check_trigger, is_past_grace_period, should_skip_rotation_due_to_cloud_version, RotationService,
 };
@@ -23,17 +23,13 @@ use oak_keyring::types::rotation::{
     RotationConfig, RotationConstants, RotationState, RotationTrigger,
 };
 
-use rusqlite::Connection;
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /// Create an in-memory VaultService with schema initialized.
 fn setup_vault() -> VaultService {
-    let conn = Connection::open_in_memory().unwrap();
-    initialize_schema(&conn);
-    initialize_metadata(&conn);
+    let conn = init_db_in_memory();
     VaultService::new(conn)
 }
 

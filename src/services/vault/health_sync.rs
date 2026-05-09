@@ -133,7 +133,7 @@ impl std::fmt::Debug for VaultHealthSyncAdapter {
 mod tests {
     use super::*;
     use crate::db::queries;
-    use crate::db::schema::{init_db_in_memory, initialize_metadata, initialize_schema};
+    use crate::db::schema::init_db_in_memory;
     use crate::services::vault::VaultService;
     use crate::types::credential::CredentialType;
     use crate::types::record::StoredRecord;
@@ -141,8 +141,6 @@ mod tests {
 
     fn setup_vault() -> VaultService {
         let conn = init_db_in_memory();
-        initialize_schema(&conn);
-        initialize_metadata(&conn);
         VaultService::new(conn)
     }
 

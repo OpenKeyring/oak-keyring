@@ -5,20 +5,17 @@ use crate::commands::types::{FieldSelector, RecordFilter, RecordSort, SortDirect
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::crypto::payload;
 use crate::db::queries;
-use crate::db::schema::{initialize_metadata, initialize_schema};
+use crate::db::schema::init_db_in_memory;
 use crate::errors::mapping::vault::VaultError;
 use crate::services::vault::VaultService;
 use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::record::{CreateRecordParams, DecryptedRecord, UpdateRecordParams};
 use crate::types::sensitive::SecureStr;
-use rusqlite::Connection;
 
 /// Helper: create an in-memory VaultService with schema initialized.
 fn setup_service() -> VaultService {
-    let conn = Connection::open_in_memory().unwrap();
-    initialize_schema(&conn);
-    initialize_metadata(&conn);
+    let conn = init_db_in_memory();
     VaultService::new(conn)
 }
 

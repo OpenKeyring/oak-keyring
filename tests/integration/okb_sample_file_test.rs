@@ -12,7 +12,7 @@ use std::collections::HashSet;
 
 use oak_keyring::commands::types::{ImportSource, RecordFilter, RecordSort};
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
-use oak_keyring::db::schema::{initialize_metadata, initialize_schema};
+use oak_keyring::db::schema::init_db_in_memory;
 use oak_keyring::services::import_export::duplicate::ExistingRecordKey;
 use oak_keyring::services::import_export::parser::{FormatParser, ParsedItem};
 use oak_keyring::services::import_export::parsers::okb::OkbParser;
@@ -21,7 +21,6 @@ use oak_keyring::services::vault::VaultService;
 use oak_keyring::types::credential::EncryptedPayload;
 use oak_keyring::types::record::CreateRecordParams;
 use oak_keyring::types::{CredentialType, SecureStr};
-use rusqlite::Connection;
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -354,9 +353,7 @@ fn test_okb_wrong_password_rejected() {
 
 /// Set up an in-memory vault for testing.
 fn setup_vault() -> VaultService {
-    let conn = Connection::open_in_memory().unwrap();
-    initialize_schema(&conn);
-    initialize_metadata(&conn);
+    let conn = init_db_in_memory();
     let mut svc = VaultService::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
     svc.unlock_with_mnemonic(&mnemonic).unwrap();

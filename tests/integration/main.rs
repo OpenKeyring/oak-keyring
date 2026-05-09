@@ -1,6 +1,7 @@
 mod audit_sync_test;
 mod clipboard_test;
 mod db_lifecycle_test;
+mod db_migration_test;
 mod error_propagation_test;
 mod executor_command_test;
 mod executor_dispatch_test;
