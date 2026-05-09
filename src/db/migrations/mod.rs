@@ -101,3 +101,6 @@ pub enum MigrationError {
     #[error("restore failed: {0}")]
     RestoreFailed(std::io::Error),
 }
+
+#[cfg(test)]
+mod m001_initial_test;
