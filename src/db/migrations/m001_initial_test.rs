@@ -26,7 +26,7 @@ fn table_names(conn: &Connection) -> Vec<String> {
 #[test]
 fn fresh_db_creates_all_tables() {
     let conn = Connection::open_in_memory().unwrap();
-    crate::db::schema::apply_pragmas(&conn);
+    crate::db::schema::apply_pragmas(&conn).expect("failed to apply pragmas");
     run_migrations(&conn).unwrap();
 
     let expected = vec![
@@ -46,7 +46,7 @@ fn fresh_db_creates_all_tables() {
 #[test]
 fn fresh_db_sets_schema_version_to_one() {
     let conn = Connection::open_in_memory().unwrap();
-    crate::db::schema::apply_pragmas(&conn);
+    crate::db::schema::apply_pragmas(&conn).expect("failed to apply pragmas");
     run_migrations(&conn).unwrap();
 
     let version = metadata_value(&conn, "schema_version").unwrap();
@@ -56,7 +56,7 @@ fn fresh_db_sets_schema_version_to_one() {
 #[test]
 fn fresh_db_seeds_metadata() {
     let conn = Connection::open_in_memory().unwrap();
-    crate::db::schema::apply_pragmas(&conn);
+    crate::db::schema::apply_pragmas(&conn).expect("failed to apply pragmas");
     run_migrations(&conn).unwrap();
 
     for key in &["vault_id", "device_id", "created_at", "current_dek_version"] {
@@ -70,7 +70,7 @@ fn fresh_db_seeds_metadata() {
 #[test]
 fn run_migrations_is_idempotent() {
     let conn = Connection::open_in_memory().unwrap();
-    crate::db::schema::apply_pragmas(&conn);
+    crate::db::schema::apply_pragmas(&conn).expect("failed to apply pragmas");
 
     run_migrations(&conn).unwrap();
     let version_after_first = metadata_value(&conn, "schema_version").unwrap();
@@ -87,7 +87,7 @@ fn run_migrations_is_idempotent() {
 #[test]
 fn downgrade_does_not_error() {
     let conn = Connection::open_in_memory().unwrap();
-    crate::db::schema::apply_pragmas(&conn);
+    crate::db::schema::apply_pragmas(&conn).expect("failed to apply pragmas");
 
     // Set schema_version to a value higher than SCHEMA_VERSION.
     conn.execute(

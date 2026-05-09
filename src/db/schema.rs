@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::db::migrations::{self, MigrationError};
 
-pub fn apply_pragmas(conn: &Connection) {
+pub fn apply_pragmas(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
@@ -12,13 +12,12 @@ pub fn apply_pragmas(conn: &Connection) {
          PRAGMA foreign_keys=ON;
          PRAGMA cache_size=-8000;",
     )
-    .expect("failed to apply pragmas");
 }
 
 pub fn init_db(path: &Path) -> Result<Connection, InitDbError> {
     let db_path = path.join("vault.db");
     let conn = Connection::open(&db_path)?;
-    apply_pragmas(&conn);
+    apply_pragmas(&conn)?;
 
     let current = migrations::read_current_version(&conn);
     let needs_migration = current < migrations::SCHEMA_VERSION;
@@ -63,7 +62,7 @@ pub fn init_db(path: &Path) -> Result<Connection, InitDbError> {
 
 pub fn init_db_in_memory() -> Connection {
     let conn = Connection::open_in_memory().expect("failed to open in-memory db");
-    apply_pragmas(&conn);
+    apply_pragmas(&conn).expect("failed to apply pragmas");
     migrations::run_migrations(&conn).expect("migration failed");
     conn
 }
