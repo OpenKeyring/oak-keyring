@@ -17,7 +17,7 @@ use crate::tui::state::main_state::{StatusBarState, StatusMessage, SyncIndicator
 use crate::tui::theme;
 
 /// Application version displayed in the status bar center.
-const VERSION: &str = "v0.1.0";
+const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
 /// Section separator character.
 const SEPARATOR: &str = " \u{2502} "; // " │ "
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn version_constant() {
-        assert_eq!(VERSION, "v0.1.0");
+        assert_eq!(VERSION, concat!("v", env!("CARGO_PKG_VERSION")));
     }
 
     // ── Trash-aware status bar tests ─────────────────────────────────────────
