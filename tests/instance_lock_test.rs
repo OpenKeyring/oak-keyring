@@ -5,6 +5,43 @@ use std::time::Duration;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
+#[cfg(unix)]
+struct OkProcess {
+    child: Option<Child>,
+}
+
+#[cfg(unix)]
+impl OkProcess {
+    fn spawn(vault_dir: &std::path::Path) -> Self {
+        Self {
+            child: Some(spawn_ok_with_pty(vault_dir)),
+        }
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.child
+            .as_mut()
+            .expect("child should be present")
+            .try_wait()
+    }
+
+    fn terminate(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            if child.try_wait().ok().flatten().is_none() {
+                send_sigterm(&child);
+            }
+            let _ = child.wait();
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for OkProcess {
+    fn drop(&mut self) {
+        self.terminate();
+    }
+}
+
 /// Allocate a PTY for the subprocess using the `script` command.
 /// This allows the TUI to initialize its terminal (raw mode, alternate screen).
 /// Returns the process group ID for use in signal handling.
@@ -66,7 +103,7 @@ fn second_process_is_blocked_when_lock_is_held() {
     let dir = tempfile::tempdir().unwrap();
     let vault_dir = dir.path().to_path_buf();
 
-    let mut first = spawn_ok_with_pty(&vault_dir);
+    let _first = OkProcess::spawn(&vault_dir);
 
     // Wait for the first instance to start and acquire the lock
     thread::sleep(Duration::from_secs(2));
@@ -87,9 +124,7 @@ fn second_process_is_blocked_when_lock_is_held() {
         "stderr should contain 'already running', got: {stderr}"
     );
 
-    // Clean up: send SIGTERM to first instance
-    send_sigterm(&first);
-    let _ = first.wait();
+    // `_first` terminates the subprocess on drop, including panic paths.
 }
 
 /// Verify that after the first instance exits, a new one can acquire the lock.
@@ -100,14 +135,13 @@ fn lock_released_after_first_instance_exits() {
     let vault_dir = dir.path().to_path_buf();
 
     // Start and then stop first instance
-    let mut first = spawn_ok_with_pty(&vault_dir);
+    let mut first = OkProcess::spawn(&vault_dir);
     thread::sleep(Duration::from_secs(2));
-    send_sigterm(&first);
-    let _ = first.wait();
+    first.terminate();
     thread::sleep(Duration::from_millis(500));
 
     // Second instance should be able to start (not blocked by stale lock)
-    let mut second = spawn_ok_with_pty(&vault_dir);
+    let mut second = OkProcess::spawn(&vault_dir);
     thread::sleep(Duration::from_secs(1));
 
     // Verify second instance is running (not blocked)
@@ -116,7 +150,4 @@ fn lock_released_after_first_instance_exits() {
         status.is_none(),
         "second instance should still be running (lock was released)"
     );
-
-    send_sigterm(&second);
-    let _ = second.wait();
 }

@@ -32,11 +32,10 @@ fn main() {
     i18n::init(&config.general.language);
 
     let has_vault = KeyStore::vault_exists(&vault_dir);
-    let mut app = App::new(config, vault_dir, has_vault, instance_lock)
-        .unwrap_or_else(|e| {
-            eprintln!("{e}");
-            std::process::exit(1);
-        });
+    let mut app = App::new(config, vault_dir, has_vault, instance_lock).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1);
+    });
     app.run().unwrap_or_else(|e| {
         eprintln!("{e}");
         std::process::exit(1);
