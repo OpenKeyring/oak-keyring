@@ -10,9 +10,13 @@ fn main() {
         return;
     }
 
-    let vault_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("open-keyring");
+    let vault_dir = std::env::var("OAK_VAULT_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::data_local_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("open-keyring")
+        });
 
     let instance_lock = InstanceLock::acquire(&vault_dir).unwrap_or_else(|e| {
         eprintln!("{e}");
