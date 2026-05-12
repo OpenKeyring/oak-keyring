@@ -1,65 +1,154 @@
 use std::path::Path;
-use zeroize::Zeroize;
 
 use crate::crypto::argon2::{self, Argon2Params};
 use crate::crypto::bip39::MnemonicLanguage;
 use crate::crypto::hkdf;
 use crate::crypto::xchacha20;
+use crate::security::LockedKey32;
 use crate::types::SecureStr;
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct SecretKey([u8; 32]);
+/// A secret key stored in locked memory.
+///
+/// This type wraps [`LockedKey32`] to prevent the secret key from being
+/// swapped to disk or appearing in core dumps.
+pub struct SecretKey(LockedKey32);
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct WrappingKey([u8; 32]);
+// SAFETY: LockedKey32 uses mlock/VirtualLock which are thread-safe on all platforms.
+// The wrapped key material cannot be cloned (LockedKey32 is intentionally !Clone).
+unsafe impl Send for SecretKey {}
+unsafe impl Sync for SecretKey {}
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct KeyEncryptionKey([u8; 32]);
+/// A wrapping key stored in locked memory.
+///
+/// This type wraps [`LockedKey32`] to prevent the wrapping key from being
+/// swapped to disk or appearing in core dumps.
+pub struct WrappingKey(LockedKey32);
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct DataEncryptionKey([u8; 32]);
+// SAFETY: LockedKey32 uses mlock/VirtualLock which are thread-safe on all platforms.
+// The wrapped key material cannot be cloned (LockedKey32 is intentionally !Clone).
+unsafe impl Send for WrappingKey {}
+unsafe impl Sync for WrappingKey {}
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct DeviceKey([u8; 32]);
+/// A key encryption key (KEK) stored in locked memory.
+///
+/// This type wraps [`LockedKey32`] to prevent the KEK from being
+/// swapped to disk or appearing in core dumps.
+pub struct KeyEncryptionKey(LockedKey32);
+
+// SAFETY: LockedKey32 uses mlock/VirtualLock which are thread-safe on all platforms.
+// The wrapped key material cannot be cloned (LockedKey32 is intentionally !Clone).
+unsafe impl Send for KeyEncryptionKey {}
+unsafe impl Sync for KeyEncryptionKey {}
+
+/// A data encryption key (DEK) stored in locked memory.
+///
+/// This type wraps [`LockedKey32`] to prevent the DEK from being
+/// swapped to disk or appearing in core dumps.
+pub struct DataEncryptionKey(LockedKey32);
+
+// SAFETY: LockedKey32 uses mlock/VirtualLock which are thread-safe on all platforms.
+// The wrapped key material cannot be cloned (LockedKey32 is intentionally !Clone).
+unsafe impl Send for DataEncryptionKey {}
+unsafe impl Sync for DataEncryptionKey {}
+
+/// A device key stored in locked memory.
+///
+/// This type wraps [`LockedKey32`] to prevent the device key from being
+/// swapped to disk or appearing in core dumps.
+pub struct DeviceKey(LockedKey32);
+
+// SAFETY: LockedKey32 uses mlock/VirtualLock which are thread-safe on all platforms.
+// The wrapped key material cannot be cloned (LockedKey32 is intentionally !Clone).
+unsafe impl Send for DeviceKey {}
+unsafe impl Sync for DeviceKey {}
 
 impl SecretKey {
-    pub(crate) fn new(bytes: [u8; 32]) -> Self {
-        Self(bytes)
+    /// Creates a new secret key from existing key material.
+    ///
+    /// The key material is copied into locked memory and the source array
+    /// is zeroized after copying.
+    pub(crate) fn new(mut bytes: [u8; 32]) -> Self {
+        use zeroize::Zeroize;
+        let key = LockedKey32::new(bytes).expect("memory lock should succeed");
+        bytes.zeroize();
+        Self(key)
     }
+
+    /// Exposes the underlying 32-byte key.
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.expose()
     }
 }
 
 impl WrappingKey {
+    /// Creates a new wrapping key from existing key material.
+    ///
+    /// The key material is copied into locked memory and the source array
+    /// is zeroized after copying.
+    pub fn new(mut bytes: [u8; 32]) -> Self {
+        use zeroize::Zeroize;
+        let key = LockedKey32::new(bytes).expect("memory lock should succeed");
+        bytes.zeroize();
+        Self(key)
+    }
+
+    /// Exposes the underlying 32-byte key.
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.expose()
     }
 }
 
 impl KeyEncryptionKey {
-    pub(crate) fn new(bytes: [u8; 32]) -> Self {
-        Self(bytes)
+    /// Creates a new key encryption key from existing key material.
+    ///
+    /// The key material is copied into locked memory and the source array
+    /// is zeroized after copying.
+    pub(crate) fn new(mut bytes: [u8; 32]) -> Self {
+        use zeroize::Zeroize;
+        let key = LockedKey32::new(bytes).expect("memory lock should succeed");
+        bytes.zeroize();
+        Self(key)
     }
+
+    /// Exposes the underlying 32-byte key.
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.expose()
     }
 }
 
 impl DataEncryptionKey {
+    /// Creates a new data encryption key from existing key material.
+    ///
+    /// The key material is copied into locked memory and the source array
+    /// is zeroized after copying.
+    pub fn new(mut bytes: [u8; 32]) -> Self {
+        use zeroize::Zeroize;
+        let key = LockedKey32::new(bytes).expect("memory lock should succeed");
+        bytes.zeroize();
+        Self(key)
+    }
+
+    /// Exposes the underlying 32-byte key.
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.expose()
     }
 }
 
 impl DeviceKey {
+    /// Creates a new device key from existing key material.
+    ///
+    /// The key material is copied into locked memory and the source array
+    /// is zeroized after copying.
+    pub fn new(mut bytes: [u8; 32]) -> Self {
+        use zeroize::Zeroize;
+        let key = LockedKey32::new(bytes).expect("memory lock should succeed");
+        bytes.zeroize();
+        Self(key)
+    }
+
+    /// Exposes the underlying 32-byte key.
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.expose()
     }
 }
 
@@ -81,14 +170,11 @@ pub fn unwrap_key(
     Ok(key)
 }
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
 pub struct KeyStore {
     pub(crate) sk: Option<SecretKey>,
     pub(crate) kek: Option<KeyEncryptionKey>,
     pub(crate) current_dek_version: u32,
     pub(crate) device_id: String,
-    #[zeroize(skip)]
     pub(crate) mnemonic_language: MnemonicLanguage,
 }
 
@@ -109,15 +195,13 @@ impl KeyStore {
         params: &Argon2Params,
         language: MnemonicLanguage,
     ) -> Result<Self, String> {
-        let sk = SecretKey(sk_bytes);
-        let kek = KeyEncryptionKey(hkdf::derive_kek(sk.as_bytes())?);
+        let sk = SecretKey::new(sk_bytes);
+        let kek = KeyEncryptionKey::new(hkdf::derive_kek(sk.as_bytes())?);
 
         let salt = argon2::generate_salt();
-        let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk.expose(), &salt, params)?
-                .try_into()
-                .map_err(|_| "WK derivation failed".to_string())?,
-        );
+        // Derive wrapping key directly into locked memory
+        let locked_wk = argon2::derive_key_locked(cmk, &salt, params)?;
+        let wk = WrappingKey(locked_wk);
 
         let (wrapped, nonce) = wrap_key(sk.as_bytes(), wk.as_bytes())?;
 
@@ -187,11 +271,9 @@ impl KeyStore {
             p_cost: parallelism,
         };
 
-        let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk.expose(), &salt_arr, &kdf_params)?
-                .try_into()
-                .map_err(|_| "WK derivation failed".to_string())?,
-        );
+        // Derive wrapping key directly into locked memory
+        let locked_wk = argon2::derive_key_locked(cmk, &salt_arr, &kdf_params)?;
+        let wk = WrappingKey(locked_wk);
 
         let wrapped = base64_decode(data["wrapped_sk"].as_str().ok_or("missing wrapped_sk")?)?;
         let nonce = base64_decode(data["nonce"].as_str().ok_or("missing nonce")?)?;
@@ -199,8 +281,8 @@ impl KeyStore {
         nonce_arr.copy_from_slice(&nonce);
 
         let sk_bytes = unwrap_key(&wrapped, &nonce_arr, wk.as_bytes())?;
-        let sk = SecretKey(sk_bytes);
-        let kek = KeyEncryptionKey(hkdf::derive_kek(sk.as_bytes())?);
+        let sk = SecretKey::new(sk_bytes);
+        let kek = KeyEncryptionKey::new(hkdf::derive_kek(sk.as_bytes())?);
 
         let mnemonic_lang_str = data["mnemonic_language"].as_str().unwrap_or("en");
         let mnemonic_language = MnemonicLanguage::from_keystore_value(mnemonic_lang_str)
@@ -240,11 +322,9 @@ impl KeyStore {
             p_cost: parallelism,
         };
 
-        let old_wk = WrappingKey(
-            argon2::derive_key_with_params(old_cmk.expose(), &salt_arr, &kdf_params)?
-                .try_into()
-                .map_err(|_| "WK derivation failed".to_string())?,
-        );
+        // Derive old wrapping key directly into locked memory
+        let locked_old_wk = argon2::derive_key_locked(old_cmk, &salt_arr, &kdf_params)?;
+        let old_wk = WrappingKey(locked_old_wk);
 
         let wrapped = base64_decode(data["wrapped_sk"].as_str().ok_or("missing wrapped_sk")?)?;
         let nonce_bytes = base64_decode(data["nonce"].as_str().ok_or("missing nonce")?)?;
@@ -255,11 +335,9 @@ impl KeyStore {
 
         let new_salt = argon2::generate_salt();
         // Preserve the existing vault's KDF params for the new wrapping (security not downgraded)
-        let mut new_wk = WrappingKey(
-            argon2::derive_key_with_params(new_cmk.expose(), &new_salt, &kdf_params)?
-                .try_into()
-                .map_err(|_| "WK derivation failed".to_string())?,
-        );
+        // Derive new wrapping key directly into locked memory
+        let locked_new_wk = argon2::derive_key_locked(new_cmk, &new_salt, &kdf_params)?;
+        let new_wk = WrappingKey(locked_new_wk);
 
         let (new_wrapped, new_nonce) = wrap_key(&sk_bytes, new_wk.as_bytes())?;
 
@@ -305,7 +383,8 @@ impl KeyStore {
             std::fs::set_permissions(&file_path, perms).map_err(|e| e.to_string())?;
         }
 
-        new_wk.zeroize();
+        use zeroize::Zeroize;
+        // sk_bytes is a temporary array that was used to re-wrap the secret key
         sk_bytes.zeroize();
 
         Ok(())
@@ -313,7 +392,7 @@ impl KeyStore {
 
     pub fn get_dek(&self, version: u32) -> Result<DataEncryptionKey, String> {
         let kek = self.kek.as_ref().ok_or("KeyStore not unlocked")?;
-        Ok(DataEncryptionKey(hkdf::derive_dek(
+        Ok(DataEncryptionKey::new(hkdf::derive_dek(
             kek.as_bytes(),
             version,
         )?))
@@ -358,12 +437,9 @@ mod tests {
     /// This simulates a vault created with non-default (e.g. High) params.
     fn init_with_params(path: &Path, sk_bytes: [u8; 32], cmk: &SecureStr, params: &Argon2Params) {
         let salt = argon2::generate_salt();
-        let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk.expose(), &salt, params)
-                .unwrap()
-                .try_into()
-                .unwrap(),
-        );
+        // Derive wrapping key directly into locked memory
+        let locked_wk = argon2::derive_key_locked(cmk, &salt, params).unwrap();
+        let wk = WrappingKey(locked_wk);
         let (wrapped, nonce) = wrap_key(&sk_bytes, wk.as_bytes()).unwrap();
 
         let json = serde_json::json!({
@@ -539,6 +615,7 @@ mod tests {
         let key = SecretKey::new([0xFFu8; 32]);
         assert_eq!(key.as_bytes(), &[0xFFu8; 32]);
         drop(key);
+        // SecretKey wraps LockedKey32 which zeroizes on drop
     }
 
     #[test]
@@ -637,16 +714,15 @@ mod tests {
         let key = SecretKey::new([0xAAu8; 32]);
         assert_eq!(key.as_bytes(), &[0xAAu8; 32]);
         drop(key);
-        // With #[zeroize(drop)], the Drop impl calls zeroize().
-        // We can't read memory after drop in safe Rust, but we verify
-        // the derive macro is present and compiles correctly.
+        // SecretKey wraps LockedKey32 which zeroizes on drop
     }
 
     #[test]
     fn test_wrapping_key_zeroize_on_drop() {
-        let key = WrappingKey([0xBBu8; 32]);
+        let key = WrappingKey::new([0xBBu8; 32]);
         assert_eq!(key.as_bytes(), &[0xBBu8; 32]);
         drop(key);
+        // WrappingKey wraps LockedKey32 which zeroizes on drop
     }
 
     #[test]
@@ -654,13 +730,15 @@ mod tests {
         let key = KeyEncryptionKey::new([0xCCu8; 32]);
         assert_eq!(key.as_bytes(), &[0xCCu8; 32]);
         drop(key);
+        // KeyEncryptionKey wraps LockedKey32 which zeroizes on drop
     }
 
     #[test]
     fn test_dek_zeroize_on_drop() {
-        let key = DataEncryptionKey([0xDDu8; 32]);
+        let key = DataEncryptionKey::new([0xDDu8; 32]);
         assert_eq!(key.as_bytes(), &[0xDDu8; 32]);
         drop(key);
+        // DataEncryptionKey wraps LockedKey32 which zeroizes on drop
     }
 
     #[test]
@@ -677,7 +755,7 @@ mod tests {
         assert!(ks.sk.is_some());
         assert!(ks.kek.is_some());
         drop(ks);
-        // KeyStore has #[zeroize(drop)] -- after drop the Option fields are zeroized
+        // KeyStore keys wrap LockedKey32 which zeroizes on drop
     }
 
     #[test]
