@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::path::Path;
 
 use fs4::fs_std::FileExt;
@@ -20,6 +20,7 @@ pub enum InstanceLockError {
 
 impl InstanceLock {
     pub fn acquire(vault_dir: &Path) -> Result<Self, InstanceLockError> {
+        fs::create_dir_all(vault_dir)?;
         let lock_path = vault_dir.join(LOCK_FILENAME);
         let file = OpenOptions::new()
             .create(true)
