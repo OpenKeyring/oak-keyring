@@ -256,14 +256,14 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Backspace => {
-                self.verify_inputs[focused].pop();
+                self.verify_inputs[focused].pop_char();
                 self.verify_errors[focused] = false;
                 ScreenResult::Continue
             }
             KeyCode::Char(c) if c.is_alphabetic() => {
                 let input = &mut self.verify_inputs[focused];
                 if input.len() < 12 {
-                    input.push(c);
+                    input.push_char(c);
                 }
                 self.verify_errors[focused] = false;
                 ScreenResult::Continue
@@ -277,7 +277,8 @@ impl OnboardingScreen {
     fn submit_recovery_verify(&mut self) -> ScreenResult {
         let all_correct = self.verify_positions.iter().enumerate().all(|(i, &pos)| {
             pos < self.recovery_words.len()
-                && self.verify_inputs[i].eq_ignore_ascii_case(&self.recovery_words[pos])
+                && self.verify_inputs[i]
+                    .expose(|s| s.eq_ignore_ascii_case(&self.recovery_words[pos]))
         });
         if all_correct {
             self.verify_errors = [false; 4];
@@ -286,7 +287,8 @@ impl OnboardingScreen {
             // Mark mismatches
             for (i, &pos) in self.verify_positions.iter().enumerate() {
                 self.verify_errors[i] = pos >= self.recovery_words.len()
-                    || !self.verify_inputs[i].eq_ignore_ascii_case(&self.recovery_words[pos]);
+                    || !self.verify_inputs[i]
+                        .expose(|s| s.eq_ignore_ascii_case(&self.recovery_words[pos]));
             }
         }
         ScreenResult::Continue

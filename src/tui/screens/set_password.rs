@@ -245,9 +245,9 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
 
         // -- Match indicator --
         let match_line = if !self.new_password.is_empty() && !self.confirm_password.is_empty() {
-            let passwords_match = self.new_password.expose(|a| {
-                self.confirm_password.expose(|b| a == b)
-            });
+            let passwords_match = self
+                .new_password
+                .expose(|a| self.confirm_password.expose(|b| a == b));
             if passwords_match {
                 Some(
                     Paragraph::new(format!(
@@ -351,9 +351,9 @@ impl SetPasswordScreen {
                     self.error = Some(t!("tui.entry.password_too_short").to_string());
                     return ScreenResult::Continue;
                 }
-                let passwords_match = self.new_password.expose(|a| {
-                    self.confirm_password.expose(|b| a == b)
-                });
+                let passwords_match = self
+                    .new_password
+                    .expose(|a| self.confirm_password.expose(|b| a == b));
                 if !passwords_match {
                     self.error = Some(t!("tui.entry.password_mismatch").to_string());
                     return ScreenResult::Continue;
@@ -465,16 +465,16 @@ mod tests {
         let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         screen.new_password = sensitive("testpassword");
         screen.confirm_password = sensitive("testpassword");
-        let passwords_match = screen.new_password.expose(|a| {
-            screen.confirm_password.expose(|b| a == b)
-        });
+        let passwords_match = screen
+            .new_password
+            .expose(|a| screen.confirm_password.expose(|b| a == b));
         assert!(passwords_match);
 
         // Mismatch case
         screen.confirm_password = sensitive("different");
-        let passwords_match = screen.new_password.expose(|a| {
-            screen.confirm_password.expose(|b| a == b)
-        });
+        let passwords_match = screen
+            .new_password
+            .expose(|a| screen.confirm_password.expose(|b| a == b));
         assert!(!passwords_match);
     }
 

@@ -545,7 +545,10 @@ impl ImportExportScreen {
         let password = if self.decrypt_password.is_empty() {
             None
         } else {
-            Some(self.decrypt_password.expose(|s| SecureStr::new(s.to_string())))
+            Some(
+                self.decrypt_password
+                    .expose(|s| SecureStr::new(s.to_string())),
+            )
         };
 
         let cmd = Command::ValidateImportFile {
@@ -714,9 +717,9 @@ impl ImportExportScreen {
                 return ScreenResult::Continue;
             }
             // Compare passwords using expose
-            let passwords_match = self.export_password.expose(|pw1| {
-                self.export_confirm_password.expose(|pw2| pw1 == pw2)
-            });
+            let passwords_match = self
+                .export_password
+                .expose(|pw1| self.export_confirm_password.expose(|pw2| pw1 == pw2));
             if !passwords_match {
                 self.error_message = Some(t!("tui.entry.password_mismatch").to_string());
                 return ScreenResult::Continue;

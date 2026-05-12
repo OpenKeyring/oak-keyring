@@ -34,33 +34,45 @@ impl PayloadPlaintextDto {
     /// This is safe because the resulting plaintext DTO is immediately encrypted.
     fn from_payload(payload: &EncryptedPayload) -> Self {
         match payload {
-            EncryptedPayload::Login { name, username, password, url, notes } => {
-                PayloadPlaintextDto::Login {
-                    name: name.clone(),
-                    username: username.clone(),
-                    password: password.expose().to_string(),
-                    url: url.clone(),
-                    notes: notes.clone(),
-                }
-            }
-            EncryptedPayload::Api { name, app_id, secret_key, url, notes } => {
-                PayloadPlaintextDto::Api {
-                    name: name.clone(),
-                    app_id: app_id.clone(),
-                    secret_key: secret_key.expose().to_string(),
-                    url: url.clone(),
-                    notes: notes.clone(),
-                }
-            }
-            EncryptedPayload::Ssh { name, public_key, private_key, passphrase, notes } => {
-                PayloadPlaintextDto::Ssh {
-                    name: name.clone(),
-                    public_key: public_key.clone(),
-                    private_key: private_key.as_ref().map(|pk| pk.expose().to_string()),
-                    passphrase: passphrase.as_ref().map(|pp| pp.expose().to_string()),
-                    notes: notes.clone(),
-                }
-            }
+            EncryptedPayload::Login {
+                name,
+                username,
+                password,
+                url,
+                notes,
+            } => PayloadPlaintextDto::Login {
+                name: name.clone(),
+                username: username.clone(),
+                password: password.expose().to_string(),
+                url: url.clone(),
+                notes: notes.clone(),
+            },
+            EncryptedPayload::Api {
+                name,
+                app_id,
+                secret_key,
+                url,
+                notes,
+            } => PayloadPlaintextDto::Api {
+                name: name.clone(),
+                app_id: app_id.clone(),
+                secret_key: secret_key.expose().to_string(),
+                url: url.clone(),
+                notes: notes.clone(),
+            },
+            EncryptedPayload::Ssh {
+                name,
+                public_key,
+                private_key,
+                passphrase,
+                notes,
+            } => PayloadPlaintextDto::Ssh {
+                name: name.clone(),
+                public_key: public_key.clone(),
+                private_key: private_key.as_ref().map(|pk| pk.expose().to_string()),
+                passphrase: passphrase.as_ref().map(|pp| pp.expose().to_string()),
+                notes: notes.clone(),
+            },
         }
     }
 
@@ -68,33 +80,45 @@ impl PayloadPlaintextDto {
     /// This is safe because the plaintext DTO is only created from decrypted data.
     fn into_payload(self) -> EncryptedPayload {
         match self {
-            PayloadPlaintextDto::Login { name, username, password, url, notes } => {
-                EncryptedPayload::Login {
-                    name,
-                    username,
-                    password: SecureStr::new(password),
-                    url,
-                    notes,
-                }
-            }
-            PayloadPlaintextDto::Api { name, app_id, secret_key, url, notes } => {
-                EncryptedPayload::Api {
-                    name,
-                    app_id,
-                    secret_key: SecureStr::new(secret_key),
-                    url,
-                    notes,
-                }
-            }
-            PayloadPlaintextDto::Ssh { name, public_key, private_key, passphrase, notes } => {
-                EncryptedPayload::Ssh {
-                    name,
-                    public_key,
-                    private_key: private_key.map(SecureStr::new),
-                    passphrase: passphrase.map(SecureStr::new),
-                    notes,
-                }
-            }
+            PayloadPlaintextDto::Login {
+                name,
+                username,
+                password,
+                url,
+                notes,
+            } => EncryptedPayload::Login {
+                name,
+                username,
+                password: SecureStr::new(password),
+                url,
+                notes,
+            },
+            PayloadPlaintextDto::Api {
+                name,
+                app_id,
+                secret_key,
+                url,
+                notes,
+            } => EncryptedPayload::Api {
+                name,
+                app_id,
+                secret_key: SecureStr::new(secret_key),
+                url,
+                notes,
+            },
+            PayloadPlaintextDto::Ssh {
+                name,
+                public_key,
+                private_key,
+                passphrase,
+                notes,
+            } => EncryptedPayload::Ssh {
+                name,
+                public_key,
+                private_key: private_key.map(SecureStr::new),
+                passphrase: passphrase.map(SecureStr::new),
+                notes,
+            },
         }
     }
 }

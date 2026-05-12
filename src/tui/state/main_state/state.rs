@@ -827,7 +827,8 @@ impl Screen for MainScreenState {
                                 if let Some(target_kind) = target_kind {
                                     for f in &mut record.fields {
                                         if f.kind == target_kind && f.toggleable {
-                                            f.value = FieldValue::Revealed(value.expose().to_string());
+                                            f.value =
+                                                FieldValue::Revealed(value.expose().to_string());
                                             break;
                                         }
                                     }

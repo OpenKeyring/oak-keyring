@@ -141,11 +141,9 @@ impl EditRecordScreen {
             }
             crate::tui::state::form_state::PasswordFieldFocus::Copy => {
                 if let Some(value) = self.form.current_secret_value() {
-                    if !value.is_empty() {
-                        use crate::types::sensitive::SecureStr;
-                        let val = value.to_string();
+                    if !value.expose().is_empty() {
                         return ScreenResult::Command(Box::new(Command::CopyRawToClipboard {
-                            value: SecureStr::new(val),
+                            value,
                         }));
                     }
                 }
@@ -323,18 +321,26 @@ impl EditRecordScreen {
             },
             4 => match ct {
                 CredentialType::Login => {
-                    if let Some(s) = self.form.fields.password.as_mut() { s.pop_char() };
+                    if let Some(s) = self.form.fields.password.as_mut() {
+                        s.pop_char()
+                    };
                     self.form.fields.update_strength();
                 }
                 CredentialType::Api => {
-                    if let Some(s) = self.form.fields.secret_key.as_mut() { s.pop_char() };
+                    if let Some(s) = self.form.fields.secret_key.as_mut() {
+                        s.pop_char()
+                    };
                 }
                 CredentialType::Ssh => {
-                    if let Some(s) = self.form.fields.private_key.as_mut() { s.pop_char() };
+                    if let Some(s) = self.form.fields.private_key.as_mut() {
+                        s.pop_char()
+                    };
                 }
             },
             5 if ct == CredentialType::Ssh => {
-                if let Some(s) = self.form.fields.passphrase.as_mut() { s.pop_char() };
+                if let Some(s) = self.form.fields.passphrase.as_mut() {
+                    s.pop_char()
+                };
             }
             _ => {
                 let tags_idx = match ct {

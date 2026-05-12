@@ -5,6 +5,7 @@ use crate::commands::types::Screen;
 use crate::commands::Command;
 use crate::tui::i18n::LocaleGuard;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
+use crate::types::sensitive::SensitiveInput;
 use crossterm::event::{KeyCode, KeyEvent};
 
 #[test]
@@ -1035,10 +1036,10 @@ fn onboarding_verify_tab_on_last_box_submits_when_all_filled() {
             "actor".to_string(),
         ],
         verify_inputs: [
-            "abandon".to_string(), // matches pos 0
-            "absent".to_string(),  // matches pos 5
-            "academy".to_string(), // matches pos 10
-            "accuse".to_string(),  // matches pos 15
+            SensitiveInput::from("abandon".to_string()), // matches pos 0
+            SensitiveInput::from("absent".to_string()),  // matches pos 5
+            SensitiveInput::from("academy".to_string()), // matches pos 10
+            SensitiveInput::from("accuse".to_string()),  // matches pos 15
         ],
         ..Default::default()
     };
@@ -1129,10 +1130,10 @@ fn onboarding_verify_typing_affects_focused_box() {
         crossterm::event::KeyModifiers::NONE,
     ));
 
-    assert_eq!(screen.verify_inputs[0], "");
-    assert_eq!(screen.verify_inputs[1], "");
-    assert_eq!(screen.verify_inputs[2], "hello");
-    assert_eq!(screen.verify_inputs[3], "");
+    assert!(screen.verify_inputs[0].is_empty());
+    assert!(screen.verify_inputs[1].is_empty());
+    assert_eq!(screen.verify_inputs[2].expose(|s| s.to_string()), "hello");
+    assert!(screen.verify_inputs[3].is_empty());
 }
 
 #[test]
@@ -1144,10 +1145,10 @@ fn onboarding_verify_backspace_affects_focused_box() {
         verify_focus_index: 1,
         verify_positions: [0, 5, 10, 15],
         verify_inputs: [
-            "abandon".to_string(),
-            "hello".to_string(),
-            String::new(),
-            String::new(),
+            SensitiveInput::from("abandon".to_string()),
+            SensitiveInput::from("hello".to_string()),
+            SensitiveInput::new(),
+            SensitiveInput::new(),
         ],
         ..Default::default()
     };
@@ -1156,9 +1157,9 @@ fn onboarding_verify_backspace_affects_focused_box() {
         KeyCode::Backspace,
         crossterm::event::KeyModifiers::NONE,
     ));
-    assert_eq!(screen.verify_inputs[0], "abandon");
-    assert_eq!(screen.verify_inputs[1], "hell");
-    assert_eq!(screen.verify_inputs[2], "");
+    assert_eq!(screen.verify_inputs[0].expose(|s| s.to_string()), "abandon");
+    assert_eq!(screen.verify_inputs[1].expose(|s| s.to_string()), "hell");
+    assert!(screen.verify_inputs[2].is_empty());
 }
 
 #[test]
@@ -1195,10 +1196,10 @@ fn onboarding_verify_enter_validates() {
             "actor".to_string(),
         ],
         verify_inputs: [
-            "abandon".to_string(),
-            "WRONG".to_string(),
-            "academy".to_string(),
-            "accuse".to_string(),
+            SensitiveInput::from("abandon".to_string()),
+            SensitiveInput::from("WRONG".to_string()),
+            SensitiveInput::from("academy".to_string()),
+            SensitiveInput::from("accuse".to_string()),
         ],
         ..Default::default()
     };
@@ -1241,7 +1242,7 @@ fn on_unmount_zeroizes_sensitive_data() {
     let mut screen = OnboardingScreen::default();
     screen.path_input = "sensitive/path".to_string();
     screen.recovery_words = vec!["secret".to_string(); 24];
-    screen.verify_inputs[0] = "secret".to_string();
+    screen.verify_inputs[0] = SensitiveInput::from("secret".to_string());
     screen.verify_positions = [1, 2, 3, 4];
     for word in &mut screen.recovery_grid.words {
         word.push_str("secret");

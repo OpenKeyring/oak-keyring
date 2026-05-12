@@ -394,30 +394,40 @@ impl FormState {
         }
     }
 
-    /// Get the secret value of the currently focused sensitive field as a string.
+    /// Get the secret value of the currently focused sensitive field as a `SecureStr`.
     /// Returns `None` if the focused field is not a sensitive field.
-    pub fn current_secret_value(&self) -> Option<String> {
+    /// The returned `SecureStr` ensures the secret is stored in a protected memory region
+    /// and is zeroed on drop, avoiding plain `String` copies in clipboard and copy flows.
+    pub fn current_secret_value(&self) -> Option<SecureStr> {
         let focused = self.focused_field;
         let ct = self.credential_type;
         match ct {
-            CredentialType::Login if focused == 4 => {
-                self.fields.password.as_ref().map(|p| p.expose(|s| s.to_string()))
-            }
-            CredentialType::Api if focused == 4 => {
-                self.fields.secret_key.as_ref().map(|k| k.expose(|s| s.to_string()))
-            }
+            CredentialType::Login if focused == 4 => self
+                .fields
+                .password
+                .as_ref()
+                .map(|p| p.expose(|s| SecureStr::new(s.to_string()))),
+            CredentialType::Api if focused == 4 => self
+                .fields
+                .secret_key
+                .as_ref()
+                .map(|k| k.expose(|s| SecureStr::new(s.to_string()))),
             CredentialType::Ssh => match focused {
-                3 => self.fields.public_key.as_ref().cloned(),
+                3 => self
+                    .fields
+                    .public_key
+                    .as_ref()
+                    .map(|s| SecureStr::new(s.clone())),
                 4 => self
                     .fields
                     .private_key
                     .as_ref()
-                    .map(|k| k.expose(|s| s.to_string())),
+                    .map(|k| k.expose(|s| SecureStr::new(s.to_string()))),
                 5 => self
                     .fields
                     .passphrase
                     .as_ref()
-                    .map(|p| p.expose(|s| s.to_string())),
+                    .map(|p| p.expose(|s| SecureStr::new(s.to_string()))),
                 _ => None,
             },
             _ => None,
@@ -756,7 +766,9 @@ mod tests {
             state.fields.password.as_mut().unwrap().push_char(c);
         }
         state.focused_field = 4;
-        assert_eq!(state.current_secret_value(), Some("hunter2".to_string()));
+        let result = state.current_secret_value();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().expose(), "hunter2");
     }
 
     #[test]

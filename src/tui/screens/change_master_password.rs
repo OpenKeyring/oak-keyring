@@ -228,9 +228,9 @@ impl Screen for ChangeMasterPasswordScreen {
 
             // -- Match indicator --
             let match_line = if !self.new_password.is_empty() && !self.confirm_password.is_empty() {
-                let passwords_match = self.new_password.expose(|a| {
-                    self.confirm_password.expose(|b| a == b)
-                });
+                let passwords_match = self
+                    .new_password
+                    .expose(|a| self.confirm_password.expose(|b| a == b));
                 if passwords_match {
                     Some(
                         Paragraph::new(format!(
@@ -444,10 +444,10 @@ impl ChangeMasterPasswordScreen {
                 self.error_message = None;
                 // Keep current_password in self — we need it again for ChangeMasterPassword.
                 // Create a SecureStr from the exposed value without taking ownership.
-                let password = self.current_password.expose(|s| SecureStr::new(s.to_string()));
-                let cmd = Command::VerifyMasterPassword {
-                    password,
-                };
+                let password = self
+                    .current_password
+                    .expose(|s| SecureStr::new(s.to_string()));
+                let cmd = Command::VerifyMasterPassword { password };
                 let _ = ctx.command_tx.try_send(cmd);
                 ScreenResult::Continue
             }
@@ -457,9 +457,9 @@ impl ChangeMasterPasswordScreen {
                     self.error_message = Some(t!("tui.entry.password_too_short").to_string());
                     return ScreenResult::Continue;
                 }
-                let passwords_match = self.new_password.expose(|a| {
-                    self.confirm_password.expose(|b| a == b)
-                });
+                let passwords_match = self
+                    .new_password
+                    .expose(|a| self.confirm_password.expose(|b| a == b));
                 if !passwords_match {
                     self.error_message = Some(t!("tui.entry.password_mismatch").to_string());
                     return ScreenResult::Continue;

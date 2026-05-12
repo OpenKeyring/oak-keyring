@@ -411,11 +411,9 @@ impl UnlockScreen {
                             }
                         }
                         UnlockMode::RecoveryKey => {
-                            let words = self.password_input.expose(|s| {
-                                s.split_whitespace()
-                                    .map(String::from)
-                                    .collect()
-                            });
+                            let words = self
+                                .password_input
+                                .expose(|s| s.split_whitespace().map(String::from).collect());
                             self.password_input.clear();
                             Command::UnlockWithRecoveryKey { words }
                         }

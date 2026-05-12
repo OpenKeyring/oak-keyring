@@ -69,7 +69,7 @@ impl SecretKey {
     /// is zeroized after copying.
     pub(crate) fn new(mut bytes: [u8; 32]) -> Self {
         use zeroize::Zeroize;
-        let key = LockedKey32::new(bytes).expect("memory lock should succeed");
+        let key = LockedKey32::new(bytes);
         bytes.zeroize();
         Self(key)
     }
@@ -87,7 +87,7 @@ impl WrappingKey {
     /// is zeroized after copying.
     pub fn new(mut bytes: [u8; 32]) -> Self {
         use zeroize::Zeroize;
-        let key = LockedKey32::new(bytes).expect("memory lock should succeed");
+        let key = LockedKey32::new(bytes);
         bytes.zeroize();
         Self(key)
     }
@@ -105,7 +105,7 @@ impl KeyEncryptionKey {
     /// is zeroized after copying.
     pub(crate) fn new(mut bytes: [u8; 32]) -> Self {
         use zeroize::Zeroize;
-        let key = LockedKey32::new(bytes).expect("memory lock should succeed");
+        let key = LockedKey32::new(bytes);
         bytes.zeroize();
         Self(key)
     }
@@ -123,7 +123,7 @@ impl DataEncryptionKey {
     /// is zeroized after copying.
     pub fn new(mut bytes: [u8; 32]) -> Self {
         use zeroize::Zeroize;
-        let key = LockedKey32::new(bytes).expect("memory lock should succeed");
+        let key = LockedKey32::new(bytes);
         bytes.zeroize();
         Self(key)
     }
@@ -141,7 +141,7 @@ impl DeviceKey {
     /// is zeroized after copying.
     pub fn new(mut bytes: [u8; 32]) -> Self {
         use zeroize::Zeroize;
-        let key = LockedKey32::new(bytes).expect("memory lock should succeed");
+        let key = LockedKey32::new(bytes);
         bytes.zeroize();
         Self(key)
     }
@@ -164,9 +164,12 @@ pub fn unwrap_key(
     nonce: &[u8; 24],
     wrapping_key: &[u8; 32],
 ) -> Result<[u8; 32], String> {
-    let plaintext = xchacha20::decrypt(wrapped, nonce, wrapping_key).map_err(|e| e.to_string())?;
+    let mut plaintext =
+        xchacha20::decrypt(wrapped, nonce, wrapping_key).map_err(|e| e.to_string())?;
     let mut key = [0u8; 32];
     key.copy_from_slice(&plaintext);
+    use zeroize::Zeroize;
+    plaintext.zeroize();
     Ok(key)
 }
 

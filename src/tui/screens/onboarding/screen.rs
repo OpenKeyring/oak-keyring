@@ -27,7 +27,7 @@ pub struct OnboardingScreen {
     /// Embedded grid for RecoveryInput step.
     pub recovery_grid: WordGridState,
     /// Verify step inputs for 4 positions.
-    pub verify_inputs: [String; 4],
+    pub verify_inputs: [SensitiveInput; 4],
     pub verify_errors: [bool; 4],
     pub verify_positions: [usize; 4],
     /// Currently focused verification input box index (0-3) on the RecoveryVerify step.
@@ -74,7 +74,7 @@ impl Default for OnboardingScreen {
             welcome_selected: 0,
             recovery_words: Vec::new(),
             recovery_grid: WordGridState::default(),
-            verify_inputs: std::array::from_fn(|_| String::new()),
+            verify_inputs: std::array::from_fn(|_| SensitiveInput::new()),
             verify_errors: [false; 4],
             verify_positions: [0; 4],
             verify_focus_index: 0,
@@ -128,7 +128,7 @@ impl OnboardingScreen {
         }
         positions.sort();
         self.verify_positions = positions;
-        self.verify_inputs = std::array::from_fn(|_| String::new());
+        self.verify_inputs = std::array::from_fn(|_| SensitiveInput::new());
         self.verify_errors = [false; 4];
         self.verify_focus_index = 0;
     }
@@ -310,7 +310,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.recovery_words.zeroize();
         self.recovery_words.clear();
         self.recovery_grid.zeroize();
-        self.verify_inputs = std::array::from_fn(|_| String::new());
+        self.verify_inputs = std::array::from_fn(|_| SensitiveInput::new());
         self.verify_errors = [false; 4];
         self.verify_positions = [0; 4];
         self.verify_focus_index = 0;
@@ -339,7 +339,6 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.recovery_words.clear();
         self.recovery_grid.zeroize();
         for input in &mut self.verify_inputs {
-            input.zeroize();
             input.clear();
         }
         self.verify_errors = [false; 4];

@@ -13,7 +13,8 @@ fn main() {
     }
 
     // Apply process-level protections BEFORE any secrets are loaded
-    let _process_protections = security::apply_process_protections();
+    let process_protections = security::apply_process_protections();
+    tracing::info!("Process protections: {process_protections}");
 
     self_test::run_all().unwrap_or_else(|e| {
         eprintln!("Fatal: crypto self-test failed: {e}");

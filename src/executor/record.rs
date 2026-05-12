@@ -270,12 +270,12 @@ fn compute_password_strength(
     record: &DecryptedRecord,
 ) -> Option<crate::crypto::strength::PasswordStrength> {
     match record {
-        DecryptedRecord::Login { password, .. } => {
-            Some(crate::crypto::strength::evaluate_strength(password.expose()))
-        }
-        DecryptedRecord::Api { secret_key, .. } => {
-            Some(crate::crypto::strength::evaluate_strength(secret_key.expose()))
-        }
+        DecryptedRecord::Login { password, .. } => Some(
+            crate::crypto::strength::evaluate_strength(password.expose()),
+        ),
+        DecryptedRecord::Api { secret_key, .. } => Some(
+            crate::crypto::strength::evaluate_strength(secret_key.expose()),
+        ),
         DecryptedRecord::Ssh { .. } => None,
     }
 }

@@ -847,7 +847,10 @@ mod tests {
             } => {
                 assert_eq!(name, "AWS Production");
                 assert_eq!(app_id, "AKIAIOSFODNN7EXAMPLE");
-                assert_eq!(secret_key.expose(), "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+                assert_eq!(
+                    secret_key.expose(),
+                    "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                );
                 assert_eq!(url, Some("https://aws.amazon.com".to_string()));
                 assert_eq!(notes, Some("production account".to_string()));
             }

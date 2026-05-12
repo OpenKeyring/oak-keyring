@@ -22,32 +22,28 @@ use std::fmt;
 // =============================================================================
 
 #[cfg(unix)]
-fn lock_memory_region(ptr: *mut u8, len: usize) -> Result<(), String> {
+fn lock_memory_region(ptr: *mut u8, len: usize) {
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
     let base = (ptr as usize) & !(page_size - 1);
     let end = ((ptr as usize) + len + page_size - 1) & !(page_size - 1);
     let aligned_len = end - base;
 
     let result = unsafe { libc::mlock(base as *const libc::c_void, aligned_len) };
-    if result != 0 {
-        return Err(format!(
-            "mlock failed: {}",
-            std::io::Error::last_os_error()
-        ));
-    }
-
-    // Best-effort MADV_DONTDUMP to exclude region from core dumps (Linux only)
-    #[cfg(target_os = "linux")]
-    {
-        use std::ptr;
-        let advice = 16; // MADV_DONTDUMP
-        unsafe {
-            libc::madvise(base as *mut libc::c_void, aligned_len, advice);
+    if result == 0 {
+        // Best-effort MADV_DONTDUMP to exclude region from core dumps (Linux only)
+        #[cfg(target_os = "linux")]
+        {
+            let advice = 16; // MADV_DONTDUMP
+            unsafe {
+                libc::madvise(base as *mut libc::c_void, aligned_len, advice);
+            }
         }
-        let _ = ptr; // suppress unused import warning on non-Linux
+    } else {
+        tracing::warn!(
+            "mlock failed (memory will not be locked): {}",
+            std::io::Error::last_os_error()
+        );
     }
-
-    Ok(())
 }
 
 #[cfg(unix)]
@@ -62,7 +58,7 @@ fn unlock_memory_region(ptr: *mut u8, len: usize) {
 }
 
 #[cfg(windows)]
-fn lock_memory_region(ptr: *mut u8, len: usize) -> Result<(), String> {
+fn lock_memory_region(ptr: *mut u8, len: usize) {
     use windows_sys::Win32::System::Memory::VirtualLock;
 
     let page_size = unsafe {
@@ -77,12 +73,11 @@ fn lock_memory_region(ptr: *mut u8, len: usize) -> Result<(), String> {
 
     let result = unsafe { VirtualLock(base as *const _, aligned_len) };
     if result == 0 {
-        return Err(format!(
-            "VirtualLock failed: {}",
+        tracing::warn!(
+            "VirtualLock failed (memory will not be locked): {}",
             std::io::Error::last_os_error()
-        ));
+        );
     }
-    Ok(())
 }
 
 #[cfg(windows)]
@@ -138,7 +133,7 @@ pub struct LockedRegion {
 /// ```
 /// use oak_keyring::security::LockedSecretBytes;
 ///
-/// let bytes = LockedSecretBytes::with_len(32).unwrap();
+/// let bytes = LockedSecretBytes::with_len(32);
 /// // ... use the bytes ...
 /// // When dropped, the memory is zeroized and unlocked
 /// ```
@@ -148,23 +143,25 @@ pub struct LockedSecretBytes {
 }
 
 impl LockedSecretBytes {
-    /// Creates a new locked byte buffer with the specified length.
+    /// Creates a new byte buffer with the specified length.
     ///
-    /// A length of 0 is allowed and creates an empty buffer without locking.
+    /// Memory locking is **best-effort** — if `mlock`/`VirtualLock` fails,
+    /// a warning is logged but the buffer is still usable (degraded).
     ///
-    /// # Errors
-    ///
-    /// Returns an error if the memory lock fails (e.g., OS resource limits).
-    pub fn with_len(len: usize) -> Result<Self, String> {
+    /// A length of 0 creates an empty buffer without attempting to lock.
+    pub fn with_len(len: usize) -> Self {
         let mut bytes = vec![0u8; len];
         let locked_region = if len > 0 {
             let ptr = bytes.as_mut_ptr();
-            lock_memory_region(ptr, len)?;
+            lock_memory_region(ptr, len);
             Some(LockedRegion { base: ptr, len })
         } else {
             None
         };
-        Ok(Self { bytes, locked_region })
+        Self {
+            bytes,
+            locked_region,
+        }
     }
 
     /// Exposes the underlying bytes as a slice.
@@ -216,7 +213,7 @@ impl fmt::Debug for LockedSecretBytes {
 /// use oak_keyring::security::LockedKey32;
 ///
 /// // Create from existing key material
-/// let key = LockedKey32::new([42u8; 32]).unwrap();
+/// let key = LockedKey32::new([42u8; 32]);
 ///
 /// // Generate key material using a function
 /// let key = LockedKey32::generate_from(|slice| {
@@ -229,17 +226,16 @@ pub struct LockedKey32 {
 }
 
 impl LockedKey32 {
-    /// Creates a new locked key from existing key material.
+    /// Creates a new key from existing key material.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if the memory lock fails.
-    pub fn new(mut key: [u8; 32]) -> Result<Self, String> {
-        let mut bytes = LockedSecretBytes::with_len(32)?;
+    /// The key is copied into locked memory (best-effort) and the source
+    /// array is zeroized after copying.
+    pub fn new(mut key: [u8; 32]) -> Self {
+        let mut bytes = LockedSecretBytes::with_len(32);
         bytes.expose_mut().copy_from_slice(&key);
         use zeroize::Zeroize;
         key.zeroize();
-        Ok(Self { bytes })
+        Self { bytes }
     }
 
     /// Exposes the underlying 32-byte key.
@@ -255,12 +251,12 @@ impl LockedKey32 {
     ///
     /// # Errors
     ///
-    /// Returns an error if the memory lock fails or if the generator fails.
+    /// Returns an error if the generator function fails.
     pub fn generate_from<F>(f: F) -> Result<Self, String>
     where
         F: FnOnce(&mut [u8]) -> Result<(), String>,
     {
-        let mut bytes = LockedSecretBytes::with_len(32)?;
+        let mut bytes = LockedSecretBytes::with_len(32);
         f(bytes.expose_mut())?;
         Ok(Self { bytes })
     }
