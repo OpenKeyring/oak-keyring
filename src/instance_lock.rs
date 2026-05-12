@@ -79,4 +79,17 @@ mod tests {
         let _lock = InstanceLock::acquire(dir.path()).unwrap();
         assert!(lock_path.exists());
     }
+
+    #[test]
+    fn acquire_creates_vault_dir_if_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("a").join("b").join("vault");
+        assert!(!nested.exists(), "nested path should not exist yet");
+        let _lock = InstanceLock::acquire(&nested).unwrap();
+        assert!(nested.exists(), "vault_dir should be created");
+        assert!(
+            nested.join(".instance.lock").exists(),
+            "lock file should exist inside created dir"
+        );
+    }
 }

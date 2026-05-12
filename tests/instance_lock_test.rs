@@ -26,6 +26,8 @@ fn spawn_ok_with_pty(vault_dir: &std::path::Path) -> Child {
     };
 
     // Create a new process group so we can signal the entire group
+    // SAFETY: pre_exec runs between fork and exec — setsid() is safe here
+    // as the child process has no controlling terminal yet.
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
@@ -45,10 +47,14 @@ fn spawn_ok_with_pty(vault_dir: &std::path::Path) -> Child {
 #[cfg(unix)]
 fn send_sigterm(child: &Child) {
     // Send SIGTERM to the process group
+    // SAFETY: child.id() returns a valid PID; getpgid queries the kernel
+    // for the process group ID of that PID — no pointer dereference involved.
     let pgid = unsafe { libc::getpgid(child.id() as i32) };
     if pgid > 0 {
+        // SAFETY: pgid is verified positive above. kill(-pgid, sig) sends SIGTERM
+        // to all processes in process group pgid, which is safe per POSIX.
         unsafe {
-            libc::killpg(-pgid, libc::SIGTERM);
+            libc::kill(-pgid, libc::SIGTERM);
         }
     }
 }

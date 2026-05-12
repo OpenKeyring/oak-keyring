@@ -23,15 +23,24 @@ fn main() {
         std::process::exit(1);
     });
 
-    let config = AppConfig::load(&vault_dir).unwrap_or_else(|_| AppConfig::default_config());
+    let config = AppConfig::load(&vault_dir).unwrap_or_else(|e| {
+        eprintln!("Warning: failed to load config: {e}");
+        AppConfig::default_config()
+    });
 
     // Initialize i18n based on config (auto-detect or explicit locale)
     i18n::init(&config.general.language);
 
     let has_vault = KeyStore::vault_exists(&vault_dir);
-    let mut app =
-        App::new(config, vault_dir, has_vault, instance_lock).expect("failed to create app");
-    app.run().expect("app run failed");
+    let mut app = App::new(config, vault_dir, has_vault, instance_lock)
+        .unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1);
+        });
+    app.run().unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1);
+    });
 }
 
 fn default_vault_dir() -> std::path::PathBuf {
