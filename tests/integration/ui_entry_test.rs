@@ -6,6 +6,7 @@
 use oak_keyring::app::App;
 use oak_keyring::commands::types::Screen;
 use oak_keyring::config::AppConfig;
+use oak_keyring::instance_lock::InstanceLock;
 use oak_keyring::tui::screens::onboarding::{OnboardingPath, OnboardingScreen};
 use oak_keyring::tui::screens::recovery_key::WordGridState;
 use oak_keyring::tui::screens::set_password::{SetPasswordContext, SetPasswordScreen};
@@ -18,16 +19,28 @@ use oak_keyring::tui::state::notification::{NotificationState, StatusMessage};
 #[test]
 fn app_starts_at_unlock_screen_when_vault_exists() {
     let vault_dir = tempfile::tempdir().unwrap();
-    let app = App::new(AppConfig::default(), vault_dir.path().to_path_buf(), true)
-        .expect("App::new should succeed");
+    let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+    let app = App::new(
+        AppConfig::default(),
+        vault_dir.path().to_path_buf(),
+        true,
+        instance_lock,
+    )
+    .expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Unlock);
 }
 
 #[test]
 fn app_starts_at_onboarding_screen_when_no_vault() {
     let vault_dir = tempfile::tempdir().unwrap();
-    let app = App::new(AppConfig::default(), vault_dir.path().to_path_buf(), false)
-        .expect("App::new should succeed");
+    let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+    let app = App::new(
+        AppConfig::default(),
+        vault_dir.path().to_path_buf(),
+        false,
+        instance_lock,
+    )
+    .expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Onboarding);
 }
 

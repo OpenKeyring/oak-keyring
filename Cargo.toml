@@ -1,6 +1,6 @@
 [package]
 name = "oak-keyring"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "A terminal TUI password manager with TEA architecture and end-to-end encryption"
 license = "MIT"
@@ -63,6 +63,9 @@ zip = "2"
 # Error handling
 thiserror = "2"
 
+# File locking (single instance detection)
+fs4 = "0.13"
+
 # Internationalization
 rust-i18n = "3"
 sys-locale = "0.3"
@@ -102,6 +105,7 @@ mockall = "0.13"
 tempfile = "3"
 anyhow = "1"
 oak-keyring = { path = ".", features = ["test-helpers"] }
+libc = "0.2"
 
 [features]
 default = []

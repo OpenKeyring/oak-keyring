@@ -1,5 +1,6 @@
 use std::io;
 
+use crate::instance_lock::InstanceLock;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -40,6 +41,8 @@ pub struct App {
     result_rx: mpsc::Receiver<Message>,
     /// Cancellation token for shutting down background tasks.
     pub cancel_token: CancellationToken,
+    /// Instance lock to prevent multiple TUI instances from running.
+    _instance_lock: InstanceLock,
 }
 
 impl App {
@@ -47,6 +50,7 @@ impl App {
         config: AppConfig,
         vault_dir: std::path::PathBuf,
         has_vault: bool,
+        instance_lock: InstanceLock,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_SIZE);
         let (result_tx, result_rx) = mpsc::channel(RESULT_CHANNEL_SIZE);
@@ -62,6 +66,7 @@ impl App {
             result_tx,
             result_rx,
             cancel_token,
+            _instance_lock: instance_lock,
         })
     }
 

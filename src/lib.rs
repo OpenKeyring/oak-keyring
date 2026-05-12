@@ -13,6 +13,7 @@ pub mod crypto;
 pub mod db;
 pub mod errors;
 pub mod executor;
+pub mod instance_lock;
 pub mod services;
 pub mod sync;
 pub mod tui;
