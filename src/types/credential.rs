@@ -100,48 +100,68 @@ impl serde::Serialize for EncryptedPayload {
 
         match self {
             EncryptedPayload::Login { name, username, password, url, notes } => {
-                let mut map = serializer.serialize_map(Some(5))?;
-                map.serialize_entry("name", name)?;
-                map.serialize_entry("username", username)?;
-                map.serialize_entry("password", password.expose())?;
-                if let Some(url) = url {
-                    map.serialize_entry("url", url)?;
-                }
-                if let Some(notes) = notes {
-                    map.serialize_entry("notes", notes)?;
-                }
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("Login", &LoginVariant {
+                    name,
+                    username,
+                    password: password.expose(),
+                    url,
+                    notes,
+                })?;
                 map.end()
             }
             EncryptedPayload::Api { name, app_id, secret_key, url, notes } => {
-                let mut map = serializer.serialize_map(Some(5))?;
-                map.serialize_entry("name", name)?;
-                map.serialize_entry("app_id", app_id)?;
-                map.serialize_entry("secret_key", secret_key.expose())?;
-                if let Some(url) = url {
-                    map.serialize_entry("url", url)?;
-                }
-                if let Some(notes) = notes {
-                    map.serialize_entry("notes", notes)?;
-                }
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("Api", &ApiVariant {
+                    name,
+                    app_id,
+                    secret_key: secret_key.expose(),
+                    url,
+                    notes,
+                })?;
                 map.end()
             }
             EncryptedPayload::Ssh { name, public_key, private_key, passphrase, notes } => {
-                let mut map = serializer.serialize_map(Some(5))?;
-                map.serialize_entry("name", name)?;
-                map.serialize_entry("public_key", public_key)?;
-                if let Some(private_key) = private_key {
-                    map.serialize_entry("private_key", private_key.expose())?;
-                }
-                if let Some(passphrase) = passphrase {
-                    map.serialize_entry("passphrase", passphrase.expose())?;
-                }
-                if let Some(notes) = notes {
-                    map.serialize_entry("notes", notes)?;
-                }
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("Ssh", &SshVariant {
+                    name,
+                    public_key,
+                    private_key: private_key.as_ref().map(|pk| pk.expose()),
+                    passphrase: passphrase.as_ref().map(|pp| pp.expose()),
+                    notes,
+                })?;
                 map.end()
             }
         }
     }
+}
+
+// Helper structs for serialization
+#[derive(serde::Serialize)]
+struct LoginVariant<'a> {
+    name: &'a String,
+    username: &'a String,
+    password: &'a str,
+    url: &'a Option<String>,
+    notes: &'a Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct ApiVariant<'a> {
+    name: &'a String,
+    app_id: &'a String,
+    secret_key: &'a str,
+    url: &'a Option<String>,
+    notes: &'a Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct SshVariant<'a> {
+    name: &'a String,
+    public_key: &'a String,
+    private_key: Option<&'a str>,
+    passphrase: Option<&'a str>,
+    notes: &'a Option<String>,
 }
 
 // Custom deserialization for EncryptedPayload that wraps secrets in SecureStr
@@ -156,85 +176,80 @@ impl<'de> serde::Deserialize<'de> for EncryptedPayload {
             type Value = EncryptedPayload;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("an object with variant discriminator")
+                formatter.write_str("an externally-tagged enum with Login, Api, or Ssh variant")
             }
 
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-                // Try to determine variant by checking which fields exist
-                let mut name = None;
-                let mut username = None;
-                let mut password = None;
-                let mut app_id = None;
-                let mut secret_key = None;
-                let mut public_key = None;
-                let mut private_key = None;
-                let mut passphrase = None;
-                let mut url = None;
-                let mut notes = None;
+                // Externally-tagged enums have the variant name as the key
+                let variant_key = map.next_key::<String>()?
+                    .ok_or_else(|| de::Error::custom("missing variant key"))?;
 
-                while let Some(key) = map.next_key::<String>()? {
-                    match key.as_str() {
-                        "name" => { name = Some(map.next_value()?); }
-                        "username" => { username = Some(map.next_value()?); }
-                        "password" => {
-                            let pw: String = map.next_value()?;
-                            password = Some(SecureStr::new(pw));
-                        }
-                        "app_id" => { app_id = Some(map.next_value()?); }
-                        "secret_key" => {
-                            let key: String = map.next_value()?;
-                            secret_key = Some(SecureStr::new(key));
-                        }
-                        "public_key" => { public_key = Some(map.next_value()?); }
-                        "private_key" => {
-                            if let Some(pk) = map.next_value::<Option<String>>()? {
-                                private_key = Some(SecureStr::new(pk));
-                            }
-                        }
-                        "passphrase" => {
-                            if let Some(pp) = map.next_value::<Option<String>>()? {
-                                passphrase = Some(SecureStr::new(pp));
-                            }
-                        }
-                        "url" => { url = map.next_value()?; }
-                        "notes" => { notes = map.next_value()?; }
-                        _ => { map.next_value::<de::IgnoredAny>()?; }
+                match variant_key.as_str() {
+                    "Login" => {
+                        let login: LoginFields = map.next_value()?;
+                        Ok(EncryptedPayload::Login {
+                            name: login.name,
+                            username: login.username,
+                            password: SecureStr::new(login.password),
+                            url: login.url,
+                            notes: login.notes,
+                        })
                     }
-                }
-
-                // Determine variant based on which fields are present
-                if password.is_some() {
-                    Ok(EncryptedPayload::Login {
-                        name: name.ok_or_else(|| de::Error::missing_field("name"))?,
-                        username: username.ok_or_else(|| de::Error::missing_field("username"))?,
-                        password: password.ok_or_else(|| de::Error::missing_field("password"))?,
-                        url,
-                        notes,
-                    })
-                } else if secret_key.is_some() {
-                    Ok(EncryptedPayload::Api {
-                        name: name.ok_or_else(|| de::Error::missing_field("name"))?,
-                        app_id: app_id.ok_or_else(|| de::Error::missing_field("app_id"))?,
-                        secret_key: secret_key.ok_or_else(|| de::Error::missing_field("secret_key"))?,
-                        url,
-                        notes,
-                    })
-                } else if public_key.is_some() {
-                    Ok(EncryptedPayload::Ssh {
-                        name: name.ok_or_else(|| de::Error::missing_field("name"))?,
-                        public_key: public_key.ok_or_else(|| de::Error::missing_field("public_key"))?,
-                        private_key,
-                        passphrase,
-                        notes,
-                    })
-                } else {
-                    Err(de::Error::custom("unable to determine EncryptedPayload variant"))
+                    "Api" => {
+                        let api: ApiFields = map.next_value()?;
+                        Ok(EncryptedPayload::Api {
+                            name: api.name,
+                            app_id: api.app_id,
+                            secret_key: SecureStr::new(api.secret_key),
+                            url: api.url,
+                            notes: api.notes,
+                        })
+                    }
+                    "Ssh" => {
+                        let ssh: SshFields = map.next_value()?;
+                        Ok(EncryptedPayload::Ssh {
+                            name: ssh.name,
+                            public_key: ssh.public_key,
+                            private_key: ssh.private_key.map(|pk| SecureStr::new(pk)),
+                            passphrase: ssh.passphrase.map(|pp| SecureStr::new(pp)),
+                            notes: ssh.notes,
+                        })
+                    }
+                    _ => Err(de::Error::custom(format!("unknown variant: {variant_key}"))),
                 }
             }
         }
 
         deserializer.deserialize_map(EncryptedPayloadVisitor)
     }
+}
+
+// Helper structs for deserialization
+#[derive(serde::Deserialize)]
+struct LoginFields {
+    name: String,
+    username: String,
+    password: String,
+    url: Option<String>,
+    notes: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ApiFields {
+    name: String,
+    app_id: String,
+    secret_key: String,
+    url: Option<String>,
+    notes: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct SshFields {
+    name: String,
+    public_key: String,
+    private_key: Option<String>,
+    passphrase: Option<String>,
+    notes: Option<String>,
 }
 
 // Clone implementation for EncryptedPayload
