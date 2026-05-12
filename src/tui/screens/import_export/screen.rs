@@ -13,7 +13,7 @@ use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel
 use crate::t;
 use crate::tui::theme::{ERROR, PRIMARY, SUCCESS, WARNING};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
-use crate::types::SecureStr;
+use crate::types::sensitive::SensitiveInput;
 
 use super::types::*;
 
@@ -29,7 +29,7 @@ pub struct ImportExportScreen {
     pub selected_source_idx: usize,
     pub source: Option<ImportSource>,
     pub file_path: String,
-    pub decrypt_password: String,
+    pub decrypt_password: SensitiveInput,
     pub import_focus: ImportFocus,
     pub csv_mapping: CsvColumnMapping,
     pub preview: Option<ImportPreview>,
@@ -48,11 +48,11 @@ pub struct ImportExportScreen {
     pub export_focus: ExportFocus,
     pub export_format: ExportFormat,
     pub export_scope_option: ExportScopeOption,
-    pub export_password: String,
-    pub export_confirm_password: String,
+    pub export_password: SensitiveInput,
+    pub export_confirm_password: SensitiveInput,
     pub export_password_strength: Option<PasswordStrength>,
     pub export_output_path: String,
-    pub master_password: String,
+    pub master_password: SensitiveInput,
     pub export_result_path: Option<PathBuf>,
     pub export_record_count: usize,
 
@@ -70,7 +70,7 @@ impl ImportExportScreen {
             selected_source_idx: 0,
             source: None,
             file_path: String::new(),
-            decrypt_password: String::new(),
+            decrypt_password: SensitiveInput::new(),
             import_focus: ImportFocus::SourceList,
             csv_mapping: CsvColumnMapping {
                 name_column: "Title".to_string(),
@@ -96,11 +96,11 @@ impl ImportExportScreen {
             export_focus: ExportFocus::Scope,
             export_format: ExportFormat::Okb,
             export_scope_option: ExportScopeOption::All,
-            export_password: String::new(),
-            export_confirm_password: String::new(),
+            export_password: SensitiveInput::new(),
+            export_confirm_password: SensitiveInput::new(),
             export_password_strength: None,
             export_output_path: default_export_path(ExportFormat::Okb),
-            master_password: String::new(),
+            master_password: SensitiveInput::new(),
             export_result_path: None,
             export_record_count: 0,
 
@@ -134,7 +134,9 @@ impl ImportExportScreen {
         if self.export_password.is_empty() {
             self.export_password_strength = None;
         } else {
-            self.export_password_strength = Some(evaluate_strength(&self.export_password));
+            self.export_password.expose(|pw| {
+                self.export_password_strength = Some(evaluate_strength(pw));
+            });
         }
     }
 
@@ -313,13 +315,9 @@ impl Screen for ImportExportScreen {
         // Reset all sensitive state
         self.file_path.zeroize();
         self.file_path.clear();
-        self.decrypt_password.zeroize();
         self.decrypt_password.clear();
-        self.export_password.zeroize();
         self.export_password.clear();
-        self.export_confirm_password.zeroize();
         self.export_confirm_password.clear();
-        self.master_password.zeroize();
         self.master_password.clear();
         self.error_message = None;
         self.preview = None;
@@ -347,10 +345,10 @@ impl Screen for ImportExportScreen {
 
     fn on_unmount(&mut self) {
         self.file_path.zeroize();
-        self.decrypt_password.zeroize();
-        self.export_password.zeroize();
-        self.export_confirm_password.zeroize();
-        self.master_password.zeroize();
+        self.decrypt_password.clear();
+        self.export_password.clear();
+        self.export_confirm_password.clear();
+        self.master_password.clear();
     }
 }
 
@@ -454,7 +452,7 @@ impl ImportExportScreen {
             }
             KeyCode::Char(c) => match self.import_focus {
                 ImportFocus::FilePath => self.file_path.push(c),
-                ImportFocus::Password => self.decrypt_password.push(c),
+                ImportFocus::Password => self.decrypt_password.push_char(c),
                 ImportFocus::CsvName => self.csv_mapping.name_column.push(c),
                 ImportFocus::CsvUsername => self.csv_mapping.username_column.push(c),
                 ImportFocus::CsvPassword => self.csv_mapping.password_column.push(c),
@@ -474,7 +472,7 @@ impl ImportExportScreen {
                     self.file_path.pop();
                 }
                 ImportFocus::Password => {
-                    self.decrypt_password.pop();
+                    self.decrypt_password.pop_char();
                 }
                 ImportFocus::CsvName => {
                     self.csv_mapping.name_column.pop();
@@ -545,7 +543,7 @@ impl ImportExportScreen {
         let password = if self.decrypt_password.is_empty() {
             None
         } else {
-            Some(SecureStr::new(self.decrypt_password.clone()))
+            Some(self.decrypt_password.take_secure())
         };
 
         let cmd = Command::ValidateImportFile {
@@ -585,7 +583,7 @@ impl ImportExportScreen {
                 let password = if self.decrypt_password.is_empty() {
                     None
                 } else {
-                    Some(SecureStr::new(self.decrypt_password.clone()))
+                    Some(self.decrypt_password.take_secure())
                 };
 
                 let cmd = Command::ExecuteImport {
@@ -677,11 +675,11 @@ impl ImportExportScreen {
             KeyCode::Char(c) => match self.export_focus {
                 ExportFocus::Format => {}
                 ExportFocus::ExportPassword => {
-                    self.export_password.push(c);
+                    self.export_password.push_char(c);
                     self.update_export_strength();
                 }
                 ExportFocus::ConfirmPassword => {
-                    self.export_confirm_password.push(c);
+                    self.export_confirm_password.push_char(c);
                 }
                 ExportFocus::OutputPath => {
                     self.export_output_path.push(c);
@@ -691,11 +689,11 @@ impl ImportExportScreen {
             KeyCode::Backspace => match self.export_focus {
                 ExportFocus::Format => {}
                 ExportFocus::ExportPassword => {
-                    self.export_password.pop();
+                    self.export_password.pop_char();
                     self.update_export_strength();
                 }
                 ExportFocus::ConfirmPassword => {
-                    self.export_confirm_password.pop();
+                    self.export_confirm_password.pop_char();
                 }
                 ExportFocus::OutputPath => {
                     self.export_output_path.pop();
@@ -713,7 +711,11 @@ impl ImportExportScreen {
                 self.error_message = Some(t!("tui.entry.password_too_short").to_string());
                 return ScreenResult::Continue;
             }
-            if self.export_password != self.export_confirm_password {
+            // Compare passwords using expose
+            let passwords_match = self.export_password.expose(|pw1| {
+                self.export_confirm_password.expose(|pw2| pw1 == pw2)
+            });
+            if !passwords_match {
                 self.error_message = Some(t!("tui.entry.password_mismatch").to_string());
                 return ScreenResult::Continue;
             }
@@ -740,11 +742,11 @@ impl ImportExportScreen {
                 ScreenResult::Continue
             }
             KeyCode::Backspace => {
-                self.master_password.pop();
+                self.master_password.pop_char();
                 ScreenResult::Continue
             }
             KeyCode::Char(c) => {
-                self.master_password.push(c);
+                self.master_password.push_char(c);
                 ScreenResult::Continue
             }
             KeyCode::Enter => {
@@ -762,17 +764,16 @@ impl ImportExportScreen {
                     ExportScopeOption::ByTag => ExportScope::ByTag(String::new()),
                 };
 
-                let export_pw = std::mem::take(&mut self.export_password);
-                let master_pw = std::mem::take(&mut self.master_password);
-                self.export_confirm_password.zeroize();
+                let export_pw = self.export_password.take_secure();
+                let master_pw = self.master_password.take_secure();
                 self.export_confirm_password.clear();
 
                 let cmd = Command::ExecuteExport {
                     scope,
                     format: self.export_format,
                     output_path: PathBuf::from(&self.export_output_path),
-                    export_password: SecureStr::new(export_pw),
-                    master_password: SecureStr::new(master_pw),
+                    export_password: export_pw,
+                    master_password: master_pw,
                 };
                 let _ = ctx.command_tx.try_send(cmd);
                 self.export_step = ExportStep::Exporting;

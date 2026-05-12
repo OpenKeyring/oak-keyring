@@ -4,7 +4,7 @@ use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::Command;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
-use crate::types::SecureStr;
+use crate::types::sensitive::SecureStr;
 
 use super::screen::OnboardingScreen;
 use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
@@ -381,7 +381,7 @@ impl OnboardingScreen {
                     ScreenResult::Continue
                 }
                 ImportFocus::Password => {
-                    self.import_password.push(c);
+                    self.import_password.push_char(c);
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
@@ -392,7 +392,7 @@ impl OnboardingScreen {
                     ScreenResult::Continue
                 }
                 ImportFocus::Password => {
-                    self.import_password.pop();
+                    self.import_password.pop_char();
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
@@ -406,7 +406,7 @@ impl OnboardingScreen {
                 let password = if self.import_password.is_empty() {
                     None
                 } else {
-                    Some(SecureStr::new(self.import_password.clone()))
+                    Some(self.import_password.take_secure())
                 };
                 let cmd = Command::ValidateImportFile {
                     source,
@@ -449,7 +449,7 @@ impl OnboardingScreen {
                 let password = if self.import_password.is_empty() {
                     None
                 } else {
-                    Some(SecureStr::new(self.import_password.clone()))
+                    Some(self.import_password.take_secure())
                 };
                 let cmd = Command::ExecuteImport {
                     source,

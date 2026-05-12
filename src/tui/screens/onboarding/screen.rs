@@ -6,6 +6,7 @@ use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::t;
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
+use crate::types::sensitive::SensitiveInput;
 
 use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
 
@@ -40,7 +41,7 @@ pub struct OnboardingScreen {
     // Import state for ImportSource/ImportPreview steps
     pub selected_source_idx: usize,
     pub import_file_path: String,
-    pub import_password: String,
+    pub import_password: SensitiveInput,
     pub import_focus: crate::tui::screens::import_export::ImportFocus,
     pub import_preview: Option<ImportPreview>,
     /// Whether to import problematic entries as notes instead of skipping them.
@@ -81,7 +82,7 @@ impl Default for OnboardingScreen {
             returning_from_set_password: false,
             selected_source_idx: 0,
             import_file_path: String::new(),
-            import_password: String::new(),
+            import_password: SensitiveInput::new(),
             import_focus: ImportFocus::SourceList,
             import_preview: None,
             import_as_notes: false,
@@ -315,7 +316,6 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.verify_focus_index = 0;
         self.selected_source_idx = 0;
         self.import_file_path.clear();
-        self.import_password.zeroize();
         self.import_password.clear();
         self.import_focus = crate::tui::screens::import_export::ImportFocus::SourceList;
         self.import_preview = None;
@@ -347,7 +347,6 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.verify_focus_index = 0;
         self.import_file_path.zeroize();
         self.import_file_path.clear();
-        self.import_password.zeroize();
         self.import_password.clear();
         self.import_preview = None;
         self.import_as_notes = false;
