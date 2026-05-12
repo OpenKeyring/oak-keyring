@@ -63,6 +63,9 @@ zip = "2"
 # Error handling
 thiserror = "2"
 
+# File locking (single instance detection)
+fs4 = "0.13"
+
 # Internationalization
 rust-i18n = "3"
 sys-locale = "0.3"
