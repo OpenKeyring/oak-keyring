@@ -22,43 +22,54 @@ use std::fmt;
 // =============================================================================
 
 #[cfg(unix)]
-fn lock_memory_region(ptr: *mut u8, len: usize) {
+fn lock_memory_region(ptr: *mut u8, len: usize) -> Result<LockedRegion, String> {
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
     let base = (ptr as usize) & !(page_size - 1);
     let end = ((ptr as usize) + len + page_size - 1) & !(page_size - 1);
     let aligned_len = end - base;
 
     let result = unsafe { libc::mlock(base as *const libc::c_void, aligned_len) };
-    if result == 0 {
-        // Best-effort MADV_DONTDUMP to exclude region from core dumps (Linux only)
-        #[cfg(target_os = "linux")]
-        {
-            let advice = 16; // MADV_DONTDUMP
-            unsafe {
-                libc::madvise(base as *mut libc::c_void, aligned_len, advice);
-            }
-        }
-    } else {
-        tracing::warn!(
-            "mlock failed (memory will not be locked): {}",
-            std::io::Error::last_os_error()
-        );
+    if result != 0 {
+        return Err(format!("mlock failed: {}", std::io::Error::last_os_error()));
     }
+
+    #[cfg(target_os = "linux")]
+    {
+        let result = unsafe {
+            libc::madvise(
+                base as *mut libc::c_void,
+                aligned_len,
+                libc::MADV_DONTDUMP,
+            )
+        };
+        if result != 0 {
+            let err = std::io::Error::last_os_error();
+            unsafe {
+                libc::munlock(base as *const libc::c_void, aligned_len);
+            }
+            return Err(format!("madvise(MADV_DONTDUMP) failed: {err}"));
+        }
+    }
+
+    Ok(LockedRegion {
+        base: base as *mut u8,
+        len: aligned_len,
+    })
 }
 
 #[cfg(unix)]
 fn unlock_memory_region(ptr: *mut u8, len: usize) {
-    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
-    let base = (ptr as usize) & !(page_size - 1);
-    let end = ((ptr as usize) + len + page_size - 1) & !(page_size - 1);
-    let aligned_len = end - base;
+    #[cfg(target_os = "linux")]
     unsafe {
-        libc::munlock(base as *const libc::c_void, aligned_len);
+        libc::madvise(ptr as *mut libc::c_void, len, libc::MADV_DODUMP);
+    }
+    unsafe {
+        libc::munlock(ptr as *const libc::c_void, len);
     }
 }
 
 #[cfg(windows)]
-fn lock_memory_region(ptr: *mut u8, len: usize) {
+fn lock_memory_region(ptr: *mut u8, len: usize) -> Result<LockedRegion, String> {
     use windows_sys::Win32::System::Memory::VirtualLock;
 
     let page_size = unsafe {
@@ -73,29 +84,23 @@ fn lock_memory_region(ptr: *mut u8, len: usize) {
 
     let result = unsafe { VirtualLock(base as *const _, aligned_len) };
     if result == 0 {
-        tracing::warn!(
-            "VirtualLock failed (memory will not be locked): {}",
+        return Err(format!(
+            "VirtualLock failed: {}",
             std::io::Error::last_os_error()
-        );
+        ));
     }
+    Ok(LockedRegion {
+        base: base as *mut u8,
+        len: aligned_len,
+    })
 }
 
 #[cfg(windows)]
 fn unlock_memory_region(ptr: *mut u8, len: usize) {
     use windows_sys::Win32::System::Memory::VirtualUnlock;
 
-    let page_size = unsafe {
-        let mut info = std::mem::zeroed();
-        windows_sys::Win32::System::SystemInformation::GetSystemInfo(&mut info);
-        info.dwPageSize as usize
-    };
-
-    let base = (ptr as usize) & !(page_size - 1);
-    let end = ((ptr as usize) + len + page_size - 1) & !(page_size - 1);
-    let aligned_len = end - base;
-
     unsafe {
-        VirtualUnlock(base as *const _, aligned_len);
+        VirtualUnlock(ptr as *const _, len);
     }
 }
 
@@ -133,7 +138,7 @@ pub struct LockedRegion {
 /// ```
 /// use oak_keyring::security::LockedSecretBytes;
 ///
-/// let bytes = LockedSecretBytes::with_len(32);
+/// let bytes = LockedSecretBytes::with_len(32).expect("memory lock should succeed");
 /// // ... use the bytes ...
 /// // When dropped, the memory is zeroized and unlocked
 /// ```
@@ -145,23 +150,21 @@ pub struct LockedSecretBytes {
 impl LockedSecretBytes {
     /// Creates a new byte buffer with the specified length.
     ///
-    /// Memory locking is **best-effort** — if `mlock`/`VirtualLock` fails,
-    /// a warning is logged but the buffer is still usable (degraded).
+    /// Memory locking must succeed for non-empty buffers.
     ///
     /// A length of 0 creates an empty buffer without attempting to lock.
-    pub fn with_len(len: usize) -> Self {
+    pub fn with_len(len: usize) -> Result<Self, String> {
         let mut bytes = vec![0u8; len];
         let locked_region = if len > 0 {
             let ptr = bytes.as_mut_ptr();
-            lock_memory_region(ptr, len);
-            Some(LockedRegion { base: ptr, len })
+            Some(lock_memory_region(ptr, len)?)
         } else {
             None
         };
-        Self {
+        Ok(Self {
             bytes,
             locked_region,
-        }
+        })
     }
 
     /// Exposes the underlying bytes as a slice.
@@ -213,7 +216,7 @@ impl fmt::Debug for LockedSecretBytes {
 /// use oak_keyring::security::LockedKey32;
 ///
 /// // Create from existing key material
-/// let key = LockedKey32::new([42u8; 32]);
+/// let key = LockedKey32::new([42u8; 32]).expect("memory lock should succeed");
 ///
 /// // Generate key material using a function
 /// let key = LockedKey32::generate_from(|slice| {
@@ -230,12 +233,12 @@ impl LockedKey32 {
     ///
     /// The key is copied into locked memory (best-effort) and the source
     /// array is zeroized after copying.
-    pub fn new(mut key: [u8; 32]) -> Self {
-        let mut bytes = LockedSecretBytes::with_len(32);
+    pub fn new(mut key: [u8; 32]) -> Result<Self, String> {
+        let mut bytes = LockedSecretBytes::with_len(32)?;
         bytes.expose_mut().copy_from_slice(&key);
         use zeroize::Zeroize;
         key.zeroize();
-        Self { bytes }
+        Ok(Self { bytes })
     }
 
     /// Exposes the underlying 32-byte key.
@@ -256,7 +259,7 @@ impl LockedKey32 {
     where
         F: FnOnce(&mut [u8]) -> Result<(), String>,
     {
-        let mut bytes = LockedSecretBytes::with_len(32);
+        let mut bytes = LockedSecretBytes::with_len(32)?;
         f(bytes.expose_mut())?;
         Ok(Self { bytes })
     }

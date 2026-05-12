@@ -49,7 +49,10 @@ pub fn handle_validate_import_file(
 
     // Step 2: Validate the import file.
     match executor.import_export.validate_import_file(session_id) {
-        Ok(preview) => CommandResult::ImportValidated { preview },
+        Ok(preview) => CommandResult::ImportValidated {
+            session_id,
+            preview,
+        },
         Err(e) => {
             let err: &dyn ServiceError = &e;
             CommandResult::Error {
@@ -65,6 +68,7 @@ pub fn handle_validate_import_file(
 #[tracing::instrument(skip_all)]
 pub fn handle_execute_import(
     executor: &mut CommandExecutor,
+    session_id: Option<uuid::Uuid>,
     source: ImportSource,
     path: PathBuf,
     password: Option<SecureStr>,
@@ -75,36 +79,42 @@ pub fn handle_execute_import(
         return CommandResult::cancelled("import_execute");
     }
 
-    // Step 1: Create import session.
-    let session_id = match executor.import_export.create_import_session(
-        source,
-        path,
-        password,
-        column_mapping,
-        import_as_notes,
-    ) {
-        Ok(id) => id,
-        Err(e) => {
+    let session_id = if let Some(id) = session_id {
+        if let Some(session) = executor.import_export.import_sessions.get_mut(&id) {
+            session.import_as_notes = import_as_notes;
+        }
+        id
+    } else {
+        let id = match executor.import_export.create_import_session(
+            source,
+            path,
+            password,
+            column_mapping,
+            import_as_notes,
+        ) {
+            Ok(id) => id,
+            Err(e) => {
+                let err: &dyn ServiceError = &e;
+                return CommandResult::Error {
+                    code: err.to_error_code(),
+                    context: err.to_error_context(),
+                    message_key: "error.import_session_create_failed",
+                    fallback: format!("Failed to create import session: {}", e),
+                };
+            }
+        };
+
+        if let Err(e) = executor.import_export.validate_import_file(id) {
             let err: &dyn ServiceError = &e;
             return CommandResult::Error {
                 code: err.to_error_code(),
                 context: err.to_error_context(),
-                message_key: "error.import_session_create_failed",
-                fallback: format!("Failed to create import session: {}", e),
+                message_key: "error.import_validate_failed",
+                fallback: format!("Failed to validate import file: {}", e),
             };
         }
+        id
     };
-
-    // Step 2: Validate the file first (session must be Validated before import).
-    if let Err(e) = executor.import_export.validate_import_file(session_id) {
-        let err: &dyn ServiceError = &e;
-        return CommandResult::Error {
-            code: err.to_error_code(),
-            context: err.to_error_context(),
-            message_key: "error.import_validate_failed",
-            fallback: format!("Failed to validate import file: {}", e),
-        };
-    }
 
     // Step 3: Execute import with a closure that creates vault records.
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
@@ -535,6 +545,7 @@ mod tests {
 
         let result = handle_execute_import(
             &mut executor,
+            None,
             ImportSource::Csv,
             std::path::PathBuf::from("sample.csv"),
             None,

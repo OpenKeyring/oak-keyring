@@ -33,6 +33,7 @@ pub struct ChangeMasterPasswordScreen {
     pub current_password: SensitiveInput,
     pub new_password: SensitiveInput,
     pub confirm_password: SensitiveInput,
+    pending_current_password: Option<SecureStr>,
     pub focused: PasswordField,
     pub error_message: Option<String>,
     pub password_strength: Option<PasswordStrength>,
@@ -45,6 +46,7 @@ impl ChangeMasterPasswordScreen {
             current_password: SensitiveInput::new(),
             new_password: SensitiveInput::new(),
             confirm_password: SensitiveInput::new(),
+            pending_current_password: None,
             focused: PasswordField::New,
             error_message: None,
             password_strength: None,
@@ -442,13 +444,8 @@ impl ChangeMasterPasswordScreen {
                     return ScreenResult::Continue;
                 }
                 self.error_message = None;
-                // Keep current_password in self — we need it again for ChangeMasterPassword.
-                // Create a SecureStr from the exposed value without taking ownership.
-                let password = self
-                    .current_password
-                    .expose(|s| SecureStr::new(s.to_string()));
-                let cmd = Command::VerifyMasterPassword { password };
-                let _ = ctx.command_tx.try_send(cmd);
+                self.pending_current_password = Some(self.current_password.take_secure());
+                self.step = 2;
                 ScreenResult::Continue
             }
 
@@ -465,7 +462,11 @@ impl ChangeMasterPasswordScreen {
                     return ScreenResult::Continue;
                 }
                 self.error_message = None;
-                let current_pw = self.current_password.take_secure();
+                let Some(current_pw) = self.pending_current_password.take() else {
+                    self.error_message = Some(t!("tui.entry.password_empty").to_string());
+                    self.step = 1;
+                    return ScreenResult::Continue;
+                };
                 let new_pw = self.new_password.take_secure();
                 self.confirm_password.clear();
                 let cmd = Command::ChangeMasterPassword {
@@ -526,10 +527,7 @@ impl ChangeMasterPasswordScreen {
 
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
-            CommandResult::MasterPasswordVerified => {
-                self.step = 2;
-                ScreenResult::Continue
-            }
+            CommandResult::MasterPasswordVerified => ScreenResult::Continue,
             CommandResult::MasterPasswordChanged => ScreenResult::PopScreen,
             CommandResult::Error { fallback, .. } => {
                 self.error_message = Some(fallback);

@@ -448,15 +448,11 @@ impl OnboardingScreen {
             }
             KeyCode::Enter => {
                 let source = IMPORT_SOURCES[self.selected_source_idx].0;
-                let password = if self.import_password.is_empty() {
-                    None
-                } else {
-                    Some(self.import_password.take_secure())
-                };
                 let cmd = Command::ExecuteImport {
+                    session_id: self.import_session_id,
                     source,
                     path: std::path::PathBuf::from(&self.import_file_path),
-                    password,
+                    password: None,
                     column_mapping: None,
                     import_as_notes: self.import_as_notes,
                 };
@@ -510,8 +506,12 @@ impl OnboardingScreen {
                 // Recovery key was accepted — already moved to VaultPath
                 ScreenResult::Continue
             }
-            CommandResult::ImportValidated { preview } => {
+            CommandResult::ImportValidated {
+                session_id,
+                preview,
+            } => {
                 if matches!(self.current_step, OnboardingStep::ImportSource) {
+                    self.import_session_id = Some(session_id);
                     self.import_preview = Some(preview);
                     self.error = None;
                     self.current_step = OnboardingStep::ImportPreview;

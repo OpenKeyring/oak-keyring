@@ -769,7 +769,8 @@ fn copy_generated_password_maps_to_command() {
         if let crate::tui::screens::main::overlay::ActiveOverlay::PasswordGenerator(gen_state) =
             generator
         {
-            gen_state.preview = "test-password-123".to_string();
+            gen_state.preview =
+                crate::types::sensitive::SensitiveInput::from("test-password-123".to_string());
         }
     }
 

@@ -10,6 +10,7 @@ use crate::tui::state::form_state::{ExpiryOption, FormState};
 use crate::tui::state::generator_state::EmbeddedGeneratorState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::credential::CredentialType;
+use crate::types::SecureStr;
 use crate::types::sensitive::SensitiveInput;
 
 /// Edit record screen state.
@@ -485,10 +486,7 @@ impl EditRecordScreen {
                     == crate::tui::state::generator_state::GeneratorFocus::ActionButton
                 {
                     let pw = self.generator.use_password();
-                    self.form.fields.password = Some(SensitiveInput::new());
-                    for c in pw.chars() {
-                        self.form.fields.password.as_mut().unwrap().push_char(c);
-                    }
+                    self.form.fields.password = Some(SensitiveInput::from(pw));
                     self.form.fields.update_strength();
                     self.form.has_changes = true;
                     return ScreenResult::Continue;
@@ -536,48 +534,24 @@ impl EditRecordScreen {
         name: String,
         url: String,
         username: Option<String>,
-        password: Option<String>,
+        password: Option<SecureStr>,
         app_id: Option<String>,
-        secret_key: Option<String>,
+        secret_key: Option<SecureStr>,
         public_key: Option<String>,
-        private_key: Option<String>,
-        passphrase: Option<String>,
+        private_key: Option<SecureStr>,
+        passphrase: Option<SecureStr>,
         tags: Vec<String>,
         notes: String,
     ) {
         self.form.fields.name = name;
         self.form.fields.url = url;
         self.form.fields.username = username;
-        self.form.fields.password = password.map(|p| {
-            let mut input = SensitiveInput::new();
-            for c in p.chars() {
-                input.push_char(c);
-            }
-            input
-        });
+        self.form.fields.password = password.map(SensitiveInput::from);
         self.form.fields.app_id = app_id;
-        self.form.fields.secret_key = secret_key.map(|k| {
-            let mut input = SensitiveInput::new();
-            for c in k.chars() {
-                input.push_char(c);
-            }
-            input
-        });
+        self.form.fields.secret_key = secret_key.map(SensitiveInput::from);
         self.form.fields.public_key = public_key;
-        self.form.fields.private_key = private_key.map(|k| {
-            let mut input = SensitiveInput::new();
-            for c in k.chars() {
-                input.push_char(c);
-            }
-            input
-        });
-        self.form.fields.passphrase = passphrase.map(|p| {
-            let mut input = SensitiveInput::new();
-            for c in p.chars() {
-                input.push_char(c);
-            }
-            input
-        });
+        self.form.fields.private_key = private_key.map(SensitiveInput::from);
+        self.form.fields.passphrase = passphrase.map(SensitiveInput::from);
         self.form.fields.update_strength();
         self.form.fields.tags = tags;
         self.form.fields.notes = notes;
@@ -612,7 +586,7 @@ impl Screen for EditRecordScreen {
                                 name,
                                 url.unwrap_or_default(),
                                 Some(username),
-                                Some(password.expose().to_string()),
+                                Some(password),
                                 None,
                                 None,
                                 None,
@@ -638,7 +612,7 @@ impl Screen for EditRecordScreen {
                                 None,
                                 None,
                                 Some(app_id),
-                                Some(secret_key.expose().to_string()),
+                                Some(secret_key),
                                 None,
                                 None,
                                 None,
@@ -664,8 +638,8 @@ impl Screen for EditRecordScreen {
                                 None,
                                 None,
                                 Some(public_key),
-                                private_key.map(|k| k.expose().to_string()),
-                                passphrase.map(|p| p.expose().to_string()),
+                                private_key,
+                                passphrase,
                                 rec_tags,
                                 notes.unwrap_or_default(),
                             );

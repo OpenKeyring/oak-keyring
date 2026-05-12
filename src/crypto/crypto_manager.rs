@@ -31,8 +31,8 @@ impl CryptoManager {
         let kek_bytes = hkdf::derive_kek(&sk_bytes)?;
 
         let ks = KeyStore {
-            sk: Some(SecretKey::new(sk_bytes)),
-            kek: Some(KeyEncryptionKey::new(kek_bytes)),
+            sk: Some(SecretKey::new(sk_bytes)?),
+            kek: Some(KeyEncryptionKey::new(kek_bytes)?),
             current_dek_version: 1,
             device_id: uuid::Uuid::new_v4().to_string(),
             mnemonic_language: MnemonicLanguage::English,

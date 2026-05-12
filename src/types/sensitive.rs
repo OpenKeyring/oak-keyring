@@ -99,6 +99,12 @@ impl From<String> for SensitiveInput {
     }
 }
 
+impl From<SecureStr> for SensitiveInput {
+    fn from(value: SecureStr) -> Self {
+        Self { value }
+    }
+}
+
 impl Default for SensitiveInput {
     fn default() -> Self {
         Self::new()

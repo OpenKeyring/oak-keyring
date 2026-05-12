@@ -57,11 +57,10 @@ impl PasswordGeneratorScreen {
     fn handle_enter(&mut self, ctx: &mut ScreenContext) -> ScreenResult {
         match self.state.focus {
             GeneratorFocus::ActionButton => {
-                let pw = std::mem::take(&mut self.state.preview);
-                if !pw.is_empty() {
-                    use crate::types::sensitive::SecureStr;
+                if self.state.has_preview() {
+                    let pw = self.state.take_preview();
                     let _ = ctx.command_tx.try_send(Command::CopyRawToClipboard {
-                        value: SecureStr::new(pw),
+                        value: pw,
                     });
                     self.state.regenerate();
                     self.hint_message =
@@ -278,7 +277,7 @@ mod tests {
     fn new_screen_has_sensible_defaults() {
         let screen = PasswordGeneratorScreen::new();
         assert_eq!(screen.state.style, GenerationStyle::Random);
-        assert!(!screen.state.preview.is_empty());
+        assert!(screen.state.has_preview());
         assert_eq!(screen.state.focus, GeneratorFocus::StyleSelector);
         assert!(screen.hint_message.is_none());
     }
@@ -311,7 +310,6 @@ mod tests {
     #[test]
     fn regenerate_key_works() {
         let mut screen = PasswordGeneratorScreen::new();
-        let _before = screen.state.preview.clone();
         let mut ctx = ScreenContext {
             command_tx: &tokio::sync::mpsc::channel(1).0,
             config: &Default::default(),
@@ -326,7 +324,7 @@ mod tests {
         );
         assert!(matches!(result, ScreenResult::Continue));
         // Preview should be non-empty after regeneration
-        assert!(!screen.state.preview.is_empty());
+        assert!(screen.state.has_preview());
     }
 
     #[test]
@@ -436,7 +434,7 @@ mod tests {
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
-        assert!(!screen.state.preview.is_empty());
+        assert!(screen.state.has_preview());
     }
 
     #[test]
@@ -479,9 +477,9 @@ mod tests {
     #[test]
     fn on_unmount_clears_preview() {
         let mut screen = PasswordGeneratorScreen::new();
-        assert!(!screen.state.preview.is_empty());
+        assert!(screen.state.has_preview());
         screen.on_unmount();
-        assert!(screen.state.preview.is_empty());
+        assert!(!screen.state.has_preview());
     }
 
     #[test]
@@ -562,7 +560,7 @@ mod tests {
             &mut ctx,
         );
         // After copy, preview is regenerated (non-empty)
-        assert!(!screen.state.preview.is_empty());
+        assert!(screen.state.has_preview());
     }
 
     #[test]

@@ -473,10 +473,7 @@ impl CreateRecordScreen {
                     == crate::tui::state::generator_state::GeneratorFocus::ActionButton
                 {
                     let pw = self.generator.use_password();
-                    self.form.fields.password = Some(SensitiveInput::new());
-                    for c in pw.chars() {
-                        self.form.fields.password.as_mut().unwrap().push_char(c);
-                    }
+                    self.form.fields.password = Some(SensitiveInput::from(pw));
                     self.form.fields.update_strength();
                     self.form.has_changes = true;
                     return ScreenResult::Continue;

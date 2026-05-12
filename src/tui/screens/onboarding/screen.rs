@@ -1,4 +1,5 @@
 use zeroize::Zeroize;
+use uuid::Uuid;
 
 use crate::commands::types::ImportPreview;
 use crate::commands::Message;
@@ -44,6 +45,7 @@ pub struct OnboardingScreen {
     pub import_password: SensitiveInput,
     pub import_focus: crate::tui::screens::import_export::ImportFocus,
     pub import_preview: Option<ImportPreview>,
+    pub import_session_id: Option<Uuid>,
     /// Whether to import problematic entries as notes instead of skipping them.
     pub import_as_notes: bool,
     /// Whether the checkbox on ImportPreview step is focused.
@@ -85,6 +87,7 @@ impl Default for OnboardingScreen {
             import_password: SensitiveInput::new(),
             import_focus: ImportFocus::SourceList,
             import_preview: None,
+            import_session_id: None,
             import_as_notes: false,
             import_preview_checkbox_focused: false,
             vault_path_editable: false,
@@ -319,6 +322,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.import_password.clear();
         self.import_focus = crate::tui::screens::import_export::ImportFocus::SourceList;
         self.import_preview = None;
+        self.import_session_id = None;
         self.import_as_notes = false;
         self.import_preview_checkbox_focused = false;
         self.vault_path_editable = false;
@@ -348,6 +352,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.import_file_path.clear();
         self.import_password.clear();
         self.import_preview = None;
+        self.import_session_id = None;
         self.import_as_notes = false;
         self.import_preview_checkbox_focused = false;
         self.recovery_focus = RecoveryFocus::default();

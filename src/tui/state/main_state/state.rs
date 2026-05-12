@@ -14,7 +14,7 @@ use crate::tui::state::list_state::{ListMode, ListPanelState};
 use crate::tui::state::overlay_state::HistoryEntry;
 use crate::tui::state::tag_management::{TagManagementState, TagSortOrder};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
-use crate::types::{CredentialType, SecureStr, Tag};
+use crate::types::{CredentialType, Tag};
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -1245,7 +1245,7 @@ impl MainScreenState {
                 self.overlay_manager.close();
                 self.pending_animation = Some(EffectKind::ModalDismiss);
                 ScreenResult::Command(Box::new(Command::CopyRawToClipboard {
-                    value: SecureStr::new(password),
+                    value: password,
                 }))
             }
             OverlayKeyResult::CopyHistoryPassword { history_id } => {

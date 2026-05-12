@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use zeroize::Zeroize;
+use uuid::Uuid;
 
 use crate::commands::result::CommandResult;
 use crate::commands::types::{
@@ -14,7 +15,6 @@ use crate::t;
 use crate::tui::theme::{ERROR, PRIMARY, SUCCESS, WARNING};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
-use crate::types::SecureStr;
 
 use super::types::*;
 
@@ -42,6 +42,7 @@ pub struct ImportExportScreen {
     pub skipped_count: usize,
     pub failed_count: usize,
     pub csv_headers: Vec<String>,
+    pub import_session_id: Option<Uuid>,
     pub skip_breakdown: std::collections::HashMap<crate::commands::types::SkipReason, usize>,
 
     // Export state
@@ -91,6 +92,7 @@ impl ImportExportScreen {
             skipped_count: 0,
             failed_count: 0,
             csv_headers: Vec::new(),
+            import_session_id: None,
             skip_breakdown: std::collections::HashMap::new(),
 
             export_step: ExportStep::Form,
@@ -261,6 +263,7 @@ impl ImportExportScreen {
 
         // Clear sensitive buffers
         self.decrypt_password.clear();
+        self.import_session_id = None;
         self.export_password.clear();
         self.export_confirm_password.clear();
         self.master_password.clear();
@@ -324,6 +327,7 @@ impl Screen for ImportExportScreen {
         self.error_message = None;
         self.preview = None;
         self.csv_headers.clear();
+        self.import_session_id = None;
         self.import_progress_current = 0;
         self.import_progress_total = 0;
         self.import_progress_name.clear();
@@ -348,6 +352,7 @@ impl Screen for ImportExportScreen {
     fn on_unmount(&mut self) {
         self.file_path.zeroize();
         self.decrypt_password.clear();
+        self.import_session_id = None;
         self.export_password.clear();
         self.export_confirm_password.clear();
         self.master_password.clear();
@@ -536,19 +541,10 @@ impl ImportExportScreen {
             return ScreenResult::Continue;
         }
 
-        let _column_mapping = if source == ImportSource::Csv {
-            Some(self.csv_mapping.clone())
-        } else {
-            None
-        };
-
         let password = if self.decrypt_password.is_empty() {
             None
         } else {
-            Some(
-                self.decrypt_password
-                    .expose(|s| SecureStr::new(s.to_string())),
-            )
+            Some(self.decrypt_password.take_secure())
         };
 
         let cmd = Command::ValidateImportFile {
@@ -585,16 +581,11 @@ impl ImportExportScreen {
                     None
                 };
 
-                let password = if self.decrypt_password.is_empty() {
-                    None
-                } else {
-                    Some(self.decrypt_password.take_secure())
-                };
-
                 let cmd = Command::ExecuteImport {
+                    session_id: self.import_session_id,
                     source,
                     path: PathBuf::from(&self.file_path),
-                    password,
+                    password: None,
                     column_mapping,
                     import_as_notes: false,
                 };
@@ -790,7 +781,11 @@ impl ImportExportScreen {
 
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
-            CommandResult::ImportValidated { preview } => {
+            CommandResult::ImportValidated {
+                session_id,
+                preview,
+            } => {
+                self.import_session_id = Some(session_id);
                 self.csv_headers = preview.csv_headers.clone();
                 self.preview = Some(preview);
                 ScreenResult::Continue

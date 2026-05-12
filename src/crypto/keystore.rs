@@ -67,11 +67,11 @@ impl SecretKey {
     ///
     /// The key material is copied into locked memory and the source array
     /// is zeroized after copying.
-    pub(crate) fn new(mut bytes: [u8; 32]) -> Self {
+    pub(crate) fn new(mut bytes: [u8; 32]) -> Result<Self, String> {
         use zeroize::Zeroize;
-        let key = LockedKey32::new(bytes);
+        let key = LockedKey32::new(bytes)?;
         bytes.zeroize();
-        Self(key)
+        Ok(Self(key))
     }
 
     /// Exposes the underlying 32-byte key.
@@ -85,11 +85,11 @@ impl WrappingKey {
     ///
     /// The key material is copied into locked memory and the source array
     /// is zeroized after copying.
-    pub fn new(mut bytes: [u8; 32]) -> Self {
+    pub fn new(mut bytes: [u8; 32]) -> Result<Self, String> {
         use zeroize::Zeroize;
-        let key = LockedKey32::new(bytes);
+        let key = LockedKey32::new(bytes)?;
         bytes.zeroize();
-        Self(key)
+        Ok(Self(key))
     }
 
     /// Exposes the underlying 32-byte key.
@@ -103,11 +103,11 @@ impl KeyEncryptionKey {
     ///
     /// The key material is copied into locked memory and the source array
     /// is zeroized after copying.
-    pub(crate) fn new(mut bytes: [u8; 32]) -> Self {
+    pub(crate) fn new(mut bytes: [u8; 32]) -> Result<Self, String> {
         use zeroize::Zeroize;
-        let key = LockedKey32::new(bytes);
+        let key = LockedKey32::new(bytes)?;
         bytes.zeroize();
-        Self(key)
+        Ok(Self(key))
     }
 
     /// Exposes the underlying 32-byte key.
@@ -121,11 +121,11 @@ impl DataEncryptionKey {
     ///
     /// The key material is copied into locked memory and the source array
     /// is zeroized after copying.
-    pub fn new(mut bytes: [u8; 32]) -> Self {
+    pub fn new(mut bytes: [u8; 32]) -> Result<Self, String> {
         use zeroize::Zeroize;
-        let key = LockedKey32::new(bytes);
+        let key = LockedKey32::new(bytes)?;
         bytes.zeroize();
-        Self(key)
+        Ok(Self(key))
     }
 
     /// Exposes the underlying 32-byte key.
@@ -139,11 +139,11 @@ impl DeviceKey {
     ///
     /// The key material is copied into locked memory and the source array
     /// is zeroized after copying.
-    pub fn new(mut bytes: [u8; 32]) -> Self {
+    pub fn new(mut bytes: [u8; 32]) -> Result<Self, String> {
         use zeroize::Zeroize;
-        let key = LockedKey32::new(bytes);
+        let key = LockedKey32::new(bytes)?;
         bytes.zeroize();
-        Self(key)
+        Ok(Self(key))
     }
 
     /// Exposes the underlying 32-byte key.
@@ -199,8 +199,8 @@ impl KeyStore {
         params: &Argon2Params,
         language: MnemonicLanguage,
     ) -> Result<Self, String> {
-        let sk = SecretKey::new(sk_bytes);
-        let kek = KeyEncryptionKey::new(hkdf::derive_kek(sk.as_bytes())?);
+        let sk = SecretKey::new(sk_bytes)?;
+        let kek = KeyEncryptionKey::new(hkdf::derive_kek(sk.as_bytes())?)?;
 
         let salt = argon2::generate_salt();
         // Derive wrapping key directly into locked memory
@@ -285,8 +285,8 @@ impl KeyStore {
         nonce_arr.copy_from_slice(&nonce);
 
         let sk_bytes = unwrap_key(&wrapped, &nonce_arr, wk.as_bytes())?;
-        let sk = SecretKey::new(sk_bytes);
-        let kek = KeyEncryptionKey::new(hkdf::derive_kek(sk.as_bytes())?);
+        let sk = SecretKey::new(sk_bytes)?;
+        let kek = KeyEncryptionKey::new(hkdf::derive_kek(sk.as_bytes())?)?;
 
         let mnemonic_lang_str = data["mnemonic_language"].as_str().unwrap_or("en");
         let mnemonic_language = MnemonicLanguage::from_keystore_value(mnemonic_lang_str)
@@ -396,10 +396,10 @@ impl KeyStore {
 
     pub fn get_dek(&self, version: u32) -> Result<DataEncryptionKey, String> {
         let kek = self.kek.as_ref().ok_or("KeyStore not unlocked")?;
-        Ok(DataEncryptionKey::new(hkdf::derive_dek(
+        DataEncryptionKey::new(hkdf::derive_dek(
             kek.as_bytes(),
             version,
-        )?))
+        )?)
     }
 
     pub fn current_dek_version(&self) -> u32 {
@@ -616,7 +616,7 @@ mod tests {
 
     #[test]
     fn test_key_newtype_zeroize() {
-        let key = SecretKey::new([0xFFu8; 32]);
+        let key = SecretKey::new([0xFFu8; 32]).expect("memory lock should succeed");
         assert_eq!(key.as_bytes(), &[0xFFu8; 32]);
         drop(key);
         // SecretKey wraps LockedKey32 which zeroizes on drop
@@ -715,7 +715,7 @@ mod tests {
 
     #[test]
     fn test_secret_key_zeroize_on_drop() {
-        let key = SecretKey::new([0xAAu8; 32]);
+        let key = SecretKey::new([0xAAu8; 32]).expect("memory lock should succeed");
         assert_eq!(key.as_bytes(), &[0xAAu8; 32]);
         drop(key);
         // SecretKey wraps LockedKey32 which zeroizes on drop
@@ -723,7 +723,7 @@ mod tests {
 
     #[test]
     fn test_wrapping_key_zeroize_on_drop() {
-        let key = WrappingKey::new([0xBBu8; 32]);
+        let key = WrappingKey::new([0xBBu8; 32]).expect("memory lock should succeed");
         assert_eq!(key.as_bytes(), &[0xBBu8; 32]);
         drop(key);
         // WrappingKey wraps LockedKey32 which zeroizes on drop
@@ -731,7 +731,7 @@ mod tests {
 
     #[test]
     fn test_kek_zeroize_on_drop() {
-        let key = KeyEncryptionKey::new([0xCCu8; 32]);
+        let key = KeyEncryptionKey::new([0xCCu8; 32]).expect("memory lock should succeed");
         assert_eq!(key.as_bytes(), &[0xCCu8; 32]);
         drop(key);
         // KeyEncryptionKey wraps LockedKey32 which zeroizes on drop
@@ -739,7 +739,7 @@ mod tests {
 
     #[test]
     fn test_dek_zeroize_on_drop() {
-        let key = DataEncryptionKey::new([0xDDu8; 32]);
+        let key = DataEncryptionKey::new([0xDDu8; 32]).expect("memory lock should succeed");
         assert_eq!(key.as_bytes(), &[0xDDu8; 32]);
         drop(key);
         // DataEncryptionKey wraps LockedKey32 which zeroizes on drop

@@ -115,37 +115,6 @@ pub struct FormFields {
     pub notes: String,
 }
 
-impl Clone for FormFields {
-    /// Clone form fields, **replacing sensitive fields with empty values**.
-    ///
-    /// Secret fields (password, secret_key, private_key, passphrase) are NOT
-    /// cloned — they are replaced with fresh empty `SensitiveInput` instances.
-    /// This prevents accidental secret duplication in UI state snapshots.
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            url: self.url.clone(),
-            username: self.username.clone(),
-            password: self.password.as_ref().map(|_| SensitiveInput::new()),
-            password_visible: self.password_visible,
-            strength: self.strength.clone(),
-            app_id: self.app_id.clone(),
-            secret_key: self.secret_key.as_ref().map(|_| SensitiveInput::new()),
-            secret_visible: self.secret_visible,
-            public_key: self.public_key.clone(),
-            private_key: self.private_key.as_ref().map(|_| SensitiveInput::new()),
-            private_visible: self.private_visible,
-            passphrase: self.passphrase.as_ref().map(|_| SensitiveInput::new()),
-            passphrase_visible: self.passphrase_visible,
-            expires_at: self.expires_at,
-            custom_date: self.custom_date.clone(),
-            tags: self.tags.clone(),
-            tag_input: self.tag_input.clone(),
-            notes: self.notes.clone(),
-        }
-    }
-}
-
 impl FormFields {
     pub fn new(credential_type: CredentialType) -> Self {
         let mut fields = Self {
@@ -208,7 +177,7 @@ impl FormFields {
 }
 
 /// Complete form state.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FormState {
     pub mode: FormMode,
     pub credential_type: CredentialType,

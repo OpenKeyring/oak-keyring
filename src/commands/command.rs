@@ -188,6 +188,7 @@ pub enum Command {
     },
 
     ExecuteImport {
+        session_id: Option<Uuid>,
         source: ImportSource,
         path: PathBuf,
         password: Option<SecureStr>,

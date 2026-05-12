@@ -129,6 +129,7 @@ pub enum CommandResult {
 
     // ── Import/Export Results ─────────────────
     ImportValidated {
+        session_id: Uuid,
         preview: ImportPreview,
     },
     ImportCompleted {

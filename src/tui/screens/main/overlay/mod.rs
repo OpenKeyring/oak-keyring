@@ -10,6 +10,7 @@ use ratatui::{layout::Rect, Frame};
 use uuid::Uuid;
 
 use crate::commands::types::{ConfirmButton, ConfirmVariant, Overlay};
+use crate::types::SecureStr;
 use crate::tui::state::generator_state::GeneratorState;
 use crate::tui::state::overlay_state::{
     BatchTagPanelFullState, ErrorDialogFullState, PasswordHistoryState,
@@ -63,7 +64,7 @@ pub enum FocusRestoreTarget {
 }
 
 /// Result of dispatching a key event through the OverlayManager.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum OverlayKeyResult {
     /// Key was consumed internally (navigation, text input, etc.).
     Consumed,
@@ -76,7 +77,7 @@ pub enum OverlayKeyResult {
     /// Copy a historical password entry to the clipboard.
     CopyHistoryPassword { history_id: i64 },
     /// Copy the generated password to the clipboard.
-    CopyGeneratedPassword { password: String },
+    CopyGeneratedPassword { password: SecureStr },
     /// Add a tag to the selected records.
     BatchAddTag {
         record_ids: Vec<Uuid>,
@@ -251,7 +252,7 @@ impl OverlayManager {
                     },
                     generator::GeneratorAction::CopyToClipboard => {
                         OverlayKeyResult::CopyGeneratedPassword {
-                            password: state.preview.clone(),
+                            password: state.take_preview(),
                         }
                     }
                     // Regenerate and None are consumed internally
