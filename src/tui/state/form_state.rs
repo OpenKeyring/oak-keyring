@@ -591,7 +591,7 @@ mod tests {
             } => {
                 assert_eq!(name, "Example");
                 assert_eq!(username, "alice");
-                assert_eq!(password.get(), "secret");
+                assert_eq!(password.expose(), "secret");
                 assert_eq!(url.as_deref(), Some("https://example.com"));
                 assert_eq!(notes.as_deref(), Some("notes"));
             }

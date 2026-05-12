@@ -277,7 +277,7 @@ mod tests {
             .decrypt_history_password(history[0].id)
             .expect("decrypt_history_password must succeed");
         assert_eq!(
-            decrypted.get(),
+            decrypted.expose(),
             original_password,
             "decrypted history password must match original password"
         );
@@ -357,7 +357,7 @@ mod tests {
             .decrypt_history_password(history[0].id)
             .expect("decrypt_history_password must succeed");
 
-        assert_eq!(result.get(), old_password);
+        assert_eq!(result.expose(), old_password);
     }
 
     // --- nonexistent history_id returns appropriate error ---
@@ -562,7 +562,7 @@ mod tests {
             .decrypt_history_password(history[0].id)
             .expect("decrypt_history_password must succeed");
         assert_eq!(
-            decrypted.get(),
+            decrypted.expose(),
             original_password,
             "conflict history must decrypt to original password"
         );

@@ -139,7 +139,7 @@ impl ImportExportService {
                 .import_sessions
                 .get(&session_id)
                 .ok_or(ImportExportError::SessionNotFound(session_id))?;
-            let pw_ref = session.decrypt_password.as_ref().map(|s| s.get() as &str);
+            let pw_ref = session.decrypt_password.as_ref().map(|s| s.expose() as &str);
             // We need Option<&SecureStr> for the parser.
             // Unfortunately we can't directly get Option<&SecureStr> because
             // SecureStr panics on clone. Pass None for password reference

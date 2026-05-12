@@ -53,7 +53,7 @@ pub fn derive_key(password: &str, salt: &[u8; 16]) -> Result<Vec<u8>, String> {
 }
 
 pub fn derive_key_sensitive(password: &SecureStr, salt: &[u8; 16]) -> Result<Vec<u8>, String> {
-    derive_key_with_params(password.get(), salt, &Argon2Params::medium())
+    derive_key_with_params(password.expose(), salt, &Argon2Params::medium())
 }
 
 pub fn derive_key_with_params(

@@ -1,56 +1,45 @@
-use std::mem::ManuallyDrop;
-use zeroize::Zeroize;
+use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct SecureString<T: Zeroize> {
-    inner: T,
-}
+pub struct SecureStr(SecretBox<String>);
 
-impl<T: Zeroize> SecureString<T> {
-    pub fn new(value: T) -> Self {
-        Self { inner: value }
+impl SecureStr {
+    pub fn new(value: String) -> Self {
+        Self(SecretBox::new(Box::new(value)))
     }
 
-    pub fn get(&self) -> &T {
-        &self.inner
+    pub fn expose(&self) -> &str {
+        self.0.expose_secret()
     }
 
-    pub fn into_inner(self) -> T {
-        let this = ManuallyDrop::new(self);
-        unsafe { std::ptr::read(&this.inner) }
+    pub(crate) fn expose_mut(&mut self) -> &mut String {
+        self.0.expose_secret_mut()
     }
 }
 
-impl<T: Zeroize> Clone for SecureString<T> {
-    fn clone(&self) -> Self {
-        panic!("SecureString cannot be cloned");
-    }
-}
-
-impl<T: Zeroize + std::fmt::Debug> std::fmt::Debug for SecureString<T> {
+impl std::fmt::Debug for SecureStr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "***REDACTED***")
+        f.write_str("***REDACTED***")
     }
 }
 
-impl<T: Zeroize + std::fmt::Display> std::fmt::Display for SecureString<T> {
+pub struct SecureBytes(SecretBox<Vec<u8>>);
+
+impl SecureBytes {
+    pub fn new(value: Vec<u8>) -> Self {
+        Self(SecretBox::new(Box::new(value)))
+    }
+
+    pub fn expose(&self) -> &[u8] {
+        self.0.expose_secret()
+    }
+
+    pub(crate) fn expose_mut(&mut self) -> &mut Vec<u8> {
+        self.0.expose_secret_mut()
+    }
+}
+
+impl std::fmt::Debug for SecureBytes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "***REDACTED***")
+        f.write_str("***REDACTED***")
     }
 }
-
-impl<T: Zeroize + serde::Serialize> serde::Serialize for SecureString<T> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.inner.serialize(serializer)
-    }
-}
-
-impl<'de, T: Zeroize + serde::Deserialize<'de>> serde::Deserialize<'de> for SecureString<T> {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        T::deserialize(deserializer).map(Self::new)
-    }
-}
-
-pub type SecureBytes = SecureString<Vec<u8>>;
-pub type SecureStr = SecureString<String>;

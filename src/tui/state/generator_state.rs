@@ -166,7 +166,7 @@ impl GeneratorState {
 
         match result {
             Ok(pw) => {
-                let pw_str = pw.get().to_string();
+                let pw_str = pw.expose().to_string();
                 self.strength = Some(evaluate_strength(&pw_str));
                 self.preview = pw_str;
             }

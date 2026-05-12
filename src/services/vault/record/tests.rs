@@ -357,7 +357,7 @@ fn get_decrypted_record_decrypts_login_credentials() {
         } => {
             assert_eq!(name, "DecryptTest");
             assert_eq!(username, "alice");
-            assert_eq!(password.get(), "s3cret!");
+            assert_eq!(password.expose(), "s3cret!");
             assert_eq!(url.as_deref(), Some("https://github.com"));
             assert!(notes.is_none());
             assert_eq!(tags, vec!["secure"]);
@@ -717,7 +717,7 @@ fn update_record_payload_decrypts_correctly() {
         } => {
             assert_eq!(name, "UpdatedSite");
             assert_eq!(username, "bob");
-            assert_eq!(password.get(), "n3wP@ss");
+            assert_eq!(password.expose(), "n3wP@ss");
             assert!(url.is_none());
             assert_eq!(notes.as_deref(), Some("updated notes"));
         }
@@ -1821,7 +1821,7 @@ fn decrypt_field_login_password_returns_correct_value() {
         .decrypt_field(id, FieldSelector::Password)
         .expect("decrypt_field must succeed");
 
-    assert_eq!(value.get(), "s3cret!", "password value must match");
+    assert_eq!(value.expose(), "s3cret!", "password value must match");
 }
 
 // --- decrypt_field: Login record Username returns correct value ---
@@ -1836,7 +1836,7 @@ fn decrypt_field_login_username_returns_correct_value() {
         .decrypt_field(id, FieldSelector::Username)
         .expect("decrypt_field must succeed");
 
-    assert_eq!(value.get(), "alice", "username value must match");
+    assert_eq!(value.expose(), "alice", "username value must match");
 }
 
 // --- decrypt_field: Login record Url returns correct value ---
@@ -1851,7 +1851,7 @@ fn decrypt_field_login_url_returns_correct_value() {
         .decrypt_field(id, FieldSelector::Url)
         .expect("decrypt_field must succeed");
 
-    assert_eq!(value.get(), "https://github.com", "url value must match");
+    assert_eq!(value.expose(), "https://github.com", "url value must match");
 }
 
 // --- decrypt_field: Login record Url with None returns InvalidField ---
@@ -1904,7 +1904,7 @@ fn decrypt_field_api_username_returns_app_id() {
         .decrypt_field(id, FieldSelector::Username)
         .expect("decrypt_field must succeed");
 
-    assert_eq!(value.get(), "app-12345", "Username should map to app_id");
+    assert_eq!(value.expose(), "app-12345", "Username should map to app_id");
 }
 
 // --- decrypt_field: Api record Password returns secret_key ---
@@ -1920,7 +1920,7 @@ fn decrypt_field_api_password_returns_secret_key() {
         .expect("decrypt_field must succeed");
 
     assert_eq!(
-        value.get(),
+        value.expose(),
         "sk-secret-abc",
         "Password should map to secret_key"
     );
@@ -1938,7 +1938,7 @@ fn decrypt_field_api_notes_returns_notes() {
         .decrypt_field(id, FieldSelector::Notes)
         .expect("decrypt_field must succeed");
 
-    assert_eq!(value.get(), "API notes here", "notes value must match");
+    assert_eq!(value.expose(), "API notes here", "notes value must match");
 }
 
 // --- decrypt_field: Ssh record Url returns InvalidField ---
@@ -1976,7 +1976,7 @@ fn decrypt_field_ssh_password_returns_private_key() {
         .expect("decrypt_field must succeed");
 
     assert!(
-        value.get().contains("BEGIN OPENSSH PRIVATE KEY"),
+        value.expose().contains("BEGIN OPENSSH PRIVATE KEY"),
         "Password should map to private_key"
     );
 }
@@ -1994,7 +1994,7 @@ fn decrypt_field_ssh_username_returns_public_key() {
         .expect("decrypt_field must succeed");
 
     assert!(
-        value.get().starts_with("ssh-rsa"),
+        value.expose().starts_with("ssh-rsa"),
         "Username should map to public_key"
     );
 }
@@ -2011,7 +2011,7 @@ fn decrypt_field_ssh_notes_returns_notes() {
         .decrypt_field(id, FieldSelector::Notes)
         .expect("decrypt_field must succeed");
 
-    assert_eq!(value.get(), "SSH key notes", "notes value must match");
+    assert_eq!(value.expose(), "SSH key notes", "notes value must match");
 }
 
 // --- decrypt_field: Password field writes audit RecordViewPassword ---

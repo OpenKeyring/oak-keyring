@@ -26,7 +26,7 @@ pub fn detect_weak_passwords(entries: &[PasswordEntry]) -> Vec<Uuid> {
     entries
         .iter()
         .filter(|entry| {
-            let strength = evaluate_strength(entry.password.get());
+            let strength = evaluate_strength(entry.password.expose());
             matches!(
                 strength.level,
                 StrengthLevel::VeryWeak | StrengthLevel::Weak
@@ -44,7 +44,7 @@ pub fn detect_duplicate_passwords(entries: &[PasswordEntry]) -> Vec<Vec<Uuid>> {
 
     for entry in entries {
         let mut hasher = Sha256::new();
-        hasher.update(entry.password.get().as_bytes());
+        hasher.update(entry.password.expose().as_bytes());
         let hash: [u8; 32] = hasher.finalize().into();
         hash_groups.entry(hash).or_default().push(entry.id);
     }
@@ -110,7 +110,7 @@ fn check_hibp_batch(entries: &[PasswordEntry], agent: &ureq::Agent) -> Vec<Uuid>
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        match check_hibp_single_password(entry.password.get(), agent) {
+        match check_hibp_single_password(entry.password.expose(), agent) {
             Ok(true) => compromised.push(entry.id),
             Ok(false) => {}
             Err(_) => {
@@ -268,7 +268,7 @@ impl HealthService {
             .http_agent
             .as_ref()
             .ok_or_else(|| HealthError::HibpApiError("offline mode".into()))?;
-        check_hibp_single_password(password.get(), agent)
+        check_hibp_single_password(password.expose(), agent)
     }
 }
 

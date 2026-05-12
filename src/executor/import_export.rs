@@ -347,7 +347,7 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             credential_type: CredentialType::Login.to_db_str().to_string(),
             name: name.clone(),
             username: Some(username.clone()),
-            password: Some(password.get().clone()),
+            password: Some(password.expose().to_string()),
             url: url.clone(),
             notes: notes.clone(),
             tags: Some(tags.clone()),
@@ -385,7 +385,7 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             private_key: None,
             passphrase: None,
             app_id: Some(app_id.clone()),
-            secret_key: Some(secret_key.get().clone()),
+            secret_key: Some(secret_key.expose().to_string()),
         },
         DecryptedRecord::Ssh {
             id,
@@ -410,8 +410,8 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
             public_key: Some(public_key.clone()),
-            private_key: private_key.as_ref().map(|pk| pk.get().clone()),
-            passphrase: passphrase.as_ref().map(|p| p.get().clone()),
+            private_key: private_key.as_ref().map(|pk| pk.expose().to_string()),
+            passphrase: passphrase.as_ref().map(|p| p.expose().to_string()),
             app_id: None,
             secret_key: None,
         },
@@ -768,11 +768,11 @@ mod tests {
                 assert_eq!(public_key, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...");
                 assert!(private_key.is_some());
                 assert_eq!(
-                    private_key.unwrap().get(),
+                    private_key.unwrap().expose(),
                     "-----BEGIN OPENSSH PRIVATE KEY-----\n..."
                 );
                 assert!(passphrase.is_some());
-                assert_eq!(passphrase.unwrap().get(), "my-passphrase");
+                assert_eq!(passphrase.unwrap().expose(), "my-passphrase");
                 assert_eq!(notes, Some("production key".to_string()));
             }
             _ => panic!("expected Ssh payload"),
@@ -847,7 +847,7 @@ mod tests {
             } => {
                 assert_eq!(name, "AWS Production");
                 assert_eq!(app_id, "AKIAIOSFODNN7EXAMPLE");
-                assert_eq!(secret_key.get(), "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+                assert_eq!(secret_key.expose(), "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
                 assert_eq!(url, Some("https://aws.amazon.com".to_string()));
                 assert_eq!(notes, Some("production account".to_string()));
             }
@@ -922,7 +922,7 @@ mod tests {
                 assert_eq!(public_key, "ssh-rsa AAAAB3NzaC1yc2E...");
                 assert!(private_key.is_some());
                 assert_eq!(
-                    private_key.unwrap().get(),
+                    private_key.unwrap().expose(),
                     "-----BEGIN RSA PRIVATE KEY-----\n..."
                 );
                 assert!(passphrase.is_none()); // Verify passphrase remains None

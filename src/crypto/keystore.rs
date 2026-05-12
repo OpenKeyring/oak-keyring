@@ -114,7 +114,7 @@ impl KeyStore {
 
         let salt = argon2::generate_salt();
         let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk.get(), &salt, params)?
+            argon2::derive_key_with_params(cmk.expose(), &salt, params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -188,7 +188,7 @@ impl KeyStore {
         };
 
         let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk.get(), &salt_arr, &kdf_params)?
+            argon2::derive_key_with_params(cmk.expose(), &salt_arr, &kdf_params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -241,7 +241,7 @@ impl KeyStore {
         };
 
         let old_wk = WrappingKey(
-            argon2::derive_key_with_params(old_cmk.get(), &salt_arr, &kdf_params)?
+            argon2::derive_key_with_params(old_cmk.expose(), &salt_arr, &kdf_params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -256,7 +256,7 @@ impl KeyStore {
         let new_salt = argon2::generate_salt();
         // Preserve the existing vault's KDF params for the new wrapping (security not downgraded)
         let mut new_wk = WrappingKey(
-            argon2::derive_key_with_params(new_cmk.get(), &new_salt, &kdf_params)?
+            argon2::derive_key_with_params(new_cmk.expose(), &new_salt, &kdf_params)?
                 .try_into()
                 .map_err(|_| "WK derivation failed".to_string())?,
         );
@@ -359,7 +359,7 @@ mod tests {
     fn init_with_params(path: &Path, sk_bytes: [u8; 32], cmk: &SecureStr, params: &Argon2Params) {
         let salt = argon2::generate_salt();
         let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk.get(), &salt, params)
+            argon2::derive_key_with_params(cmk.expose(), &salt, params)
                 .unwrap()
                 .try_into()
                 .unwrap(),

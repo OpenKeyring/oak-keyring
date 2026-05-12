@@ -122,7 +122,7 @@ impl FormatParser for OkbParser {
         let password = password.ok_or(ImportExportError::PasswordRequired)?;
 
         // 6. Derive DEK via Argon2id.
-        let dek_vec = crypto::argon2::derive_key(password.get(), &salt)
+        let dek_vec = crypto::argon2::derive_key(password.expose(), &salt)
             .map_err(ImportExportError::DecryptionFailed)?;
         let dek: [u8; 32] = dek_vec
             .try_into()

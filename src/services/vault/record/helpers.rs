@@ -12,7 +12,7 @@ use crate::types::sensitive::SecureStr;
 /// type and field selector.
 ///
 /// Takes ownership of `payload` so that `SecureStr` fields can be moved out
-/// without cloning (which would panic — see `SecureString::clone`).
+/// without cloning (which would panic — see `SecureStr` does not implement Clone).
 ///
 /// Maps fields according to:
 ///
@@ -190,7 +190,7 @@ pub(super) fn password_changed(old: &EncryptedPayload, new: &EncryptedPayload) -
             EncryptedPayload::Login {
                 password: new_pw, ..
             },
-        ) => old_pw.get() != new_pw.get(),
+        ) => old_pw.expose() != new_pw.expose(),
         _ => false,
     }
 }
