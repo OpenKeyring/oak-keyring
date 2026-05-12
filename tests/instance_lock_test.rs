@@ -1,38 +1,116 @@
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::Duration;
 
-use oak_keyring::instance_lock::InstanceLock;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 
-/// Verify that a second `ok` process exits with an error when the lock is held.
-///
-/// We acquire the lock in this process on a temp directory, then spawn the `ok`
-/// binary pointing to the same directory. It should fail with "already running".
-///
-/// Note: This test requires a TTY for the `ok` binary to proceed past terminal
-/// initialization. In CI or non-TTY environments, the subprocess may fail for
-/// other reasons (e.g., "Device not configured"). The core locking logic is
-/// fully covered by the unit tests in `instance_lock.rs`.
+/// Allocate a PTY for the subprocess using the `script` command.
+/// This allows the TUI to initialize its terminal (raw mode, alternate screen).
+/// Returns the process group ID for use in signal handling.
+#[cfg(unix)]
+fn spawn_ok_with_pty(vault_dir: &std::path::Path) -> Child {
+    let ok_bin = env!("CARGO_BIN_EXE_ok");
+
+    // `script -q /dev/null` allocates a PTY and runs the command
+    // On macOS: script -q /dev/null /path/to/ok
+    // On Linux: script -qec "/path/to/ok" /dev/null
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut c = Command::new("script");
+        c.args(["-q", "/dev/null", ok_bin]);
+        c
+    } else {
+        let mut c = Command::new("script");
+        c.args(["-qe", "-c", ok_bin, "/dev/null"]);
+        c
+    };
+
+    // Create a new process group so we can signal the entire group
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+
+    cmd.env("OAK_VAULT_DIR", vault_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("should spawn ok with PTY")
+}
+
+/// Send SIGTERM to gracefully shut down the TUI process group.
+#[cfg(unix)]
+fn send_sigterm(child: &Child) {
+    // Send SIGTERM to the process group
+    let pgid = unsafe { libc::getpgid(child.id() as i32) };
+    if pgid > 0 {
+        unsafe {
+            libc::killpg(-pgid, libc::SIGTERM);
+        }
+    }
+}
+
+/// Verify that a second `ok` process is blocked when the first holds the lock.
 #[test]
+#[cfg(unix)]
 fn second_process_is_blocked_when_lock_is_held() {
-    let base_dir = tempfile::tempdir().unwrap();
-    let vault_dir = base_dir.path().join("open-keyring");
-    std::fs::create_dir(&vault_dir).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let vault_dir = dir.path().to_path_buf();
 
-    let _lock = InstanceLock::acquire(&vault_dir).unwrap();
+    let mut first = spawn_ok_with_pty(&vault_dir);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_ok"))
-        .env("XDG_DATA_HOME", base_dir.path())
+    // Wait for the first instance to start and acquire the lock
+    thread::sleep(Duration::from_secs(2));
+
+    // Try second instance — should fail with "already running"
+    let second = Command::new(env!("CARGO_BIN_EXE_ok"))
+        .env("OAK_VAULT_DIR", &vault_dir)
         .output()
         .expect("ok binary should run");
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = String::from_utf8_lossy(&second.stderr);
+    assert!(
+        !second.status.success(),
+        "second instance should exit with failure"
+    );
+    assert!(
+        stderr.contains("already running"),
+        "stderr should contain 'already running', got: {stderr}"
+    );
 
-    if stderr.contains("already running") {
-        // The subprocess detected the lock and failed as expected
-        return;
-    }
+    // Clean up: send SIGTERM to first instance
+    send_sigterm(&first);
+    let _ = first.wait();
+}
 
-    // On macOS, dirs::data_local_dir() ignores XDG_DATA_HOME, so the subprocess
-    // may use a different vault_dir and fail for other reasons.
-    // In non-TTY environments, it may fail with "Device not configured" during
-    // terminal setup. These cases are expected — unit tests cover the core logic.
+/// Verify that after the first instance exits, a new one can acquire the lock.
+#[test]
+#[cfg(unix)]
+fn lock_released_after_first_instance_exits() {
+    let dir = tempfile::tempdir().unwrap();
+    let vault_dir = dir.path().to_path_buf();
+
+    // Start and then stop first instance
+    let mut first = spawn_ok_with_pty(&vault_dir);
+    thread::sleep(Duration::from_secs(2));
+    send_sigterm(&first);
+    let _ = first.wait();
+    thread::sleep(Duration::from_millis(500));
+
+    // Second instance should be able to start (not blocked by stale lock)
+    let mut second = spawn_ok_with_pty(&vault_dir);
+    thread::sleep(Duration::from_secs(1));
+
+    // Verify second instance is running (not blocked)
+    let status = second.try_wait().expect("should be able to check status");
+    assert!(
+        status.is_none(),
+        "second instance should still be running (lock was released)"
+    );
+
+    send_sigterm(&second);
+    let _ = second.wait();
 }

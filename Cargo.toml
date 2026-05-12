@@ -105,6 +105,7 @@ mockall = "0.13"
 tempfile = "3"
 anyhow = "1"
 oak-keyring = { path = ".", features = ["test-helpers"] }
+libc = "0.2"
 
 [features]
 default = []
