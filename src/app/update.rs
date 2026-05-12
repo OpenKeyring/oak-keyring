@@ -521,13 +521,17 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
 mod tests {
     use super::*;
     use crate::commands::types::{AppPhase, PanelId};
+    use crate::instance_lock::InstanceLock;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
     fn test_app() -> App {
+        let vault_dir = tempfile::tempdir().unwrap();
+        let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
         let mut app = App::new(
             crate::config::AppConfig::default(),
-            std::path::PathBuf::from(":memory:"),
+            vault_dir.path().to_path_buf(),
             true,
+            instance_lock,
         )
         .expect("app");
         app.phase = AppPhase::Running;
