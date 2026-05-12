@@ -10,13 +10,13 @@ fn main() {
         return;
     }
 
+    #[cfg(feature = "test-helpers")]
     let vault_dir = std::env::var("OAK_VAULT_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            dirs::data_local_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("open-keyring")
-        });
+        .unwrap_or_else(|_| default_vault_dir());
+
+    #[cfg(not(feature = "test-helpers"))]
+    let vault_dir = default_vault_dir();
 
     let instance_lock = InstanceLock::acquire(&vault_dir).unwrap_or_else(|e| {
         eprintln!("{e}");
@@ -32,6 +32,12 @@ fn main() {
     let mut app =
         App::new(config, vault_dir, has_vault, instance_lock).expect("failed to create app");
     app.run().expect("app run failed");
+}
+
+fn default_vault_dir() -> std::path::PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("open-keyring")
 }
 
 fn should_print_version<I>(args: I) -> bool
