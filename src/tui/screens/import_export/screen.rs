@@ -14,6 +14,7 @@ use crate::t;
 use crate::tui::theme::{ERROR, PRIMARY, SUCCESS, WARNING};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
+use crate::types::SecureStr;
 
 use super::types::*;
 
@@ -544,7 +545,7 @@ impl ImportExportScreen {
         let password = if self.decrypt_password.is_empty() {
             None
         } else {
-            Some(self.decrypt_password.take_secure())
+            Some(self.decrypt_password.expose(|s| SecureStr::new(s.to_string())))
         };
 
         let cmd = Command::ValidateImportFile {

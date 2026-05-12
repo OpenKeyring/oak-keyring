@@ -116,6 +116,11 @@ pub struct FormFields {
 }
 
 impl Clone for FormFields {
+    /// Clone form fields, **replacing sensitive fields with empty values**.
+    ///
+    /// Secret fields (password, secret_key, private_key, passphrase) are NOT
+    /// cloned — they are replaced with fresh empty `SensitiveInput` instances.
+    /// This prevents accidental secret duplication in UI state snapshots.
     fn clone(&self) -> Self {
         Self {
             name: self.name.clone(),

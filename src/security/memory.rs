@@ -35,6 +35,18 @@ fn lock_memory_region(ptr: *mut u8, len: usize) -> Result<(), String> {
             std::io::Error::last_os_error()
         ));
     }
+
+    // Best-effort MADV_DONTDUMP to exclude region from core dumps (Linux only)
+    #[cfg(target_os = "linux")]
+    {
+        use std::ptr;
+        let advice = 16; // MADV_DONTDUMP
+        unsafe {
+            libc::madvise(base as *mut libc::c_void, aligned_len, advice);
+        }
+        let _ = ptr; // suppress unused import warning on non-Linux
+    }
+
     Ok(())
 }
 
@@ -222,9 +234,11 @@ impl LockedKey32 {
     /// # Errors
     ///
     /// Returns an error if the memory lock fails.
-    pub fn new(key: [u8; 32]) -> Result<Self, String> {
+    pub fn new(mut key: [u8; 32]) -> Result<Self, String> {
         let mut bytes = LockedSecretBytes::with_len(32)?;
         bytes.expose_mut().copy_from_slice(&key);
+        use zeroize::Zeroize;
+        key.zeroize();
         Ok(Self { bytes })
     }
 

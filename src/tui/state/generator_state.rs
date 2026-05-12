@@ -81,6 +81,11 @@ pub struct GeneratorState {
     pub random_config: RandomConfig,
     pub memorable_config: MemorableConfig,
     pub pin_config: PinConfig,
+    /// Generated password preview.
+    ///
+    /// Intentionally uses `String` rather than `SensitiveInput` because the
+    /// overlay system requires `Clone` (snapshot/restore pattern). The preview
+    /// is cleared via `clear_preview()` on unmount and after each copy.
     pub preview: String,
     pub strength: Option<PasswordStrength>,
     pub focus: GeneratorFocus,
