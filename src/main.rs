@@ -1,6 +1,7 @@
 use oak_keyring::app::App;
 use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::keystore::KeyStore;
+use oak_keyring::crypto::self_test;
 use oak_keyring::instance_lock::InstanceLock;
 use oak_keyring::tui::i18n;
 
@@ -9,6 +10,16 @@ fn main() {
         println!("ok {}", env!("CARGO_PKG_VERSION"));
         return;
     }
+
+    self_test::run_all().unwrap_or_else(|e| {
+        eprintln!("Fatal: crypto self-test failed: {e}");
+        eprintln!();
+        eprintln!("The core encryption self-test failed before any vault operation was attempted.");
+        eprintln!("Do not use this build.");
+        eprintln!();
+        eprintln!("Please reinstall oak-keyring. If the problem persists, report this build and platform.");
+        std::process::exit(1);
+    });
 
     #[cfg(feature = "test-helpers")]
     let vault_dir = std::env::var("OAK_VAULT_DIR")
