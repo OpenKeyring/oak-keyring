@@ -1,9 +1,15 @@
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use oak_keyring::instance_lock::{InstanceLock, InstanceLockError};
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
+
+const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const POLL_INTERVAL: Duration = Duration::from_millis(50);
+const RUNNING_STABILITY_WINDOW: Duration = Duration::from_millis(300);
 
 #[cfg(unix)]
 struct OkProcess {
@@ -96,6 +102,90 @@ fn send_sigterm(child: &Child) {
     }
 }
 
+#[cfg(unix)]
+fn run_ok_once(vault_dir: &std::path::Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_ok"))
+        .env("OAK_VAULT_DIR", vault_dir)
+        .output()
+        .expect("ok binary should run")
+}
+
+#[cfg(unix)]
+fn wait_for_lock_held(vault_dir: &std::path::Path) {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    let mut last_error = None;
+
+    while Instant::now() < deadline {
+        match InstanceLock::acquire(vault_dir) {
+            Ok(lock) => drop(lock),
+            Err(InstanceLockError::AlreadyRunning) => return,
+            Err(e) => last_error = Some(e.to_string()),
+        }
+
+        thread::sleep(POLL_INTERVAL);
+    }
+
+    panic!(
+        "timed out waiting for first instance to hold the lock, last error: {}",
+        last_error.unwrap_or_else(|| "<none>".to_string())
+    );
+}
+
+#[cfg(unix)]
+fn wait_for_lock_released(vault_dir: &std::path::Path) {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    let mut last_error = None;
+
+    while Instant::now() < deadline {
+        match InstanceLock::acquire(vault_dir) {
+            Ok(lock) => {
+                drop(lock);
+                return;
+            }
+            Err(e) => last_error = Some(e.to_string()),
+        }
+
+        thread::sleep(POLL_INTERVAL);
+    }
+
+    panic!(
+        "timed out waiting for instance lock to be released, last error: {}",
+        last_error.unwrap_or_else(|| "<none>".to_string())
+    );
+}
+
+#[cfg(unix)]
+fn wait_for_instance_running(vault_dir: &std::path::Path) -> OkProcess {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    let mut last_status = None;
+
+    while Instant::now() < deadline {
+        let mut process = OkProcess::spawn(vault_dir);
+        let stable_until = Instant::now() + RUNNING_STABILITY_WINDOW;
+
+        loop {
+            match process.try_wait().expect("should be able to check status") {
+                None if Instant::now() >= stable_until => return process,
+                None => {}
+                Some(status) => {
+                    last_status = Some(status);
+                    break;
+                }
+            }
+
+            if Instant::now() >= deadline {
+                break;
+            }
+
+            thread::sleep(POLL_INTERVAL);
+        }
+
+        thread::sleep(POLL_INTERVAL);
+    }
+
+    panic!("timed out waiting for instance to keep running, last status: {last_status:?}");
+}
+
 /// Verify that a second `ok` process is blocked when the first holds the lock.
 #[test]
 #[cfg(unix)]
@@ -105,14 +195,11 @@ fn second_process_is_blocked_when_lock_is_held() {
 
     let _first = OkProcess::spawn(&vault_dir);
 
-    // Wait for the first instance to start and acquire the lock
-    thread::sleep(Duration::from_secs(2));
+    // Poll until the first instance has acquired the lock.
+    wait_for_lock_held(&vault_dir);
 
     // Try second instance — should fail with "already running"
-    let second = Command::new(env!("CARGO_BIN_EXE_ok"))
-        .env("OAK_VAULT_DIR", &vault_dir)
-        .output()
-        .expect("ok binary should run");
+    let second = run_ok_once(&vault_dir);
 
     let stderr = String::from_utf8_lossy(&second.stderr);
     assert!(
@@ -136,13 +223,12 @@ fn lock_released_after_first_instance_exits() {
 
     // Start and then stop first instance
     let mut first = OkProcess::spawn(&vault_dir);
-    thread::sleep(Duration::from_secs(2));
+    wait_for_lock_held(&vault_dir);
     first.terminate();
-    thread::sleep(Duration::from_millis(500));
+    wait_for_lock_released(&vault_dir);
 
-    // Second instance should be able to start (not blocked by stale lock)
-    let mut second = OkProcess::spawn(&vault_dir);
-    thread::sleep(Duration::from_secs(1));
+    // Second instance should be able to start and keep running.
+    let mut second = wait_for_instance_running(&vault_dir);
 
     // Verify second instance is running (not blocked)
     let status = second.try_wait().expect("should be able to check status");
