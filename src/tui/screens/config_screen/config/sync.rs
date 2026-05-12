@@ -35,6 +35,7 @@ fn mask_opt(value: &Option<String>) -> String {
 
 // ── Main render ────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     frame: &mut Frame,
     area: Rect,

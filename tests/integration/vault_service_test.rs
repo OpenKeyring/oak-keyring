@@ -134,7 +134,7 @@ fn test_ac1_create_read_roundtrip() {
         } => {
             assert_eq!(name, "GitHub");
             assert_eq!(username, "alice");
-            assert_eq!(password.get(), "s3cret!");
+            assert_eq!(password.expose(), "s3cret!");
             assert!(is_favorite);
             let mut sorted_record_tags = record_tags.clone();
             sorted_record_tags.sort();
@@ -186,7 +186,7 @@ fn test_ac2_update_saves_history() {
         .decrypt_history_password(history[0].id)
         .expect("decrypt_history_password must succeed");
     assert_eq!(
-        decrypted.get(),
+        decrypted.expose(),
         "oldPassword!",
         "history must contain old password"
     );
@@ -195,7 +195,7 @@ fn test_ac2_update_saves_history() {
     let decrypted_record = svc.get_decrypted_record(id).unwrap();
     match decrypted_record {
         DecryptedRecord::Login { password, .. } => {
-            assert_eq!(password.get(), "newPassword!");
+            assert_eq!(password.expose(), "newPassword!");
         }
         other => panic!("expected Login, got {:?}", other),
     }
@@ -530,7 +530,7 @@ fn test_ac10_transaction_rollback() {
     let decrypted = svc.get_decrypted_record(id).unwrap();
     match decrypted {
         DecryptedRecord::Login { password, name, .. } => {
-            assert_eq!(password.get(), "pass123", "password must be unchanged");
+            assert_eq!(password.expose(), "pass123", "password must be unchanged");
             assert_eq!(name, "TransactionTest", "name must be unchanged");
         }
         other => panic!("expected Login, got {:?}", other),

@@ -170,6 +170,7 @@ pub fn unwrap_key(
     Ok(key)
 }
 
+#[allow(dead_code)]
 pub struct KeyStore {
     pub(crate) sk: Option<SecretKey>,
     pub(crate) kek: Option<KeyEncryptionKey>,

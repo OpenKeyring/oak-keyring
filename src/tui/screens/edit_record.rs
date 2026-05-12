@@ -323,18 +323,18 @@ impl EditRecordScreen {
             },
             4 => match ct {
                 CredentialType::Login => {
-                    self.form.fields.password.as_mut().map(|s| s.pop_char());
+                    if let Some(s) = self.form.fields.password.as_mut() { s.pop_char() };
                     self.form.fields.update_strength();
                 }
                 CredentialType::Api => {
-                    self.form.fields.secret_key.as_mut().map(|s| s.pop_char());
+                    if let Some(s) = self.form.fields.secret_key.as_mut() { s.pop_char() };
                 }
                 CredentialType::Ssh => {
-                    self.form.fields.private_key.as_mut().map(|s| s.pop_char());
+                    if let Some(s) = self.form.fields.private_key.as_mut() { s.pop_char() };
                 }
             },
             5 if ct == CredentialType::Ssh => {
-                self.form.fields.passphrase.as_mut().map(|s| s.pop_char());
+                if let Some(s) = self.form.fields.passphrase.as_mut() { s.pop_char() };
             }
             _ => {
                 let tags_idx = match ct {

@@ -34,6 +34,7 @@ impl SecureBytes {
         self.0.expose_secret()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn expose_mut(&mut self) -> &mut Vec<u8> {
         self.0.expose_secret_mut()
     }

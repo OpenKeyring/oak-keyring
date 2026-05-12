@@ -117,6 +117,7 @@ impl ImportExportScreen {
         }
     }
 
+    #[allow(dead_code)]
     pub(super) fn display_password(password: &str) -> String {
         crate::tui::theme::ICON_PASSWORD_MASK.repeat(password.len())
     }
