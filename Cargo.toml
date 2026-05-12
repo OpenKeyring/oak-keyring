@@ -24,6 +24,7 @@ hex = "0.4"
 bip39 = { version = "2.0", features = ["rand", "chinese-simplified"] }
 rand = "0.9"
 zeroize = { version = "1.8", features = ["derive"] }
+secrecy = "0.10"
 subtle = "2.5"
 
 # OpVault (1Password .opvault) crypto
@@ -99,13 +100,18 @@ notify = "7"
 # String obfuscation
 obfstr = "0.4"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Memory", "Win32_System_SystemInformation"] }
+
 [dev-dependencies]
 insta = "1"
 mockall = "0.13"
 tempfile = "3"
 anyhow = "1"
 oak-keyring = { path = ".", features = ["test-helpers"] }
-libc = "0.2"
 
 [features]
 default = []
