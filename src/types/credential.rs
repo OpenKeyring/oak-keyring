@@ -252,41 +252,6 @@ struct SshFields {
     notes: Option<String>,
 }
 
-// Clone implementation for EncryptedPayload
-// This clones the underlying secret values, which is intentional for internal operations
-impl Clone for EncryptedPayload {
-    fn clone(&self) -> Self {
-        match self {
-            EncryptedPayload::Login { name, username, password, url, notes } => {
-                EncryptedPayload::Login {
-                    name: name.clone(),
-                    username: username.clone(),
-                    password: SecureStr::new(password.expose().to_string()),
-                    url: url.clone(),
-                    notes: notes.clone(),
-                }
-            }
-            EncryptedPayload::Api { name, app_id, secret_key, url, notes } => {
-                EncryptedPayload::Api {
-                    name: name.clone(),
-                    app_id: app_id.clone(),
-                    secret_key: SecureStr::new(secret_key.expose().to_string()),
-                    url: url.clone(),
-                    notes: notes.clone(),
-                }
-            }
-            EncryptedPayload::Ssh { name, public_key, private_key, passphrase, notes } => {
-                EncryptedPayload::Ssh {
-                    name: name.clone(),
-                    public_key: public_key.clone(),
-                    private_key: private_key.as_ref().map(|pk| SecureStr::new(pk.expose().to_string())),
-                    passphrase: passphrase.as_ref().map(|pp| SecureStr::new(pp.expose().to_string())),
-                    notes: notes.clone(),
-                }
-            }
-        }
-    }
-}
 
 impl EncryptedPayload {
     pub fn name(&self) -> &str {
