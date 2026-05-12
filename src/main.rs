@@ -3,6 +3,7 @@ use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::keystore::KeyStore;
 use oak_keyring::crypto::self_test;
 use oak_keyring::instance_lock::InstanceLock;
+use oak_keyring::security;
 use oak_keyring::tui::i18n;
 
 fn main() {
@@ -10,6 +11,9 @@ fn main() {
         println!("ok {}", env!("CARGO_PKG_VERSION"));
         return;
     }
+
+    // Apply process-level protections BEFORE any secrets are loaded
+    let _process_protections = security::apply_process_protections();
 
     self_test::run_all().unwrap_or_else(|e| {
         eprintln!("Fatal: crypto self-test failed: {e}");
