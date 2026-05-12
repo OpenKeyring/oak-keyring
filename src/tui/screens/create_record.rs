@@ -9,6 +9,7 @@ use crate::tui::state::form_state::{ExpiryOption, FormState};
 use crate::tui::state::generator_state::EmbeddedGeneratorState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::credential::CredentialType;
+use crate::types::sensitive::SensitiveInput;
 
 /// Create record screen state.
 pub struct CreateRecordScreen {
@@ -240,23 +241,23 @@ impl CreateRecordScreen {
                         self.form
                             .fields
                             .password
-                            .get_or_insert_with(String::new)
-                            .push(c);
+                            .get_or_insert_with(SensitiveInput::new)
+                            .push_char(c);
                         self.form.fields.update_strength();
                     }
                     CredentialType::Api => {
                         self.form
                             .fields
                             .secret_key
-                            .get_or_insert_with(String::new)
-                            .push(c);
+                            .get_or_insert_with(SensitiveInput::new)
+                            .push_char(c);
                     }
                     CredentialType::Ssh => {
                         self.form
                             .fields
                             .private_key
-                            .get_or_insert_with(String::new)
-                            .push(c);
+                            .get_or_insert_with(SensitiveInput::new)
+                            .push_char(c);
                     }
                 }
                 self.form.has_changes = true;
@@ -265,8 +266,8 @@ impl CreateRecordScreen {
                 self.form
                     .fields
                     .passphrase
-                    .get_or_insert_with(String::new)
-                    .push(c);
+                    .get_or_insert_with(SensitiveInput::new)
+                    .push_char(c);
                 self.form.has_changes = true;
             }
             _ => {
@@ -321,18 +322,18 @@ impl CreateRecordScreen {
             },
             4 => match ct {
                 CredentialType::Login => {
-                    self.form.fields.password.as_mut().and_then(|s| s.pop());
+                    self.form.fields.password.as_mut().map(|s| s.pop_char());
                     self.form.fields.update_strength();
                 }
                 CredentialType::Api => {
-                    self.form.fields.secret_key.as_mut().and_then(|s| s.pop());
+                    self.form.fields.secret_key.as_mut().map(|s| s.pop_char());
                 }
                 CredentialType::Ssh => {
-                    self.form.fields.private_key.as_mut().and_then(|s| s.pop());
+                    self.form.fields.private_key.as_mut().map(|s| s.pop_char());
                 }
             },
             5 if ct == CredentialType::Ssh => {
-                self.form.fields.passphrase.as_mut().and_then(|s| s.pop());
+                self.form.fields.passphrase.as_mut().map(|s| s.pop_char());
             }
             _ => {
                 let tags_idx = match ct {
@@ -466,7 +467,10 @@ impl CreateRecordScreen {
                     == crate::tui::state::generator_state::GeneratorFocus::ActionButton
                 {
                     let pw = self.generator.use_password();
-                    self.form.fields.password = Some(pw);
+                    self.form.fields.password = Some(SensitiveInput::new());
+                    for c in pw.chars() {
+                        self.form.fields.password.as_mut().unwrap().push_char(c);
+                    }
                     self.form.fields.update_strength();
                     self.form.has_changes = true;
                     return ScreenResult::Continue;
@@ -820,7 +824,9 @@ mod tests {
         screen.form.weak_dialog_focus = 1;
         screen.form.fields.name = "Test".into();
         screen.form.fields.username = Some("user".into());
-        screen.form.fields.password = Some("weak".into());
+        for c in "weak".chars() {
+            screen.form.fields.password.as_mut().unwrap().push_char(c);
+        }
         let result = screen.update(
             Message::KeyEvent(crossterm::event::KeyEvent::new(
                 KeyCode::Enter,

@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::crypto::strength::{evaluate_strength, PasswordStrength};
 use crate::t;
 use crate::types::credential::{CredentialType, EncryptedPayload};
-use crate::types::sensitive::SecureStr;
+use crate::types::sensitive::{SecureStr, SensitiveInput};
 
 /// Form mode: create new record or edit existing.
 #[derive(Debug, Clone)]
@@ -87,25 +87,25 @@ pub struct ValidationError {
 }
 
 /// All form fields (union of all credential types).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FormFields {
     // Common
     pub name: String,
     pub url: String,
     // Login
     pub username: Option<String>,
-    pub password: Option<String>,
+    pub password: Option<SensitiveInput>,
     pub password_visible: bool,
     pub strength: Option<PasswordStrength>,
     // API
     pub app_id: Option<String>,
-    pub secret_key: Option<String>,
+    pub secret_key: Option<SensitiveInput>,
     pub secret_visible: bool,
     // SSH
     pub public_key: Option<String>,
-    pub private_key: Option<String>,
+    pub private_key: Option<SensitiveInput>,
     pub private_visible: bool,
-    pub passphrase: Option<String>,
+    pub passphrase: Option<SensitiveInput>,
     pub passphrase_visible: bool,
     // Common tail
     pub expires_at: ExpiryOption,
@@ -113,6 +113,32 @@ pub struct FormFields {
     pub tags: Vec<String>,
     pub tag_input: String,
     pub notes: String,
+}
+
+impl Clone for FormFields {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            url: self.url.clone(),
+            username: self.username.clone(),
+            password: self.password.as_ref().map(|_| SensitiveInput::new()),
+            password_visible: self.password_visible,
+            strength: self.strength.clone(),
+            app_id: self.app_id.clone(),
+            secret_key: self.secret_key.as_ref().map(|_| SensitiveInput::new()),
+            secret_visible: self.secret_visible,
+            public_key: self.public_key.clone(),
+            private_key: self.private_key.as_ref().map(|_| SensitiveInput::new()),
+            private_visible: self.private_visible,
+            passphrase: self.passphrase.as_ref().map(|_| SensitiveInput::new()),
+            passphrase_visible: self.passphrase_visible,
+            expires_at: self.expires_at,
+            custom_date: self.custom_date.clone(),
+            tags: self.tags.clone(),
+            tag_input: self.tag_input.clone(),
+            notes: self.notes.clone(),
+        }
+    }
 }
 
 impl FormFields {
@@ -146,16 +172,20 @@ impl FormFields {
         match ct {
             CredentialType::Login => {
                 self.username = Some(String::new());
-                self.password = Some(String::new());
+                self.password = Some(SensitiveInput::new());
+                self.password_visible = false;
             }
             CredentialType::Api => {
                 self.app_id = Some(String::new());
-                self.secret_key = Some(String::new());
+                self.secret_key = Some(SensitiveInput::new());
+                self.secret_visible = false;
             }
             CredentialType::Ssh => {
                 self.public_key = Some(String::new());
-                self.private_key = Some(String::new());
-                self.passphrase = Some(String::new());
+                self.private_key = Some(SensitiveInput::new());
+                self.private_visible = false;
+                self.passphrase = Some(SensitiveInput::new());
+                self.passphrase_visible = false;
             }
         }
     }
@@ -166,7 +196,7 @@ impl FormFields {
             if pw.is_empty() {
                 self.strength = None;
             } else {
-                self.strength = Some(evaluate_strength(pw));
+                pw.expose(|s| self.strength = Some(evaluate_strength(s)));
             }
         }
     }
@@ -361,16 +391,28 @@ impl FormState {
 
     /// Get the secret value of the currently focused sensitive field as a string.
     /// Returns `None` if the focused field is not a sensitive field.
-    pub fn current_secret_value(&self) -> Option<&str> {
+    pub fn current_secret_value(&self) -> Option<String> {
         let focused = self.focused_field;
         let ct = self.credential_type;
         match ct {
-            CredentialType::Login if focused == 4 => self.fields.password.as_deref(),
-            CredentialType::Api if focused == 4 => self.fields.secret_key.as_deref(),
+            CredentialType::Login if focused == 4 => {
+                self.fields.password.as_ref().map(|p| p.expose(|s| s.to_string()))
+            }
+            CredentialType::Api if focused == 4 => {
+                self.fields.secret_key.as_ref().map(|k| k.expose(|s| s.to_string()))
+            }
             CredentialType::Ssh => match focused {
-                3 => self.fields.public_key.as_deref(),
-                4 => self.fields.private_key.as_deref(),
-                5 => self.fields.passphrase.as_deref(),
+                3 => self.fields.public_key.as_ref().cloned(),
+                4 => self
+                    .fields
+                    .private_key
+                    .as_ref()
+                    .map(|k| k.expose(|s| s.to_string())),
+                5 => self
+                    .fields
+                    .passphrase
+                    .as_ref()
+                    .map(|p| p.expose(|s| s.to_string())),
                 _ => None,
             },
             _ => None,
@@ -443,22 +485,40 @@ impl FormState {
             CredentialType::Login => EncryptedPayload::Login {
                 name: std::mem::take(&mut self.fields.name),
                 username: self.fields.username.take().unwrap_or_default(),
-                password: SecureStr::new(self.fields.password.take().unwrap_or_default()),
+                password: self
+                    .fields
+                    .password
+                    .as_mut()
+                    .map(SensitiveInput::take_secure)
+                    .unwrap_or_else(|| SecureStr::new(String::new())),
                 url: Some(std::mem::take(&mut self.fields.url)),
                 notes: Some(std::mem::take(&mut self.fields.notes)),
             },
             CredentialType::Api => EncryptedPayload::Api {
                 name: std::mem::take(&mut self.fields.name),
                 app_id: self.fields.app_id.take().unwrap_or_default(),
-                secret_key: SecureStr::new(self.fields.secret_key.take().unwrap_or_default()),
+                secret_key: self
+                    .fields
+                    .secret_key
+                    .as_mut()
+                    .map(SensitiveInput::take_secure)
+                    .unwrap_or_else(|| SecureStr::new(String::new())),
                 url: Some(std::mem::take(&mut self.fields.url)),
                 notes: Some(std::mem::take(&mut self.fields.notes)),
             },
             CredentialType::Ssh => EncryptedPayload::Ssh {
                 name: std::mem::take(&mut self.fields.name),
                 public_key: self.fields.public_key.take().unwrap_or_default(),
-                private_key: self.fields.private_key.take().map(SecureStr::new),
-                passphrase: self.fields.passphrase.take().map(SecureStr::new),
+                private_key: self
+                    .fields
+                    .private_key
+                    .as_mut()
+                    .map(SensitiveInput::take_secure),
+                passphrase: self
+                    .fields
+                    .passphrase
+                    .as_mut()
+                    .map(SensitiveInput::take_secure),
                 notes: Some(std::mem::take(&mut self.fields.notes)),
             },
         }
@@ -557,7 +617,7 @@ mod tests {
     #[test]
     fn is_password_weak_true() {
         let mut state = FormState::new_create();
-        state.fields.password = Some("a".into());
+        state.fields.password.as_mut().unwrap().push_char('a');
         state.fields.update_strength();
         assert!(state.is_password_weak());
     }
@@ -565,7 +625,9 @@ mod tests {
     #[test]
     fn is_password_weak_false_for_strong() {
         let mut state = FormState::new_create();
-        state.fields.password = Some("abcd1234ABCD!@ababcd1234".into());
+        for c in "abcd1234ABCD!@ababcd1234".chars() {
+            state.fields.password.as_mut().unwrap().push_char(c);
+        }
         state.fields.update_strength();
         assert!(!state.is_password_weak());
     }
@@ -576,7 +638,9 @@ mod tests {
         state.fields.name = "Example".into();
         state.fields.url = "https://example.com".into();
         state.fields.username = Some("alice".into());
-        state.fields.password = Some("secret".into());
+        for c in "secret".chars() {
+            state.fields.password.as_mut().unwrap().push_char(c);
+        }
         state.fields.notes = "notes".into();
 
         let payload = state.build_payload();
@@ -597,16 +661,25 @@ mod tests {
             }
             _ => panic!("expected login payload"),
         }
-        assert!(state.fields.password.is_none());
+        assert!(state.fields.password.is_some()); // SensitiveInput remains, but is empty
+        assert!(state.fields.password.as_ref().unwrap().is_empty());
     }
 
     #[test]
     fn clear_sensitive_fields_removes_plaintext_secrets() {
         let mut state = FormState::new_edit(Uuid::new_v4(), CredentialType::Ssh);
-        state.fields.password = Some("password".into());
-        state.fields.secret_key = Some("secret".into());
-        state.fields.private_key = Some("private".into());
-        state.fields.passphrase = Some("passphrase".into());
+        for c in "password".chars() {
+            state.fields.password.as_mut().unwrap().push_char(c);
+        }
+        for c in "secret".chars() {
+            state.fields.secret_key.as_mut().unwrap().push_char(c);
+        }
+        for c in "private".chars() {
+            state.fields.private_key.as_mut().unwrap().push_char(c);
+        }
+        for c in "passphrase".chars() {
+            state.fields.passphrase.as_mut().unwrap().push_char(c);
+        }
 
         state.clear_sensitive_fields();
 
@@ -682,9 +755,11 @@ mod tests {
     #[test]
     fn current_secret_value_returns_password() {
         let mut state = FormState::new_create();
-        state.fields.password = Some("hunter2".into());
+        for c in "hunter2".chars() {
+            state.fields.password.as_mut().unwrap().push_char(c);
+        }
         state.focused_field = 4;
-        assert_eq!(state.current_secret_value(), Some("hunter2"));
+        assert_eq!(state.current_secret_value(), Some("hunter2".to_string()));
     }
 
     #[test]
