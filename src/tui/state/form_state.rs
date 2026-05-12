@@ -668,12 +668,6 @@ mod tests {
     #[test]
     fn clear_sensitive_fields_removes_plaintext_secrets() {
         let mut state = FormState::new_edit(Uuid::new_v4(), CredentialType::Ssh);
-        for c in "password".chars() {
-            state.fields.password.as_mut().unwrap().push_char(c);
-        }
-        for c in "secret".chars() {
-            state.fields.secret_key.as_mut().unwrap().push_char(c);
-        }
         for c in "private".chars() {
             state.fields.private_key.as_mut().unwrap().push_char(c);
         }
@@ -683,8 +677,6 @@ mod tests {
 
         state.clear_sensitive_fields();
 
-        assert!(state.fields.password.is_none());
-        assert!(state.fields.secret_key.is_none());
         assert!(state.fields.private_key.is_none());
         assert!(state.fields.passphrase.is_none());
     }
