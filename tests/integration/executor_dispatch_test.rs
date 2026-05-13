@@ -10,12 +10,10 @@ async fn executor_can_be_constructed() {
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
     let vault_dir = tempfile::tempdir().unwrap();
+    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
+    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
 
-    let executor = CommandExecutor::new(
-        config,
-        result_tx,
-        cancel_token,
-    );
+    let executor = CommandExecutor::new(config, result_tx, cancel_token);
     assert!(executor.is_ok());
     assert!(!executor.unwrap().is_unlocked());
 }
@@ -27,13 +25,10 @@ async fn executor_run_loop_processes_commands() {
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
     let vault_dir = tempfile::tempdir().unwrap();
+    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
+    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
 
-    let executor = CommandExecutor::new(
-        config,
-        result_tx,
-        cancel_token.clone(),
-    )
-    .unwrap();
+    let executor = CommandExecutor::new(config, result_tx, cancel_token.clone()).unwrap();
 
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
 

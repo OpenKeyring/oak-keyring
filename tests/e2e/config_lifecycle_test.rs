@@ -17,18 +17,16 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 /// Helper to construct executor with channels and spawn the run loop
-async fn setup_executor(_vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
+async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
+    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
+    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
     let (result_tx, result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let executor = CommandExecutor::new(
-        config,
-        result_tx,
-        cancel_token,
-    )
-    .expect("executor construction should succeed");
+    let executor = CommandExecutor::new(config, result_tx, cancel_token)
+        .expect("executor construction should succeed");
 
     // Spawn the executor run loop
     tokio::spawn(async move {
@@ -214,7 +212,6 @@ async fn save_config_updates_in_memory() {
     drop(command_tx);
 }
 
-
 #[tokio::test]
 async fn config_lifecycle_in_run_loop() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
@@ -307,12 +304,8 @@ async fn save_and_reload_preserves_config() {
         let (command_tx, command_rx) = mpsc::channel(64);
         let cancel_token = CancellationToken::new();
 
-        let executor = CommandExecutor::new(
-            disk_config,
-            result_tx,
-            cancel_token,
-        )
-        .expect("executor construction should succeed");
+        let executor = CommandExecutor::new(disk_config, result_tx, cancel_token)
+            .expect("executor construction should succeed");
 
         tokio::spawn(async move {
             executor.run(command_rx).await;

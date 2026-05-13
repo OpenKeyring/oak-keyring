@@ -65,12 +65,13 @@ pub fn run(
                         return Ok(());
                     }
                 }
-                CrosstermEvent::Resize(width, height) => {
-                    if handle_message(app, Message::Resize { width, height })? == LoopControl::Exit
-                    {
-                        return Ok(());
-                    }
+                CrosstermEvent::Resize(width, height)
+                    if handle_message(app, Message::Resize { width, height })?
+                        == LoopControl::Exit =>
+                {
+                    return Ok(());
                 }
+                CrosstermEvent::Resize(..) => {}
                 // Ignore mouse events and other crossterm events for now.
                 _ => {}
             }
@@ -517,12 +518,8 @@ mod tests {
     fn test_app() -> App {
         let vault_dir = tempfile::tempdir().unwrap();
         let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
-        let mut app = App::new(
-            crate::config::AppConfig::default(),
-            true,
-            instance_lock,
-        )
-        .expect("app");
+        let mut app =
+            App::new(crate::config::AppConfig::default(), true, instance_lock).expect("app");
         app.phase = AppPhase::Running;
         app
     }

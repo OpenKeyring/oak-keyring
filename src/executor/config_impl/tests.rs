@@ -219,7 +219,7 @@ fn config_manager_load_reads_from_disk_and_updates_state() {
 
 #[test]
 fn config_manager_load_returns_default_when_no_file_exists() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     // No config.toml on disk — load should return defaults
     let manager = ConfigManagerImpl::new(AppConfig::default());
     let loaded = manager.load().unwrap();
@@ -231,7 +231,7 @@ fn config_manager_load_returns_default_when_no_file_exists() {
 
 #[test]
 fn config_manager_save_writes_to_disk_and_updates_state() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let config = AppConfig::default();
     let manager = ConfigManagerImpl::new(AppConfig::default());
 
@@ -292,7 +292,7 @@ fn config_manager_reload_re_reads_from_disk() {
 
 #[test]
 fn config_manager_reload_returns_default_when_no_file() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let manager = ConfigManagerImpl::new(AppConfig::default());
 
     let reloaded = manager.reload().unwrap();
@@ -303,7 +303,7 @@ fn config_manager_reload_returns_default_when_no_file() {
 
 #[test]
 fn config_manager_get_config_returns_current_snapshot() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let initial = AppConfig::default();
     let manager = ConfigManagerImpl::new(initial.clone());
 
@@ -341,7 +341,7 @@ fn config_manager_concurrent_reads_are_safe() {
 
 #[test]
 fn config_manager_concurrent_writes_are_safe() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let config = AppConfig::default();
     let manager = Arc::new(ConfigManagerImpl::new(config));
     let num_threads = 4;
@@ -369,7 +369,7 @@ fn config_manager_concurrent_writes_are_safe() {
 
 #[test]
 fn config_manager_concurrent_read_write_safe() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let config = AppConfig::default();
     config.save().unwrap();
 
@@ -420,7 +420,7 @@ fn config_watcher_new_initializes_with_no_mtime() {
     // when no file exists only if last_mtime is None.
     // Actually needs_reload returns false when no file exists, so let's check
     // via a file existing scenario.
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let config = AppConfig::default();
     config.save().unwrap();
 
@@ -457,7 +457,7 @@ fn config_watcher_needs_reload_returns_true_when_file_newer_than_stored_mtime() 
 
 #[test]
 fn config_watcher_needs_reload_returns_false_when_no_config_file() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let watcher = ConfigWatcherImpl::new();
 
     // No file on disk — needs_reload should return false regardless of stored mtime
@@ -473,7 +473,7 @@ fn config_watcher_needs_reload_returns_false_when_no_config_file() {
 
 #[test]
 fn config_watcher_needs_reload_returns_true_on_first_time_check() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let config = AppConfig::default();
     config.save().unwrap();
 
@@ -486,7 +486,7 @@ fn config_watcher_needs_reload_returns_true_on_first_time_check() {
 
 #[test]
 fn config_watcher_needs_reload_returns_false_after_update_mtime() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let config = AppConfig::default();
     config.save().unwrap();
 
@@ -502,7 +502,7 @@ fn config_watcher_needs_reload_returns_false_after_update_mtime() {
 
 #[test]
 fn config_watcher_last_modified_returns_current_file_mtime() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let config = AppConfig::default();
     config.save().unwrap();
 
@@ -522,7 +522,7 @@ fn config_watcher_last_modified_returns_current_file_mtime() {
 
 #[test]
 fn config_watcher_last_modified_returns_none_when_no_file() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let watcher = ConfigWatcherImpl::new();
 
     assert!(watcher.last_modified().is_none());
@@ -532,7 +532,7 @@ fn config_watcher_last_modified_returns_none_when_no_file() {
 
 #[test]
 fn config_watcher_update_mtime_sets_stored_mtime_to_current_file() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let config = AppConfig::default();
     config.save().unwrap();
 
@@ -551,7 +551,7 @@ fn config_watcher_update_mtime_sets_stored_mtime_to_current_file() {
 
 #[test]
 fn config_watcher_update_mtime_with_no_file_clears_stored_mtime() {
-    let vault_dir = temp_vault_dir();
+    let _vault_dir = temp_vault_dir();
     let mut watcher = ConfigWatcherImpl::new();
 
     // Simulate having a previous mtime

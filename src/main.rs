@@ -41,10 +41,11 @@ fn main() {
     i18n::init(&config.general.language);
 
     // Acquire instance lock using data_dir
-    let instance_lock = InstanceLock::acquire(&oak_keyring::paths::data_dir()).unwrap_or_else(|e| {
-        eprintln!("{e}");
-        std::process::exit(1);
-    });
+    let instance_lock =
+        InstanceLock::acquire(&oak_keyring::paths::data_dir()).unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1);
+        });
 
     // Determine vault state
     let has_vault = oak_keyring::paths::has_key_file() || oak_keyring::paths::has_db_file();

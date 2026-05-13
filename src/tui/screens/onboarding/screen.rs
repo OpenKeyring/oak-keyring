@@ -134,7 +134,7 @@ impl OnboardingScreen {
         match self.selected_path {
             None => 1,
             Some(OnboardingPath::CreateNew) => 4, // Welcome + RecoveryDisplay + RecoveryVerify + SetPassword
-            Some(OnboardingPath::Restore) => 3, // Welcome + RecoveryInput + SecurityAdvisory
+            Some(OnboardingPath::Restore) => 3,   // Welcome + RecoveryInput + SecurityAdvisory
             Some(OnboardingPath::Import) => 6, // Welcome + ImportSource + ImportPreview + RecoveryDisplay + RecoveryVerify + SetPassword
         }
     }

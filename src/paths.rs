@@ -100,8 +100,15 @@ pub fn display_path_with_tilde(path: &std::path::Path) -> String {
 mod tests {
     use super::*;
 
+    fn clear_overrides() {
+        std::env::remove_var("OAK_VAULT_DIR");
+        std::env::remove_var("OAK_CONFIG_DIR");
+        std::env::remove_var("OAK_HOME_DIR");
+    }
+
     #[test]
     fn data_dir_structure() {
+        clear_overrides();
         let dir = data_dir();
         let s = dir.to_string_lossy();
         assert!(s.contains(".local/share"));
@@ -110,6 +117,7 @@ mod tests {
 
     #[test]
     fn config_dir_structure() {
+        clear_overrides();
         let dir = config_dir();
         let s = dir.to_string_lossy();
         assert!(s.contains(".config"));
@@ -118,6 +126,7 @@ mod tests {
 
     #[test]
     fn derived_paths_are_consistent() {
+        clear_overrides();
         assert_eq!(db_path(), data_dir().join("vault.db"));
         assert_eq!(key_path(), data_dir().join("wrapped_secret_key.json"));
         assert_eq!(config_file_path(), config_dir().join("config.toml"));
@@ -126,6 +135,7 @@ mod tests {
 
     #[test]
     fn document_dir_is_home_documents() {
+        clear_overrides();
         let d = document_dir();
         let s = d.to_string_lossy();
         assert!(s.ends_with("Documents"));

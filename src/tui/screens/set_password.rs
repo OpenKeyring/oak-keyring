@@ -709,7 +709,10 @@ mod tests {
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.error.as_deref(), Some(&*t!("tui.entry.password_mismatch").to_string()));
+        assert_eq!(
+            screen.error.as_deref(),
+            Some(&*t!("tui.entry.password_mismatch").to_string())
+        );
     }
 
     #[test]

@@ -42,18 +42,16 @@ fn create_fs_sync_service() -> (SyncService, TempDir) {
     (SyncService::new(storage), temp_dir)
 }
 
-async fn setup_executor(_vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
+async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
+    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
+    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
     let (result_tx, result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let executor = CommandExecutor::new(
-        config,
-        result_tx,
-        cancel_token,
-    )
-    .expect("executor construction should succeed");
+    let executor = CommandExecutor::new(config, result_tx, cancel_token)
+        .expect("executor construction should succeed");
 
     tokio::spawn(async move {
         executor.run(command_rx).await;
@@ -62,18 +60,16 @@ async fn setup_executor(_vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::R
     (command_tx, result_rx)
 }
 
-async fn setup_sync_executor(_vault_dir: &TempDir) -> SyncTestContext {
+async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
+    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
+    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
     let (result_tx, result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(
-        config,
-        result_tx,
-        cancel_token,
-    )
-    .expect("executor construction should succeed");
+    let mut executor = CommandExecutor::new(config, result_tx, cancel_token)
+        .expect("executor construction should succeed");
 
     let (sync, cloud_dir) = create_fs_sync_service();
     executor.set_sync_service(Some(sync));
@@ -314,17 +310,15 @@ async fn sync_with_locked_vault_completes_without_uploads() {
 #[tokio::test]
 async fn sync_cancellation_returns_cancelled() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
+    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
+    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
     let (result_tx, mut result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(
-        config,
-        result_tx,
-        cancel_token,
-    )
-    .expect("executor construction should succeed");
+    let mut executor = CommandExecutor::new(config, result_tx, cancel_token)
+        .expect("executor construction should succeed");
 
     let (sync, _cloud_dir) = create_fs_sync_service();
     executor.set_sync_service(Some(sync));

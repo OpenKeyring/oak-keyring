@@ -65,10 +65,10 @@ fn onboarding_welcome_default_selected_is_first() {
 fn onboarding_welcome_enter_selects_create() {
     let mut screen = OnboardingScreen::default();
     // Default selection is 0 (CreateNew), pressing Enter should select it
-    let result = screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Enter,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    let result = screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.selected_path, Some(OnboardingPath::CreateNew));
     assert_eq!(screen.current_step, OnboardingStep::RecoveryDisplay);
@@ -78,16 +78,16 @@ fn onboarding_welcome_enter_selects_create() {
 fn onboarding_welcome_down_then_enter_selects_restore() {
     let mut screen = OnboardingScreen::default();
     // Press Down to move to index 1 (Restore)
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 1);
 
-    let result = screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Enter,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    let result = screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.selected_path, Some(OnboardingPath::Restore));
     assert_eq!(screen.current_step, OnboardingStep::RecoveryInput);
@@ -96,20 +96,20 @@ fn onboarding_welcome_down_then_enter_selects_restore() {
 #[test]
 fn onboarding_welcome_down_twice_then_enter_selects_import() {
     let mut screen = OnboardingScreen::default();
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 2);
 
-    let result = screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Enter,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    let result = screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.selected_path, Some(OnboardingPath::Import));
     assert_eq!(screen.current_step, OnboardingStep::ImportSource);
@@ -120,20 +120,20 @@ fn onboarding_welcome_down_wraps_around() {
     let mut screen = OnboardingScreen::default();
 
     // Down three times from 0 should wrap back to 0
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 1);
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 2);
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 0);
 }
 
@@ -141,20 +141,20 @@ fn onboarding_welcome_down_wraps_around() {
 fn onboarding_welcome_up_wraps_around() {
     let mut screen = OnboardingScreen::default();
     // Up from 0 should wrap to 2
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Up,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Up, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 2);
 }
 
 #[test]
 fn onboarding_welcome_tab_moves_down() {
     let mut screen = OnboardingScreen::default();
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Tab,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 1);
 }
 
@@ -162,20 +162,20 @@ fn onboarding_welcome_tab_moves_down() {
 fn onboarding_welcome_backtab_moves_up() {
     let mut screen = OnboardingScreen::default();
     screen.welcome_selected = 2;
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::BackTab,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 1);
 }
 
 #[test]
 fn onboarding_welcome_esc_exits() {
     let mut screen = OnboardingScreen::default();
-    let result = screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Esc,
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    let result = screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert!(matches!(result, ScreenResult::ExitApp));
 }
 
@@ -185,24 +185,24 @@ fn onboarding_welcome_language_cycling() {
     assert_eq!(screen.language_index, 0);
 
     // Press 'L' to cycle to next language
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Char('L'),
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Char('L'), crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.language_index, 1);
 
     // Press 'l' (lowercase) to cycle again
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Char('l'),
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Char('l'), crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.language_index, 2);
 
     // Press 'L' to wrap around to auto
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Char('L'),
-        crossterm::event::KeyModifiers::NONE,
-    ), &mut dummy_ctx());
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Char('L'), crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.language_index, 0);
 }
 

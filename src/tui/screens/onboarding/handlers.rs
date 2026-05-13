@@ -25,7 +25,11 @@ impl OnboardingScreen {
         }
     }
 
-    pub(crate) fn handle_welcome_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
+    pub(crate) fn handle_welcome_key(
+        &mut self,
+        key: KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
         const PATH_COUNT: usize = 3;
         const LANGUAGE_COUNT: usize = 3;
 

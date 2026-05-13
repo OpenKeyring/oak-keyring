@@ -430,17 +430,16 @@ impl ImportExportScreen {
                     }
                 }
             }
-            KeyCode::Up => {
-                if self.import_focus == ImportFocus::SourceList && self.selected_source_idx > 0 {
-                    self.selected_source_idx -= 1;
-                }
+            KeyCode::Up
+                if self.import_focus == ImportFocus::SourceList && self.selected_source_idx > 0 =>
+            {
+                self.selected_source_idx -= 1;
             }
-            KeyCode::Down => {
+            KeyCode::Down
                 if self.import_focus == ImportFocus::SourceList
-                    && self.selected_source_idx < IMPORT_SOURCES.len() - 1
-                {
-                    self.selected_source_idx += 1;
-                }
+                    && self.selected_source_idx < IMPORT_SOURCES.len() - 1 =>
+            {
+                self.selected_source_idx += 1;
             }
             KeyCode::Enter => {
                 if self.import_focus == ImportFocus::SourceList {
@@ -635,17 +634,19 @@ impl ImportExportScreen {
                     ExportFocus::OutputPath => ExportFocus::ConfirmPassword,
                 };
             }
-            KeyCode::Up if self.export_focus == ExportFocus::Format => {
-                if self.export_format != ExportFormat::Okb {
-                    self.export_format = ExportFormat::Okb;
-                    self.update_export_path_extension();
-                }
+            KeyCode::Up
+                if self.export_focus == ExportFocus::Format
+                    && self.export_format != ExportFormat::Okb =>
+            {
+                self.export_format = ExportFormat::Okb;
+                self.update_export_path_extension();
             }
-            KeyCode::Down if self.export_focus == ExportFocus::Format => {
-                if self.export_format != ExportFormat::Csv {
-                    self.export_format = ExportFormat::Csv;
-                    self.update_export_path_extension();
-                }
+            KeyCode::Down
+                if self.export_focus == ExportFocus::Format
+                    && self.export_format != ExportFormat::Csv =>
+            {
+                self.export_format = ExportFormat::Csv;
+                self.update_export_path_extension();
             }
             KeyCode::Up if self.export_focus == ExportFocus::Scope => {
                 self.export_scope_option = match self.export_scope_option {

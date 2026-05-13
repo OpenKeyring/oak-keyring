@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn save_load_roundtrip() {
-        let tmp = setup_test_env();
+        let _tmp = setup_test_env();
         let mut config = AppConfig::default_config();
         config.general.auto_lock_seconds = 900;
         config.sync.provider = SyncProvider::WebDav;
@@ -77,7 +77,7 @@ mod tests {
         assert_eq!(config.general.auto_lock_seconds, 60);
         assert_eq!(config.general.clipboard_clear_seconds, 30); // default
         assert_eq!(config.password.length, 16); // default
-        // cleanup happens when tmp is dropped at end of scope
+                                                // cleanup happens when tmp is dropped at end of scope
     }
 
     #[test]
@@ -504,7 +504,7 @@ root_path = "/"
 
     #[test]
     fn full_config_save_load_roundtrip_with_provider() {
-        let tmp = setup_test_env();
+        let _tmp = setup_test_env();
         let mut config = AppConfig::default_config();
         config.sync.provider = SyncProvider::WebDav;
         config.sync.provider_config = Some(ProviderConfig::WebDav(crate::config::WebDavConfig {
@@ -530,7 +530,7 @@ root_path = "/"
 
     #[test]
     fn full_config_save_load_roundtrip_icloud() {
-        let tmp = setup_test_env();
+        let _tmp = setup_test_env();
         let mut config = AppConfig::default_config();
         config.sync.provider = SyncProvider::ICloud;
         config.sync.provider_config = Some(ProviderConfig::ICloud);

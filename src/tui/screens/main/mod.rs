@@ -310,10 +310,12 @@ impl MainScreen {
                             }));
                         }
                     }
-                    KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        if !state.list.is_searching() && !state.list.is_visual() {
-                            state.list.enter_search();
-                        }
+                    KeyCode::Char('k')
+                        if key.modifiers.contains(KeyModifiers::CONTROL)
+                            && !state.list.is_searching()
+                            && !state.list.is_visual() =>
+                    {
+                        state.list.enter_search();
                     }
                     KeyCode::Enter if !state.list.is_visual() && !state.list.is_searching() => {
                         state.focused_panel = PanelId::Detail;
