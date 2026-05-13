@@ -11,14 +11,13 @@ use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
 use oak_keyring::executor::CommandExecutor;
 use oak_keyring::types::sensitive::SecureStr;
-use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 /// Helper to construct executor with channels and spawn the run loop
-async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
+async fn setup_executor(_vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
     let (result_tx, result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
@@ -26,7 +25,6 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
 
     let executor = CommandExecutor::new(
         config,
-        vault_dir.path().to_path_buf(),
         result_tx,
         cancel_token,
     )
@@ -50,7 +48,6 @@ async fn setup_unlocked_executor(
     let password = SecureStr::new("test_password_123".to_string());
     command_tx
         .send(Command::InitializeVault {
-            vault_path: vault_dir.path().to_path_buf(),
             master_password: password,
             recovery_words: None,
         })
@@ -165,7 +162,7 @@ async fn save_config_persists_to_disk() {
     assert!(config_path.exists(), "config.toml should exist after save");
 
     // Read and verify the persisted config
-    let persisted_config = AppConfig::load(vault_dir.path()).expect("load should succeed");
+    let persisted_config = AppConfig::load().expect("load should succeed");
     assert_eq!(
         persisted_config.general.clipboard_clear_seconds, 60,
         "persisted config should have updated clipboard_clear_seconds"
@@ -217,45 +214,6 @@ async fn save_config_updates_in_memory() {
     drop(command_tx);
 }
 
-#[tokio::test]
-async fn save_config_detects_vault_path_change() {
-    let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
-    let (command_tx, mut result_rx) = setup_unlocked_executor(&vault_dir).await;
-
-    // Save a config with different vault_path
-    let mut modified_config = AppConfig::default();
-    modified_config.general.vault_path = PathBuf::from("/some/other/path");
-
-    command_tx
-        .send(Command::SaveConfig {
-            config: modified_config,
-        })
-        .await
-        .expect("send should succeed");
-
-    let result = recv_command_result(&mut result_rx).await;
-
-    // Verify ConfigSaved with warning about vault_path change
-    match result {
-        CommandResult::ConfigSaved { warnings } => {
-            assert!(
-                !warnings.is_empty(),
-                "saving with different vault_path should produce warnings"
-            );
-            assert!(
-                warnings
-                    .iter()
-                    .any(|w| w.contains("restart") || w.contains("application")),
-                "warnings should mention application restart, got: {:?}",
-                warnings
-            );
-        }
-        other => panic!("Expected ConfigSaved, got {:?}", other),
-    }
-
-    // Clean up
-    drop(command_tx);
-}
 
 #[tokio::test]
 async fn config_lifecycle_in_run_loop() {
@@ -343,7 +301,7 @@ async fn save_and_reload_preserves_config() {
     // Second executor: load the persisted config
     {
         // Load config from disk first to pass to the new executor
-        let disk_config = AppConfig::load(vault_dir.path()).expect("load should succeed");
+        let disk_config = AppConfig::load().expect("load should succeed");
 
         let (result_tx, result_rx) = mpsc::channel(64);
         let (command_tx, command_rx) = mpsc::channel(64);
@@ -351,7 +309,6 @@ async fn save_and_reload_preserves_config() {
 
         let executor = CommandExecutor::new(
             disk_config,
-            vault_dir.path().to_path_buf(),
             result_tx,
             cancel_token,
         )

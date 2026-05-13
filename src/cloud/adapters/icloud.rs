@@ -14,8 +14,7 @@ impl ICloudAdapter {
     }
 
     fn icloud_path() -> PathBuf {
-        dirs::document_dir()
-            .unwrap_or_else(|| PathBuf::from("~/Documents"))
+        crate::paths::document_dir()
             .join("..")
             .join("Library")
             .join("Mobile Documents")

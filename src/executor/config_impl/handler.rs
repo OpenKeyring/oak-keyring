@@ -2,7 +2,6 @@
 //!
 //! These structs implement the D3 config traits for use by the S5 executor layer.
 
-use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
@@ -40,22 +39,22 @@ impl ConfigManagerImpl {
 }
 
 impl ConfigManager for ConfigManagerImpl {
-    fn load(&self, vault_dir: &Path) -> Result<AppConfig, ConfigError> {
-        let config = AppConfig::load(vault_dir)?;
+    fn load(&self) -> Result<AppConfig, ConfigError> {
+        let config = AppConfig::load()?;
         let mut current = self.config.write().unwrap_or_else(|e| e.into_inner());
         *current = config.clone();
         Ok(config)
     }
 
-    fn save(&self, config: &AppConfig, vault_dir: &Path) -> Result<(), ConfigError> {
-        config.save(vault_dir)?;
+    fn save(&self, config: &AppConfig) -> Result<(), ConfigError> {
+        config.save()?;
         let mut current = self.config.write().unwrap_or_else(|e| e.into_inner());
         *current = config.clone();
         Ok(())
     }
 
-    fn reload(&self, vault_dir: &Path) -> Result<AppConfig, ConfigError> {
-        self.load(vault_dir)
+    fn reload(&self) -> Result<AppConfig, ConfigError> {
+        self.load()
     }
 
     fn get_config(&self) -> AppConfig {
@@ -80,8 +79,8 @@ impl ConfigWatcherImpl {
         Self { last_mtime: None }
     }
 
-    pub(crate) fn current_mtime(vault_dir: &Path) -> Option<SystemTime> {
-        let config_path = vault_dir.join("config.toml");
+    pub(crate) fn current_mtime() -> Option<SystemTime> {
+        let config_path = crate::paths::config_file_path();
         std::fs::metadata(&config_path).ok()?.modified().ok()
     }
 }
@@ -93,8 +92,8 @@ impl Default for ConfigWatcherImpl {
 }
 
 impl ConfigWatcher for ConfigWatcherImpl {
-    fn needs_reload(&self, vault_dir: &Path) -> bool {
-        let current = Self::current_mtime(vault_dir);
+    fn needs_reload(&self) -> bool {
+        let current = Self::current_mtime();
         match (current, self.last_mtime) {
             (Some(now), Some(last)) => now > last,
             (Some(_), None) => true,
@@ -102,8 +101,8 @@ impl ConfigWatcher for ConfigWatcherImpl {
         }
     }
 
-    fn last_modified(&self, vault_dir: &Path) -> Option<SystemTime> {
-        Self::current_mtime(vault_dir)
+    fn last_modified(&self) -> Option<SystemTime> {
+        Self::current_mtime()
     }
 }
 
@@ -114,8 +113,8 @@ impl ConfigWatcher for ConfigWatcherImpl {
 impl ConfigWatcherImpl {
     /// Update the stored mtime snapshot to the current file mtime.
     /// Call this after a successful reload to avoid repeated reload triggers.
-    pub fn update_mtime(&mut self, vault_dir: &Path) {
-        self.last_mtime = Self::current_mtime(vault_dir);
+    pub fn update_mtime(&mut self) {
+        self.last_mtime = Self::current_mtime();
     }
 }
 

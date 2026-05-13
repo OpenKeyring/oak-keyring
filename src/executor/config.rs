@@ -20,7 +20,7 @@ pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> 
     let old_config = executor.config.get_config();
     let changed = detect_changed_fields(&old_config, &config);
 
-    match executor.config.save(&config, &executor.vault_dir) {
+    match executor.config.save(&config) {
         Ok(()) => {
             let warnings = apply_config_changes(executor, &changed, &config);
 
@@ -51,9 +51,6 @@ fn detect_changed_fields(old: &AppConfig, new: &AppConfig) -> Vec<&'static str> 
     }
     if old.general.clipboard_clear_seconds != new.general.clipboard_clear_seconds {
         changed.push("general.clipboard_clear_seconds");
-    }
-    if old.general.vault_path != new.general.vault_path {
-        changed.push("general.vault_path");
     }
     if old.sync.provider != new.sync.provider
         || old.sync.auto_interval_seconds != new.sync.auto_interval_seconds
@@ -120,10 +117,6 @@ fn apply_config_changes(
                         warnings.push(format!("Sync service rebuild failed: {}", e));
                     }
                 }
-            }
-            "general.vault_path" => {
-                tracing::warn!("vault_path changed — requires application restart");
-                warnings.push("vault_path changed — requires application restart".to_string());
             }
             _ => {}
         }
@@ -214,10 +207,7 @@ pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor
     let token_store = {
         let mut ts_guard = executor.oauth2_token_store.lock().await;
         if ts_guard.is_none() {
-            let base_path = dirs::config_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("open-keyring")
-                .join("tokens");
+            let base_path = crate::paths::tokens_dir();
             *ts_guard = Some(TokenStore::new(base_path));
         }
         ts_guard.clone().unwrap()
@@ -401,18 +391,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_config_changes_returns_warning_on_vault_path_change() {
-        let mut executor = make_executor_with_clipboard(30);
-        let new_config = AppConfig::default();
-
-        let warnings = apply_config_changes(&mut executor, &["general.vault_path"], &new_config);
-
-        assert!(warnings
-            .iter()
-            .any(|w| w.contains("requires application restart")));
-    }
-
-    #[test]
     fn handle_save_config_includes_warnings_in_result() {
         let tmp = tempfile::tempdir().expect("tempdir failed");
         let mut executor = make_executor_with_clipboard(30);
@@ -429,22 +407,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn handle_save_config_includes_vault_path_warning() {
-        let tmp = tempfile::tempdir().expect("tempdir failed");
-        let mut executor = make_executor_with_clipboard(30);
-        executor.vault_dir = tmp.path().to_path_buf();
-        let mut new_config = AppConfig::default();
-        new_config.general.vault_path = std::path::PathBuf::from("/totally/different/path");
-
-        let result = handle_save_config(&mut executor, new_config);
-        match result {
-            CommandResult::ConfigSaved { warnings } => {
-                assert!(warnings
-                    .iter()
-                    .any(|w| w.contains("requires application restart")));
-            }
-            _ => panic!("Expected ConfigSaved"),
-        }
-    }
 }

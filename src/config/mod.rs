@@ -11,7 +11,8 @@ pub mod watcher;
 use serde::{Deserialize, Serialize};
 
 pub use error::ConfigError;
-pub use general::{display_path_with_tilde, AnimationMode, GeneralConfig};
+pub use general::AnimationMode;
+pub use general::GeneralConfig;
 pub use manager::ConfigManager;
 pub use notification::{ConfigReloadable, ServiceNotification};
 pub use password::PasswordDefaultsConfig;
@@ -43,8 +44,8 @@ impl AppConfig {
         Self::default()
     }
 
-    pub fn load(vault_dir: &std::path::Path) -> Result<Self, ConfigError> {
-        let path = vault_dir.join("config.toml");
+    pub fn load() -> Result<Self, ConfigError> {
+        let path = crate::paths::config_file_path();
         if !path.exists() {
             return Ok(Self::default_config());
         }
@@ -54,10 +55,22 @@ impl AppConfig {
         Ok(config)
     }
 
-    pub fn save(&self, vault_dir: &std::path::Path) -> Result<(), ConfigError> {
+    pub fn load_or_auto_generate() -> Result<Self, ConfigError> {
+        let path = crate::paths::config_file_path();
+        if !path.exists() && crate::paths::vault_complete() {
+            let config = Self::default_config();
+            config.save()?;
+            tracing::info!("auto-generated config.toml (vault data found)");
+            return Ok(config);
+        }
+        Self::load()
+    }
+
+    pub fn save(&self) -> Result<(), ConfigError> {
         validation::validate(self)?;
-        let path = vault_dir.join("config.toml");
-        std::fs::create_dir_all(vault_dir)?;
+        let config_dir = crate::paths::config_dir();
+        std::fs::create_dir_all(&config_dir)?;
+        let path = crate::paths::config_file_path();
         let toml_str =
             toml::to_string_pretty(self).map_err(|e| ConfigError::Parse(e.to_string()))?;
         let tmp_path = path.with_extension("toml.tmp");

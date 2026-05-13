@@ -4,7 +4,6 @@ use zeroize::Zeroize;
 use crate::commands::types::ImportPreview;
 use crate::commands::Message;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-use crate::t;
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
@@ -18,11 +17,12 @@ use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
 pub struct OnboardingScreen {
     pub current_step: OnboardingStep,
     pub selected_path: Option<OnboardingPath>,
-    pub path_input: String,
     pub error: Option<String>,
     pub recovery_confirmed: bool,
     /// Currently highlighted card index on the Welcome step (0..3).
     pub welcome_selected: usize,
+    /// Currently selected language index (0=auto, 1=en, 2=zh-CN).
+    pub language_index: usize,
     /// 24 recovery words populated after VaultInitialized command result.
     pub recovery_words: Vec<String>,
     /// Embedded grid for RecoveryInput step.
@@ -34,7 +34,7 @@ pub struct OnboardingScreen {
     /// Currently focused verification input box index (0-3) on the RecoveryVerify step.
     pub verify_focus_index: usize,
     /// Signals that onboarding is returning from ImportExportScreen.
-    /// When true, skip ImportSource step and go directly to VaultPath.
+    /// When true, skip ImportSource step and go directly to RecoveryDisplay.
     pub returning_from_import: bool,
     /// Signals that onboarding is returning from SetNewMasterPassword.
     /// When true, skip reset and restore to SetPassword step.
@@ -50,11 +50,6 @@ pub struct OnboardingScreen {
     pub import_as_notes: bool,
     /// Whether the checkbox on ImportPreview step is focused.
     pub import_preview_checkbox_focused: bool,
-    // VaultPath step state
-    /// Whether the path input is in editable (custom) mode.
-    pub vault_path_editable: bool,
-    /// Focus index for VaultPath step: 0=Use default button, 1=Custom button, 2=Path input (when editable).
-    pub vault_path_focus: usize,
     // RecoveryDisplay step state
     /// Which element is focused on the RecoveryDisplay step.
     pub recovery_focus: RecoveryFocus,
@@ -70,10 +65,10 @@ impl Default for OnboardingScreen {
         Self {
             current_step: OnboardingStep::default(),
             selected_path: None,
-            path_input: String::new(),
             error: None,
             recovery_confirmed: false,
             welcome_selected: 0,
+            language_index: 0,
             recovery_words: Vec::new(),
             recovery_grid: WordGridState::default(),
             verify_inputs: std::array::from_fn(|_| SensitiveInput::new()),
@@ -90,8 +85,6 @@ impl Default for OnboardingScreen {
             import_session_id: None,
             import_as_notes: false,
             import_preview_checkbox_focused: false,
-            vault_path_editable: false,
-            vault_path_focus: 0,
             recovery_focus: RecoveryFocus::default(),
             clipboard_copied: false,
             clipboard_clear_seconds: 30,
@@ -136,105 +129,13 @@ impl OnboardingScreen {
         self.verify_focus_index = 0;
     }
 
-    /// Validate the current vault path and return a status message and severity.
-    ///
-    /// Returns `Some((message, is_error))` where `is_error` is true for blocking errors.
-    pub(crate) fn validate_vault_path(&self) -> Option<(String, bool)> {
-        let path = self.resolved_vault_pathbuf();
-        if path.as_os_str().is_empty() {
-            return None;
-        }
-
-        if path.exists() {
-            if !path.is_dir() {
-                return Some((t!("tui.entry.path_not_directory").to_string(), true));
-            }
-
-            // Check write permission
-            let write_target = path.join(".oak_write_test_tmp");
-            let writable = std::fs::write(&write_target, b"").is_ok();
-            if writable {
-                let _ = std::fs::remove_file(&write_target);
-            } else {
-                return Some((t!("tui.entry.path_no_write").to_string(), true));
-            }
-
-            // Check if directory is non-empty
-            match std::fs::read_dir(&path) {
-                Ok(mut entries) => {
-                    if entries.next().is_some() {
-                        return Some((t!("tui.entry.path_not_empty").to_string(), false));
-                    }
-                }
-                Err(_e) => {
-                    return Some((
-                        t!(
-                            "tui.entry.path_cannot_read",
-                            dir = path.to_string_lossy().to_string()
-                        )
-                        .to_string(),
-                        true,
-                    ));
-                }
-            }
-
-            Some((t!("tui.entry.path_valid").to_string(), false))
-        } else {
-            // Path does not exist — check if parent is writable
-            match path.parent() {
-                Some(parent) if !parent.as_os_str().is_empty() => {
-                    if parent.exists() {
-                        let write_target = parent.join(".oak_write_test_tmp");
-                        let writable = std::fs::write(&write_target, b"").is_ok();
-                        if writable {
-                            let _ = std::fs::remove_file(&write_target);
-                        }
-                        if !writable {
-                            return Some((t!("tui.entry.path_no_parent_write").to_string(), true));
-                        }
-                        Some((t!("tui.entry.path_will_create").to_string(), false))
-                    } else {
-                        // Parent also does not exist — check ancestor chain
-                        match parent.parent() {
-                            Some(grandparent) if !grandparent.as_os_str().is_empty() => {
-                                let write_target = grandparent.join(".oak_write_test_tmp");
-                                let writable = std::fs::write(&write_target, b"").is_ok();
-                                if writable {
-                                    let _ = std::fs::remove_file(&write_target);
-                                }
-                                if !writable {
-                                    return Some((
-                                        t!("tui.entry.path_cannot_create").to_string(),
-                                        true,
-                                    ));
-                                }
-                                Some((t!("tui.entry.path_will_create").to_string(), false))
-                            }
-                            _ => Some((t!("tui.entry.path_invalid").to_string(), true)),
-                        }
-                    }
-                }
-                _ => Some((t!("tui.entry.path_invalid").to_string(), true)),
-            }
-        }
-    }
-
-    /// Resolve the actual vault path as a PathBuf for filesystem operations.
-    pub(crate) fn resolved_vault_pathbuf(&self) -> std::path::PathBuf {
-        if self.path_input.is_empty() {
-            crate::config::general::default_vault_pathbuf()
-        } else {
-            std::path::PathBuf::from(&self.path_input)
-        }
-    }
-
     /// Total steps for the current path (including Welcome).
     pub(crate) fn total_steps(&self) -> usize {
         match self.selected_path {
             None => 1,
-            Some(OnboardingPath::CreateNew) => 5, // Welcome + VaultPath + RecoveryDisplay + RecoveryVerify + SetPassword
-            Some(OnboardingPath::Restore) => 4, // Welcome + RecoveryInput + VaultPath + SecurityAdvisory + SetPassword = 5... but spec says 3
-            Some(OnboardingPath::Import) => 6, // Welcome + ImportSource + ImportPreview + VaultPath + RecoveryDisplay + RecoveryVerify + SetPassword
+            Some(OnboardingPath::CreateNew) => 4, // Welcome + RecoveryDisplay + RecoveryVerify + SetPassword
+            Some(OnboardingPath::Restore) => 3, // Welcome + RecoveryInput + SecurityAdvisory
+            Some(OnboardingPath::Import) => 6, // Welcome + ImportSource + ImportPreview + RecoveryDisplay + RecoveryVerify + SetPassword
         }
     }
 
@@ -244,22 +145,20 @@ impl OnboardingScreen {
             (None, OnboardingStep::Welcome) => 1,
             // CreateNew path
             (Some(OnboardingPath::CreateNew), OnboardingStep::Welcome) => 1,
-            (Some(OnboardingPath::CreateNew), OnboardingStep::VaultPath) => 2,
-            (Some(OnboardingPath::CreateNew), OnboardingStep::RecoveryDisplay) => 3,
-            (Some(OnboardingPath::CreateNew), OnboardingStep::RecoveryVerify { .. }) => 4,
-            (Some(OnboardingPath::CreateNew), OnboardingStep::SetPassword) => 5,
+            (Some(OnboardingPath::CreateNew), OnboardingStep::RecoveryDisplay) => 2,
+            (Some(OnboardingPath::CreateNew), OnboardingStep::RecoveryVerify { .. }) => 3,
+            (Some(OnboardingPath::CreateNew), OnboardingStep::SetPassword) => 4,
             // Restore path
             (Some(OnboardingPath::Restore), OnboardingStep::Welcome) => 1,
             (Some(OnboardingPath::Restore), OnboardingStep::RecoveryInput) => 2,
-            (Some(OnboardingPath::Restore), OnboardingStep::VaultPath) => 3,
-            (Some(OnboardingPath::Restore), OnboardingStep::SecurityAdvisory) => 4,
+            (Some(OnboardingPath::Restore), OnboardingStep::SecurityAdvisory) => 3,
             // Import path
             (Some(OnboardingPath::Import), OnboardingStep::Welcome) => 1,
             (Some(OnboardingPath::Import), OnboardingStep::ImportSource) => 2,
             (Some(OnboardingPath::Import), OnboardingStep::ImportPreview) => 3,
-            (Some(OnboardingPath::Import), OnboardingStep::VaultPath) => 4,
-            (Some(OnboardingPath::Import), OnboardingStep::RecoveryDisplay) => 5,
-            (Some(OnboardingPath::Import), OnboardingStep::RecoveryVerify { .. }) => 6,
+            (Some(OnboardingPath::Import), OnboardingStep::RecoveryDisplay) => 4,
+            (Some(OnboardingPath::Import), OnboardingStep::RecoveryVerify { .. }) => 5,
+            (Some(OnboardingPath::Import), OnboardingStep::SetPassword) => 6,
             // Fallback
             _ => 1,
         }
@@ -280,7 +179,6 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
     fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
         match &self.current_step {
             OnboardingStep::Welcome => self.view_welcome(frame, area),
-            OnboardingStep::VaultPath => self.view_vault_path(frame, area),
             OnboardingStep::RecoveryDisplay => self.view_recovery_display(frame, area),
             OnboardingStep::RecoveryVerify { .. } => self.view_recovery_verify(frame, area),
             OnboardingStep::RecoveryInput => self.view_recovery_input(frame, area),
@@ -292,10 +190,10 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
     }
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {
-        // If returning from ImportExportScreen, resume at VaultPath step
+        // If returning from ImportExportScreen, resume at RecoveryDisplay step
         if self.returning_from_import {
             self.returning_from_import = false;
-            self.current_step = OnboardingStep::VaultPath;
+            self.current_step = OnboardingStep::RecoveryDisplay;
             return;
         }
         // If returning from SetNewMasterPassword, resume at SetPassword step
@@ -306,10 +204,10 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         }
         self.current_step = OnboardingStep::Welcome;
         self.selected_path = None;
-        self.path_input.clear();
         self.error = None;
         self.recovery_confirmed = false;
         self.welcome_selected = 0;
+        self.language_index = 0;
         self.recovery_words.zeroize();
         self.recovery_words.clear();
         self.recovery_grid.zeroize();
@@ -325,20 +223,14 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.import_session_id = None;
         self.import_as_notes = false;
         self.import_preview_checkbox_focused = false;
-        self.vault_path_editable = false;
-        self.vault_path_focus = 0;
         self.recovery_focus = RecoveryFocus::default();
         self.clipboard_copied = false;
         self.clipboard_clear_seconds = 30;
     }
 
     fn on_unmount(&mut self) {
-        self.path_input.zeroize();
-        self.path_input.clear();
         self.error = None;
         self.recovery_confirmed = false;
-        self.vault_path_editable = false;
-        self.vault_path_focus = 0;
         self.recovery_words.zeroize();
         self.recovery_words.clear();
         self.recovery_grid.zeroize();

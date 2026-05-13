@@ -324,13 +324,6 @@ tui:
     language_auto: "自动"
     language_en: "English"
     language_zh_cn: "中文(简体)"
-    vault_path: "Vault 路径"
-    vault_path_modify: "修改"
-    vault_path_warning_title: "⚠ Vault 路径修改"
-    vault_path_warning_current: "当前路径"
-    vault_path_warning_new: "新路径"
-    vault_path_warning_body1: "修改路径后需要重启应用才能生效。"
-    vault_path_warning_body2: "现有数据不会自动迁移。"
     confirm_change: "确认修改"
     auto_lock: "自动锁定"
     auto_lock_1m: "1 分钟"
@@ -850,23 +843,6 @@ tui:
     time_minutes_ago: "%{n}分钟前"
     time_hours_ago: "%{n}小时前"
     time_days_ago: "%{n}天前"
-
-  # ---- Vault Path Dialog ----
-  vault_path_dialog:
-    title: " 修改 Vault 路径 "
-    current_path: "当前路径:"
-    new_path: "新路径:"
-    vault_contains: "Vault 目录包含以下文件:"
-    file_vault_db: "vault.db"
-    desc_vault_db: "加密 SQLite 数据库（所有密码数据）"
-    file_metadata: "metadata.json"
-    desc_metadata: "Vault 元信息（版本、设备 ID 等）"
-    file_config: "config.toml"
-    desc_config: "客户端配置（同步、快捷键等）"
-    warning_restart: " %{icon} 修改路径后需要重启应用才能生效。"
-    warning_no_migration: "    现有数据不会自动迁移。"
-    button_cancel: " [ 取消 ] "
-    button_confirm: " [ 确认修改 ] "
 
   # ---- List State ----
   list_state:

@@ -325,13 +325,6 @@ tui:
     language_auto: "Auto"
     language_en: "English"
     language_zh_cn: "中文(简体)"
-    vault_path: "Vault Path"
-    vault_path_modify: "Change"
-    vault_path_warning_title: "⚠ Vault Path Change"
-    vault_path_warning_current: "Current path"
-    vault_path_warning_new: "New path"
-    vault_path_warning_body1: "Changing the path requires an app restart to take effect."
-    vault_path_warning_body2: "Existing data will not be migrated automatically."
     confirm_change: "Confirm Change"
     auto_lock: "Auto Lock"
     auto_lock_1m: "1 minute"
@@ -851,23 +844,6 @@ tui:
     time_minutes_ago: "%{n} minutes ago"
     time_hours_ago: "%{n} hours ago"
     time_days_ago: "%{n} days ago"
-
-  # ---- Vault Path Dialog ----
-  vault_path_dialog:
-    title: " Change Vault Path "
-    current_path: "Current path:"
-    new_path: "New path:"
-    vault_contains: "Vault directory contains:"
-    file_vault_db: "vault.db"
-    desc_vault_db: "Encrypted SQLite database (all password data)"
-    file_metadata: "metadata.json"
-    desc_metadata: "Vault metadata (version, device ID, etc.)"
-    file_config: "config.toml"
-    desc_config: "Client configuration (sync, shortcuts, etc.)"
-    warning_restart: " %{icon} Changing the path requires an app restart to take effect."
-    warning_no_migration: "    Existing data will not be migrated automatically."
-    button_cancel: " [ Cancel ] "
-    button_confirm: " [ Confirm Change ] "
 
   # ---- List State ----
   list_state:

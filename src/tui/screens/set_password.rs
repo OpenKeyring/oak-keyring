@@ -43,7 +43,6 @@ pub struct SetPasswordScreen {
     pub strength: Option<PasswordStrength>,
     pub error: Option<String>,
     pub password_visible: bool,
-    pub vault_path: Option<std::path::PathBuf>,
 }
 
 impl Default for SetPasswordScreen {
@@ -64,13 +63,7 @@ impl SetPasswordScreen {
             strength: None,
             error: None,
             password_visible: false,
-            vault_path: None,
         }
-    }
-
-    pub fn with_vault_path(mut self, path: std::path::PathBuf) -> Self {
-        self.vault_path = Some(path);
-        self
     }
 
     /// Re-evaluate password strength from the new password field.
@@ -362,10 +355,6 @@ impl SetPasswordScreen {
                 self.error = None;
                 let password = self.new_password.take_secure();
                 self.confirm_password.clear();
-                let vault_path = self
-                    .vault_path
-                    .clone()
-                    .unwrap_or_else(|| ctx.config.general.vault_path.join("vault.db"));
                 let recovery_words = match &self.context {
                     SetPasswordContext::OnboardingCreate { recovery_words } => {
                         Some(recovery_words.clone())
@@ -373,7 +362,6 @@ impl SetPasswordScreen {
                     _ => None,
                 };
                 let cmd = Command::InitializeVault {
-                    vault_path,
                     master_password: password,
                     recovery_words,
                 };
@@ -457,7 +445,6 @@ mod tests {
         assert!(screen.strength.is_none());
         assert!(screen.error.is_none());
         assert!(!screen.password_visible);
-        assert!(screen.vault_path.is_none());
     }
 
     #[test]
@@ -764,16 +751,6 @@ mod tests {
     }
 
     #[test]
-    fn with_vault_path_sets_path() {
-        let custom = std::path::PathBuf::from("/tmp/custom/vault.db");
-        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        })
-        .with_vault_path(custom.clone());
-        assert_eq!(screen.vault_path.as_deref(), Some(custom.as_path()));
-    }
-
-    #[test]
     fn enter_passes_recovery_words_in_initialize_vault_command() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(16);
         let config = crate::config::AppConfig::default();
@@ -783,11 +760,9 @@ mod tests {
         };
 
         let test_words: Vec<String> = (0..24).map(|i| format!("word{}", i)).collect();
-        let custom_path = std::path::PathBuf::from("/tmp/my-custom/vault.db");
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
             recovery_words: test_words.clone(),
-        })
-        .with_vault_path(custom_path.clone());
+        });
 
         // Type matching 8+ char passwords
         for ch in "longpassword".chars() {
@@ -823,18 +798,10 @@ mod tests {
             &mut ctx,
         );
 
-        // Verify the command carries both vault_path and recovery_words
+        // Verify the command carries recovery_words
         let cmd = rx.try_recv().expect("Command should be sent");
         match cmd {
-            Command::InitializeVault {
-                vault_path,
-                recovery_words,
-                ..
-            } => {
-                assert_eq!(
-                    vault_path, custom_path,
-                    "Should use custom vault_path, not hardcoded"
-                );
+            Command::InitializeVault { recovery_words, .. } => {
                 let words =
                     recovery_words.expect("recovery_words should be Some for OnboardingCreate");
                 assert_eq!(words.len(), 24, "Should carry 24 recovery words");

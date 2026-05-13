@@ -42,7 +42,7 @@ fn create_fs_sync_service() -> (SyncService, TempDir) {
     (SyncService::new(storage), temp_dir)
 }
 
-async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
+async fn setup_executor(_vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
     let (result_tx, result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
@@ -50,7 +50,6 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
 
     let executor = CommandExecutor::new(
         config,
-        vault_dir.path().to_path_buf(),
         result_tx,
         cancel_token,
     )
@@ -63,7 +62,7 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
     (command_tx, result_rx)
 }
 
-async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
+async fn setup_sync_executor(_vault_dir: &TempDir) -> SyncTestContext {
     let (result_tx, result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
@@ -71,7 +70,6 @@ async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
 
     let mut executor = CommandExecutor::new(
         config,
-        vault_dir.path().to_path_buf(),
         result_tx,
         cancel_token,
     )
@@ -100,12 +98,11 @@ async fn setup_unlocked_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
 async fn init_and_unlock_vault(
     command_tx: &mpsc::Sender<Command>,
     result_rx: &mut mpsc::Receiver<Message>,
-    vault_dir: &TempDir,
+    _vault_dir: &TempDir,
 ) {
     let password = SecureStr::new("test_password_123".to_string());
     command_tx
         .send(Command::InitializeVault {
-            vault_path: vault_dir.path().to_path_buf(),
             master_password: password,
             recovery_words: None,
         })
@@ -324,7 +321,6 @@ async fn sync_cancellation_returns_cancelled() {
 
     let mut executor = CommandExecutor::new(
         config,
-        vault_dir.path().to_path_buf(),
         result_tx,
         cancel_token,
     )
@@ -342,7 +338,6 @@ async fn sync_cancellation_returns_cancelled() {
     let password = SecureStr::new("test_password_123".to_string());
     command_tx
         .send(Command::InitializeVault {
-            vault_path: vault_dir.path().to_path_buf(),
             master_password: password,
             recovery_words: None,
         })

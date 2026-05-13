@@ -22,7 +22,6 @@ fn app_starts_at_unlock_screen_when_vault_exists() {
     let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
     let app = App::new(
         AppConfig::default(),
-        vault_dir.path().to_path_buf(),
         true,
         instance_lock,
     )
@@ -36,7 +35,6 @@ fn app_starts_at_onboarding_screen_when_no_vault() {
     let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
     let app = App::new(
         AppConfig::default(),
-        vault_dir.path().to_path_buf(),
         false,
         instance_lock,
     )

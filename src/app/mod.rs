@@ -43,12 +43,15 @@ pub struct App {
     pub cancel_token: CancellationToken,
     /// Instance lock to prevent multiple TUI instances from running.
     _instance_lock: InstanceLock,
+    /// Indicates whether the vault has only a key file (no database yet).
+    pub vault_has_key_only: bool,
+    /// Indicates whether the vault has only a database (no key file yet).
+    pub vault_has_db_only: bool,
 }
 
 impl App {
     pub fn new(
         config: AppConfig,
-        vault_dir: std::path::PathBuf,
         has_vault: bool,
         instance_lock: InstanceLock,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -60,13 +63,15 @@ impl App {
             config,
             state: AppState::new(has_vault),
             phase: AppPhase::Initializing,
-            vault_dir,
+            vault_dir: crate::paths::data_dir(),
             command_tx,
             command_rx: Some(command_rx),
             result_tx,
             result_rx,
             cancel_token,
             _instance_lock: instance_lock,
+            vault_has_key_only: false,
+            vault_has_db_only: false,
         })
     }
 
@@ -81,7 +86,6 @@ impl App {
         if let Some(command_rx) = self.command_rx.take() {
             let executor = crate::executor::CommandExecutor::new(
                 self.config.clone(),
-                self.vault_dir.clone(),
                 self.result_tx.clone(),
                 self.cancel_token.clone(), // shutdown_token for executor run loop
             )?;

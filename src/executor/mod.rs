@@ -51,10 +51,7 @@ fn load_oauth2_tokens_into_config(config: &mut AppConfig) {
     if config.sync.provider != SyncProvider::GoogleDrive {
         return;
     }
-    let base_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("open-keyring")
-        .join("tokens");
+    let base_path = crate::paths::tokens_dir();
     let store = TokenStore::new(base_path);
     let tokens = match store.load("google_drive") {
         Ok(Some(t)) => t,
@@ -119,12 +116,11 @@ pub struct CommandExecutor {
 impl CommandExecutor {
     /// Create a new CommandExecutor, initializing all services.
     ///
-    /// Opens the SQLite database at `vault_dir/vault.db`, creates service
+    /// Opens the SQLite database at the data directory, creates service
     /// instances, and returns a fully-constructed executor ready to run.
     ///
     /// # Arguments
     /// * `config` — Application configuration
-    /// * `vault_dir` — Path to the vault directory
     /// * `result_tx` — Channel sender for dispatching messages to the UI
     /// * `shutdown_token` — Token for graceful executor shutdown
     ///
@@ -137,10 +133,10 @@ impl CommandExecutor {
     #[tracing::instrument(skip(result_tx, shutdown_token))]
     pub fn new(
         mut config: AppConfig,
-        vault_dir: PathBuf,
         result_tx: mpsc::Sender<Message>,
         shutdown_token: CancellationToken,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let vault_dir = crate::paths::data_dir();
         info!(vault_dir = %vault_dir.display(), "initializing CommandExecutor");
 
         // Open and initialize the SQLite database.

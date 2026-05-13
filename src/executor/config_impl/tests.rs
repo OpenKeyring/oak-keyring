@@ -203,7 +203,7 @@ fn config_manager_load_reads_from_disk_and_updates_state() {
     let vault_dir = temp_vault_dir();
     // Write a config to disk first
     let disk_config = AppConfig::default();
-    disk_config.save(&vault_dir).unwrap();
+    disk_config.save().unwrap();
 
     // Manager starts with default, then loads from disk
     let manager = ConfigManagerImpl::new(AppConfig::default());
@@ -268,14 +268,14 @@ fn config_manager_reload_re_reads_from_disk() {
 
     // Write initial config
     let initial = AppConfig::default();
-    initial.save(&vault_dir).unwrap();
+    initial.save().unwrap();
 
     let manager = ConfigManagerImpl::new(AppConfig::default());
     manager.load(&vault_dir).unwrap();
 
     // Modify config on disk externally
     let modified = AppConfig::default();
-    modified.save(&vault_dir).unwrap();
+    modified.save().unwrap();
 
     // Reload should pick up the new disk state
     let reloaded = manager.reload(&vault_dir).unwrap();
@@ -367,7 +367,7 @@ fn config_manager_concurrent_writes_are_safe() {
 fn config_manager_concurrent_read_write_safe() {
     let vault_dir = temp_vault_dir();
     let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    config.save().unwrap();
 
     let manager = Arc::new(ConfigManagerImpl::new(config));
     let num_readers = 6;
@@ -420,10 +420,10 @@ fn config_watcher_new_initializes_with_no_mtime() {
     // via a file existing scenario.
     let vault_dir = temp_vault_dir();
     let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    config.save().unwrap();
 
     // First time — no stored mtime — should need reload
-    assert!(watcher.needs_reload(&vault_dir));
+    assert!(watcher.needs_reload());
 
     cleanup_dir(&vault_dir);
 }
@@ -435,19 +435,19 @@ fn config_watcher_needs_reload_returns_true_when_file_newer_than_stored_mtime() 
 
     // Write initial config and capture its mtime
     let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    config.save().unwrap();
     let mut watcher = watcher;
-    watcher.update_mtime(&vault_dir);
+    watcher.update_mtime();
 
     // At this point, needs_reload should be false (same mtime)
-    assert!(!watcher.needs_reload(&vault_dir));
+    assert!(!watcher.needs_reload());
 
     // Wait briefly then rewrite the file to get a newer mtime
     std::thread::sleep(std::time::Duration::from_millis(50));
-    config.save(&vault_dir).unwrap();
+    config.save().unwrap();
 
     // Now the file is newer than stored mtime
-    assert!(watcher.needs_reload(&vault_dir));
+    assert!(watcher.needs_reload());
 
     cleanup_dir(&vault_dir);
 }
@@ -458,12 +458,12 @@ fn config_watcher_needs_reload_returns_false_when_no_config_file() {
     let watcher = ConfigWatcherImpl::new();
 
     // No file on disk — needs_reload should return false regardless of stored mtime
-    assert!(!watcher.needs_reload(&vault_dir));
+    assert!(!watcher.needs_reload());
 
     // Also true if we had a previous mtime stored
     let mut watcher = watcher;
     watcher.last_mtime = Some(std::time::SystemTime::now());
-    assert!(!watcher.needs_reload(&vault_dir));
+    assert!(!watcher.needs_reload());
 
     cleanup_dir(&vault_dir);
 }
@@ -472,11 +472,11 @@ fn config_watcher_needs_reload_returns_false_when_no_config_file() {
 fn config_watcher_needs_reload_returns_true_on_first_time_check() {
     let vault_dir = temp_vault_dir();
     let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    config.save().unwrap();
 
     // Fresh watcher with no stored mtime
     let watcher = ConfigWatcherImpl::new();
-    assert!(watcher.needs_reload(&vault_dir));
+    assert!(watcher.needs_reload());
 
     cleanup_dir(&vault_dir);
 }
@@ -485,14 +485,14 @@ fn config_watcher_needs_reload_returns_true_on_first_time_check() {
 fn config_watcher_needs_reload_returns_false_after_update_mtime() {
     let vault_dir = temp_vault_dir();
     let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    config.save().unwrap();
 
     let mut watcher = ConfigWatcherImpl::new();
-    assert!(watcher.needs_reload(&vault_dir));
+    assert!(watcher.needs_reload());
 
     // After updating mtime to current file mtime, no reload needed
-    watcher.update_mtime(&vault_dir);
-    assert!(!watcher.needs_reload(&vault_dir));
+    watcher.update_mtime();
+    assert!(!watcher.needs_reload());
 
     cleanup_dir(&vault_dir);
 }
@@ -501,10 +501,10 @@ fn config_watcher_needs_reload_returns_false_after_update_mtime() {
 fn config_watcher_last_modified_returns_current_file_mtime() {
     let vault_dir = temp_vault_dir();
     let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    config.save().unwrap();
 
     let watcher = ConfigWatcherImpl::new();
-    let mtime = watcher.last_modified(&vault_dir);
+    let mtime = watcher.last_modified();
 
     assert!(mtime.is_some());
 
@@ -522,7 +522,7 @@ fn config_watcher_last_modified_returns_none_when_no_file() {
     let vault_dir = temp_vault_dir();
     let watcher = ConfigWatcherImpl::new();
 
-    assert!(watcher.last_modified(&vault_dir).is_none());
+    assert!(watcher.last_modified().is_none());
 
     cleanup_dir(&vault_dir);
 }
@@ -531,16 +531,16 @@ fn config_watcher_last_modified_returns_none_when_no_file() {
 fn config_watcher_update_mtime_sets_stored_mtime_to_current_file() {
     let vault_dir = temp_vault_dir();
     let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    config.save().unwrap();
 
     let mut watcher = ConfigWatcherImpl::new();
     assert!(watcher.last_mtime.is_none());
 
-    watcher.update_mtime(&vault_dir);
+    watcher.update_mtime();
     assert!(watcher.last_mtime.is_some());
 
     // The stored mtime should match the file's actual mtime
-    let file_mtime = ConfigWatcherImpl::current_mtime(&vault_dir).unwrap();
+    let file_mtime = ConfigWatcherImpl::current_mtime().unwrap();
     assert_eq!(watcher.last_mtime.unwrap(), file_mtime);
 
     cleanup_dir(&vault_dir);
@@ -555,7 +555,7 @@ fn config_watcher_update_mtime_with_no_file_clears_stored_mtime() {
     watcher.last_mtime = Some(std::time::SystemTime::UNIX_EPOCH);
 
     // update_mtime on a non-existent file should set mtime to None
-    watcher.update_mtime(&vault_dir);
+    watcher.update_mtime();
     assert!(watcher.last_mtime.is_none());
 
     cleanup_dir(&vault_dir);

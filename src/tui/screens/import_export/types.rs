@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::commands::types::{ExportFormat, ImportSource};
 
 // ── Enums ───────────────────────────────────────────────────────────────────
@@ -143,8 +141,7 @@ pub(super) fn default_export_path(format: ExportFormat) -> String {
         ExportFormat::Okb => "okb",
         ExportFormat::Csv => "csv",
     };
-    dirs::document_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
+    crate::paths::document_dir()
         .join(format!("keyring-backup.{ext}"))
         .to_string_lossy()
         .to_string()

@@ -143,11 +143,6 @@ mod tests {
     #[test]
     fn default_config_values_match_spec() {
         let config = AppConfig::default_config();
-        assert!(config
-            .general
-            .vault_path
-            .to_string_lossy()
-            .contains("open-keyring"));
         assert!(matches!(config.sync.provider, SyncProvider::Disabled));
         assert!(matches!(config.sync.sync_mode, SyncMode::Auto));
         assert_eq!(config.sync.auto_interval_seconds, 600);
@@ -538,17 +533,6 @@ root_path = "/"
             loaded.sync.provider_config,
             Some(ProviderConfig::ICloud)
         ));
-    }
-
-    #[test]
-    fn vault_path_uses_platform_default() {
-        let config = AppConfig::default_config();
-        let path_str = config.general.vault_path.to_string_lossy();
-        assert!(
-            path_str.contains("open-keyring"),
-            "default vault_path should contain 'open-keyring', got: {}",
-            path_str
-        );
     }
 
     #[test]

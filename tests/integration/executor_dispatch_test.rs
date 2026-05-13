@@ -13,7 +13,6 @@ async fn executor_can_be_constructed() {
 
     let executor = CommandExecutor::new(
         config,
-        vault_dir.path().to_path_buf(),
         result_tx,
         cancel_token,
     );
@@ -31,7 +30,6 @@ async fn executor_run_loop_processes_commands() {
 
     let executor = CommandExecutor::new(
         config,
-        vault_dir.path().to_path_buf(),
         result_tx,
         cancel_token.clone(),
     )

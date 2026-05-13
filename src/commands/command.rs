@@ -36,7 +36,6 @@ pub enum Command {
     ClearVerifiedPassword,
 
     InitializeVault {
-        vault_path: PathBuf,
         master_password: SecureStr,
         /// Pre-generated BIP39 recovery words. When provided, the executor
         /// reconstructs the Passkey from these words instead of generating

@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::commands::{CommandResult, InternalCommand};
 use crate::config::ConfigManager;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
@@ -200,7 +198,6 @@ pub fn handle_change_master_password(
 #[tracing::instrument(skip(executor, master_password, recovery_words))]
 pub async fn handle_initialize_vault(
     executor: &mut CommandExecutor,
-    vault_path: PathBuf,
     master_password: SecureStr,
     recovery_words: Option<Vec<String>>,
 ) -> CommandResult {
@@ -249,6 +246,7 @@ pub async fn handle_initialize_vault(
     let recovery_words = passkey.to_words();
 
     // Step 3: Initialize keystore (creates wrapped_secret_key.json)
+    let vault_path = crate::paths::data_dir();
     match crate::crypto::keystore::KeyStore::initialize(
         &vault_path,
         &mut sk_bytes,

@@ -1,6 +1,5 @@
 use oak_keyring::app::App;
 use oak_keyring::config::AppConfig;
-use oak_keyring::crypto::keystore::KeyStore;
 use oak_keyring::crypto::self_test;
 use oak_keyring::instance_lock::InstanceLock;
 use oak_keyring::security;
@@ -26,20 +25,14 @@ fn main() {
         std::process::exit(1);
     });
 
-    #[cfg(feature = "test-helpers")]
-    let vault_dir = std::env::var("OAK_VAULT_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| default_vault_dir());
-
-    #[cfg(not(feature = "test-helpers"))]
-    let vault_dir = default_vault_dir();
-
-    let instance_lock = InstanceLock::acquire(&vault_dir).unwrap_or_else(|e| {
-        eprintln!("{e}");
+    // Ensure all required directories exist
+    oak_keyring::paths::ensure_dirs().unwrap_or_else(|e| {
+        eprintln!("Fatal: failed to create directories: {e}");
         std::process::exit(1);
     });
 
-    let config = AppConfig::load(&vault_dir).unwrap_or_else(|e| {
+    // Load config (auto-generate if vault exists but config doesn't)
+    let config = AppConfig::load_or_auto_generate().unwrap_or_else(|e| {
         eprintln!("Warning: failed to load config: {e}");
         AppConfig::default_config()
     });
@@ -47,8 +40,16 @@ fn main() {
     // Initialize i18n based on config (auto-detect or explicit locale)
     i18n::init(&config.general.language);
 
-    let has_vault = KeyStore::vault_exists(&vault_dir);
-    let mut app = App::new(config, vault_dir, has_vault, instance_lock).unwrap_or_else(|e| {
+    // Acquire instance lock using data_dir
+    let instance_lock = InstanceLock::acquire(&oak_keyring::paths::data_dir()).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1);
+    });
+
+    // Determine vault state
+    let has_vault = oak_keyring::paths::has_key_file() || oak_keyring::paths::has_db_file();
+
+    let mut app = App::new(config, has_vault, instance_lock).unwrap_or_else(|e| {
         eprintln!("{e}");
         std::process::exit(1);
     });
@@ -56,12 +57,6 @@ fn main() {
         eprintln!("{e}");
         std::process::exit(1);
     });
-}
-
-fn default_vault_dir() -> std::path::PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("open-keyring")
 }
 
 fn should_print_version<I>(args: I) -> bool

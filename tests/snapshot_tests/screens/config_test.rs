@@ -22,7 +22,6 @@ fn render_config(screen: &ConfigScreen) -> TestBackend {
 /// Pure rendering test — no I/O, no files created, no cleanup needed.
 fn make_test_screen() -> ConfigScreen {
     let mut screen = ConfigScreen::new();
-    screen.state.general.vault_path = PathBuf::from("/tmp/oak-keyring-snapshot-test");
     screen
 }
 

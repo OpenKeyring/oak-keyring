@@ -85,6 +85,17 @@ pub fn has_db_file() -> bool {
     db_path().exists()
 }
 
+/// Replaces the home directory prefix with `~` for compact display.
+pub fn display_path_with_tilde(path: &std::path::Path) -> String {
+    let home = home_dir();
+    let path_str = path.to_string_lossy();
+    let home_str = home.to_string_lossy();
+    if let Some(rest) = path_str.strip_prefix(&home_str as &str) {
+        return format!("~{}", rest);
+    }
+    path_str.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
