@@ -208,7 +208,7 @@ pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor
         let mut ts_guard = executor.oauth2_token_store.lock().await;
         if ts_guard.is_none() {
             let base_path =
-                crate::paths::tokens_dir().expect("tokens directory not found - HOME must be set");
+                crate::paths::tokens_dir().unwrap_or_else(crate::paths::config_dir_fallback);
             *ts_guard = Some(TokenStore::new(base_path));
         }
         ts_guard.clone().unwrap()

@@ -38,6 +38,14 @@ pub fn config_dir() -> Option<PathBuf> {
         .map(|p| p.join(APP_NAME))
 }
 
+/// Returns a fallback config directory when `$HOME` is unavailable.
+///
+/// Returns the current working directory joined with `oak-keyring`.
+/// Used only as a last resort when `config_dir()` returns `None`.
+pub fn config_dir_fallback() -> PathBuf {
+    PathBuf::from(".").join(APP_NAME)
+}
+
 /// Returns the XDG data directory for oak-keyring.
 ///
 /// Follows `$XDG_DATA_HOME` environment variable with fallback to
@@ -58,6 +66,14 @@ pub fn data_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| home::home_dir().map(|h| h.join(".local/share")))
         .map(|p| p.join(APP_NAME))
+}
+
+/// Returns a fallback data directory when `$HOME` is unavailable.
+///
+/// Returns the current working directory joined with `oak-keyring`.
+/// Used only as a last resort when `data_dir()` returns `None`.
+pub fn data_dir_fallback() -> PathBuf {
+    PathBuf::from(".").join(APP_NAME)
 }
 
 /// Returns the path to the SQLite database (`vault.db`).
@@ -107,6 +123,11 @@ pub fn ensure_dirs() -> Option<()> {
     Some(())
 }
 
+/// Returns `true` if both `wrapped_secret_key.json` and `vault.db` exist in `data_dir`.
+pub fn is_vault_complete_at(data_dir: &Path) -> bool {
+    data_dir.join("wrapped_secret_key.json").exists() && data_dir.join("vault.db").exists()
+}
+
 /// Returns `true` if both `wrapped_secret_key.json` and `vault.db` exist.
 ///
 /// Returns `false` if data directory cannot be determined or if either file
@@ -116,12 +137,22 @@ pub fn vault_complete() -> bool {
         && db_path().map(|p| p.exists()).unwrap_or(false)
 }
 
+/// Returns `true` if `wrapped_secret_key.json` exists in `data_dir`.
+pub fn has_key_file_at(data_dir: &Path) -> bool {
+    data_dir.join("wrapped_secret_key.json").exists()
+}
+
 /// Returns `true` if `wrapped_secret_key.json` exists.
 ///
 /// Returns `false` if data directory cannot be determined or if the file
 /// is missing.
 pub fn has_key_file() -> bool {
     key_path().map(|p| p.exists()).unwrap_or(false)
+}
+
+/// Returns `true` if `vault.db` exists in `data_dir`.
+pub fn has_db_file_at(data_dir: &Path) -> bool {
+    data_dir.join("vault.db").exists()
 }
 
 /// Returns `true` if `vault.db` exists.
@@ -264,6 +295,85 @@ mod tests {
         assert_eq!(
             displayed, "/tmp/test-file.txt",
             "non-home paths should be returned as-is"
+        );
+    }
+
+    #[test]
+    fn is_vault_complete_at_returns_false_for_empty_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(
+            !is_vault_complete_at(tmp.path()),
+            "vault_complete should be false with no files"
+        );
+        assert!(
+            !has_key_file_at(tmp.path()),
+            "has_key_file should be false with no files"
+        );
+        assert!(
+            !has_db_file_at(tmp.path()),
+            "has_db_file should be false with no files"
+        );
+    }
+
+    #[test]
+    fn is_vault_complete_at_returns_true_for_both_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("wrapped_secret_key.json"), "{}").unwrap();
+        std::fs::write(tmp.path().join("vault.db"), "").unwrap();
+
+        assert!(
+            is_vault_complete_at(tmp.path()),
+            "vault_complete should be true with both files"
+        );
+        assert!(has_key_file_at(tmp.path()), "has_key_file should be true");
+        assert!(has_db_file_at(tmp.path()), "has_db_file should be true");
+    }
+
+    #[test]
+    fn is_vault_complete_at_partial_states() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Only key file.
+        std::fs::write(tmp.path().join("wrapped_secret_key.json"), "{}").unwrap();
+        assert!(
+            !is_vault_complete_at(tmp.path()),
+            "vault_complete should be false with only key file"
+        );
+        assert!(has_key_file_at(tmp.path()), "has_key_file should be true");
+        assert!(
+            !has_db_file_at(tmp.path()),
+            "has_db_file should be false with only key file"
+        );
+
+        // Clean up key, create only db.
+        std::fs::remove_file(tmp.path().join("wrapped_secret_key.json")).unwrap();
+        std::fs::write(tmp.path().join("vault.db"), "").unwrap();
+        assert!(
+            !is_vault_complete_at(tmp.path()),
+            "vault_complete should be false with only db file"
+        );
+        assert!(
+            !has_key_file_at(tmp.path()),
+            "has_key_file should be false with only db file"
+        );
+        assert!(has_db_file_at(tmp.path()), "has_db_file should be true");
+    }
+
+    #[test]
+    fn config_dir_fallback_returns_cwd_app_dir() {
+        let fallback = config_dir_fallback();
+        assert!(
+            fallback.ends_with("oak-keyring"),
+            "fallback should end with oak-keyring"
+        );
+    }
+
+    #[test]
+    fn data_dir_fallback_returns_cwd_app_dir() {
+        let fallback = data_dir_fallback();
+        assert!(
+            fallback.ends_with("oak-keyring"),
+            "fallback should end with oak-keyring"
         );
     }
 }

@@ -99,20 +99,25 @@ impl Default for AppState {
 }
 
 impl AppState {
-    /// Create a new AppState with the initial screen determined by vault existence.
+    /// Create a new AppState with the initial screen determined by vault file state.
     ///
-    /// When `has_vault` is false (no vault file found), the user is routed to
-    /// `Screen::Onboarding` to create one. Otherwise, `Screen::Unlock` is shown.
-    pub fn new(has_vault: bool) -> Self {
+    /// Four states per spec:
+    /// - key + db → UnlockScreen
+    /// - no key, no db → OnboardingScreen
+    /// - no key, db → OnboardingScreen (Restore path — recovery word restore)
+    /// - key, no db → OnboardingScreen (CreateNew path — DB re-initialization)
+    pub fn new(has_vault: bool, vault_has_key_only: bool, vault_has_db_only: bool) -> Self {
+        let initial_screen = if has_vault && !vault_has_key_only && !vault_has_db_only {
+            Screen::Unlock
+        } else {
+            Screen::Onboarding
+        };
+
         Self {
             phase: AppPhase::Initializing,
             shared: SharedState::default(),
             screens: ScreenStates::default(),
-            current_screen: if has_vault {
-                Screen::Unlock
-            } else {
-                Screen::Onboarding
-            },
+            current_screen: initial_screen,
             screen_history: Vec::new(),
             terminal_size: (80, 24),
             too_small: false,

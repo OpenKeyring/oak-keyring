@@ -21,6 +21,23 @@ pub mod signal;
 pub mod update;
 pub mod view;
 
+/// Vault file existence state used to determine initial screen routing.
+///
+/// Four states per spec:
+/// - `has_key && has_db` → full vault → UnlockScreen
+/// - `!has_key && !has_db` → no vault → OnboardingScreen
+/// - `!has_key && has_db` → key missing → RecoveryScreen
+/// - `has_key && !has_db` → db missing → DB recovery
+#[derive(Debug, Clone, Copy, Default)]
+pub struct VaultInitState {
+    /// Both key and db exist (full vault).
+    pub has_vault: bool,
+    /// Key exists but db is missing.
+    pub vault_has_key_only: bool,
+    /// Db exists but key is missing.
+    pub vault_has_db_only: bool,
+}
+
 /// Channel buffer sizes.
 const COMMAND_CHANNEL_SIZE: usize = 256;
 const RESULT_CHANNEL_SIZE: usize = 256;
@@ -45,30 +62,33 @@ pub struct App {
     pub cancel_token: CancellationToken,
     /// Instance lock to prevent multiple TUI instances from running.
     _instance_lock: InstanceLock,
-    /// Indicates whether the vault has only a key file (no database yet).
+    /// Key file exists but database is missing — route to DB recovery.
     pub vault_has_key_only: bool,
-    /// Indicates whether the vault has only a database (no key file yet).
+    /// Database exists but key file is missing — route to recovery.
     pub vault_has_db_only: bool,
 }
 
 impl App {
     pub fn new(
         config: AppConfig,
-        has_vault: bool,
+        vault_state: VaultInitState,
         instance_lock: InstanceLock,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_SIZE);
         let (result_tx, result_rx) = mpsc::channel(RESULT_CHANNEL_SIZE);
         let cancel_token = CancellationToken::new();
 
-        let vault_dir =
-            crate::paths::data_dir().expect("data directory not found - HOME must be set");
+        let vault_dir = crate::paths::data_dir().unwrap_or_else(crate::paths::data_dir_fallback);
         let config_dir =
-            crate::paths::config_dir().expect("config directory not found - HOME must be set");
+            crate::paths::config_dir().unwrap_or_else(crate::paths::config_dir_fallback);
 
         Ok(Self {
             config,
-            state: AppState::new(has_vault),
+            state: AppState::new(
+                vault_state.has_vault,
+                vault_state.vault_has_key_only,
+                vault_state.vault_has_db_only,
+            ),
             phase: AppPhase::Initializing,
             vault_dir,
             config_dir,
@@ -78,8 +98,8 @@ impl App {
             result_rx,
             cancel_token,
             _instance_lock: instance_lock,
-            vault_has_key_only: false,
-            vault_has_db_only: false,
+            vault_has_key_only: vault_state.vault_has_key_only,
+            vault_has_db_only: vault_state.vault_has_db_only,
         })
     }
 

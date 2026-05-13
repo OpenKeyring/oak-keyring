@@ -1,4 +1,4 @@
-use oak_keyring::app::App;
+use oak_keyring::app::{App, VaultInitState};
 use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::self_test;
 use oak_keyring::instance_lock::InstanceLock;
@@ -33,15 +33,33 @@ fn main() {
 
     // Get config and data directories
     let config_dir =
-        oak_keyring::paths::config_dir().expect("config directory not found - HOME must be set");
+        oak_keyring::paths::config_dir().unwrap_or_else(oak_keyring::paths::config_dir_fallback);
     let data_dir =
-        oak_keyring::paths::data_dir().expect("data directory not found - HOME must be set");
+        oak_keyring::paths::data_dir().unwrap_or_else(oak_keyring::paths::data_dir_fallback);
 
     // Load config (auto-generate if vault exists but config doesn't)
-    let config = AppConfig::load_or_auto_generate(&config_dir, &data_dir).unwrap_or_else(|e| {
-        eprintln!("Warning: failed to load config: {e}");
-        AppConfig::default_config()
-    });
+    let config = match AppConfig::load_or_auto_generate(&config_dir, &data_dir) {
+        Ok(c) => c,
+        Err(e) => {
+            use oak_keyring::config::ConfigError;
+            match &e {
+                ConfigError::Io(_) => {
+                    eprintln!("Warning: config file not found or unreadable, using defaults: {e}");
+                    AppConfig::default_config()
+                }
+                ConfigError::Parse(_) => {
+                    eprintln!("Fatal: config file has invalid format: {e}");
+                    eprintln!("Please fix or remove the config file and try again.");
+                    std::process::exit(1);
+                }
+                ConfigError::Validation(_) => {
+                    eprintln!("Fatal: config validation failed: {e}");
+                    eprintln!("Please correct the config values and try again.");
+                    std::process::exit(1);
+                }
+            }
+        }
+    };
 
     // Initialize i18n based on config (auto-detect or explicit locale)
     i18n::init(&config.general.language);
@@ -52,10 +70,16 @@ fn main() {
         std::process::exit(1);
     });
 
-    // Determine vault state
-    let has_vault = oak_keyring::paths::has_key_file() || oak_keyring::paths::has_db_file();
+    // Determine vault state (4-state routing per spec)
+    let has_key = oak_keyring::paths::has_key_file_at(&data_dir);
+    let has_db = oak_keyring::paths::has_db_file_at(&data_dir);
+    let vault_state = VaultInitState {
+        has_vault: has_key && has_db,
+        vault_has_key_only: has_key && !has_db,
+        vault_has_db_only: !has_key && has_db,
+    };
 
-    let mut app = App::new(config, has_vault, instance_lock).unwrap_or_else(|e| {
+    let mut app = App::new(config, vault_state, instance_lock).unwrap_or_else(|e| {
         eprintln!("{e}");
         std::process::exit(1);
     });

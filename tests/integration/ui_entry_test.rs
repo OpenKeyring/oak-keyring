@@ -3,7 +3,7 @@
 //! Covers: App/AppState navigation, notification priority, lockout escalation,
 //! recovery key grid, set password screen, onboarding defaults, loading indicators.
 
-use oak_keyring::app::App;
+use oak_keyring::app::{App, VaultInitState};
 use oak_keyring::commands::types::Screen;
 use oak_keyring::config::AppConfig;
 use oak_keyring::instance_lock::InstanceLock;
@@ -20,7 +20,16 @@ use oak_keyring::tui::state::notification::{NotificationState, StatusMessage};
 fn app_starts_at_unlock_screen_when_vault_exists() {
     let vault_dir = tempfile::tempdir().unwrap();
     let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
-    let app = App::new(AppConfig::default(), true, instance_lock).expect("App::new should succeed");
+    let app = App::new(
+        AppConfig::default(),
+        VaultInitState {
+            has_vault: true,
+            vault_has_key_only: false,
+            vault_has_db_only: false,
+        },
+        instance_lock,
+    )
+    .expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Unlock);
 }
 
@@ -28,8 +37,16 @@ fn app_starts_at_unlock_screen_when_vault_exists() {
 fn app_starts_at_onboarding_screen_when_no_vault() {
     let vault_dir = tempfile::tempdir().unwrap();
     let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
-    let app =
-        App::new(AppConfig::default(), false, instance_lock).expect("App::new should succeed");
+    let app = App::new(
+        AppConfig::default(),
+        VaultInitState {
+            has_vault: false,
+            vault_has_key_only: false,
+            vault_has_db_only: false,
+        },
+        instance_lock,
+    )
+    .expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Onboarding);
 }
 

@@ -34,9 +34,14 @@ async fn executor_run_loop_processes_commands() {
     std::fs::create_dir_all(&data_dir).unwrap();
     std::fs::create_dir_all(&config_dir).unwrap();
 
-    let executor =
-        CommandExecutor::new(config, result_tx, cancel_token.clone(), data_dir, config_dir)
-            .unwrap();
+    let executor = CommandExecutor::new(
+        config,
+        result_tx,
+        cancel_token.clone(),
+        data_dir,
+        config_dir,
+    )
+    .unwrap();
 
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
 

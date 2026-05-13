@@ -142,7 +142,7 @@ pub(super) fn default_export_path(format: ExportFormat) -> String {
         ExportFormat::Csv => "csv",
     };
     crate::paths::document_dir()
-        .expect("documents directory not found - HOME must be set")
+        .unwrap_or_else(crate::paths::data_dir_fallback)
         .join(format!("keyring-backup.{ext}"))
         .to_string_lossy()
         .to_string()

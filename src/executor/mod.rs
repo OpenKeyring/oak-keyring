@@ -51,12 +51,20 @@ fn load_oauth2_tokens_into_config(config: &mut AppConfig) {
     if config.sync.provider != SyncProvider::GoogleDrive {
         return;
     }
-    let base_path =
-        crate::paths::tokens_dir().expect("tokens directory not found - HOME must be set");
+    let base_path = crate::paths::tokens_dir().unwrap_or_else(crate::paths::config_dir_fallback);
     let store = TokenStore::new(base_path);
     let tokens = match store.load("google_drive") {
         Ok(Some(t)) => t,
-        _ => return,
+        Ok(None) => {
+            tracing::warn!(
+                "Google Drive tokens not found at new path — re-authorization may be required"
+            );
+            return;
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to load Google Drive tokens");
+            return;
+        }
     };
     if let Some(ProviderConfig::GoogleDrive(ref mut cfg)) = config.sync.provider_config {
         cfg.access_token = tokens.access_token;

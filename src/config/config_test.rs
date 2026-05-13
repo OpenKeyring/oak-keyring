@@ -614,4 +614,76 @@ foo = "bar"
         let config = AppConfig::from_toml(toml_str).unwrap();
         assert_eq!(config.general.auto_lock_seconds, 300);
     }
+
+    #[test]
+    fn load_or_auto_generate_loads_existing_config() {
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join("config");
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        // Write a valid config file.
+        std::fs::write(
+            config_dir.join("config.toml"),
+            "[general]\nauto_lock_seconds = 123\n",
+        )
+        .unwrap();
+
+        let config = AppConfig::load_or_auto_generate(&config_dir, &data_dir)
+            .expect("load_or_auto_generate should succeed");
+        assert_eq!(
+            config.general.auto_lock_seconds, 123,
+            "should load existing config"
+        );
+    }
+
+    #[test]
+    fn load_or_auto_generate_creates_config_when_vault_complete() {
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join("config");
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        // No config, but vault data files exist.
+        std::fs::write(data_dir.join("wrapped_secret_key.json"), "{}").unwrap();
+        std::fs::write(data_dir.join("vault.db"), "").unwrap();
+
+        let config = AppConfig::load_or_auto_generate(&config_dir, &data_dir)
+            .expect("load_or_auto_generate should succeed");
+        assert_eq!(
+            config.general.auto_lock_seconds, 300,
+            "should use default config"
+        );
+
+        // Config file should have been saved.
+        assert!(
+            config_dir.join("config.toml").exists(),
+            "config.toml should have been auto-generated"
+        );
+    }
+
+    #[test]
+    fn load_or_auto_generate_returns_default_when_vault_incomplete() {
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join("config");
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        // No config, no vault.
+        let config = AppConfig::load_or_auto_generate(&config_dir, &data_dir)
+            .expect("load_or_auto_generate should succeed");
+        assert_eq!(
+            config.general.auto_lock_seconds, 300,
+            "should return default config"
+        );
+
+        // Config file should NOT have been auto-generated.
+        assert!(
+            !config_dir.join("config.toml").exists(),
+            "config.toml should NOT be auto-generated when vault is incomplete"
+        );
+    }
 }

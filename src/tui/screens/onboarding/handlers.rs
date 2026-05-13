@@ -28,10 +28,11 @@ impl OnboardingScreen {
     pub(crate) fn handle_welcome_key(
         &mut self,
         key: KeyEvent,
-        ctx: &mut ScreenContext,
+        _ctx: &mut ScreenContext,
     ) -> ScreenResult {
         const PATH_COUNT: usize = 3;
         const LANGUAGE_COUNT: usize = 3;
+        const LANGUAGES: [&str; LANGUAGE_COUNT] = ["auto", "en", "zh-CN"];
 
         match key.code {
             KeyCode::Down | KeyCode::Tab => {
@@ -43,17 +44,17 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Char('l') | KeyCode::Char('L') => {
-                let languages = ["auto", "en", "zh-CN"];
                 self.language_index = (self.language_index + 1) % LANGUAGE_COUNT;
-                let lang = languages[self.language_index];
+                let lang = LANGUAGES[self.language_index];
                 crate::tui::i18n::init(lang);
                 ScreenResult::Continue
             }
             KeyCode::Enter => {
+                let lang = LANGUAGES[self.language_index];
                 match self.welcome_selected {
                     0 => {
                         self.selected_path = Some(OnboardingPath::CreateNew);
-                        self.generate_recovery_words(&ctx.config.general.language);
+                        self.generate_recovery_words(lang);
                         self.current_step = OnboardingStep::RecoveryDisplay;
                     }
                     1 => {
@@ -109,7 +110,9 @@ impl OnboardingScreen {
                     ScreenResult::Continue
                 }
                 RecoveryFocus::RegenerateButton => {
-                    self.generate_recovery_words(&ctx.config.general.language);
+                    const LANGUAGES: [&str; 3] = ["auto", "en", "zh-CN"];
+                    let lang = LANGUAGES[self.language_index];
+                    self.generate_recovery_words(lang);
                     self.recovery_confirmed = false;
                     self.clipboard_copied = false;
                     ScreenResult::Continue
@@ -433,9 +436,10 @@ impl OnboardingScreen {
             }
             CommandResult::ImportCompleted { .. } => {
                 if matches!(self.current_step, OnboardingStep::ImportPreview) {
-                    // After import, generate recovery words and proceed to display
-                    // Note: We'll use a default language since ctx is not available here
-                    self.generate_recovery_words("auto");
+                    // After import, generate recovery words using the language selected on Welcome.
+                    const LANGUAGES: [&str; 3] = ["auto", "en", "zh-CN"];
+                    let lang = LANGUAGES[self.language_index];
+                    self.generate_recovery_words(lang);
                     self.current_step = OnboardingStep::RecoveryDisplay;
                 }
                 ScreenResult::Continue
