@@ -16,7 +16,7 @@ pub use record::{
     CreateRecordParams, DecryptedRecord, StoredRecord, TuiRecord, UpdateRecordParams,
 };
 pub use rotation::{RotationConfig, RotationConstants, RotationState, RotationTrigger};
-pub use sensitive::{SecureBytes, SecureStr, SecureString};
+pub use sensitive::{SecureBytes, SecureStr};
 pub use sync::{SyncState, SyncStats, SyncStatus};
 pub use tag::Tag;
 

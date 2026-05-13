@@ -1,7 +1,6 @@
 //! Set password screen — new master password entry with strength indicator and confirmation.
 
 use crossterm::event::{KeyCode, KeyEvent};
-use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
@@ -12,7 +11,7 @@ use crate::tui::theme::{
     self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING,
 };
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
-use crate::types::SecureStr;
+use crate::types::sensitive::SensitiveInput;
 
 // ── Enums ───────────────────────────────────────────────────────────────────
 
@@ -37,8 +36,8 @@ pub enum SetPasswordContext {
 /// Password setting screen with strength indicator and confirmation field.
 #[derive(Debug)]
 pub struct SetPasswordScreen {
-    pub new_password: String,
-    pub confirm_password: String,
+    pub new_password: SensitiveInput,
+    pub confirm_password: SensitiveInput,
     pub focused: PasswordField,
     pub context: SetPasswordContext,
     pub strength: Option<PasswordStrength>,
@@ -58,8 +57,8 @@ impl Default for SetPasswordScreen {
 impl SetPasswordScreen {
     pub fn new(context: SetPasswordContext) -> Self {
         Self {
-            new_password: String::new(),
-            confirm_password: String::new(),
+            new_password: SensitiveInput::new(),
+            confirm_password: SensitiveInput::new(),
             focused: PasswordField::New,
             context,
             strength: None,
@@ -79,7 +78,9 @@ impl SetPasswordScreen {
         if self.new_password.is_empty() {
             self.strength = None;
         } else {
-            self.strength = Some(evaluate_strength(&self.new_password));
+            self.new_password.expose(|s| {
+                self.strength = Some(evaluate_strength(s));
+            });
         }
     }
 
@@ -88,7 +89,7 @@ impl SetPasswordScreen {
         if self.password_visible {
             password.to_string()
         } else {
-            theme::ICON_PASSWORD_MASK.repeat(password.len())
+            theme::ICON_PASSWORD_MASK.repeat(password.chars().count())
         }
     }
 
@@ -153,7 +154,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         let new_display = if self.new_password.is_empty() {
             String::new()
         } else {
-            self.display_password(&self.new_password)
+            self.new_password.expose(|s| self.display_password(s))
         };
         let new_placeholder = if self.new_password.is_empty() {
             t!("tui.entry.new_password_placeholder")
@@ -222,7 +223,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         let confirm_display = if self.confirm_password.is_empty() {
             String::new()
         } else {
-            self.display_password(&self.confirm_password)
+            self.confirm_password.expose(|s| self.display_password(s))
         };
         let confirm_placeholder = if self.confirm_password.is_empty() {
             t!("tui.entry.confirm_password")
@@ -244,7 +245,10 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
 
         // -- Match indicator --
         let match_line = if !self.new_password.is_empty() && !self.confirm_password.is_empty() {
-            if self.new_password == self.confirm_password {
+            let passwords_match = self
+                .new_password
+                .expose(|a| self.confirm_password.expose(|b| a == b));
+            if passwords_match {
                 Some(
                     Paragraph::new(format!(
                         "{} {}",
@@ -325,8 +329,8 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
     }
 
     fn on_unmount(&mut self) {
-        self.new_password.zeroize();
-        self.confirm_password.zeroize();
+        self.new_password.clear();
+        self.confirm_password.clear();
     }
 }
 
@@ -347,14 +351,16 @@ impl SetPasswordScreen {
                     self.error = Some(t!("tui.entry.password_too_short").to_string());
                     return ScreenResult::Continue;
                 }
-                if self.new_password != self.confirm_password {
+                let passwords_match = self
+                    .new_password
+                    .expose(|a| self.confirm_password.expose(|b| a == b));
+                if !passwords_match {
                     self.error = Some(t!("tui.entry.password_mismatch").to_string());
                     return ScreenResult::Continue;
                 }
                 // Passwords match and long enough — send InitializeVault
                 self.error = None;
-                let password = std::mem::take(&mut self.new_password);
-                self.confirm_password.zeroize();
+                let password = self.new_password.take_secure();
                 self.confirm_password.clear();
                 let vault_path = self
                     .vault_path
@@ -368,7 +374,7 @@ impl SetPasswordScreen {
                 };
                 let cmd = Command::InitializeVault {
                     vault_path,
-                    master_password: SecureStr::new(password),
+                    master_password: password,
                     recovery_words,
                 };
                 let _ = ctx.command_tx.try_send(cmd);
@@ -378,11 +384,11 @@ impl SetPasswordScreen {
             KeyCode::Backspace => {
                 match self.focused {
                     PasswordField::New => {
-                        self.new_password.pop();
+                        self.new_password.pop_char();
                         self.update_strength();
                     }
                     PasswordField::Confirm => {
-                        self.confirm_password.pop();
+                        self.confirm_password.pop_char();
                     }
                 }
                 // Clear error on new input
@@ -392,11 +398,11 @@ impl SetPasswordScreen {
             KeyCode::Char(c) => {
                 match self.focused {
                     PasswordField::New => {
-                        self.new_password.push(c);
+                        self.new_password.push_char(c);
                         self.update_strength();
                     }
                     PasswordField::Confirm => {
-                        self.confirm_password.push(c);
+                        self.confirm_password.push_char(c);
                     }
                 }
                 // Clear error on new input
@@ -426,6 +432,14 @@ mod tests {
     use super::*;
     use crate::tui::traits::screen::Screen as ScreenTrait;
 
+    fn sensitive(s: &str) -> SensitiveInput {
+        let mut input = SensitiveInput::new();
+        for c in s.chars() {
+            input.push_char(c);
+        }
+        input
+    }
+
     #[test]
     fn set_password_screen_new() {
         let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
@@ -449,13 +463,19 @@ mod tests {
     #[test]
     fn set_password_passwords_match() {
         let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
-        screen.new_password = "testpassword".to_string();
-        screen.confirm_password = "testpassword".to_string();
-        assert_eq!(screen.new_password, screen.confirm_password);
+        screen.new_password = sensitive("testpassword");
+        screen.confirm_password = sensitive("testpassword");
+        let passwords_match = screen
+            .new_password
+            .expose(|a| screen.confirm_password.expose(|b| a == b));
+        assert!(passwords_match);
 
         // Mismatch case
-        screen.confirm_password = "different".to_string();
-        assert_ne!(screen.new_password, screen.confirm_password);
+        screen.confirm_password = sensitive("different");
+        let passwords_match = screen
+            .new_password
+            .expose(|a| screen.confirm_password.expose(|b| a == b));
+        assert!(!passwords_match);
     }
 
     #[test]
@@ -466,13 +486,13 @@ mod tests {
         assert!(screen.strength.is_none());
 
         // Short password — VeryWeak
-        screen.new_password = "a".to_string();
+        screen.new_password = sensitive("a");
         screen.update_strength();
         let s = screen.strength.as_ref().unwrap();
         assert_eq!(s.level, StrengthLevel::VeryWeak);
 
         // Stronger password
-        screen.new_password = "abcd1234ABCD!@ab".to_string();
+        screen.new_password = sensitive("abcd1234ABCD!@ab");
         screen.update_strength();
         let s = screen.strength.as_ref().unwrap();
         assert_eq!(s.level, StrengthLevel::Strong);
@@ -546,8 +566,8 @@ mod tests {
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
             recovery_words: Vec::new(),
         });
-        screen.new_password = "sensitive123".to_string();
-        screen.confirm_password = "sensitive123".to_string();
+        screen.new_password = sensitive("sensitive123");
+        screen.confirm_password = sensitive("sensitive123");
         ScreenTrait::on_unmount(&mut screen);
         assert!(screen.new_password.is_empty());
         assert!(screen.confirm_password.is_empty());

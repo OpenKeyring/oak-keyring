@@ -270,12 +270,12 @@ fn compute_password_strength(
     record: &DecryptedRecord,
 ) -> Option<crate::crypto::strength::PasswordStrength> {
     match record {
-        DecryptedRecord::Login { password, .. } => {
-            Some(crate::crypto::strength::evaluate_strength(password.get()))
-        }
-        DecryptedRecord::Api { secret_key, .. } => {
-            Some(crate::crypto::strength::evaluate_strength(secret_key.get()))
-        }
+        DecryptedRecord::Login { password, .. } => Some(
+            crate::crypto::strength::evaluate_strength(password.expose()),
+        ),
+        DecryptedRecord::Api { secret_key, .. } => Some(
+            crate::crypto::strength::evaluate_strength(secret_key.expose()),
+        ),
         DecryptedRecord::Ssh { .. } => None,
     }
 }
@@ -435,7 +435,7 @@ pub fn handle_generate_password(
 
     match result {
         Ok(password) => {
-            let strength = evaluate_strength(password.get());
+            let strength = evaluate_strength(password.expose());
             CommandResult::PasswordGenerated { password, strength }
         }
         Err(e) => CommandResult::Error {
@@ -454,7 +454,7 @@ pub fn handle_generate_memorable_password(
 ) -> CommandResult {
     match generate_memorable_password(word_count) {
         Ok(password) => {
-            let strength = evaluate_strength(password.get());
+            let strength = evaluate_strength(password.expose());
             CommandResult::PasswordGenerated { password, strength }
         }
         Err(e) => CommandResult::Error {
@@ -470,7 +470,7 @@ pub fn handle_generate_memorable_password(
 pub fn handle_generate_pin(_executor: &mut CommandExecutor, length: usize) -> CommandResult {
     match generate_pin(length) {
         Ok(password) => {
-            let strength = evaluate_strength(password.get());
+            let strength = evaluate_strength(password.expose());
             CommandResult::PasswordGenerated { password, strength }
         }
         Err(e) => CommandResult::Error {
@@ -535,6 +535,7 @@ mod tests {
             operation_cancel_token: CancellationToken::new(),
             timer_rebuild_pending: false,
             oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+            verified_master_password: None,
         }
     }
 

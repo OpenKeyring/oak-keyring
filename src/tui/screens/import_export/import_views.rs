@@ -142,10 +142,10 @@ impl ImportExportScreen {
                         .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER)),
                 )
             } else {
-                Some(
-                    Paragraph::new(Self::display_password(&self.decrypt_password))
-                        .style(ratatui::style::Style::default().fg(TEXT)),
-                )
+                let masked = self
+                    .decrypt_password
+                    .expose(|pw| crate::tui::theme::ICON_PASSWORD_MASK.repeat(pw.chars().count()));
+                Some(Paragraph::new(masked).style(ratatui::style::Style::default().fg(TEXT)))
             }
         } else {
             None

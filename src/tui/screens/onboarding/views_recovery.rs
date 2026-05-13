@@ -266,9 +266,11 @@ impl OnboardingScreen {
             let input_text = if self.verify_inputs[i].is_empty() {
                 String::new()
             } else if is_focused {
-                format!("{}_", self.verify_inputs[i])
+                let mut text = self.verify_inputs[i].expose(|s| s.to_string());
+                text.push('_');
+                text
             } else {
-                self.verify_inputs[i].clone()
+                self.verify_inputs[i].expose(|s| s.to_string())
             };
 
             let text_style = if has_error {

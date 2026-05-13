@@ -27,9 +27,13 @@ pub enum Command {
     },
 
     ChangeMasterPassword {
-        current_password: SecureStr,
+        current_password: Option<SecureStr>,
         new_password: SecureStr,
     },
+
+    /// Clear the cached verified master password from executor state.
+    /// Sent when the user cancels/leaves the change-password flow without completing it.
+    ClearVerifiedPassword,
 
     InitializeVault {
         vault_path: PathBuf,
@@ -188,6 +192,7 @@ pub enum Command {
     },
 
     ExecuteImport {
+        session_id: Option<Uuid>,
         source: ImportSource,
         path: PathBuf,
         password: Option<SecureStr>,
@@ -249,6 +254,7 @@ mod exhaustive_tests {
                 Command::LockVault => {}
                 Command::VerifyMasterPassword { .. } => {}
                 Command::ChangeMasterPassword { .. } => {}
+                Command::ClearVerifiedPassword => {}
                 Command::InitializeVault { .. } => {}
                 // Record CRUD
                 Command::CreateRecord { .. } => {}

@@ -151,7 +151,21 @@ pub fn render_form(
             ];
             let password_row = text_input::render_password_input_with_buttons(
                 t!("tui.form.password_label").as_ref(),
-                state.fields.password.as_deref().unwrap_or(""),
+                state
+                    .fields
+                    .password
+                    .as_ref()
+                    .map(|p| {
+                        if state.fields.password_visible {
+                            p.expose(|s| s.to_string())
+                        } else {
+                            p.expose(|s| {
+                                crate::tui::theme::ICON_PASSWORD_MASK.repeat(s.chars().count())
+                            })
+                        }
+                    })
+                    .unwrap_or_default()
+                    .as_str(),
                 focused == 4,
                 pw_error.is_some(),
                 state.fields.password_visible,
@@ -219,7 +233,21 @@ pub fn render_form(
             ];
             let secret_row = text_input::render_password_input_with_buttons(
                 t!("tui.form.secret_key_label").as_ref(),
-                state.fields.secret_key.as_deref().unwrap_or(""),
+                state
+                    .fields
+                    .secret_key
+                    .as_ref()
+                    .map(|k| {
+                        if state.fields.secret_visible {
+                            k.expose(|s| s.to_string())
+                        } else {
+                            k.expose(|s| {
+                                crate::tui::theme::ICON_PASSWORD_MASK.repeat(s.chars().count())
+                            })
+                        }
+                    })
+                    .unwrap_or_default()
+                    .as_str(),
                 focused == 4,
                 false,
                 state.fields.secret_visible,
@@ -282,7 +310,21 @@ pub fn render_form(
             ];
             lines.extend(text_input::render_password_input_with_buttons(
                 t!("tui.form.private_key_label").as_ref(),
-                state.fields.private_key.as_deref().unwrap_or(""),
+                state
+                    .fields
+                    .private_key
+                    .as_ref()
+                    .map(|k| {
+                        if state.fields.private_visible {
+                            k.expose(|s| s.to_string())
+                        } else {
+                            k.expose(|s| {
+                                crate::tui::theme::ICON_PASSWORD_MASK.repeat(s.chars().count())
+                            })
+                        }
+                    })
+                    .unwrap_or_default()
+                    .as_str(),
                 focused == 4,
                 false,
                 state.fields.private_visible,
@@ -317,7 +359,21 @@ pub fn render_form(
             ];
             lines.extend(text_input::render_password_input_with_buttons(
                 "Passphrase", // Keep "Passphrase" as is - it's a technical term
-                state.fields.passphrase.as_deref().unwrap_or(""),
+                state
+                    .fields
+                    .passphrase
+                    .as_ref()
+                    .map(|p| {
+                        if state.fields.passphrase_visible {
+                            p.expose(|s| s.to_string())
+                        } else {
+                            p.expose(|s| {
+                                crate::tui::theme::ICON_PASSWORD_MASK.repeat(s.chars().count())
+                            })
+                        }
+                    })
+                    .unwrap_or_default()
+                    .as_str(),
                 focused == 5,
                 false,
                 state.fields.passphrase_visible,

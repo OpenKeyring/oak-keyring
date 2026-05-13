@@ -150,8 +150,10 @@ impl ImportExportScreen {
             Paragraph::new(t!("tui.import_export.export_password_placeholder").to_string())
                 .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
-            Paragraph::new(Self::display_password(&self.export_password))
-                .style(ratatui::style::Style::default().fg(TEXT))
+            let masked = self
+                .export_password
+                .expose(|pw| crate::tui::theme::ICON_PASSWORD_MASK.repeat(pw.chars().count()));
+            Paragraph::new(masked).style(ratatui::style::Style::default().fg(TEXT))
         };
 
         // Strength bar
@@ -185,14 +187,19 @@ impl ImportExportScreen {
             Paragraph::new(t!("tui.import_export.confirm_password_placeholder").to_string())
                 .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
-            Paragraph::new(Self::display_password(&self.export_confirm_password))
-                .style(ratatui::style::Style::default().fg(TEXT))
+            let masked = self
+                .export_confirm_password
+                .expose(|pw| crate::tui::theme::ICON_PASSWORD_MASK.repeat(pw.chars().count()));
+            Paragraph::new(masked).style(ratatui::style::Style::default().fg(TEXT))
         };
 
         // Match indicator
         let match_line =
             if !self.export_password.is_empty() && !self.export_confirm_password.is_empty() {
-                if self.export_password == self.export_confirm_password {
+                let passwords_match = self
+                    .export_password
+                    .expose(|pw1| self.export_confirm_password.expose(|pw2| pw1 == pw2));
+                if passwords_match {
                     Some(
                         Paragraph::new(format!(
                             "{} {}",
@@ -379,8 +386,10 @@ impl ImportExportScreen {
             Paragraph::new(t!("tui.import_export.master_password_placeholder").to_string())
                 .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
         } else {
-            Paragraph::new(Self::display_password(&self.master_password))
-                .style(ratatui::style::Style::default().fg(TEXT))
+            let masked = self
+                .master_password
+                .expose(|pw| crate::tui::theme::ICON_PASSWORD_MASK.repeat(pw.chars().count()));
+            Paragraph::new(masked).style(ratatui::style::Style::default().fg(TEXT))
         };
 
         // Error

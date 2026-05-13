@@ -41,6 +41,7 @@ async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
         operation_cancel_token: CancellationToken::new(),
         timer_rebuild_pending: false,
         oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        verified_master_password: None,
     };
     executor.cancel_token().cancel();
 
@@ -87,6 +88,7 @@ async fn trigger_sync_returns_cancelled_when_shutdown_token_cancelled() {
         operation_cancel_token,
         timer_rebuild_pending: false,
         oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        verified_master_password: None,
     };
 
     // Simulate app shutdown: cancel the shutdown token.

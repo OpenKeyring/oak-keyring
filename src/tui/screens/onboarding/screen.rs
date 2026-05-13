@@ -1,3 +1,4 @@
+use uuid::Uuid;
 use zeroize::Zeroize;
 
 use crate::commands::types::ImportPreview;
@@ -6,6 +7,7 @@ use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::t;
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
+use crate::types::sensitive::SensitiveInput;
 
 use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
 
@@ -26,7 +28,7 @@ pub struct OnboardingScreen {
     /// Embedded grid for RecoveryInput step.
     pub recovery_grid: WordGridState,
     /// Verify step inputs for 4 positions.
-    pub verify_inputs: [String; 4],
+    pub verify_inputs: [SensitiveInput; 4],
     pub verify_errors: [bool; 4],
     pub verify_positions: [usize; 4],
     /// Currently focused verification input box index (0-3) on the RecoveryVerify step.
@@ -40,9 +42,10 @@ pub struct OnboardingScreen {
     // Import state for ImportSource/ImportPreview steps
     pub selected_source_idx: usize,
     pub import_file_path: String,
-    pub import_password: String,
+    pub import_password: SensitiveInput,
     pub import_focus: crate::tui::screens::import_export::ImportFocus,
     pub import_preview: Option<ImportPreview>,
+    pub import_session_id: Option<Uuid>,
     /// Whether to import problematic entries as notes instead of skipping them.
     pub import_as_notes: bool,
     /// Whether the checkbox on ImportPreview step is focused.
@@ -73,7 +76,7 @@ impl Default for OnboardingScreen {
             welcome_selected: 0,
             recovery_words: Vec::new(),
             recovery_grid: WordGridState::default(),
-            verify_inputs: std::array::from_fn(|_| String::new()),
+            verify_inputs: std::array::from_fn(|_| SensitiveInput::new()),
             verify_errors: [false; 4],
             verify_positions: [0; 4],
             verify_focus_index: 0,
@@ -81,9 +84,10 @@ impl Default for OnboardingScreen {
             returning_from_set_password: false,
             selected_source_idx: 0,
             import_file_path: String::new(),
-            import_password: String::new(),
+            import_password: SensitiveInput::new(),
             import_focus: ImportFocus::SourceList,
             import_preview: None,
+            import_session_id: None,
             import_as_notes: false,
             import_preview_checkbox_focused: false,
             vault_path_editable: false,
@@ -127,7 +131,7 @@ impl OnboardingScreen {
         }
         positions.sort();
         self.verify_positions = positions;
-        self.verify_inputs = std::array::from_fn(|_| String::new());
+        self.verify_inputs = std::array::from_fn(|_| SensitiveInput::new());
         self.verify_errors = [false; 4];
         self.verify_focus_index = 0;
     }
@@ -309,16 +313,16 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.recovery_words.zeroize();
         self.recovery_words.clear();
         self.recovery_grid.zeroize();
-        self.verify_inputs = std::array::from_fn(|_| String::new());
+        self.verify_inputs = std::array::from_fn(|_| SensitiveInput::new());
         self.verify_errors = [false; 4];
         self.verify_positions = [0; 4];
         self.verify_focus_index = 0;
         self.selected_source_idx = 0;
         self.import_file_path.clear();
-        self.import_password.zeroize();
         self.import_password.clear();
         self.import_focus = crate::tui::screens::import_export::ImportFocus::SourceList;
         self.import_preview = None;
+        self.import_session_id = None;
         self.import_as_notes = false;
         self.import_preview_checkbox_focused = false;
         self.vault_path_editable = false;
@@ -339,7 +343,6 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.recovery_words.clear();
         self.recovery_grid.zeroize();
         for input in &mut self.verify_inputs {
-            input.zeroize();
             input.clear();
         }
         self.verify_errors = [false; 4];
@@ -347,9 +350,9 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.verify_focus_index = 0;
         self.import_file_path.zeroize();
         self.import_file_path.clear();
-        self.import_password.zeroize();
         self.import_password.clear();
         self.import_preview = None;
+        self.import_session_id = None;
         self.import_as_notes = false;
         self.import_preview_checkbox_focused = false;
         self.recovery_focus = RecoveryFocus::default();

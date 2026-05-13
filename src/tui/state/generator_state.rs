@@ -2,6 +2,8 @@
 
 use crate::crypto::password;
 use crate::crypto::strength::{evaluate_strength, PasswordStrength};
+use crate::types::sensitive::SensitiveInput;
+use crate::types::SecureStr;
 
 /// Current generation style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,13 +77,15 @@ pub enum GeneratorFocus {
 }
 
 /// Shared generator state for both standalone dialog and embedded panel.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct GeneratorState {
     pub style: GenerationStyle,
     pub random_config: RandomConfig,
     pub memorable_config: MemorableConfig,
     pub pin_config: PinConfig,
-    pub preview: String,
+    /// Generated password preview. Manual `Clone` clears this field so UI
+    /// snapshots cannot duplicate generated credentials.
+    pub preview: SensitiveInput,
     pub strength: Option<PasswordStrength>,
     pub focus: GeneratorFocus,
 }
@@ -100,7 +104,7 @@ impl GeneratorState {
             random_config: RandomConfig::default(),
             memorable_config: MemorableConfig::default(),
             pin_config: PinConfig::default(),
-            preview: String::new(),
+            preview: SensitiveInput::new(),
             strength: None,
             focus: GeneratorFocus::StyleSelector,
         };
@@ -135,7 +139,7 @@ impl GeneratorState {
             random_config,
             memorable_config: MemorableConfig::default(),
             pin_config: PinConfig::default(),
-            preview: String::new(),
+            preview: SensitiveInput::new(),
             strength: None,
             focus: GeneratorFocus::StyleSelector,
         };
@@ -166,12 +170,11 @@ impl GeneratorState {
 
         match result {
             Ok(pw) => {
-                let pw_str = pw.get().to_string();
-                self.strength = Some(evaluate_strength(&pw_str));
-                self.preview = pw_str;
+                self.strength = Some(evaluate_strength(pw.expose()));
+                self.preview = SensitiveInput::from(pw);
             }
             Err(_) => {
-                self.preview = String::new();
+                self.preview = SensitiveInput::new();
                 self.strength = None;
             }
         }
@@ -316,13 +319,25 @@ impl GeneratorState {
 
     /// Clear preview from memory.
     pub fn clear_preview(&mut self) {
-        let _ = std::mem::take(&mut self.preview);
+        self.preview.clear();
         self.strength = None;
+    }
+
+    pub fn has_preview(&self) -> bool {
+        !self.preview.is_empty()
+    }
+
+    pub fn preview_expose<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        self.preview.expose(f)
+    }
+
+    pub fn take_preview(&mut self) -> SecureStr {
+        self.preview.take_secure()
     }
 }
 
 /// Embedded generator panel state (inside Create/Edit form).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct EmbeddedGeneratorState {
     pub expanded: bool,
     pub generator: GeneratorState,
@@ -356,10 +371,33 @@ impl EmbeddedGeneratorState {
     }
 
     /// Use the generated password.
-    pub fn use_password(&mut self) -> String {
-        let pw = std::mem::take(&mut self.generator.preview);
+    pub fn use_password(&mut self) -> SecureStr {
+        let pw = self.generator.take_preview();
         self.expanded = false;
         pw
+    }
+}
+
+impl Clone for GeneratorState {
+    fn clone(&self) -> Self {
+        Self {
+            style: self.style,
+            random_config: self.random_config.clone(),
+            memorable_config: self.memorable_config.clone(),
+            pin_config: self.pin_config.clone(),
+            preview: SensitiveInput::new(),
+            strength: None,
+            focus: self.focus,
+        }
+    }
+}
+
+impl Clone for EmbeddedGeneratorState {
+    fn clone(&self) -> Self {
+        Self {
+            expanded: self.expanded,
+            generator: self.generator.clone(),
+        }
     }
 }
 
@@ -367,11 +405,15 @@ impl EmbeddedGeneratorState {
 mod tests {
     use super::*;
 
+    fn preview(state: &GeneratorState) -> String {
+        state.preview_expose(|s| s.to_owned())
+    }
+
     #[test]
     fn new_state_has_random_style() {
         let state = GeneratorState::new();
         assert_eq!(state.style, GenerationStyle::Random);
-        assert!(!state.preview.is_empty());
+        assert!(state.has_preview());
         assert!(state.strength.is_some());
     }
 
@@ -379,7 +421,7 @@ mod tests {
     fn regenerate_updates_preview() {
         let mut state = GeneratorState::new();
         state.regenerate();
-        assert!(!state.preview.is_empty());
+        assert!(state.has_preview());
     }
 
     #[test]
@@ -387,7 +429,7 @@ mod tests {
         let mut state = GeneratorState::new();
         state.set_style(GenerationStyle::Pin);
         assert_eq!(state.style, GenerationStyle::Pin);
-        assert!(state.preview.chars().all(|c| c.is_ascii_digit()));
+        assert!(state.preview_expose(|s| s.chars().all(|c| c.is_ascii_digit())));
     }
 
     #[test]
@@ -454,10 +496,10 @@ mod tests {
     fn embedded_collapse_clears_preview() {
         let mut state = EmbeddedGeneratorState::new();
         state.expand();
-        assert!(!state.generator.preview.is_empty());
+        assert!(state.generator.has_preview());
         state.collapse();
         assert!(!state.expanded);
-        assert!(state.generator.preview.is_empty());
+        assert!(!state.generator.has_preview());
     }
 
     #[test]
@@ -465,7 +507,7 @@ mod tests {
         let mut state = EmbeddedGeneratorState::new();
         state.expand();
         let pw = state.use_password();
-        assert!(!pw.is_empty());
+        assert!(!pw.expose().is_empty());
         assert!(!state.expanded);
     }
 
@@ -497,7 +539,8 @@ mod tests {
         state.regenerate();
 
         // Split by separator and check each word starts with uppercase
-        let words: Vec<&str> = state.preview.split('-').collect();
+        let preview = preview(&state);
+        let words: Vec<&str> = preview.split('-').collect();
         assert_eq!(words.len(), 4, "Should have 4 words separated by '-'");
 
         for word in words {
@@ -521,7 +564,8 @@ mod tests {
         state.regenerate();
 
         // Split by separator and check each word is all lowercase
-        let words: Vec<&str> = state.preview.split('-').collect();
+        let preview = preview(&state);
+        let words: Vec<&str> = preview.split('-').collect();
         assert_eq!(words.len(), 3, "Should have 3 words separated by '-'");
 
         for word in words {
@@ -549,7 +593,7 @@ mod tests {
         state.regenerate();
 
         // With capitalize=true, preview should have uppercase letters
-        let has_uppercase = state.preview.chars().any(|c| c.is_uppercase());
+        let has_uppercase = state.preview_expose(|s| s.chars().any(|c| c.is_uppercase()));
         assert!(
             has_uppercase,
             "Preview should contain uppercase letters when capitalize=true"
@@ -560,7 +604,8 @@ mod tests {
         state.regenerate();
 
         // With capitalize=false, preview should be all lowercase (except separator)
-        let parts: Vec<&str> = state.preview.split('-').collect();
+        let preview = preview(&state);
+        let parts: Vec<&str> = preview.split('-').collect();
         for part in parts {
             assert!(
                 part.chars().all(|c| c.is_lowercase()),

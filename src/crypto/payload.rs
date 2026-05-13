@@ -1,12 +1,135 @@
 use crate::crypto::CryptoManager;
 use crate::types::credential::{CredentialType, EncryptedPayload};
+use crate::types::sensitive::SecureStr;
+
+/// Private DTO for plaintext serialization at the crypto boundary.
+/// This type is never exposed outside the crypto layer.
+#[derive(serde::Serialize, serde::Deserialize)]
+enum PayloadPlaintextDto {
+    Login {
+        name: String,
+        username: String,
+        password: String,
+        url: Option<String>,
+        notes: Option<String>,
+    },
+    Api {
+        name: String,
+        app_id: String,
+        secret_key: String,
+        url: Option<String>,
+        notes: Option<String>,
+    },
+    Ssh {
+        name: String,
+        public_key: String,
+        private_key: Option<String>,
+        passphrase: Option<String>,
+        notes: Option<String>,
+    },
+}
+
+impl PayloadPlaintextDto {
+    /// Convert from EncryptedPayload, exposing secrets via SecureStr::expose().
+    /// This is safe because the resulting plaintext DTO is immediately encrypted.
+    fn from_payload(payload: &EncryptedPayload) -> Self {
+        match payload {
+            EncryptedPayload::Login {
+                name,
+                username,
+                password,
+                url,
+                notes,
+            } => PayloadPlaintextDto::Login {
+                name: name.clone(),
+                username: username.clone(),
+                password: password.expose().to_string(),
+                url: url.clone(),
+                notes: notes.clone(),
+            },
+            EncryptedPayload::Api {
+                name,
+                app_id,
+                secret_key,
+                url,
+                notes,
+            } => PayloadPlaintextDto::Api {
+                name: name.clone(),
+                app_id: app_id.clone(),
+                secret_key: secret_key.expose().to_string(),
+                url: url.clone(),
+                notes: notes.clone(),
+            },
+            EncryptedPayload::Ssh {
+                name,
+                public_key,
+                private_key,
+                passphrase,
+                notes,
+            } => PayloadPlaintextDto::Ssh {
+                name: name.clone(),
+                public_key: public_key.clone(),
+                private_key: private_key.as_ref().map(|pk| pk.expose().to_string()),
+                passphrase: passphrase.as_ref().map(|pp| pp.expose().to_string()),
+                notes: notes.clone(),
+            },
+        }
+    }
+
+    /// Convert into EncryptedPayload, wrapping secrets in SecureStr.
+    /// This is safe because the plaintext DTO is only created from decrypted data.
+    fn into_payload(self) -> EncryptedPayload {
+        match self {
+            PayloadPlaintextDto::Login {
+                name,
+                username,
+                password,
+                url,
+                notes,
+            } => EncryptedPayload::Login {
+                name,
+                username,
+                password: SecureStr::new(password),
+                url,
+                notes,
+            },
+            PayloadPlaintextDto::Api {
+                name,
+                app_id,
+                secret_key,
+                url,
+                notes,
+            } => EncryptedPayload::Api {
+                name,
+                app_id,
+                secret_key: SecureStr::new(secret_key),
+                url,
+                notes,
+            },
+            PayloadPlaintextDto::Ssh {
+                name,
+                public_key,
+                private_key,
+                passphrase,
+                notes,
+            } => EncryptedPayload::Ssh {
+                name,
+                public_key,
+                private_key: private_key.map(SecureStr::new),
+                passphrase: passphrase.map(SecureStr::new),
+                notes,
+            },
+        }
+    }
+}
 
 pub fn encrypt_payload(
     crypto: &CryptoManager,
     payload: &EncryptedPayload,
     aad: &[u8],
 ) -> Result<(Vec<u8>, [u8; 24]), String> {
-    let json = serde_json::to_string(payload).map_err(|e| e.to_string())?;
+    let dto = PayloadPlaintextDto::from_payload(payload);
+    let json = serde_json::to_string(&dto).map_err(|e| e.to_string())?;
     crypto.encrypt(json.as_bytes(), aad)
 }
 
@@ -20,7 +143,8 @@ pub fn decrypt_payload(
 ) -> Result<EncryptedPayload, String> {
     let plaintext = crypto.decrypt(ciphertext, nonce, aad, dek_version)?;
     let json = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
-    serde_json::from_str(&json).map_err(|e| e.to_string())
+    let dto: PayloadPlaintextDto = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    Ok(dto.into_payload())
 }
 
 pub fn decrypt_name_only(
@@ -76,4 +200,31 @@ fn unwrap_enum_variant(value: &serde_json::Value) -> Result<&serde_json::Value, 
         }
     }
     Err("expected externally-tagged enum JSON".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::credential::EncryptedPayload;
+
+    #[test]
+    fn payload_roundtrip_preserves_secret_fields_without_securestr_serde() {
+        let payload = EncryptedPayload::Login {
+            name: "example".to_string(),
+            username: "alice".to_string(),
+            password: SecureStr::new("correct horse".to_string()),
+            url: Some("https://example.test".to_string()),
+            notes: None,
+        };
+
+        let dto = PayloadPlaintextDto::from_payload(&payload);
+        let restored = dto.into_payload();
+
+        match restored {
+            EncryptedPayload::Login { password, .. } => {
+                assert_eq!(password.expose(), "correct horse");
+            }
+            _ => panic!("expected login payload"),
+        }
+    }
 }

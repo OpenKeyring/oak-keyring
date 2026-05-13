@@ -5,6 +5,15 @@ use ratatui::Terminal;
 
 use oak_keyring::tui::screens::unlock::{UnlockMode, UnlockPhase, UnlockScreen};
 use oak_keyring::tui::traits::screen::Screen;
+use oak_keyring::types::sensitive::SensitiveInput;
+
+fn sensitive(s: &str) -> SensitiveInput {
+    let mut input = SensitiveInput::new();
+    for c in s.chars() {
+        input.push_char(c);
+    }
+    input
+}
 
 fn render_screen(screen: &UnlockScreen, width: u16, height: u16) -> TestBackend {
     let backend = TestBackend::new(width, height);
@@ -29,7 +38,7 @@ fn unlock_screen_empty_password_mode() {
 fn unlock_screen_with_password() {
     let mut screen = UnlockScreen::default();
     screen.mode = UnlockMode::Password;
-    screen.password_input = "secretpassword".to_string();
+    screen.password_input = sensitive("secretpassword");
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("unlock_screen_with_password", backend);
 }
@@ -46,7 +55,7 @@ fn unlock_screen_recovery_key_mode() {
 fn unlock_screen_failed_state() {
     let mut screen = UnlockScreen::default();
     screen.mode = UnlockMode::Password;
-    screen.password_input = "wrong".to_string();
+    screen.password_input = sensitive("wrong");
     screen.state = UnlockPhase::Failed;
     screen.error_message = Some("Wrong password. Please try again.".to_string());
     let backend = render_screen(&screen, 80, 24);
@@ -57,7 +66,7 @@ fn unlock_screen_failed_state() {
 fn unlock_screen_verifying_state() {
     let mut screen = UnlockScreen::default();
     screen.mode = UnlockMode::Password;
-    screen.password_input = "secretpassword".to_string();
+    screen.password_input = sensitive("secretpassword");
     screen.state = UnlockPhase::Verifying;
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("unlock_screen_verifying_state", backend);

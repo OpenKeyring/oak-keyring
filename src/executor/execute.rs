@@ -107,6 +107,10 @@ impl CommandExecutor {
                 current_password,
                 new_password,
             } => vault::handle_change_master_password(self, current_password, new_password),
+            Command::ClearVerifiedPassword => {
+                self.verified_master_password = None;
+                CommandResult::Void
+            }
             Command::InitializeVault {
                 vault_path,
                 master_password,
@@ -238,6 +242,7 @@ impl CommandExecutor {
                 password,
             } => import_export::handle_validate_import_file(self, source, path, password),
             Command::ExecuteImport {
+                session_id,
                 source,
                 path,
                 password,
@@ -245,6 +250,7 @@ impl CommandExecutor {
                 import_as_notes,
             } => import_export::handle_execute_import(
                 self,
+                session_id,
                 source,
                 path,
                 password,

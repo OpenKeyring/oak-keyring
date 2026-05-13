@@ -26,7 +26,11 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
                 });
             }
             // Password required (index 4)
-            if fields.password.as_ref().is_none_or(|s| s.trim().is_empty()) {
+            if fields
+                .password
+                .as_ref()
+                .is_none_or(|s| s.expose(|v| v.trim().is_empty()))
+            {
                 errors.push(ValidationError {
                     field_index: 4,
                     message: t!("tui.form.validation_required").to_string(),
@@ -45,7 +49,7 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
             if fields
                 .secret_key
                 .as_ref()
-                .is_none_or(|s| s.trim().is_empty())
+                .is_none_or(|s| s.expose(|v| v.trim().is_empty()))
             {
                 errors.push(ValidationError {
                     field_index: 4,
@@ -205,7 +209,9 @@ mod tests {
         let mut fields = FormFields::new(CredentialType::Login);
         fields.name = "GitHub".into();
         fields.username = Some("user".into());
-        fields.password = Some("password123".into());
+        for c in "password123".chars() {
+            fields.password.as_mut().unwrap().push_char(c);
+        }
         fields
     }
 
@@ -235,7 +241,7 @@ mod tests {
     #[test]
     fn empty_password_error() {
         let mut fields = login_fields();
-        fields.password = Some(String::new());
+        fields.password = Some(crate::types::sensitive::SensitiveInput::new());
         let errors = validate(&fields, CredentialType::Login);
         assert!(errors.iter().any(|e| e.field_index == 4));
     }
@@ -245,7 +251,7 @@ mod tests {
         let mut fields = FormFields::new(CredentialType::Api);
         fields.name = "Test".into();
         fields.app_id = Some(String::new());
-        fields.secret_key = Some(String::new());
+        fields.secret_key = Some(crate::types::sensitive::SensitiveInput::new());
         let errors = validate(&fields, CredentialType::Api);
         assert!(errors.iter().any(|e| e.field_index == 3));
         assert!(errors.iter().any(|e| e.field_index == 4));

@@ -2599,6 +2599,7 @@ dependencies = [
  "regex",
  "rusqlite",
  "rust-i18n",
+ "secrecy",
  "serde",
  "serde_json",
  "sha1",
@@ -2616,6 +2617,7 @@ dependencies = [
  "ureq",
  "url",
  "uuid",
+ "windows-sys 0.59.0",
  "zeroize",
  "zip",
 ]

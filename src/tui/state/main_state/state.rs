@@ -14,7 +14,7 @@ use crate::tui::state::list_state::{ListMode, ListPanelState};
 use crate::tui::state::overlay_state::HistoryEntry;
 use crate::tui::state::tag_management::{TagManagementState, TagSortOrder};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
-use crate::types::{CredentialType, SecureStr, Tag};
+use crate::types::{CredentialType, Tag};
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -827,7 +827,8 @@ impl Screen for MainScreenState {
                                 if let Some(target_kind) = target_kind {
                                     for f in &mut record.fields {
                                         if f.kind == target_kind && f.toggleable {
-                                            f.value = FieldValue::Revealed(value.get().clone());
+                                            f.value =
+                                                FieldValue::Revealed(value.expose().to_string());
                                             break;
                                         }
                                     }
@@ -1243,9 +1244,7 @@ impl MainScreenState {
             OverlayKeyResult::CopyGeneratedPassword { password } => {
                 self.overlay_manager.close();
                 self.pending_animation = Some(EffectKind::ModalDismiss);
-                ScreenResult::Command(Box::new(Command::CopyRawToClipboard {
-                    value: SecureStr::new(password),
-                }))
+                ScreenResult::Command(Box::new(Command::CopyRawToClipboard { value: password }))
             }
             OverlayKeyResult::CopyHistoryPassword { history_id } => {
                 self.overlay_manager.close();

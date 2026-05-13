@@ -28,6 +28,7 @@ use crate::services::clipboard::ClipboardService;
 use crate::services::health::HealthService;
 use crate::services::import_export::ImportExportService;
 use crate::services::vault::VaultService;
+use crate::types::SecureStr;
 
 use crate::config::notification::ServiceNotification;
 use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
@@ -95,6 +96,9 @@ pub struct CommandExecutor {
     pub(super) health_report: Option<HealthReport>,
     /// Timestamp of the most recent health check completion.
     pub(super) last_health_check_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// Cached verified master password for the change-password flow.
+    /// Set after successful `VerifyMasterPassword`, consumed by `ChangeMasterPassword`.
+    pub(super) verified_master_password: Option<SecureStr>,
     /// Channel for sending messages (results) back to the UI layer.
     pub(super) result_tx: mpsc::Sender<Message>,
     /// Internal channel for background tasks to send system-level signals.
@@ -189,6 +193,7 @@ impl CommandExecutor {
             vault_dir,
             health_report: None,
             last_health_check_time: None,
+            verified_master_password: None,
             result_tx,
             internal_tx,
             internal_rx: Some(internal_rx),

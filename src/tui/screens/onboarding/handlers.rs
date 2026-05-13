@@ -4,7 +4,7 @@ use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::Command;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
-use crate::types::SecureStr;
+use crate::types::sensitive::SecureStr;
 
 use super::screen::OnboardingScreen;
 use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
@@ -256,14 +256,14 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Backspace => {
-                self.verify_inputs[focused].pop();
+                self.verify_inputs[focused].pop_char();
                 self.verify_errors[focused] = false;
                 ScreenResult::Continue
             }
             KeyCode::Char(c) if c.is_alphabetic() => {
                 let input = &mut self.verify_inputs[focused];
                 if input.len() < 12 {
-                    input.push(c);
+                    input.push_char(c);
                 }
                 self.verify_errors[focused] = false;
                 ScreenResult::Continue
@@ -277,7 +277,8 @@ impl OnboardingScreen {
     fn submit_recovery_verify(&mut self) -> ScreenResult {
         let all_correct = self.verify_positions.iter().enumerate().all(|(i, &pos)| {
             pos < self.recovery_words.len()
-                && self.verify_inputs[i].eq_ignore_ascii_case(&self.recovery_words[pos])
+                && self.verify_inputs[i]
+                    .expose(|s| s.eq_ignore_ascii_case(&self.recovery_words[pos]))
         });
         if all_correct {
             self.verify_errors = [false; 4];
@@ -286,7 +287,8 @@ impl OnboardingScreen {
             // Mark mismatches
             for (i, &pos) in self.verify_positions.iter().enumerate() {
                 self.verify_errors[i] = pos >= self.recovery_words.len()
-                    || !self.verify_inputs[i].eq_ignore_ascii_case(&self.recovery_words[pos]);
+                    || !self.verify_inputs[i]
+                        .expose(|s| s.eq_ignore_ascii_case(&self.recovery_words[pos]));
             }
         }
         ScreenResult::Continue
@@ -381,7 +383,7 @@ impl OnboardingScreen {
                     ScreenResult::Continue
                 }
                 ImportFocus::Password => {
-                    self.import_password.push(c);
+                    self.import_password.push_char(c);
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
@@ -392,7 +394,7 @@ impl OnboardingScreen {
                     ScreenResult::Continue
                 }
                 ImportFocus::Password => {
-                    self.import_password.pop();
+                    self.import_password.pop_char();
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
@@ -406,7 +408,7 @@ impl OnboardingScreen {
                 let password = if self.import_password.is_empty() {
                     None
                 } else {
-                    Some(SecureStr::new(self.import_password.clone()))
+                    Some(self.import_password.take_secure())
                 };
                 let cmd = Command::ValidateImportFile {
                     source,
@@ -446,15 +448,11 @@ impl OnboardingScreen {
             }
             KeyCode::Enter => {
                 let source = IMPORT_SOURCES[self.selected_source_idx].0;
-                let password = if self.import_password.is_empty() {
-                    None
-                } else {
-                    Some(SecureStr::new(self.import_password.clone()))
-                };
                 let cmd = Command::ExecuteImport {
+                    session_id: self.import_session_id,
                     source,
                     path: std::path::PathBuf::from(&self.import_file_path),
-                    password,
+                    password: None,
                     column_mapping: None,
                     import_as_notes: self.import_as_notes,
                 };
@@ -508,8 +506,12 @@ impl OnboardingScreen {
                 // Recovery key was accepted — already moved to VaultPath
                 ScreenResult::Continue
             }
-            CommandResult::ImportValidated { preview } => {
+            CommandResult::ImportValidated {
+                session_id,
+                preview,
+            } => {
                 if matches!(self.current_step, OnboardingStep::ImportSource) {
+                    self.import_session_id = Some(session_id);
                     self.import_preview = Some(preview);
                     self.error = None;
                     self.current_step = OnboardingStep::ImportPreview;

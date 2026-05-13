@@ -1,65 +1,144 @@
 use std::path::Path;
-use zeroize::Zeroize;
 
 use crate::crypto::argon2::{self, Argon2Params};
 use crate::crypto::bip39::MnemonicLanguage;
 use crate::crypto::hkdf;
 use crate::crypto::xchacha20;
+use crate::security::LockedKey32;
 use crate::types::SecureStr;
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct SecretKey([u8; 32]);
+/// A secret key stored in locked memory.
+///
+/// This type wraps [`LockedKey32`] to prevent the secret key from being
+/// swapped to disk or appearing in core dumps.
+pub struct SecretKey(LockedKey32);
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct WrappingKey([u8; 32]);
+// SAFETY: LockedKey32 uses mlock/VirtualLock which are thread-safe on all platforms.
+// The wrapped key material cannot be cloned (LockedKey32 is intentionally !Clone).
+unsafe impl Send for SecretKey {}
+unsafe impl Sync for SecretKey {}
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct KeyEncryptionKey([u8; 32]);
+/// A wrapping key stored in locked memory.
+///
+/// This type wraps [`LockedKey32`] to prevent the wrapping key from being
+/// swapped to disk or appearing in core dumps.
+pub struct WrappingKey(LockedKey32);
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct DataEncryptionKey([u8; 32]);
+// SAFETY: LockedKey32 uses mlock/VirtualLock which are thread-safe on all platforms.
+// The wrapped key material cannot be cloned (LockedKey32 is intentionally !Clone).
+unsafe impl Send for WrappingKey {}
+unsafe impl Sync for WrappingKey {}
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
-pub struct DeviceKey([u8; 32]);
+/// A key encryption key (KEK) stored in locked memory.
+///
+/// This type wraps [`LockedKey32`] to prevent the KEK from being
+/// swapped to disk or appearing in core dumps.
+pub struct KeyEncryptionKey(LockedKey32);
+
+// SAFETY: LockedKey32 uses mlock/VirtualLock which are thread-safe on all platforms.
+// The wrapped key material cannot be cloned (LockedKey32 is intentionally !Clone).
+unsafe impl Send for KeyEncryptionKey {}
+unsafe impl Sync for KeyEncryptionKey {}
+
+/// A data encryption key (DEK) stored in locked memory.
+///
+/// This type wraps [`LockedKey32`] to prevent the DEK from being
+/// swapped to disk or appearing in core dumps.
+pub struct DataEncryptionKey(LockedKey32);
+
+// SAFETY: LockedKey32 uses mlock/VirtualLock which are thread-safe on all platforms.
+// The wrapped key material cannot be cloned (LockedKey32 is intentionally !Clone).
+unsafe impl Send for DataEncryptionKey {}
+unsafe impl Sync for DataEncryptionKey {}
+
+/// A device key stored in locked memory.
+///
+/// This type wraps [`LockedKey32`] to prevent the device key from being
+/// swapped to disk or appearing in core dumps.
+pub struct DeviceKey(LockedKey32);
+
+// SAFETY: LockedKey32 uses mlock/VirtualLock which are thread-safe on all platforms.
+// The wrapped key material cannot be cloned (LockedKey32 is intentionally !Clone).
+unsafe impl Send for DeviceKey {}
+unsafe impl Sync for DeviceKey {}
 
 impl SecretKey {
-    pub(crate) fn new(bytes: [u8; 32]) -> Self {
-        Self(bytes)
+    /// Creates a new secret key from existing key material.
+    ///
+    /// The key material is copied into locked memory and the source array
+    /// is zeroized after copying through the mutable reference.
+    pub(crate) fn new(bytes: &mut [u8; 32]) -> Result<Self, String> {
+        let key = LockedKey32::new(bytes)?;
+        Ok(Self(key))
     }
+
+    /// Exposes the underlying 32-byte key.
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.expose()
     }
 }
 
 impl WrappingKey {
+    /// Creates a new wrapping key from existing key material.
+    ///
+    /// The key material is copied into locked memory and the source array
+    /// is zeroized after copying through the mutable reference.
+    pub fn new(bytes: &mut [u8; 32]) -> Result<Self, String> {
+        let key = LockedKey32::new(bytes)?;
+        Ok(Self(key))
+    }
+
+    /// Exposes the underlying 32-byte key.
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.expose()
     }
 }
 
 impl KeyEncryptionKey {
-    pub(crate) fn new(bytes: [u8; 32]) -> Self {
-        Self(bytes)
+    /// Creates a new key encryption key from existing key material.
+    ///
+    /// The key material is copied into locked memory and the source array
+    /// is zeroized after copying through the mutable reference.
+    pub(crate) fn new(bytes: &mut [u8; 32]) -> Result<Self, String> {
+        let key = LockedKey32::new(bytes)?;
+        Ok(Self(key))
     }
+
+    /// Exposes the underlying 32-byte key.
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.expose()
     }
 }
 
 impl DataEncryptionKey {
+    /// Creates a new data encryption key from existing key material.
+    ///
+    /// The key material is copied into locked memory and the source array
+    /// is zeroized after copying through the mutable reference.
+    pub fn new(bytes: &mut [u8; 32]) -> Result<Self, String> {
+        let key = LockedKey32::new(bytes)?;
+        Ok(Self(key))
+    }
+
+    /// Exposes the underlying 32-byte key.
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.expose()
     }
 }
 
 impl DeviceKey {
+    /// Creates a new device key from existing key material.
+    ///
+    /// The key material is copied into locked memory and the source array
+    /// is zeroized after copying through the mutable reference.
+    pub fn new(bytes: &mut [u8; 32]) -> Result<Self, String> {
+        let key = LockedKey32::new(bytes)?;
+        Ok(Self(key))
+    }
+
+    /// Exposes the underlying 32-byte key.
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.expose()
     }
 }
 
@@ -75,20 +154,21 @@ pub fn unwrap_key(
     nonce: &[u8; 24],
     wrapping_key: &[u8; 32],
 ) -> Result<[u8; 32], String> {
-    let plaintext = xchacha20::decrypt(wrapped, nonce, wrapping_key).map_err(|e| e.to_string())?;
+    let mut plaintext =
+        xchacha20::decrypt(wrapped, nonce, wrapping_key).map_err(|e| e.to_string())?;
     let mut key = [0u8; 32];
     key.copy_from_slice(&plaintext);
+    use zeroize::Zeroize;
+    plaintext.zeroize();
     Ok(key)
 }
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
+#[allow(dead_code)]
 pub struct KeyStore {
     pub(crate) sk: Option<SecretKey>,
     pub(crate) kek: Option<KeyEncryptionKey>,
     pub(crate) current_dek_version: u32,
     pub(crate) device_id: String,
-    #[zeroize(skip)]
     pub(crate) mnemonic_language: MnemonicLanguage,
 }
 
@@ -104,20 +184,19 @@ impl KeyStore {
 
     pub fn initialize(
         path: &Path,
-        sk_bytes: [u8; 32],
+        sk_bytes: &mut [u8; 32],
         cmk: &SecureStr,
         params: &Argon2Params,
         language: MnemonicLanguage,
     ) -> Result<Self, String> {
-        let sk = SecretKey(sk_bytes);
-        let kek = KeyEncryptionKey(hkdf::derive_kek(sk.as_bytes())?);
+        let sk = SecretKey::new(sk_bytes)?;
+        let mut kek = hkdf::derive_kek(sk.as_bytes())?;
+        let kek = KeyEncryptionKey::new(&mut kek)?;
 
         let salt = argon2::generate_salt();
-        let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk.get(), &salt, params)?
-                .try_into()
-                .map_err(|_| "WK derivation failed".to_string())?,
-        );
+        // Derive wrapping key directly into locked memory
+        let locked_wk = argon2::derive_key_locked(cmk, &salt, params)?;
+        let wk = WrappingKey(locked_wk);
 
         let (wrapped, nonce) = wrap_key(sk.as_bytes(), wk.as_bytes())?;
 
@@ -187,20 +266,19 @@ impl KeyStore {
             p_cost: parallelism,
         };
 
-        let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk.get(), &salt_arr, &kdf_params)?
-                .try_into()
-                .map_err(|_| "WK derivation failed".to_string())?,
-        );
+        // Derive wrapping key directly into locked memory
+        let locked_wk = argon2::derive_key_locked(cmk, &salt_arr, &kdf_params)?;
+        let wk = WrappingKey(locked_wk);
 
         let wrapped = base64_decode(data["wrapped_sk"].as_str().ok_or("missing wrapped_sk")?)?;
         let nonce = base64_decode(data["nonce"].as_str().ok_or("missing nonce")?)?;
         let mut nonce_arr = [0u8; 24];
         nonce_arr.copy_from_slice(&nonce);
 
-        let sk_bytes = unwrap_key(&wrapped, &nonce_arr, wk.as_bytes())?;
-        let sk = SecretKey(sk_bytes);
-        let kek = KeyEncryptionKey(hkdf::derive_kek(sk.as_bytes())?);
+        let mut sk_bytes = unwrap_key(&wrapped, &nonce_arr, wk.as_bytes())?;
+        let sk = SecretKey::new(&mut sk_bytes)?;
+        let mut kek = hkdf::derive_kek(sk.as_bytes())?;
+        let kek = KeyEncryptionKey::new(&mut kek)?;
 
         let mnemonic_lang_str = data["mnemonic_language"].as_str().unwrap_or("en");
         let mnemonic_language = MnemonicLanguage::from_keystore_value(mnemonic_lang_str)
@@ -240,11 +318,9 @@ impl KeyStore {
             p_cost: parallelism,
         };
 
-        let old_wk = WrappingKey(
-            argon2::derive_key_with_params(old_cmk.get(), &salt_arr, &kdf_params)?
-                .try_into()
-                .map_err(|_| "WK derivation failed".to_string())?,
-        );
+        // Derive old wrapping key directly into locked memory
+        let locked_old_wk = argon2::derive_key_locked(old_cmk, &salt_arr, &kdf_params)?;
+        let old_wk = WrappingKey(locked_old_wk);
 
         let wrapped = base64_decode(data["wrapped_sk"].as_str().ok_or("missing wrapped_sk")?)?;
         let nonce_bytes = base64_decode(data["nonce"].as_str().ok_or("missing nonce")?)?;
@@ -255,11 +331,9 @@ impl KeyStore {
 
         let new_salt = argon2::generate_salt();
         // Preserve the existing vault's KDF params for the new wrapping (security not downgraded)
-        let mut new_wk = WrappingKey(
-            argon2::derive_key_with_params(new_cmk.get(), &new_salt, &kdf_params)?
-                .try_into()
-                .map_err(|_| "WK derivation failed".to_string())?,
-        );
+        // Derive new wrapping key directly into locked memory
+        let locked_new_wk = argon2::derive_key_locked(new_cmk, &new_salt, &kdf_params)?;
+        let new_wk = WrappingKey(locked_new_wk);
 
         let (new_wrapped, new_nonce) = wrap_key(&sk_bytes, new_wk.as_bytes())?;
 
@@ -305,7 +379,8 @@ impl KeyStore {
             std::fs::set_permissions(&file_path, perms).map_err(|e| e.to_string())?;
         }
 
-        new_wk.zeroize();
+        use zeroize::Zeroize;
+        // sk_bytes is a temporary array that was used to re-wrap the secret key
         sk_bytes.zeroize();
 
         Ok(())
@@ -313,10 +388,8 @@ impl KeyStore {
 
     pub fn get_dek(&self, version: u32) -> Result<DataEncryptionKey, String> {
         let kek = self.kek.as_ref().ok_or("KeyStore not unlocked")?;
-        Ok(DataEncryptionKey(hkdf::derive_dek(
-            kek.as_bytes(),
-            version,
-        )?))
+        let mut dek = hkdf::derive_dek(kek.as_bytes(), version)?;
+        DataEncryptionKey::new(&mut dek)
     }
 
     pub fn current_dek_version(&self) -> u32 {
@@ -358,12 +431,9 @@ mod tests {
     /// This simulates a vault created with non-default (e.g. High) params.
     fn init_with_params(path: &Path, sk_bytes: [u8; 32], cmk: &SecureStr, params: &Argon2Params) {
         let salt = argon2::generate_salt();
-        let wk = WrappingKey(
-            argon2::derive_key_with_params(cmk.get(), &salt, params)
-                .unwrap()
-                .try_into()
-                .unwrap(),
-        );
+        // Derive wrapping key directly into locked memory
+        let locked_wk = argon2::derive_key_locked(cmk, &salt, params).unwrap();
+        let wk = WrappingKey(locked_wk);
         let (wrapped, nonce) = wrap_key(&sk_bytes, wk.as_bytes()).unwrap();
 
         let json = serde_json::json!({
@@ -414,12 +484,12 @@ mod tests {
     fn test_initialize_unlock_roundtrip() {
         // initialize -> unlock must recover the same SK.
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0xCDu8; 32];
+        let mut sk_bytes = [0xCDu8; 32];
         let cmk = sec("roundtrip-password");
 
         let created = KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &cmk,
             &Argon2Params::medium(),
             MnemonicLanguage::English,
@@ -437,11 +507,11 @@ mod tests {
     #[test]
     fn test_unlock_wrong_cmk_fails() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0xEFu8; 32];
+        let mut sk_bytes = [0xEFu8; 32];
 
         KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &sec("right-password"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
@@ -455,13 +525,14 @@ mod tests {
     #[test]
     fn test_change_cmk_roundtrip() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0x11u8; 32];
+        let mut sk_bytes = [0x11u8; 32];
+        let original_sk = sk_bytes;
         let old_cmk = sec("old-master-password");
         let new_cmk = sec("new-master-password");
 
         KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &old_cmk,
             &Argon2Params::medium(),
             MnemonicLanguage::English,
@@ -477,7 +548,7 @@ mod tests {
         );
         assert_eq!(
             result.unwrap().sk.as_ref().unwrap().as_bytes(),
-            &sk_bytes,
+            &original_sk,
             "SK must be preserved after CMK change"
         );
 
@@ -494,11 +565,11 @@ mod tests {
     #[test]
     fn test_change_cmk_wrong_old_fails() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0x22u8; 32];
+        let mut sk_bytes = [0x22u8; 32];
 
         KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &sec("correct-old"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
@@ -536,18 +607,20 @@ mod tests {
 
     #[test]
     fn test_key_newtype_zeroize() {
-        let key = SecretKey::new([0xFFu8; 32]);
+        let mut sk_bytes = [0xFFu8; 32];
+        let key = SecretKey::new(&mut sk_bytes).expect("memory lock should succeed");
         assert_eq!(key.as_bytes(), &[0xFFu8; 32]);
         drop(key);
+        // SecretKey wraps LockedKey32 which zeroizes on drop
     }
 
     #[test]
     fn test_initialize_creates_file() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0x77u8; 32];
+        let mut sk_bytes = [0x77u8; 32];
         KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &sec("file-test-cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
@@ -565,10 +638,10 @@ mod tests {
     #[test]
     fn test_json_format_matches_spec() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0x88u8; 32];
+        let mut sk_bytes = [0x88u8; 32];
         KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &sec("json-test-cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
@@ -601,10 +674,10 @@ mod tests {
     #[test]
     fn test_file_permissions_600() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0x99u8; 32];
+        let mut sk_bytes = [0x99u8; 32];
         KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &sec("perm-test-cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
@@ -634,41 +707,47 @@ mod tests {
 
     #[test]
     fn test_secret_key_zeroize_on_drop() {
-        let key = SecretKey::new([0xAAu8; 32]);
+        let mut sk_bytes = [0xAAu8; 32];
+        let key = SecretKey::new(&mut sk_bytes).expect("memory lock should succeed");
         assert_eq!(key.as_bytes(), &[0xAAu8; 32]);
         drop(key);
-        // With #[zeroize(drop)], the Drop impl calls zeroize().
-        // We can't read memory after drop in safe Rust, but we verify
-        // the derive macro is present and compiles correctly.
+        // SecretKey wraps LockedKey32 which zeroizes on drop
     }
 
     #[test]
     fn test_wrapping_key_zeroize_on_drop() {
-        let key = WrappingKey([0xBBu8; 32]);
+        let mut wk_bytes = [0xBBu8; 32];
+        let key = WrappingKey::new(&mut wk_bytes).expect("memory lock should succeed");
         assert_eq!(key.as_bytes(), &[0xBBu8; 32]);
         drop(key);
+        // WrappingKey wraps LockedKey32 which zeroizes on drop
     }
 
     #[test]
     fn test_kek_zeroize_on_drop() {
-        let key = KeyEncryptionKey::new([0xCCu8; 32]);
+        let mut kek_bytes = [0xCCu8; 32];
+        let key = KeyEncryptionKey::new(&mut kek_bytes).expect("memory lock should succeed");
         assert_eq!(key.as_bytes(), &[0xCCu8; 32]);
         drop(key);
+        // KeyEncryptionKey wraps LockedKey32 which zeroizes on drop
     }
 
     #[test]
     fn test_dek_zeroize_on_drop() {
-        let key = DataEncryptionKey([0xDDu8; 32]);
+        let mut dek_bytes = [0xDDu8; 32];
+        let key = DataEncryptionKey::new(&mut dek_bytes).expect("memory lock should succeed");
         assert_eq!(key.as_bytes(), &[0xDDu8; 32]);
         drop(key);
+        // DataEncryptionKey wraps LockedKey32 which zeroizes on drop
     }
 
     #[test]
     fn test_keystore_zeroize_on_drop() {
         let dir = TempDir::new().unwrap();
+        let mut sk_bytes = [0xEEu8; 32];
         let ks = KeyStore::initialize(
             dir.path(),
-            [0xEEu8; 32],
+            &mut sk_bytes,
             &sec("zeroize-test"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
@@ -677,16 +756,17 @@ mod tests {
         assert!(ks.sk.is_some());
         assert!(ks.kek.is_some());
         drop(ks);
-        // KeyStore has #[zeroize(drop)] -- after drop the Option fields are zeroized
+        // KeyStore keys wrap LockedKey32 which zeroizes on drop
     }
 
     #[test]
     fn test_crypto_manager_lock_clears_keystore() {
         use crate::crypto::CryptoManager;
         let dir = TempDir::new().unwrap();
+        let mut sk_bytes = [0xFFu8; 32];
         KeyStore::initialize(
             dir.path(),
-            [0xFFu8; 32],
+            &mut sk_bytes,
             &sec("lock-test-cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
@@ -706,11 +786,11 @@ mod tests {
     #[test]
     fn test_initialize_writes_mnemonic_language() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0x11u8; 32];
+        let mut sk_bytes = [0x11u8; 32];
 
         KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &sec("cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::ChineseSimplified,
@@ -731,11 +811,11 @@ mod tests {
     #[test]
     fn test_initialize_default_language_is_english() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0x22u8; 32];
+        let mut sk_bytes = [0x22u8; 32];
 
         KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &sec("cmk"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
@@ -756,12 +836,12 @@ mod tests {
     #[test]
     fn test_unlock_reads_mnemonic_language() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0x33u8; 32];
+        let mut sk_bytes = [0x33u8; 32];
         let cmk = sec("test-cmk");
 
         KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &cmk,
             &Argon2Params::medium(),
             MnemonicLanguage::ChineseSimplified,
@@ -797,13 +877,13 @@ mod tests {
     #[test]
     fn test_change_cmk_preserves_mnemonic_language() {
         let dir = TempDir::new().unwrap();
-        let sk_bytes = [0x55u8; 32];
+        let mut sk_bytes = [0x55u8; 32];
         let old_cmk = sec("old-cmk");
         let new_cmk = sec("new-cmk");
 
         KeyStore::initialize(
             dir.path(),
-            sk_bytes,
+            &mut sk_bytes,
             &old_cmk,
             &Argon2Params::medium(),
             MnemonicLanguage::ChineseSimplified,
@@ -834,9 +914,10 @@ mod tests {
     #[test]
     fn test_vault_exists_returns_true_after_initialize() {
         let dir = TempDir::new().unwrap();
+        let mut sk_bytes = [0x77u8; 32];
         KeyStore::initialize(
             dir.path(),
-            [0x77u8; 32],
+            &mut sk_bytes,
             &sec("vault-exists-test"),
             &Argon2Params::medium(),
             MnemonicLanguage::English,
