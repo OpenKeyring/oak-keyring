@@ -15,6 +15,7 @@ impl ICloudAdapter {
 
     fn icloud_path() -> PathBuf {
         crate::paths::document_dir()
+            .expect("documents directory not found - HOME must be set")
             .join("..")
             .join("Library")
             .join("Mobile Documents")

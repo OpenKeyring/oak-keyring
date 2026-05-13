@@ -97,6 +97,9 @@ notify = "7"
 # String obfuscation
 obfstr = "0.4"
 
+# XDG Base Directory specification
+home = "0.5"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
@@ -108,11 +111,9 @@ insta = "1"
 mockall = "0.13"
 tempfile = "3"
 anyhow = "1"
-oak-keyring = { path = ".", features = ["test-helpers"] }
 
 [features]
 default = []
-test-helpers = []
 
 [build-dependencies]
 

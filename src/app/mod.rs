@@ -32,6 +32,8 @@ pub struct App {
     pub phase: AppPhase,
     /// Path to the vault data directory.
     pub vault_dir: std::path::PathBuf,
+    /// Path to the config directory.
+    pub config_dir: std::path::PathBuf,
     /// UI -> Executor: send commands from screens to the executor.
     pub command_tx: mpsc::Sender<Command>,
     /// Receiver half of the command channel, taken once in run().
@@ -59,11 +61,17 @@ impl App {
         let (result_tx, result_rx) = mpsc::channel(RESULT_CHANNEL_SIZE);
         let cancel_token = CancellationToken::new();
 
+        let vault_dir =
+            crate::paths::data_dir().expect("data directory not found - HOME must be set");
+        let config_dir =
+            crate::paths::config_dir().expect("config directory not found - HOME must be set");
+
         Ok(Self {
             config,
             state: AppState::new(has_vault),
             phase: AppPhase::Initializing,
-            vault_dir: crate::paths::data_dir(),
+            vault_dir,
+            config_dir,
             command_tx,
             command_rx: Some(command_rx),
             result_tx,
@@ -88,6 +96,8 @@ impl App {
                 self.config.clone(),
                 self.result_tx.clone(),
                 self.cancel_token.clone(), // shutdown_token for executor run loop
+                self.vault_dir.clone(),
+                self.config_dir.clone(),
             )?;
 
             tokio::spawn(async move {

@@ -51,7 +51,8 @@ fn load_oauth2_tokens_into_config(config: &mut AppConfig) {
     if config.sync.provider != SyncProvider::GoogleDrive {
         return;
     }
-    let base_path = crate::paths::tokens_dir();
+    let base_path =
+        crate::paths::tokens_dir().expect("tokens directory not found - HOME must be set");
     let store = TokenStore::new(base_path);
     let tokens = match store.load("google_drive") {
         Ok(Some(t)) => t,
@@ -89,6 +90,8 @@ pub struct CommandExecutor {
     config_notifier: ServiceNotificationImpl,
     /// Path to the vault directory (contains vault.db, config.toml, etc.).
     pub(super) vault_dir: PathBuf,
+    /// Path to the config directory (contains config.toml).
+    config_dir: PathBuf,
     /// Cached health report, updated after health check runs.
     pub(super) health_report: Option<HealthReport>,
     /// Timestamp of the most recent health check completion.
@@ -135,9 +138,10 @@ impl CommandExecutor {
         mut config: AppConfig,
         result_tx: mpsc::Sender<Message>,
         shutdown_token: CancellationToken,
+        vault_dir: std::path::PathBuf,
+        config_dir: std::path::PathBuf,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let vault_dir = crate::paths::data_dir();
-        info!(vault_dir = %vault_dir.display(), "initializing CommandExecutor");
+        info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), "initializing CommandExecutor");
 
         // Open and initialize the SQLite database.
         let conn = init_db(&vault_dir)?;
@@ -184,9 +188,10 @@ impl CommandExecutor {
             health,
             clipboard,
             import_export,
-            config: config_impl::ConfigManagerImpl::new(config),
+            config: config_impl::ConfigManagerImpl::new(config, config_dir.clone()),
             config_notifier,
             vault_dir,
+            config_dir,
             health_report: None,
             last_health_check_time: None,
             verified_master_password: None,
@@ -314,8 +319,13 @@ impl CommandExecutor {
 
     // execute(), pre_check(), post_hook(), and dispatch() are defined in execute.rs
 
-    /// Replace the sync service with a pre-built instance (test-only).
-    #[cfg(feature = "test-helpers")]
+    /// Replace the sync service with a pre-built instance.
+    ///
+    /// # Note
+    ///
+    /// This method is intended for testing purposes only, allowing injection of
+    /// mock sync services. In production, the sync service is configured during
+    /// executor construction.
     pub fn set_sync_service(&mut self, sync: Option<crate::services::sync::SyncService>) {
         self.sync = sync;
     }

@@ -77,7 +77,7 @@ Per-screen state 文件:
 `generator_state.rs`, `config_state/{mod,state,tests}.rs`, `audit_state.rs`, `sync_ui_state.rs`,
 `tag_management.rs`, `overlay_state.rs`
 
-## Components (13 个)
+## Components (12 个)
 
 | Component | 用途 |
 |-----------|------|
@@ -92,7 +92,6 @@ Per-screen state 文件:
 | ProgressBar | 进度条 |
 | Spinner | 加载旋转器 |
 | EmptyState | 空状态提示 |
-| VaultPathDialog | Vault 路径选择对话框 |
 
 ## Theme & Rendering
 

@@ -3,7 +3,6 @@ use super::*;
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::Command;
-use crate::tui::i18n::LocaleGuard;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
 use crossterm::event::{KeyCode, KeyEvent};

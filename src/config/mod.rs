@@ -44,8 +44,8 @@ impl AppConfig {
         Self::default()
     }
 
-    pub fn load() -> Result<Self, ConfigError> {
-        let path = crate::paths::config_file_path();
+    pub fn load(config_dir: &std::path::Path) -> Result<Self, ConfigError> {
+        let path = config_dir.join("config.toml");
         if !path.exists() {
             return Ok(Self::default_config());
         }
@@ -55,22 +55,27 @@ impl AppConfig {
         Ok(config)
     }
 
-    pub fn load_or_auto_generate() -> Result<Self, ConfigError> {
-        let path = crate::paths::config_file_path();
-        if !path.exists() && crate::paths::vault_complete() {
+    pub fn load_or_auto_generate(
+        config_dir: &std::path::Path,
+        data_dir: &std::path::Path,
+    ) -> Result<Self, ConfigError> {
+        let path = config_dir.join("config.toml");
+        let key_path = data_dir.join("wrapped_secret_key.json");
+        let db_path = data_dir.join("vault.db");
+
+        if !path.exists() && key_path.exists() && db_path.exists() {
             let config = Self::default_config();
-            config.save()?;
+            config.save(config_dir)?;
             tracing::info!("auto-generated config.toml (vault data found)");
             return Ok(config);
         }
-        Self::load()
+        Self::load(config_dir)
     }
 
-    pub fn save(&self) -> Result<(), ConfigError> {
+    pub fn save(&self, config_dir: &std::path::Path) -> Result<(), ConfigError> {
         validation::validate(self)?;
-        let config_dir = crate::paths::config_dir();
-        std::fs::create_dir_all(&config_dir)?;
-        let path = crate::paths::config_file_path();
+        std::fs::create_dir_all(config_dir)?;
+        let path = config_dir.join("config.toml");
         let toml_str =
             toml::to_string_pretty(self).map_err(|e| ConfigError::Parse(e.to_string()))?;
         let tmp_path = path.with_extension("toml.tmp");

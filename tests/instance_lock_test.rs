@@ -77,7 +77,8 @@ fn spawn_ok_with_pty(vault_dir: &std::path::Path) -> Child {
         });
     }
 
-    cmd.env("OAK_VAULT_DIR", vault_dir)
+    cmd.env("XDG_DATA_HOME", vault_dir)
+        .env("XDG_CONFIG_HOME", vault_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -103,8 +104,15 @@ fn send_sigterm(child: &Child) {
 
 #[cfg(unix)]
 fn run_ok_once(vault_dir: &std::path::Path) -> Output {
+    // Create oak-keyring subdirectories (paths::data_dir() appends "oak-keyring")
+    let data_dir = vault_dir.join("oak-keyring");
+    let config_dir = vault_dir.join("oak-keyring");
+    std::fs::create_dir_all(&data_dir).expect("failed to create data dir");
+    std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
+
     Command::new(env!("CARGO_BIN_EXE_ok"))
-        .env("OAK_VAULT_DIR", vault_dir)
+        .env("XDG_DATA_HOME", vault_dir)
+        .env("XDG_CONFIG_HOME", vault_dir)
         .output()
         .expect("ok binary should run")
 }
@@ -112,7 +120,8 @@ fn run_ok_once(vault_dir: &std::path::Path) -> Output {
 #[cfg(unix)]
 fn wait_for_lock_file_created_by_process(process: &mut OkProcess, vault_dir: &std::path::Path) {
     let deadline = Instant::now() + WAIT_TIMEOUT;
-    let lock_path = vault_dir.join(LOCK_FILENAME);
+    // Lock file is created in data_dir, which is XDG_DATA_HOME/oak-keyring
+    let lock_path = vault_dir.join("oak-keyring").join(LOCK_FILENAME);
     let mut seen_lock_at = None;
 
     while Instant::now() < deadline {

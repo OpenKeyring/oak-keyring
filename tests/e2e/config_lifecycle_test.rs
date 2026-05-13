@@ -18,14 +18,17 @@ use tokio_util::sync::CancellationToken;
 
 /// Helper to construct executor with channels and spawn the run loop
 async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
-    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
-    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
+    // Create oak-keyring subdirectories (paths::data_dir() appends "oak-keyring")
+    let data_dir = vault_dir.path().join("oak-keyring");
+    let config_dir = vault_dir.path().join("oak-keyring");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
     let (result_tx, result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let executor = CommandExecutor::new(config, result_tx, cancel_token)
+    let executor = CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir)
         .expect("executor construction should succeed");
 
     // Spawn the executor run loop
@@ -148,7 +151,7 @@ async fn save_config_persists_to_disk() {
         CommandResult::ConfigSaved { warnings } => {
             assert!(
                 warnings.is_empty(),
-                "saving with default vault_path should produce no warnings, got: {:?}",
+                "saving with default config should produce no warnings, got: {:?}",
                 warnings
             );
         }
@@ -156,11 +159,12 @@ async fn save_config_persists_to_disk() {
     }
 
     // Verify file was written to disk
-    let config_path = vault_dir.path().join("config.toml");
+    let config_path = vault_dir.path().join("oak-keyring").join("config.toml");
     assert!(config_path.exists(), "config.toml should exist after save");
 
     // Read and verify the persisted config
-    let persisted_config = AppConfig::load().expect("load should succeed");
+    let config_dir = vault_dir.path().join("oak-keyring");
+    let persisted_config = AppConfig::load(&config_dir).expect("load should succeed");
     assert_eq!(
         persisted_config.general.clipboard_clear_seconds, 60,
         "persisted config should have updated clipboard_clear_seconds"
@@ -298,14 +302,17 @@ async fn save_and_reload_preserves_config() {
     // Second executor: load the persisted config
     {
         // Load config from disk first to pass to the new executor
-        let disk_config = AppConfig::load().expect("load should succeed");
+        let config_dir = vault_dir.path().join("oak-keyring");
+        let data_dir = vault_dir.path().join("oak-keyring");
+        let disk_config = AppConfig::load(&config_dir).expect("load should succeed");
 
         let (result_tx, result_rx) = mpsc::channel(64);
         let (command_tx, command_rx) = mpsc::channel(64);
         let cancel_token = CancellationToken::new();
 
-        let executor = CommandExecutor::new(disk_config, result_tx, cancel_token)
-            .expect("executor construction should succeed");
+        let executor =
+            CommandExecutor::new(disk_config, result_tx, cancel_token, data_dir, config_dir)
+                .expect("executor construction should succeed");
 
         tokio::spawn(async move {
             executor.run(command_rx).await;
@@ -344,7 +351,7 @@ async fn load_config_creates_default_on_missing_file() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
 
     // Don't create config.toml — it should be missing
-    let config_path = vault_dir.path().join("config.toml");
+    let config_path = vault_dir.path().join("oak-keyring").join("config.toml");
     assert!(
         !config_path.exists(),
         "config.toml should not exist initially"

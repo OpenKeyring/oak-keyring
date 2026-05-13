@@ -9,11 +9,14 @@ async fn executor_can_be_constructed() {
     let (result_tx, _result_rx) = mpsc::channel(64);
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
-    let vault_dir = tempfile::tempdir().unwrap();
-    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
-    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
+    let tmp_dir = tempfile::tempdir().unwrap();
+    // Create oak-keyring subdirectories (paths::data_dir() appends "oak-keyring")
+    let data_dir = tmp_dir.path().join("oak-keyring");
+    let config_dir = tmp_dir.path().join("oak-keyring");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
 
-    let executor = CommandExecutor::new(config, result_tx, cancel_token);
+    let executor = CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir);
     assert!(executor.is_ok());
     assert!(!executor.unwrap().is_unlocked());
 }
@@ -24,11 +27,16 @@ async fn executor_run_loop_processes_commands() {
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
-    let vault_dir = tempfile::tempdir().unwrap();
-    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
-    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
+    let tmp_dir = tempfile::tempdir().unwrap();
+    // Create oak-keyring subdirectories (paths::data_dir() appends "oak-keyring")
+    let data_dir = tmp_dir.path().join("oak-keyring");
+    let config_dir = tmp_dir.path().join("oak-keyring");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
 
-    let executor = CommandExecutor::new(config, result_tx, cancel_token.clone()).unwrap();
+    let executor =
+        CommandExecutor::new(config, result_tx, cancel_token.clone(), data_dir, config_dir)
+            .unwrap();
 
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
 

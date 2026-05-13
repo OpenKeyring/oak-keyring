@@ -6,13 +6,6 @@ mod tests {
     };
     use crate::errors::service_error::ServiceError;
 
-    fn setup_test_env() -> tempfile::TempDir {
-        let tmp = tempfile::tempdir().expect("tempdir failed");
-        std::env::set_var("OAK_CONFIG_DIR", tmp.path());
-        std::env::set_var("OAK_VAULT_DIR", tmp.path());
-        tmp
-    }
-
     #[test]
     fn default_values_match_spec() {
         let config = AppConfig::default_config();
@@ -39,23 +32,29 @@ mod tests {
 
     #[test]
     fn load_nonexistent_returns_default() {
-        let _tmp = setup_test_env();
-        let config = AppConfig::load().expect("load failed");
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        let config = AppConfig::load(&config_dir).expect("load failed");
         assert_eq!(config.general.auto_lock_seconds, 300);
         // cleanup happens when tmp is dropped at end of scope
     }
 
     #[test]
     fn save_load_roundtrip() {
-        let _tmp = setup_test_env();
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
         let mut config = AppConfig::default_config();
         config.general.auto_lock_seconds = 900;
         config.sync.provider = SyncProvider::WebDav;
         config.sync.sync_mode = SyncMode::Manual;
         config.password.length = 24;
 
-        config.save().expect("save failed");
-        let loaded = AppConfig::load().expect("load failed");
+        config.save(&config_dir).expect("save failed");
+        let loaded = AppConfig::load(&config_dir).expect("load failed");
 
         assert_eq!(loaded.general.auto_lock_seconds, 900);
         assert!(matches!(loaded.sync.provider, SyncProvider::WebDav));
@@ -66,14 +65,17 @@ mod tests {
 
     #[test]
     fn partial_config_uses_defaults_for_missing() {
-        let tmp = setup_test_env();
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
         std::fs::write(
-            tmp.path().join("config.toml"),
+            config_dir.join("config.toml"),
             "[general]\nauto_lock_seconds = 60\n",
         )
         .unwrap();
 
-        let config = AppConfig::load().expect("load failed");
+        let config = AppConfig::load(&config_dir).expect("load failed");
         assert_eq!(config.general.auto_lock_seconds, 60);
         assert_eq!(config.general.clipboard_clear_seconds, 30); // default
         assert_eq!(config.password.length, 16); // default
@@ -82,10 +84,13 @@ mod tests {
 
     #[test]
     fn malformed_toml_returns_err() {
-        let tmp = setup_test_env();
-        std::fs::write(tmp.path().join("config.toml"), "this is not toml {{{").unwrap();
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
 
-        let result = AppConfig::load();
+        std::fs::write(config_dir.join("config.toml"), "this is not toml {{{").unwrap();
+
+        let result = AppConfig::load(&config_dir);
         assert!(result.is_err());
         // cleanup happens when tmp is dropped at end of scope
     }
@@ -504,7 +509,10 @@ root_path = "/"
 
     #[test]
     fn full_config_save_load_roundtrip_with_provider() {
-        let _tmp = setup_test_env();
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
         let mut config = AppConfig::default_config();
         config.sync.provider = SyncProvider::WebDav;
         config.sync.provider_config = Some(ProviderConfig::WebDav(crate::config::WebDavConfig {
@@ -515,8 +523,8 @@ root_path = "/"
             bearer_token: None,
         }));
 
-        config.save().expect("save failed");
-        let loaded = AppConfig::load().expect("load failed");
+        config.save(&config_dir).expect("save failed");
+        let loaded = AppConfig::load(&config_dir).expect("load failed");
 
         match &loaded.sync.provider_config {
             Some(ProviderConfig::WebDav(c)) => {
@@ -530,13 +538,16 @@ root_path = "/"
 
     #[test]
     fn full_config_save_load_roundtrip_icloud() {
-        let _tmp = setup_test_env();
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
         let mut config = AppConfig::default_config();
         config.sync.provider = SyncProvider::ICloud;
         config.sync.provider_config = Some(ProviderConfig::ICloud);
 
-        config.save().expect("save failed");
-        let loaded = AppConfig::load().expect("load failed");
+        config.save(&config_dir).expect("save failed");
+        let loaded = AppConfig::load(&config_dir).expect("load failed");
 
         assert!(matches!(loaded.sync.provider, SyncProvider::ICloud));
         assert!(matches!(
@@ -578,10 +589,13 @@ root_path = "/"
     #[test]
     fn saved_config_has_600_permissions() {
         use std::os::unix::fs::PermissionsExt;
-        let tmp = setup_test_env();
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
         let config = AppConfig::default_config();
-        config.save().expect("save failed");
-        let meta = std::fs::metadata(tmp.path().join("config.toml")).unwrap();
+        config.save(&config_dir).expect("save failed");
+        let meta = std::fs::metadata(config_dir.join("config.toml")).unwrap();
         let mode = meta.permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "expected 600 permissions, got {:o}", mode);
         // cleanup happens when tmp is dropped at end of scope

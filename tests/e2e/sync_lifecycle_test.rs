@@ -43,14 +43,17 @@ fn create_fs_sync_service() -> (SyncService, TempDir) {
 }
 
 async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
-    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
-    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
+    // Create oak-keyring subdirectories (paths::data_dir() appends "oak-keyring")
+    let data_dir = vault_dir.path().join("oak-keyring");
+    let config_dir = vault_dir.path().join("oak-keyring");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
     let (result_tx, result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let executor = CommandExecutor::new(config, result_tx, cancel_token)
+    let executor = CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir)
         .expect("executor construction should succeed");
 
     tokio::spawn(async move {
@@ -61,15 +64,19 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
 }
 
 async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
-    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
-    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
+    // Create oak-keyring subdirectories (paths::data_dir() appends "oak-keyring")
+    let data_dir = vault_dir.path().join("oak-keyring");
+    let config_dir = vault_dir.path().join("oak-keyring");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
     let (result_tx, result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(config, result_tx, cancel_token)
-        .expect("executor construction should succeed");
+    let mut executor =
+        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir)
+            .expect("executor construction should succeed");
 
     let (sync, cloud_dir) = create_fs_sync_service();
     executor.set_sync_service(Some(sync));
@@ -310,15 +317,19 @@ async fn sync_with_locked_vault_completes_without_uploads() {
 #[tokio::test]
 async fn sync_cancellation_returns_cancelled() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
-    std::env::set_var("OAK_VAULT_DIR", vault_dir.path());
-    std::env::set_var("OAK_CONFIG_DIR", vault_dir.path());
+    // Create oak-keyring subdirectories (paths::data_dir() appends "oak-keyring")
+    let data_dir = vault_dir.path().join("oak-keyring");
+    let config_dir = vault_dir.path().join("oak-keyring");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
     let (result_tx, mut result_rx) = mpsc::channel(64);
     let (command_tx, command_rx) = mpsc::channel(64);
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(config, result_tx, cancel_token)
-        .expect("executor construction should succeed");
+    let mut executor =
+        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir)
+            .expect("executor construction should succeed");
 
     let (sync, _cloud_dir) = create_fs_sync_service();
     executor.set_sync_service(Some(sync));

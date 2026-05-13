@@ -415,7 +415,8 @@ impl OnboardingScreen {
     pub(crate) fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
             CommandResult::RecoveryKeyUnlocked => {
-                // Recovery key was accepted — already moved to VaultPath
+                // Recovery key was accepted — advance to SecurityAdvisory
+                self.current_step = OnboardingStep::SecurityAdvisory;
                 ScreenResult::Continue
             }
             CommandResult::ImportValidated {

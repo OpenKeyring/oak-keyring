@@ -26,13 +26,19 @@ fn main() {
     });
 
     // Ensure all required directories exist
-    oak_keyring::paths::ensure_dirs().unwrap_or_else(|e| {
-        eprintln!("Fatal: failed to create directories: {e}");
+    if oak_keyring::paths::ensure_dirs().is_none() {
+        eprintln!("Fatal: failed to create directories - HOME must be set");
         std::process::exit(1);
-    });
+    }
+
+    // Get config and data directories
+    let config_dir =
+        oak_keyring::paths::config_dir().expect("config directory not found - HOME must be set");
+    let data_dir =
+        oak_keyring::paths::data_dir().expect("data directory not found - HOME must be set");
 
     // Load config (auto-generate if vault exists but config doesn't)
-    let config = AppConfig::load_or_auto_generate().unwrap_or_else(|e| {
+    let config = AppConfig::load_or_auto_generate(&config_dir, &data_dir).unwrap_or_else(|e| {
         eprintln!("Warning: failed to load config: {e}");
         AppConfig::default_config()
     });
@@ -41,11 +47,10 @@ fn main() {
     i18n::init(&config.general.language);
 
     // Acquire instance lock using data_dir
-    let instance_lock =
-        InstanceLock::acquire(&oak_keyring::paths::data_dir()).unwrap_or_else(|e| {
-            eprintln!("{e}");
-            std::process::exit(1);
-        });
+    let instance_lock = InstanceLock::acquire(&data_dir).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1);
+    });
 
     // Determine vault state
     let has_vault = oak_keyring::paths::has_key_file() || oak_keyring::paths::has_db_file();
