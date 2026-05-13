@@ -126,6 +126,7 @@ pub async fn handle_unlock_with_recovery_key(
 #[tracing::instrument(skip(executor))]
 pub fn handle_lock(executor: &mut CommandExecutor) -> CommandResult {
     executor.vault.lock();
+    executor.verified_master_password = None;
     CommandResult::VaultLocked
 }
 

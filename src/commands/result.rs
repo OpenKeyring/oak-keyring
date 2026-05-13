@@ -16,6 +16,9 @@ use crate::types::{DecryptedRecord, PasswordHistoryView, SecureStr, SyncStats, T
 /// Cancelled variant for long operation interruption (tea-command-pattern-arch §6.6.3).
 #[derive(Debug)]
 pub enum CommandResult {
+    /// No-op result for commands that need no UI feedback.
+    Void,
+
     // ── Record CRUD Results ────────────────────
     RecordCreated {
         id: Uuid,
@@ -332,6 +335,8 @@ mod exhaustive_tests {
                 // Errors
                 CommandResult::Error { .. } => {}
                 CommandResult::FatalError { .. } => {}
+                // Void
+                CommandResult::Void => {}
                 // Cancellation
                 CommandResult::Cancelled { .. } => {}
             }

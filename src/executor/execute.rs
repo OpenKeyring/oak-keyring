@@ -107,6 +107,10 @@ impl CommandExecutor {
                 current_password,
                 new_password,
             } => vault::handle_change_master_password(self, current_password, new_password),
+            Command::ClearVerifiedPassword => {
+                self.verified_master_password = None;
+                CommandResult::Void
+            }
             Command::InitializeVault {
                 vault_path,
                 master_password,

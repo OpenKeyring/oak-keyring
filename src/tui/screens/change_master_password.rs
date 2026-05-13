@@ -437,7 +437,11 @@ impl ChangeMasterPasswordScreen {
 impl ChangeMasterPasswordScreen {
     fn handle_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
         match key.code {
-            KeyCode::Esc => ScreenResult::PopScreen,
+            KeyCode::Esc => {
+                // Clear cached verified password if user cancels the flow
+                let _ = ctx.command_tx.try_send(Command::ClearVerifiedPassword);
+                ScreenResult::PopScreen
+            }
 
             KeyCode::Enter if self.step == 1 => {
                 if self.pending_verification {
