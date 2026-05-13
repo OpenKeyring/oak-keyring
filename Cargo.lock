@@ -2565,7 +2565,7 @@ dependencies = [
 
 [[package]]
 name = "oak-keyring"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aes 0.8.4",
  "anyhow",
