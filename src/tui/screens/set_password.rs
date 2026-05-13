@@ -664,7 +664,7 @@ mod tests {
         assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(
             screen.error.as_deref(),
-            Some("Password must be at least 8 characters")
+            Some(&*t!("tui.entry.password_too_short").to_string())
         );
     }
 
@@ -709,7 +709,7 @@ mod tests {
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.error.as_deref(), Some("Passwords do not match"));
+        assert_eq!(screen.error.as_deref(), Some(&*t!("tui.entry.password_mismatch").to_string()));
     }
 
     #[test]

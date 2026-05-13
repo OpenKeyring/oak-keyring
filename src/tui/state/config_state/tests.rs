@@ -188,7 +188,7 @@ fn config_tab_index() {
 
 #[test]
 fn config_tab_item_count() {
-    assert_eq!(ConfigTab::General.item_count(), 8);
+    assert_eq!(ConfigTab::General.item_count(), 7);
     assert_eq!(ConfigTab::Sync.item_count(), 5);
     assert_eq!(ConfigTab::Security.item_count(), 5);
     assert_eq!(ConfigTab::Password.item_count(), 4);
@@ -197,10 +197,10 @@ fn config_tab_item_count() {
 
 #[test]
 fn config_tab_clamp_item() {
-    // General has 8 items, clamp to 0..7
+    // General has 7 items, clamp to 0..6
     assert_eq!(ConfigTab::General.clamp_item(0), 0);
-    assert_eq!(ConfigTab::General.clamp_item(7), 7);
-    assert_eq!(ConfigTab::General.clamp_item(100), 7);
+    assert_eq!(ConfigTab::General.clamp_item(6), 6);
+    assert_eq!(ConfigTab::General.clamp_item(100), 6);
 
     // About has 0 items, always returns 0
     assert_eq!(ConfigTab::About.clamp_item(0), 0);

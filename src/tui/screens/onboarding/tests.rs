@@ -1118,3 +1118,24 @@ fn on_unmount_zeroizes_sensitive_data() {
 
 /// Helper to create a dummy ScreenContext for tests.
 /// The command_tx is a buffered channel that discards messages.
+#[allow(static_mut_refs)]
+fn dummy_ctx() -> ScreenContext<'static> {
+    // We cannot easily construct ScreenContext in unit tests,
+    // so we leak the channel to get 'static lifetime.
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    static mut TX: Option<tokio::sync::mpsc::Sender<Command>> = None;
+
+    ONCE.call_once(|| {
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        unsafe { TX = Some(tx) };
+    });
+
+    let tx = unsafe { TX.as_ref().unwrap() };
+    static DUMMY_CONFIG: std::sync::OnceLock<crate::config::AppConfig> = std::sync::OnceLock::new();
+    let config = DUMMY_CONFIG.get_or_init(crate::config::AppConfig::default);
+
+    ScreenContext {
+        command_tx: tx,
+        config,
+    }
+}

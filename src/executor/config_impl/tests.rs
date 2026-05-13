@@ -7,6 +7,13 @@ use crate::services::clipboard::ClipboardService;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+fn setup_test_env() -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().expect("tempdir failed");
+    std::env::set_var("OAK_CONFIG_DIR", tmp.path());
+    std::env::set_var("OAK_VAULT_DIR", tmp.path());
+    tmp
+}
+
 /// A mock ConfigReloadable service that tracks reload calls.
 struct MockService {
     id: String,
@@ -182,13 +189,8 @@ fn unregister_nonexistent_id_is_noop() {
 // -----------------------------------------------------------------------
 
 /// Helper: create a temporary vault directory with a unique name.
-fn temp_vault_dir() -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("ok_config_impl_test_{}", uuid::Uuid::new_v4()))
-}
-
-/// Helper: clean up temp dir if it exists.
-fn cleanup_dir(dir: &std::path::Path) {
-    let _ = std::fs::remove_dir_all(dir);
+fn temp_vault_dir() -> tempfile::TempDir {
+    setup_test_env()
 }
 
 #[test]
@@ -201,17 +203,18 @@ fn config_manager_new_initializes_with_given_config() {
 #[test]
 fn config_manager_load_reads_from_disk_and_updates_state() {
     let vault_dir = temp_vault_dir();
+    std::fs::create_dir_all(vault_dir.path().join("config")).unwrap();
     // Write a config to disk first
     let disk_config = AppConfig::default();
     disk_config.save().unwrap();
 
     // Manager starts with default, then loads from disk
     let manager = ConfigManagerImpl::new(AppConfig::default());
-    let loaded = manager.load(&vault_dir).unwrap();
+    let loaded = manager.load().unwrap();
     assert_eq!(loaded, disk_config);
     assert_eq!(manager.get_config(), disk_config);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -219,11 +222,11 @@ fn config_manager_load_returns_default_when_no_file_exists() {
     let vault_dir = temp_vault_dir();
     // No config.toml on disk — load should return defaults
     let manager = ConfigManagerImpl::new(AppConfig::default());
-    let loaded = manager.load(&vault_dir).unwrap();
+    let loaded = manager.load().unwrap();
     assert_eq!(loaded, AppConfig::default());
     assert_eq!(manager.get_config(), AppConfig::default());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -232,57 +235,59 @@ fn config_manager_save_writes_to_disk_and_updates_state() {
     let config = AppConfig::default();
     let manager = ConfigManagerImpl::new(AppConfig::default());
 
-    manager.save(&config, &vault_dir).unwrap();
+    manager.save(&config).unwrap();
 
     // In-memory state should reflect saved config
     assert_eq!(manager.get_config(), config);
 
     // File should exist on disk with valid content
-    let reloaded = AppConfig::load(&vault_dir).unwrap();
+    let reloaded = AppConfig::load().unwrap();
     assert_eq!(reloaded, config);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
 fn config_manager_save_overwrites_existing_file() {
     let vault_dir = temp_vault_dir();
+    std::fs::create_dir_all(vault_dir.path().join("config")).unwrap();
 
     let manager = ConfigManagerImpl::new(AppConfig::default());
-    manager.save(&AppConfig::default(), &vault_dir).unwrap();
+    manager.save(&AppConfig::default()).unwrap();
 
     // Save again — should succeed without error
     let second = AppConfig::default();
-    manager.save(&second, &vault_dir).unwrap();
+    manager.save(&second).unwrap();
     assert_eq!(manager.get_config(), second);
 
-    let from_disk = AppConfig::load(&vault_dir).unwrap();
+    let from_disk = AppConfig::load().unwrap();
     assert_eq!(from_disk, second);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
 fn config_manager_reload_re_reads_from_disk() {
     let vault_dir = temp_vault_dir();
+    std::fs::create_dir_all(vault_dir.path().join("config")).unwrap();
 
     // Write initial config
     let initial = AppConfig::default();
     initial.save().unwrap();
 
     let manager = ConfigManagerImpl::new(AppConfig::default());
-    manager.load(&vault_dir).unwrap();
+    manager.load().unwrap();
 
     // Modify config on disk externally
     let modified = AppConfig::default();
     modified.save().unwrap();
 
     // Reload should pick up the new disk state
-    let reloaded = manager.reload(&vault_dir).unwrap();
+    let reloaded = manager.reload().unwrap();
     assert_eq!(reloaded, modified);
     assert_eq!(manager.get_config(), modified);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -290,10 +295,10 @@ fn config_manager_reload_returns_default_when_no_file() {
     let vault_dir = temp_vault_dir();
     let manager = ConfigManagerImpl::new(AppConfig::default());
 
-    let reloaded = manager.reload(&vault_dir).unwrap();
+    let reloaded = manager.reload().unwrap();
     assert_eq!(reloaded, AppConfig::default());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -307,10 +312,10 @@ fn config_manager_get_config_returns_current_snapshot() {
 
     // After save with a new config, get_config reflects the update
     let new_config = AppConfig::default();
-    manager.save(&new_config, &vault_dir).unwrap();
+    manager.save(&new_config).unwrap();
     assert_eq!(manager.get_config(), new_config);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -344,11 +349,10 @@ fn config_manager_concurrent_writes_are_safe() {
     let handles: Vec<_> = (0..num_threads)
         .map(|_| {
             let mgr = Arc::clone(&manager);
-            let dir = vault_dir.clone();
             std::thread::spawn(move || {
                 // Each thread saves — should not panic or deadlock
                 let cfg = AppConfig::default();
-                let _ = mgr.save(&cfg, &dir);
+                let _ = mgr.save(&cfg);
             })
         })
         .collect();
@@ -360,7 +364,7 @@ fn config_manager_concurrent_writes_are_safe() {
     // Manager should still be in a valid state
     let _final_config = manager.get_config();
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -376,10 +380,9 @@ fn config_manager_concurrent_read_write_safe() {
     let read_handles: Vec<_> = (0..num_readers)
         .map(|_| {
             let mgr = Arc::clone(&manager);
-            let dir = vault_dir.clone();
             std::thread::spawn(move || {
                 for _ in 0..10 {
-                    let _ = mgr.load(&dir);
+                    let _ = mgr.load();
                     let _ = mgr.get_config();
                 }
             })
@@ -389,11 +392,10 @@ fn config_manager_concurrent_read_write_safe() {
     let write_handles: Vec<_> = (0..num_writers)
         .map(|_| {
             let mgr = Arc::clone(&manager);
-            let dir = vault_dir.clone();
             std::thread::spawn(move || {
                 for _ in 0..5 {
                     let cfg = AppConfig::default();
-                    let _ = mgr.save(&cfg, &dir);
+                    let _ = mgr.save(&cfg);
                 }
             })
         })
@@ -403,7 +405,7 @@ fn config_manager_concurrent_read_write_safe() {
         handle.join().expect("thread should not panic");
     }
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 // -----------------------------------------------------------------------
@@ -425,12 +427,13 @@ fn config_watcher_new_initializes_with_no_mtime() {
     // First time — no stored mtime — should need reload
     assert!(watcher.needs_reload());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
 fn config_watcher_needs_reload_returns_true_when_file_newer_than_stored_mtime() {
     let vault_dir = temp_vault_dir();
+    std::fs::create_dir_all(vault_dir.path().join("config")).unwrap();
     let watcher = ConfigWatcherImpl::new();
 
     // Write initial config and capture its mtime
@@ -449,7 +452,7 @@ fn config_watcher_needs_reload_returns_true_when_file_newer_than_stored_mtime() 
     // Now the file is newer than stored mtime
     assert!(watcher.needs_reload());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -465,7 +468,7 @@ fn config_watcher_needs_reload_returns_false_when_no_config_file() {
     watcher.last_mtime = Some(std::time::SystemTime::now());
     assert!(!watcher.needs_reload());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -478,7 +481,7 @@ fn config_watcher_needs_reload_returns_true_on_first_time_check() {
     let watcher = ConfigWatcherImpl::new();
     assert!(watcher.needs_reload());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -494,7 +497,7 @@ fn config_watcher_needs_reload_returns_false_after_update_mtime() {
     watcher.update_mtime();
     assert!(!watcher.needs_reload());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -514,7 +517,7 @@ fn config_watcher_last_modified_returns_current_file_mtime() {
         .unwrap();
     assert!(elapsed.as_secs() < 5, "mtime should be recent");
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -524,7 +527,7 @@ fn config_watcher_last_modified_returns_none_when_no_file() {
 
     assert!(watcher.last_modified().is_none());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -543,7 +546,7 @@ fn config_watcher_update_mtime_sets_stored_mtime_to_current_file() {
     let file_mtime = ConfigWatcherImpl::current_mtime().unwrap();
     assert_eq!(watcher.last_mtime.unwrap(), file_mtime);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]
@@ -558,7 +561,7 @@ fn config_watcher_update_mtime_with_no_file_clears_stored_mtime() {
     watcher.update_mtime();
     assert!(watcher.last_mtime.is_none());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when vault_dir is dropped at end of scope
 }
 
 #[test]

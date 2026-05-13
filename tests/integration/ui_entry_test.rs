@@ -168,7 +168,6 @@ fn set_password_screen_new() {
 fn onboarding_welcome_defaults() {
     let screen = OnboardingScreen::default();
     assert!(screen.selected_path.is_none());
-    assert!(screen.path_input.is_empty());
     assert!(screen.error.is_none());
     assert!(screen.recovery_words.is_empty());
     assert!(!screen.recovery_confirmed);

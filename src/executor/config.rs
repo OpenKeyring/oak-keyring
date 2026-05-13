@@ -393,8 +393,9 @@ mod tests {
     #[test]
     fn handle_save_config_includes_warnings_in_result() {
         let tmp = tempfile::tempdir().expect("tempdir failed");
+        std::env::set_var("OAK_CONFIG_DIR", tmp.path());
+        std::env::set_var("OAK_VAULT_DIR", tmp.path());
         let mut executor = make_executor_with_clipboard(30);
-        executor.vault_dir = tmp.path().to_path_buf();
         let mut new_config = AppConfig::default();
         new_config.general.clipboard_clear_seconds = 90;
 
@@ -405,6 +406,7 @@ mod tests {
             }
             _ => panic!("Expected ConfigSaved"),
         }
+        // cleanup happens when tmp is dropped at end of scope
     }
 
 }
