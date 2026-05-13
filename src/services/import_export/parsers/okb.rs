@@ -123,9 +123,12 @@ impl FormatParser for OkbParser {
         let password = password.ok_or(ImportExportError::PasswordRequired)?;
 
         // 6. Derive DEK via Argon2id.
-        let dek =
-            crypto::argon2::derive_key_locked(password, &salt, &crypto::argon2::Argon2Params::medium())
-                .map_err(ImportExportError::DecryptionFailed)?;
+        let dek = crypto::argon2::derive_key_locked(
+            password,
+            &salt,
+            &crypto::argon2::Argon2Params::medium(),
+        )
+        .map_err(ImportExportError::DecryptionFailed)?;
 
         // 7. Decrypt with XChaCha20-Poly1305.
         let mut plaintext = crypto::xchacha20::decrypt(ciphertext, &nonce, dek.expose())

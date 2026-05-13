@@ -78,6 +78,7 @@ fn make_executor_with_one_login() -> CommandExecutor {
         operation_cancel_token: CancellationToken::new(),
         timer_rebuild_pending: false,
         oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        verified_master_password: None,
     }
 }
 
@@ -114,6 +115,7 @@ fn make_executor_no_records() -> CommandExecutor {
         operation_cancel_token: CancellationToken::new(),
         timer_rebuild_pending: false,
         oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        verified_master_password: None,
     }
 }
 

@@ -155,7 +155,15 @@ pub fn render_form(
                     .fields
                     .password
                     .as_ref()
-                    .map(|p| p.expose(|s| s.to_string()))
+                    .map(|p| {
+                        if state.fields.password_visible {
+                            p.expose(|s| s.to_string())
+                        } else {
+                            p.expose(|s| {
+                                crate::tui::theme::ICON_PASSWORD_MASK.repeat(s.chars().count())
+                            })
+                        }
+                    })
                     .unwrap_or_default()
                     .as_str(),
                 focused == 4,
@@ -229,7 +237,15 @@ pub fn render_form(
                     .fields
                     .secret_key
                     .as_ref()
-                    .map(|k| k.expose(|s| s.to_string()))
+                    .map(|k| {
+                        if state.fields.secret_visible {
+                            k.expose(|s| s.to_string())
+                        } else {
+                            k.expose(|s| {
+                                crate::tui::theme::ICON_PASSWORD_MASK.repeat(s.chars().count())
+                            })
+                        }
+                    })
                     .unwrap_or_default()
                     .as_str(),
                 focused == 4,
@@ -298,7 +314,15 @@ pub fn render_form(
                     .fields
                     .private_key
                     .as_ref()
-                    .map(|k| k.expose(|s| s.to_string()))
+                    .map(|k| {
+                        if state.fields.private_visible {
+                            k.expose(|s| s.to_string())
+                        } else {
+                            k.expose(|s| {
+                                crate::tui::theme::ICON_PASSWORD_MASK.repeat(s.chars().count())
+                            })
+                        }
+                    })
                     .unwrap_or_default()
                     .as_str(),
                 focused == 4,
@@ -339,7 +363,15 @@ pub fn render_form(
                     .fields
                     .passphrase
                     .as_ref()
-                    .map(|p| p.expose(|s| s.to_string()))
+                    .map(|p| {
+                        if state.fields.passphrase_visible {
+                            p.expose(|s| s.to_string())
+                        } else {
+                            p.expose(|s| {
+                                crate::tui::theme::ICON_PASSWORD_MASK.repeat(s.chars().count())
+                            })
+                        }
+                    })
                     .unwrap_or_default()
                     .as_str(),
                 focused == 5,

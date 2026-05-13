@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use zeroize::Zeroize;
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
 use crate::commands::types::{

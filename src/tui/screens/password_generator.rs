@@ -59,9 +59,9 @@ impl PasswordGeneratorScreen {
             GeneratorFocus::ActionButton => {
                 if self.state.has_preview() {
                     let pw = self.state.take_preview();
-                    let _ = ctx.command_tx.try_send(Command::CopyRawToClipboard {
-                        value: pw,
-                    });
+                    let _ = ctx
+                        .command_tx
+                        .try_send(Command::CopyRawToClipboard { value: pw });
                     self.state.regenerate();
                     self.hint_message =
                         Some(t!("tui.notification.copied_to_clipboard").to_string());

@@ -10,8 +10,8 @@ use crate::tui::state::form_state::{ExpiryOption, FormState};
 use crate::tui::state::generator_state::EmbeddedGeneratorState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::credential::CredentialType;
-use crate::types::SecureStr;
 use crate::types::sensitive::SensitiveInput;
+use crate::types::SecureStr;
 
 /// Edit record screen state.
 pub struct EditRecordScreen {

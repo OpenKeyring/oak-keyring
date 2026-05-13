@@ -10,11 +10,11 @@ use ratatui::{layout::Rect, Frame};
 use uuid::Uuid;
 
 use crate::commands::types::{ConfirmButton, ConfirmVariant, Overlay};
-use crate::types::SecureStr;
 use crate::tui::state::generator_state::GeneratorState;
 use crate::tui::state::overlay_state::{
     BatchTagPanelFullState, ErrorDialogFullState, PasswordHistoryState,
 };
+use crate::types::SecureStr;
 
 /// Return a `Rect` of size `width × height` centred inside `area`.
 pub(crate) fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {

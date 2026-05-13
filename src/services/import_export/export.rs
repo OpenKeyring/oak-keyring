@@ -153,8 +153,8 @@ pub fn encrypt_and_write_okb(
         .map_err(ImportExportError::KeyDerivationFailed)?;
 
     // 4. Encrypt JSON with XChaCha20-Poly1305.
-    let (ciphertext, nonce) =
-        xchacha20::encrypt(&json_bytes, dek.expose()).map_err(ImportExportError::EncryptionFailed)?;
+    let (ciphertext, nonce) = xchacha20::encrypt(&json_bytes, dek.expose())
+        .map_err(ImportExportError::EncryptionFailed)?;
 
     // Zeroize plaintext JSON bytes now that encryption is complete.
     let mut json_bytes = json_bytes;

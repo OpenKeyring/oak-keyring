@@ -10,7 +10,7 @@ use crate::tui::theme::{
     self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING,
 };
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
-use crate::types::{sensitive::SensitiveInput, SecureStr};
+use crate::types::sensitive::SensitiveInput;
 
 // ── Enums ───────────────────────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ pub struct ChangeMasterPasswordScreen {
     pub current_password: SensitiveInput,
     pub new_password: SensitiveInput,
     pub confirm_password: SensitiveInput,
-    pending_current_password: Option<SecureStr>,
+    pending_verification: bool,
     pub focused: PasswordField,
     pub error_message: Option<String>,
     pub password_strength: Option<PasswordStrength>,
@@ -46,7 +46,7 @@ impl ChangeMasterPasswordScreen {
             current_password: SensitiveInput::new(),
             new_password: SensitiveInput::new(),
             confirm_password: SensitiveInput::new(),
-            pending_current_password: None,
+            pending_verification: false,
             focused: PasswordField::New,
             error_message: None,
             password_strength: None,
@@ -318,6 +318,7 @@ impl Screen for ChangeMasterPasswordScreen {
         self.focused = PasswordField::New;
         self.error_message = None;
         self.password_strength = None;
+        self.pending_verification = false;
     }
 
     fn on_unmount(&mut self) {
@@ -439,13 +440,17 @@ impl ChangeMasterPasswordScreen {
             KeyCode::Esc => ScreenResult::PopScreen,
 
             KeyCode::Enter if self.step == 1 => {
+                if self.pending_verification {
+                    return ScreenResult::Continue;
+                }
                 if self.current_password.is_empty() {
                     self.error_message = Some(t!("tui.entry.password_empty").to_string());
                     return ScreenResult::Continue;
                 }
                 self.error_message = None;
-                self.pending_current_password = Some(self.current_password.take_secure());
-                self.step = 2;
+                let password = self.current_password.take_secure();
+                let cmd = Command::VerifyMasterPassword { password };
+                self.pending_verification = ctx.command_tx.try_send(cmd).is_ok();
                 ScreenResult::Continue
             }
 
@@ -462,15 +467,10 @@ impl ChangeMasterPasswordScreen {
                     return ScreenResult::Continue;
                 }
                 self.error_message = None;
-                let Some(current_pw) = self.pending_current_password.take() else {
-                    self.error_message = Some(t!("tui.entry.password_empty").to_string());
-                    self.step = 1;
-                    return ScreenResult::Continue;
-                };
                 let new_pw = self.new_password.take_secure();
                 self.confirm_password.clear();
                 let cmd = Command::ChangeMasterPassword {
-                    current_password: current_pw,
+                    current_password: None,
                     new_password: new_pw,
                 };
                 let _ = ctx.command_tx.try_send(cmd);
@@ -527,10 +527,25 @@ impl ChangeMasterPasswordScreen {
 
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
-            CommandResult::MasterPasswordVerified => ScreenResult::Continue,
+            CommandResult::MasterPasswordVerified => {
+                // Verification succeeded — advance to new-password step.
+                self.step = 2;
+                self.pending_verification = false;
+                ScreenResult::Continue
+            }
             CommandResult::MasterPasswordChanged => ScreenResult::PopScreen,
             CommandResult::Error { fallback, .. } => {
                 self.error_message = Some(fallback);
+                if self.pending_verification {
+                    // Verification failed — stay on step 1, user can retry.
+                    self.pending_verification = false;
+                } else {
+                    // Change failed — reset to step 1 for safety.
+                    self.step = 1;
+                    self.current_password.clear();
+                    self.new_password.clear();
+                    self.confirm_password.clear();
+                }
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -572,6 +587,7 @@ mod tests {
         screen.new_password = sensitive("new_pw");
         screen.confirm_password = sensitive("new_pw");
         screen.error_message = Some("error".to_string());
+        screen.pending_verification = true;
 
         // Need a dummy context for on_mount
         let (tx, _rx) = tokio::sync::mpsc::channel(1);
@@ -588,6 +604,7 @@ mod tests {
         assert!(screen.confirm_password.is_empty());
         assert!(screen.error_message.is_none());
         assert!(screen.password_strength.is_none());
+        assert!(!screen.pending_verification);
     }
 
     #[test]

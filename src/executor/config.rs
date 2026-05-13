@@ -321,6 +321,7 @@ mod tests {
             operation_cancel_token: CancellationToken::new(),
             timer_rebuild_pending: false,
             oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+            verified_master_password: None,
         }
     }
 

@@ -6,71 +6,101 @@
 // (encryption keys, passwords) from being swapped to disk.
 //
 // Platform-specific implementation:
-// - Unix (macOS, Linux): uses mlock()/munlock() via libc
-// - Windows: uses VirtualLock()/VirtualUnlock() via windows-sys
+// - Unix (macOS, Linux): uses mmap() for page-exclusive allocation,
+//   mlock() to prevent swapping, and MADV_DONTDUMP on Linux to exclude
+//   from core dumps.
+// - Windows: uses VirtualAlloc() for page-exclusive allocation and
+//   VirtualLock() to prevent swapping.
+//
+// Each allocated region occupies an exclusive set of pages so that
+// mlock/munlock on one region does not affect other regions.
 //
 // Safety considerations:
-// - LockedRegion stores raw pointers - NOT Clone/Copy
-// - Drop must zeroize before unlocking
-// - LockedSecretBytes and LockedKey32 are NOT Clone (prevent key duplication)
+// - LockedSecretBytes stores a raw pointer - NOT Clone/Copy
+// - Drop must zeroize before unlocking and freeing pages
+// - LockedKey32 is NOT Clone (prevents key duplication)
 // - Debug shows "***REDACTED***" to prevent leaks through logs
 
 use std::fmt;
 
 // =============================================================================
-// Platform-specific memory locking
+// Platform-specific page-exclusive allocation
 // =============================================================================
 
+/// Allocates one or more locked, page-exclusive memory regions.
+///
+/// Returns a tuple of (pointer, total_allocated_size) where the pointer is
+/// page-aligned and the size is a multiple of the system page size.
 #[cfg(unix)]
-fn lock_memory_region(ptr: *mut u8, len: usize) -> Result<LockedRegion, String> {
+fn allocate_locked_pages(min_len: usize) -> Result<(*mut u8, usize), String> {
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
-    let base = (ptr as usize) & !(page_size - 1);
-    let end = ((ptr as usize) + len + page_size - 1) & !(page_size - 1);
-    let aligned_len = end - base;
+    let aligned_len = (min_len + page_size - 1) & !(page_size - 1);
 
-    let result = unsafe { libc::mlock(base as *const libc::c_void, aligned_len) };
+    // SAFETY: mmap allocates a new page-aligned region that is exclusive to
+    // this allocation. MAP_PRIVATE|MAP_ANONYMOUS creates a zero-initialized
+    // private mapping not backed by any file.
+    let ptr = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            aligned_len,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+            -1,
+            0,
+        )
+    };
+
+    if ptr == libc::MAP_FAILED {
+        return Err(format!("mmap failed: {}", std::io::Error::last_os_error()));
+    }
+
+    let ptr = ptr as *mut u8;
+
+    // Lock the pages to prevent swapping to disk.
+    let result = unsafe { libc::mlock(ptr as *const libc::c_void, aligned_len) };
     if result != 0 {
-        return Err(format!("mlock failed: {}", std::io::Error::last_os_error()));
+        let err = std::io::Error::last_os_error();
+        unsafe { libc::munmap(ptr as *mut libc::c_void, aligned_len) };
+        return Err(format!("mlock failed: {err}"));
     }
 
     #[cfg(target_os = "linux")]
     {
-        let result = unsafe {
-            libc::madvise(
-                base as *mut libc::c_void,
-                aligned_len,
-                libc::MADV_DONTDUMP,
-            )
-        };
+        // Exclude from core dumps so keys don't leak via crash reports.
+        let result =
+            unsafe { libc::madvise(ptr as *mut libc::c_void, aligned_len, libc::MADV_DONTDUMP) };
         if result != 0 {
             let err = std::io::Error::last_os_error();
             unsafe {
-                libc::munlock(base as *const libc::c_void, aligned_len);
+                libc::munlock(ptr as *const libc::c_void, aligned_len);
+                libc::munmap(ptr as *mut libc::c_void, aligned_len);
             }
             return Err(format!("madvise(MADV_DONTDUMP) failed: {err}"));
         }
     }
 
-    Ok(LockedRegion {
-        base: base as *mut u8,
-        len: aligned_len,
-    })
+    Ok((ptr, aligned_len))
 }
 
+/// Frees a locked, page-exclusive memory region previously allocated by
+/// [`allocate_locked_pages`].
 #[cfg(unix)]
-fn unlock_memory_region(ptr: *mut u8, len: usize) {
+fn free_locked_pages(ptr: *mut u8, len: usize) {
     #[cfg(target_os = "linux")]
     unsafe {
         libc::madvise(ptr as *mut libc::c_void, len, libc::MADV_DODUMP);
     }
     unsafe {
         libc::munlock(ptr as *const libc::c_void, len);
+        libc::munmap(ptr as *mut libc::c_void, len);
     }
 }
 
 #[cfg(windows)]
-fn lock_memory_region(ptr: *mut u8, len: usize) -> Result<LockedRegion, String> {
-    use windows_sys::Win32::System::Memory::VirtualLock;
+fn allocate_locked_pages(min_len: usize) -> Result<(*mut u8, usize), String> {
+    use windows_sys::Win32::System::Memory::{
+        VirtualAlloc, VirtualLock, MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE,
+    };
 
     let page_size = unsafe {
         let mut info = std::mem::zeroed();
@@ -78,55 +108,58 @@ fn lock_memory_region(ptr: *mut u8, len: usize) -> Result<LockedRegion, String> 
         info.dwPageSize as usize
     };
 
-    let base = (ptr as usize) & !(page_size - 1);
-    let end = ((ptr as usize) + len + page_size - 1) & !(page_size - 1);
-    let aligned_len = end - base;
+    let aligned_len = (min_len + page_size - 1) & !(page_size - 1);
 
-    let result = unsafe { VirtualLock(base as *const _, aligned_len) };
-    if result == 0 {
+    // SAFETY: VirtualAlloc reserves and commits page-aligned memory that is
+    // exclusive to this allocation.
+    let ptr = unsafe {
+        VirtualAlloc(
+            std::ptr::null(),
+            aligned_len,
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_READWRITE,
+        )
+    };
+
+    if ptr.is_null() {
         return Err(format!(
-            "VirtualLock failed: {}",
+            "VirtualAlloc failed: {}",
             std::io::Error::last_os_error()
         ));
     }
-    Ok(LockedRegion {
-        base: base as *mut u8,
-        len: aligned_len,
-    })
+
+    let result = unsafe { VirtualLock(ptr, aligned_len) };
+    if result == 0 {
+        let err = std::io::Error::last_os_error();
+        unsafe {
+            VirtualFree(ptr, 0, MEM_RELEASE);
+        }
+        return Err(format!("VirtualLock failed: {err}"));
+    }
+
+    Ok((ptr as *mut u8, aligned_len))
 }
 
 #[cfg(windows)]
-fn unlock_memory_region(ptr: *mut u8, len: usize) {
-    use windows_sys::Win32::System::Memory::VirtualUnlock;
+fn free_locked_pages(ptr: *mut u8, len: usize) {
+    use windows_sys::Win32::System::Memory::{VirtualFree, VirtualUnlock, MEM_RELEASE};
 
     unsafe {
         VirtualUnlock(ptr as *const _, len);
+        VirtualFree(ptr as *mut _, 0, MEM_RELEASE);
     }
 }
-
-// =============================================================================
-// LockedRegion
-// =============================================================================
-
-/// A locked region of memory.
-///
-/// This type is intentionally not Clone or Copy to prevent duplication
-/// of the raw pointer, which could lead to double-unlock.
-pub struct LockedRegion {
-    base: *mut u8,
-    len: usize,
-}
-
-// SAFETY: LockedRegion is platform-specific and stores raw pointers.
-// We don't implement Send/Sync manually - they are derived based on the
-// platform's mlock/VirtualLock semantics. On Unix, mlock is thread-safe,
-// and on Windows, VirtualLock is also thread-safe.
 
 // =============================================================================
 // LockedSecretBytes
 // =============================================================================
 
-/// A byte buffer stored in locked memory pages.
+/// A byte buffer stored in locked, page-exclusive memory.
+///
+/// Unlike a Vec-backed approach where multiple buffers could share a page
+/// (and one buffer's munlock would unprotect others), this type uses
+/// platform-specific page-exclusive allocation (mmap on Unix, VirtualAlloc
+/// on Windows) so that each instance occupies its own set of pages.
 ///
 /// This type ensures that sensitive data is:
 /// 1. Locked in memory (prevented from being swapped to disk)
@@ -143,50 +176,69 @@ pub struct LockedRegion {
 /// // When dropped, the memory is zeroized and unlocked
 /// ```
 pub struct LockedSecretBytes {
-    bytes: Vec<u8>,
-    locked_region: Option<LockedRegion>,
+    /// Pointer to the start of the mmap'd / VirtualAlloc'd region.
+    /// For zero-length instances this is null.
+    ptr: *mut u8,
+
+    /// Number of usable bytes (the originally requested length). Must be <= cap.
+    len: usize,
+
+    /// Total allocated bytes (page-aligned). 0 for zero-length instances.
+    cap: usize,
 }
 
 impl LockedSecretBytes {
     /// Creates a new byte buffer with the specified length.
     ///
-    /// Memory locking must succeed for non-empty buffers.
+    /// Memory is allocated in exclusive page(s) using mmap (Unix) or
+    /// VirtualAlloc (Windows). Memory locking must succeed for non-empty
+    /// buffers.
     ///
-    /// A length of 0 creates an empty buffer without attempting to lock.
+    /// A length of 0 creates an empty buffer without allocating or locking.
     pub fn with_len(len: usize) -> Result<Self, String> {
-        let mut bytes = vec![0u8; len];
-        let locked_region = if len > 0 {
-            let ptr = bytes.as_mut_ptr();
-            Some(lock_memory_region(ptr, len)?)
-        } else {
-            None
-        };
-        Ok(Self {
-            bytes,
-            locked_region,
-        })
+        if len == 0 {
+            return Ok(Self {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            });
+        }
+
+        let (ptr, cap) = allocate_locked_pages(len)?;
+        Ok(Self { ptr, len, cap })
     }
 
     /// Exposes the underlying bytes as a slice.
     pub fn expose(&self) -> &[u8] {
-        &self.bytes
+        if self.len == 0 {
+            return &[];
+        }
+        // SAFETY: ptr points to valid, initialized memory of at least len
+        // bytes (enforced by with_len). The memory is locked and exclusive.
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
     }
 
     /// Exposes the underlying bytes as a mutable slice.
     pub fn expose_mut(&mut self) -> &mut [u8] {
-        &mut self.bytes
+        if self.len == 0 {
+            return &mut [];
+        }
+        unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
 
 impl Drop for LockedSecretBytes {
     fn drop(&mut self) {
-        // Zeroize first to ensure data is erased before unlocking
-        use zeroize::Zeroize;
-        self.bytes.zeroize();
-        // Then unlock the memory region
-        if let Some(region) = &self.locked_region {
-            unlock_memory_region(region.base, region.len);
+        if self.cap == 0 {
+            return;
         }
+
+        // Zeroize the used portion before unlocking and freeing pages.
+        use zeroize::Zeroize;
+        self.expose_mut().zeroize();
+
+        // Free the allocated locked pages (this also unlocks them).
+        free_locked_pages(self.ptr, self.cap);
     }
 }
 
@@ -216,7 +268,8 @@ impl fmt::Debug for LockedSecretBytes {
 /// use oak_keyring::security::LockedKey32;
 ///
 /// // Create from existing key material
-/// let key = LockedKey32::new([42u8; 32]).expect("memory lock should succeed");
+/// let mut key_bytes = [42u8; 32];
+/// let key = LockedKey32::new(&mut key_bytes).expect("memory lock should succeed");
 ///
 /// // Generate key material using a function
 /// let key = LockedKey32::generate_from(|slice| {
@@ -231,11 +284,11 @@ pub struct LockedKey32 {
 impl LockedKey32 {
     /// Creates a new key from existing key material.
     ///
-    /// The key is copied into locked memory (best-effort) and the source
-    /// array is zeroized after copying.
-    pub fn new(mut key: [u8; 32]) -> Result<Self, String> {
+    /// The key is copied into locked memory and the source array
+    /// is zeroized after copying through the mutable reference.
+    pub fn new(key: &mut [u8; 32]) -> Result<Self, String> {
         let mut bytes = LockedSecretBytes::with_len(32)?;
-        bytes.expose_mut().copy_from_slice(&key);
+        bytes.expose_mut().copy_from_slice(&*key);
         use zeroize::Zeroize;
         key.zeroize();
         Ok(Self { bytes })

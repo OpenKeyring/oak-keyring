@@ -27,12 +27,12 @@ impl CryptoManager {
 
     pub fn unlock_with_mnemonic(&mut self, mnemonic: &Passkey) -> Result<(), String> {
         let seed = mnemonic.to_seed(None)?;
-        let sk_bytes = seed.to_secret_key();
-        let kek_bytes = hkdf::derive_kek(&sk_bytes)?;
+        let mut sk_bytes = seed.to_secret_key();
+        let mut kek_bytes = hkdf::derive_kek(&sk_bytes)?;
 
         let ks = KeyStore {
-            sk: Some(SecretKey::new(sk_bytes)?),
-            kek: Some(KeyEncryptionKey::new(kek_bytes)?),
+            sk: Some(SecretKey::new(&mut sk_bytes)?),
+            kek: Some(KeyEncryptionKey::new(&mut kek_bytes)?),
             current_dek_version: 1,
             device_id: uuid::Uuid::new_v4().to_string(),
             mnemonic_language: MnemonicLanguage::English,

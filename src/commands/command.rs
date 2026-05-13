@@ -27,7 +27,7 @@ pub enum Command {
     },
 
     ChangeMasterPassword {
-        current_password: SecureStr,
+        current_password: Option<SecureStr>,
         new_password: SecureStr,
     },
 

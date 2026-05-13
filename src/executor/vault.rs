@@ -136,7 +136,12 @@ pub fn handle_verify_master_password(
 ) -> CommandResult {
     // Verify by attempting to unlock the keystore file with the password
     match crate::crypto::keystore::KeyStore::unlock(&executor.vault_dir, &password) {
-        Ok(_) => CommandResult::MasterPasswordVerified,
+        Ok(_) => {
+            // Cache the verified password so the subsequent ChangeMasterPassword
+            // command can use it without asking the user again.
+            executor.verified_master_password = Some(password);
+            CommandResult::MasterPasswordVerified
+        }
         Err(_) => CommandResult::Error {
             code: ErrorCode::ExecutorMasterPasswordRequired,
             context: ErrorContext::default(),
@@ -149,9 +154,27 @@ pub fn handle_verify_master_password(
 #[tracing::instrument(skip(executor, current_password, new_password))]
 pub fn handle_change_master_password(
     executor: &mut CommandExecutor,
-    current_password: SecureStr,
+    current_password: Option<SecureStr>,
     new_password: SecureStr,
 ) -> CommandResult {
+    // Use the provided password, or fall back to the cached verified password.
+    let current_password = match current_password {
+        Some(pw) => pw,
+        None => match executor.verified_master_password.take() {
+            Some(pw) => pw,
+            None => {
+                return CommandResult::Error {
+                    code: ErrorCode::ExecutorMasterPasswordRequired,
+                    context: ErrorContext::default(),
+                    message_key: "error.password_verification_failed",
+                    fallback: String::from(
+                        "Current master password not available. Please verify first.",
+                    ),
+                };
+            }
+        },
+    };
+
     match crate::crypto::keystore::KeyStore::change_cmk(
         &executor.vault_dir,
         &current_password,
@@ -221,13 +244,13 @@ pub async fn handle_initialize_vault(
             };
         }
     };
-    let sk_bytes = seed.to_secret_key();
+    let mut sk_bytes = seed.to_secret_key();
     let recovery_words = passkey.to_words();
 
     // Step 3: Initialize keystore (creates wrapped_secret_key.json)
     match crate::crypto::keystore::KeyStore::initialize(
         &vault_path,
-        sk_bytes,
+        &mut sk_bytes,
         &master_password,
         &crate::crypto::argon2::Argon2Params::medium(),
         language,

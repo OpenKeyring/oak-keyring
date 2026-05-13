@@ -1244,9 +1244,7 @@ impl MainScreenState {
             OverlayKeyResult::CopyGeneratedPassword { password } => {
                 self.overlay_manager.close();
                 self.pending_animation = Some(EffectKind::ModalDismiss);
-                ScreenResult::Command(Box::new(Command::CopyRawToClipboard {
-                    value: password,
-                }))
+                ScreenResult::Command(Box::new(Command::CopyRawToClipboard { value: password }))
             }
             OverlayKeyResult::CopyHistoryPassword { history_id } => {
                 self.overlay_manager.close();

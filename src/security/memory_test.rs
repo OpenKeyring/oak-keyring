@@ -2,7 +2,8 @@ use crate::security::{LockedKey32, LockedSecretBytes};
 
 #[test]
 fn locked_key32_exposes_32_bytes() {
-    let key = LockedKey32::new([7u8; 32]).expect("lock should succeed in normal test env");
+    let mut key_data = [7u8; 32];
+    let key = LockedKey32::new(&mut key_data).expect("lock should succeed in normal test env");
     assert_eq!(key.expose(), &[7u8; 32]);
 }
 
