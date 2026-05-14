@@ -372,20 +372,38 @@ pub async fn handle_rebuild_keyfile_from_recovery(
     }
 }
 
-/// Validate that the restored vault.db can be decrypted with the current key.
+/// Validate that the existing vault.db can be decrypted with the rebuilt key.
+///
+/// Attempts to unlock the vault with the cached master password (set during
+/// keyfile rebuild). Success proves the key matches the database.
 pub async fn handle_validate_restored_database(executor: &mut CommandExecutor) -> CommandResult {
     if !executor.vault_dir.join("vault.db").exists() {
         return CommandResult::DatabaseValidationFailed {
-            reason: "vault.db was not restored.".to_string(),
+            reason: "vault.db was not found.".to_string(),
         };
     }
-    if executor.vault.is_unlocked() {
-        CommandResult::DatabaseRestored {
-            source: crate::commands::types::DatabaseRecoverySource::Okb,
+
+    let master_password = match executor.verified_master_password.take() {
+        Some(pw) => pw,
+        None => {
+            return CommandResult::DatabaseValidationFailed {
+                reason: "Master password not available for validation.".to_string(),
+            };
         }
-    } else {
-        CommandResult::DatabaseValidationFailed {
-            reason: "Restored database does not match current key.".to_string(),
+    };
+
+    match executor.vault.unlock(&executor.vault_dir, &master_password) {
+        Ok(_) => {
+            drop(master_password);
+            CommandResult::DatabaseRestored {
+                source: crate::commands::types::DatabaseRecoverySource::Okb,
+            }
+        }
+        Err(e) => {
+            drop(master_password);
+            CommandResult::DatabaseValidationFailed {
+                reason: format!("Restored database does not match current key: {}", e),
+            }
         }
     }
 }

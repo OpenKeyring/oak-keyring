@@ -457,6 +457,13 @@ impl SetPasswordScreen {
                 self.error = Some(fallback);
                 ScreenResult::Continue
             }
+            CommandResult::DatabaseRestored { .. } => {
+                ScreenResult::NavigateTo(Screen::Main)
+            }
+            CommandResult::DatabaseValidationFailed { reason } => {
+                self.error = Some(reason);
+                ScreenResult::Continue
+            }
             _ => ScreenResult::Continue,
         }
     }
