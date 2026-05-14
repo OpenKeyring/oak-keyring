@@ -9,7 +9,7 @@
 
 use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
-use oak_keyring::executor::CommandExecutor;
+use oak_keyring::executor::{CommandExecutor, DbStartupMode};
 use oak_keyring::types::sensitive::SecureStr;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -28,9 +28,15 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let executor =
-        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false)
-            .expect("executor construction should succeed");
+    let executor = CommandExecutor::new(
+        config,
+        result_tx,
+        cancel_token,
+        data_dir,
+        config_dir,
+        DbStartupMode::FileBacked,
+    )
+    .expect("executor construction should succeed");
 
     // Spawn the executor run loop
     tokio::spawn(async move {
@@ -317,7 +323,7 @@ async fn save_and_reload_preserves_config() {
             cancel_token,
             data_dir,
             config_dir,
-            false,
+            DbStartupMode::FileBacked,
         )
         .expect("executor construction should succeed");
 

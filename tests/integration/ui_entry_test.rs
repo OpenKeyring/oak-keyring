@@ -403,7 +403,7 @@ fn key_only_startup_does_not_create_empty_database() {
         tokio_util::sync::CancellationToken::new(),
         data_dir.clone(),
         config_dir,
-        false, // no existing file-backed vault.db
+        oak_keyring::executor::DbStartupMode::DeferredInMemory,
     )
     .expect("executor");
 

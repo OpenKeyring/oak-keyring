@@ -1,7 +1,7 @@
 use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::{argon2, xchacha20};
-use oak_keyring::executor::CommandExecutor;
+use oak_keyring::executor::{CommandExecutor, DbStartupMode};
 use oak_keyring::types::SecureStr;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -45,8 +45,14 @@ async fn executor_can_be_constructed() {
     std::fs::create_dir_all(&data_dir).unwrap();
     std::fs::create_dir_all(&config_dir).unwrap();
 
-    let executor =
-        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false);
+    let executor = CommandExecutor::new(
+        config,
+        result_tx,
+        cancel_token,
+        data_dir,
+        config_dir,
+        DbStartupMode::FileBacked,
+    );
     assert!(executor.is_ok());
     assert!(!executor.unwrap().is_unlocked());
 }
@@ -66,7 +72,7 @@ fn executor_without_existing_vault_does_not_create_vault_db_on_startup() {
         CancellationToken::new(),
         data_dir.clone(),
         config_dir,
-        false,
+        DbStartupMode::DeferredInMemory,
     )
     .expect("executor should construct");
 
@@ -95,7 +101,7 @@ async fn executor_run_loop_processes_commands() {
         cancel_token.clone(),
         data_dir,
         config_dir,
-        false,
+        DbStartupMode::FileBacked,
     )
     .unwrap();
 
@@ -128,7 +134,7 @@ async fn dispatch_validate_recovery_words_rejects_non_24_words() {
         CancellationToken::new(),
         data_dir,
         config_dir,
-        false,
+        DbStartupMode::FileBacked,
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -165,7 +171,7 @@ async fn restore_database_from_okb_rejects_empty_path() {
         CancellationToken::new(),
         data_dir,
         config_dir,
-        false,
+        DbStartupMode::FileBacked,
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -208,7 +214,7 @@ async fn restore_database_from_okb_rejects_missing_file() {
         CancellationToken::new(),
         data_dir,
         config_dir,
-        false,
+        DbStartupMode::FileBacked,
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -251,7 +257,7 @@ async fn restore_database_from_okb_wrong_password_does_not_create_vault_db() {
         CancellationToken::new(),
         data_dir.clone(),
         config_dir,
-        false,
+        DbStartupMode::DeferredInMemory,
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -305,7 +311,7 @@ async fn restore_database_from_malformed_okb_does_not_create_vault_db() {
         CancellationToken::new(),
         data_dir.clone(),
         config_dir,
-        false,
+        DbStartupMode::DeferredInMemory,
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -356,7 +362,7 @@ async fn restore_database_from_empty_okb_does_not_create_vault_db() {
         CancellationToken::new(),
         data_dir.clone(),
         config_dir,
-        false,
+        DbStartupMode::DeferredInMemory,
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -403,7 +409,7 @@ async fn restore_database_from_okb_without_cached_master_password_does_not_creat
         CancellationToken::new(),
         data_dir.clone(),
         config_dir,
-        false,
+        DbStartupMode::DeferredInMemory,
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -452,12 +458,81 @@ fn executor_with_key_only_does_not_create_vault_db() {
         CancellationToken::new(),
         data_dir.clone(),
         config_dir,
-        false, // no existing file-backed vault.db
+        DbStartupMode::DeferredInMemory,
     )
     .expect("executor should construct");
 
     assert!(
         !data_dir.join("vault.db").exists(),
-        "vault.db must not be created when vault_has_key_only=true"
+        "vault.db must not be created during deferred in-memory startup"
     );
+}
+
+#[test]
+fn executor_with_empty_vault_state_does_not_create_vault_db() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("oak-keyring");
+    let config_dir = temp.path().join("oak-keyring-config");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    let (result_tx, _result_rx) = tokio::sync::mpsc::channel(64);
+    let _executor = CommandExecutor::new(
+        AppConfig::default(),
+        result_tx,
+        CancellationToken::new(),
+        data_dir.clone(),
+        config_dir,
+        DbStartupMode::DeferredInMemory,
+    )
+    .expect("executor should construct without creating vault.db");
+
+    assert!(
+        !data_dir.join("vault.db").exists(),
+        "empty first startup must not create vault.db before onboarding initializes the vault"
+    );
+}
+
+#[tokio::test]
+async fn initialize_vault_creates_file_backed_database_after_empty_startup() {
+    let (result_tx, mut result_rx) = tokio::sync::mpsc::channel(64);
+    let (command_tx, command_rx) = tokio::sync::mpsc::channel(64);
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("oak-keyring");
+    let config_dir = temp.path().join("oak-keyring-config");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    let executor = CommandExecutor::new(
+        AppConfig::default(),
+        result_tx,
+        CancellationToken::new(),
+        data_dir.clone(),
+        config_dir,
+        DbStartupMode::DeferredInMemory,
+    )
+    .unwrap();
+    let handle = tokio::spawn(async move { executor.run(command_rx).await });
+
+    command_tx
+        .send(Command::InitializeVault {
+            master_password: SecureStr::new("correct horse battery staple".to_string()),
+            recovery_words: None,
+        })
+        .await
+        .unwrap();
+
+    let msg = result_rx.recv().await.expect("result");
+    match msg {
+        Message::CommandCompleted(CommandResult::VaultInitialized { .. }) => {}
+        other => panic!("expected VaultInitialized, got {other:?}"),
+    }
+
+    assert!(
+        data_dir.join("vault.db").exists(),
+        "new-vault initialization must explicitly create the file-backed database"
+    );
+
+    drop(command_tx);
+    handle.await.unwrap();
 }

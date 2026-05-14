@@ -45,6 +45,22 @@ mod vault_test;
 #[cfg(test)]
 mod sync_test;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DbStartupMode {
+    FileBacked,
+    DeferredInMemory,
+}
+
+impl DbStartupMode {
+    pub fn from_vault_state(state: crate::app::VaultInitState) -> Self {
+        if state.has_vault || state.vault_has_db_only {
+            Self::FileBacked
+        } else {
+            Self::DeferredInMemory
+        }
+    }
+}
+
 /// Load OAuth2 tokens from TokenStore into the in-memory GoogleDriveConfig.
 /// TokenStore is the single source of truth — config.toml never stores tokens.
 fn load_oauth2_tokens_into_config(config: &mut AppConfig, config_dir: &std::path::Path) {
@@ -148,19 +164,16 @@ impl CommandExecutor {
         shutdown_token: CancellationToken,
         vault_dir: std::path::PathBuf,
         config_dir: std::path::PathBuf,
-        vault_has_file_backed_db: bool,
+        db_startup_mode: DbStartupMode,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), vault_has_file_backed_db, "initializing CommandExecutor");
+        info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), ?db_startup_mode, "initializing CommandExecutor");
 
-        // Only open a file-backed database when a real vault.db already exists.
-        // New-vault, key-only recovery, and db-only recovery flows start in
-        // memory so startup cannot create an empty vault.db before a workflow
-        // reaches its explicit commit point.
-        let conn = if vault_has_file_backed_db {
-            init_db(&vault_dir)?
-        } else {
-            info!("using in-memory database until vault database is committed");
-            init_db_in_memory()
+        let conn = match db_startup_mode {
+            DbStartupMode::FileBacked => init_db(&vault_dir)?,
+            DbStartupMode::DeferredInMemory => {
+                info!("using in-memory database until vault database is explicitly initialized");
+                init_db_in_memory()
+            }
         };
 
         // Create service instances.
@@ -461,5 +474,43 @@ mod shutdown_tests {
         assert!(!operation.is_cancelled());
         shutdown.cancel();
         assert!(operation.is_cancelled());
+    }
+}
+
+#[cfg(test)]
+mod db_startup_mode_tests {
+    use super::*;
+    use crate::app::VaultInitState;
+
+    #[test]
+    fn db_startup_mode_uses_file_backed_when_db_exists() {
+        assert_eq!(
+            DbStartupMode::from_vault_state(VaultInitState {
+                has_vault: false,
+                vault_has_key_only: false,
+                vault_has_db_only: true,
+            }),
+            DbStartupMode::FileBacked
+        );
+    }
+
+    #[test]
+    fn db_startup_mode_defers_when_db_is_missing() {
+        assert_eq!(
+            DbStartupMode::from_vault_state(VaultInitState {
+                has_vault: false,
+                vault_has_key_only: false,
+                vault_has_db_only: false,
+            }),
+            DbStartupMode::DeferredInMemory
+        );
+        assert_eq!(
+            DbStartupMode::from_vault_state(VaultInitState {
+                has_vault: false,
+                vault_has_key_only: true,
+                vault_has_db_only: false,
+            }),
+            DbStartupMode::DeferredInMemory
+        );
     }
 }
