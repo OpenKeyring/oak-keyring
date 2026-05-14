@@ -340,6 +340,20 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
     fn on_unmount(&mut self) {
         self.new_password.clear();
         self.confirm_password.clear();
+        self.error = None;
+        // Zeroize recovery words in context.
+        match &mut self.context {
+            SetPasswordContext::OnboardingCreate { recovery_words }
+            | SetPasswordContext::RestoreExistingVault { recovery_words, .. } => {
+                use zeroize::Zeroize;
+                for w in recovery_words.iter_mut() {
+                    w.zeroize();
+                    w.clear();
+                }
+                recovery_words.clear();
+            }
+            _ => {}
+        }
     }
 }
 

@@ -368,6 +368,7 @@ pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) 
             fallback: format!("Failed to unlock vault: {}", e),
         };
     }
+    drop(master_password);
 
     // Run a full sync cycle. With an empty local vault, this is effectively
     // pull-only: all cloud records are downloaded and no data is pushed.

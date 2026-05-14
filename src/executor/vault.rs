@@ -279,6 +279,14 @@ pub async fn handle_initialize_vault(
 
 /// Reconstruct a Passkey from pre-generated recovery words.
 /// Tries English first, then Chinese Simplified.
+fn zeroize_recovery_words(words: &mut [String]) {
+    use zeroize::Zeroize;
+    for w in words.iter_mut() {
+        w.zeroize();
+        w.clear();
+    }
+}
+
 fn reconstruct_passkey(words: &[String]) -> Result<Passkey, String> {
     let english = Passkey::from_words(words, MnemonicLanguage::English);
     if english.is_ok() {
@@ -312,11 +320,12 @@ pub async fn handle_validate_recovery_words(words: Vec<String>) -> CommandResult
 pub async fn handle_rebuild_keyfile_from_recovery(
     executor: &mut CommandExecutor,
     master_password: crate::types::SecureStr,
-    recovery_words: Vec<String>,
+    mut recovery_words: Vec<String>,
 ) -> CommandResult {
     let passkey = match reconstruct_passkey(&recovery_words) {
         Ok(pk) => pk,
         Err(e) => {
+            zeroize_recovery_words(&mut recovery_words);
             return CommandResult::Error {
                 code: ErrorCode::CryptoKeyDerivationFailed,
                 context: ErrorContext::default(),
@@ -325,6 +334,7 @@ pub async fn handle_rebuild_keyfile_from_recovery(
             };
         }
     };
+    zeroize_recovery_words(&mut recovery_words);
 
     let seed = match passkey.to_seed(None) {
         Ok(seed) => seed,

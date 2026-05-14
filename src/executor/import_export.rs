@@ -1012,6 +1012,7 @@ pub async fn handle_restore_database_from_okb(
     let items = match parser.parse(&path, Some(&password), None) {
         Ok(items) => items,
         Err(e) => {
+            drop(password);
             return CommandResult::Error {
                 code: ErrorCode::ImportFileUnreadable,
                 context: ErrorContext::default(),
@@ -1020,6 +1021,8 @@ pub async fn handle_restore_database_from_okb(
             };
         }
     };
+    // Export password no longer needed — drop immediately.
+    drop(password);
 
     // Create a file-backed vault.db and reopen the executor's vault connection.
     if let Err(e) = executor.reopen_file_backed_vault_db() {
@@ -1054,6 +1057,7 @@ pub async fn handle_restore_database_from_okb(
             fallback: format!("Failed to unlock vault: {}", e),
         };
     }
+    drop(master_password);
 
     // Import all parsed records into the vault.
     let mut imported = 0usize;
