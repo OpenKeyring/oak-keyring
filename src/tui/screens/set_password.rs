@@ -29,6 +29,20 @@ pub enum SetPasswordContext {
     PostRecovery,
     OnboardingCreate { recovery_words: Vec<String> },
     OnboardingRestore,
+    /// Rebuild wrapped_secret_key.json from recovered key + new master password.
+    RestoreExistingVault {
+        recovery_words: Vec<String>,
+        next: RestoreNext,
+    },
+}
+
+/// What happens after keyfile is rebuilt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreNext {
+    /// Validate the existing database (no-key + has-db flow).
+    ValidateExistingDatabase,
+    /// Proceed to database recovery screen (no-key + no-db flow).
+    RestoreDatabase,
 }
 
 // ── SetPasswordScreen ────────────────────────────────────────────────────────
@@ -351,19 +365,27 @@ impl SetPasswordScreen {
                     self.error = Some(t!("tui.entry.password_mismatch").to_string());
                     return ScreenResult::Continue;
                 }
-                // Passwords match and long enough — send InitializeVault
+                // Passwords match and long enough
                 self.error = None;
                 let password = self.new_password.take_secure();
                 self.confirm_password.clear();
-                let recovery_words = match &self.context {
+                let cmd = match &self.context {
+                    SetPasswordContext::RestoreExistingVault {
+                        recovery_words, ..
+                    } => Command::RebuildKeyFileFromRecovery {
+                        master_password: password,
+                        recovery_words: recovery_words.clone(),
+                    },
                     SetPasswordContext::OnboardingCreate { recovery_words } => {
-                        Some(recovery_words.clone())
+                        Command::InitializeVault {
+                            master_password: password,
+                            recovery_words: Some(recovery_words.clone()),
+                        }
                     }
-                    _ => None,
-                };
-                let cmd = Command::InitializeVault {
-                    master_password: password,
-                    recovery_words,
+                    _ => Command::InitializeVault {
+                        master_password: password,
+                        recovery_words: None,
+                    },
                 };
                 let _ = ctx.command_tx.try_send(cmd);
                 ScreenResult::Continue
@@ -404,6 +426,17 @@ impl SetPasswordScreen {
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
             CommandResult::VaultInitialized { .. } => ScreenResult::NavigateTo(Screen::Main),
+            CommandResult::KeyFileRebuilt => match &self.context {
+                SetPasswordContext::RestoreExistingVault {
+                    next: RestoreNext::ValidateExistingDatabase,
+                    ..
+                } => ScreenResult::Command(Box::new(Command::ValidateRestoredDatabase)),
+                SetPasswordContext::RestoreExistingVault {
+                    next: RestoreNext::RestoreDatabase,
+                    ..
+                } => ScreenResult::NavigateTo(Screen::DatabaseRecovery),
+                _ => ScreenResult::NavigateTo(Screen::Main),
+            },
             CommandResult::Error { fallback, .. } => {
                 self.error = Some(fallback);
                 ScreenResult::Continue

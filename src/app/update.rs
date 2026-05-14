@@ -448,6 +448,23 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                 Some(Screen::Unlock) => {
                     crate::tui::screens::set_password::SetPasswordContext::PostRecovery
                 }
+                Some(Screen::KeyRecovery) => {
+                    let words = state.screens.key_recovery.words.collect_words();
+                    // Determine next step from origin: startup → validate DB, onboarding → database recovery
+                    let is_onboarding = matches!(
+                        state.screens.key_recovery.origin,
+                        crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore
+                    );
+                    let next = if is_onboarding {
+                        crate::tui::screens::set_password::RestoreNext::RestoreDatabase
+                    } else {
+                        crate::tui::screens::set_password::RestoreNext::ValidateExistingDatabase
+                    };
+                    crate::tui::screens::set_password::SetPasswordContext::RestoreExistingVault {
+                        recovery_words: words,
+                        next,
+                    }
+                }
                 _ => match state.screens.onboarding.selected_path {
                     Some(crate::tui::screens::onboarding::OnboardingPath::Restore) => {
                         crate::tui::screens::set_password::SetPasswordContext::OnboardingRestore
