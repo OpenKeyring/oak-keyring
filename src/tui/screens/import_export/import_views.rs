@@ -280,7 +280,10 @@ impl ImportExportScreen {
                 ),
                 (
                     t!("tui.import_export.column_tags").to_string(),
-                    self.csv_mapping.tags_column.as_deref().unwrap_or(&none_label),
+                    self.csv_mapping
+                        .tags_column
+                        .as_deref()
+                        .unwrap_or(&none_label),
                     ImportFocus::CsvTags,
                 ),
             ];
@@ -717,8 +720,15 @@ impl ImportExportScreen {
                     SkipReason::ValidationFailed => ratatui::style::Style::default().fg(WARNING),
                     _ => continue,
                 };
-                let detail =
-                    Paragraph::new(t!("tui.import_export.skip_records_count", label = label, count = count).to_string()).style(style);
+                let detail = Paragraph::new(
+                    t!(
+                        "tui.import_export.skip_records_count",
+                        label = label,
+                        count = count
+                    )
+                    .to_string(),
+                )
+                .style(style);
                 frame.render_widget(detail, rows[row_idx]);
                 row_idx += 1;
             }

@@ -73,14 +73,12 @@ impl App {
         config: AppConfig,
         vault_state: VaultInitState,
         instance_lock: InstanceLock,
+        vault_dir: std::path::PathBuf,
+        config_dir: std::path::PathBuf,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_SIZE);
         let (result_tx, result_rx) = mpsc::channel(RESULT_CHANNEL_SIZE);
         let cancel_token = CancellationToken::new();
-
-        let vault_dir = crate::paths::data_dir().unwrap_or_else(crate::paths::data_dir_fallback);
-        let config_dir =
-            crate::paths::config_dir().unwrap_or_else(crate::paths::config_dir_fallback);
 
         Ok(Self {
             config,

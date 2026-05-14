@@ -17,7 +17,8 @@ async fn executor_can_be_constructed() {
     std::fs::create_dir_all(&data_dir).unwrap();
     std::fs::create_dir_all(&config_dir).unwrap();
 
-    let executor = CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false);
+    let executor =
+        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false);
     assert!(executor.is_ok());
     assert!(!executor.unwrap().is_unlocked());
 }

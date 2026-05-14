@@ -20,6 +20,8 @@ use oak_keyring::tui::state::notification::{NotificationState, StatusMessage};
 fn app_starts_at_unlock_screen_when_vault_exists() {
     let vault_dir = tempfile::tempdir().unwrap();
     let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+    let vault_dir_path = vault_dir.path().to_path_buf();
+    let config_dir_path = vault_dir.path().to_path_buf();
     let app = App::new(
         AppConfig::default(),
         VaultInitState {
@@ -28,6 +30,8 @@ fn app_starts_at_unlock_screen_when_vault_exists() {
             vault_has_db_only: false,
         },
         instance_lock,
+        vault_dir_path,
+        config_dir_path,
     )
     .expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Unlock);
@@ -37,6 +41,8 @@ fn app_starts_at_unlock_screen_when_vault_exists() {
 fn app_starts_at_onboarding_screen_when_no_vault() {
     let vault_dir = tempfile::tempdir().unwrap();
     let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+    let vault_dir_path = vault_dir.path().to_path_buf();
+    let config_dir_path = vault_dir.path().to_path_buf();
     let app = App::new(
         AppConfig::default(),
         VaultInitState {
@@ -45,6 +51,8 @@ fn app_starts_at_onboarding_screen_when_no_vault() {
             vault_has_db_only: false,
         },
         instance_lock,
+        vault_dir_path,
+        config_dir_path,
     )
     .expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Onboarding);
@@ -380,6 +388,8 @@ fn key_only_startup_does_not_create_empty_database() {
             vault_has_db_only: false,
         },
         instance_lock,
+        data_dir.clone(),
+        config_dir.clone(),
     )
     .expect("app");
 

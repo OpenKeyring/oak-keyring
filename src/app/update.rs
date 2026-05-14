@@ -66,7 +66,8 @@ pub fn run(
                     }
                 }
                 CrosstermEvent::Resize(width, height)
-                    if handle_message(app, Message::Resize { width, height })? == LoopControl::Exit =>
+                    if handle_message(app, Message::Resize { width, height })?
+                        == LoopControl::Exit =>
                 {
                     return Ok(());
                 }
@@ -567,6 +568,8 @@ mod tests {
     fn test_app() -> App {
         let vault_dir = tempfile::tempdir().unwrap();
         let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+        let vault_dir_path = vault_dir.path().to_path_buf();
+        let config_dir_path = vault_dir.path().to_path_buf();
         let mut app = App::new(
             crate::config::AppConfig::default(),
             crate::app::VaultInitState {
@@ -575,6 +578,8 @@ mod tests {
                 vault_has_db_only: false,
             },
             instance_lock,
+            vault_dir_path,
+            config_dir_path,
         )
         .expect("app");
         app.phase = AppPhase::Running;

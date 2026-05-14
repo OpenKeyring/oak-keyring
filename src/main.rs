@@ -79,10 +79,11 @@ fn main() {
         vault_has_db_only: !has_key && has_db,
     };
 
-    let mut app = App::new(config, vault_state, instance_lock).unwrap_or_else(|e| {
-        eprintln!("{e}");
-        std::process::exit(1);
-    });
+    let mut app = App::new(config, vault_state, instance_lock, data_dir, config_dir)
+        .unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1);
+        });
     app.run().unwrap_or_else(|e| {
         eprintln!("{e}");
         std::process::exit(1);

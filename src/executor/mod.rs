@@ -47,11 +47,11 @@ mod sync_test;
 
 /// Load OAuth2 tokens from TokenStore into the in-memory GoogleDriveConfig.
 /// TokenStore is the single source of truth — config.toml never stores tokens.
-fn load_oauth2_tokens_into_config(config: &mut AppConfig) {
+fn load_oauth2_tokens_into_config(config: &mut AppConfig, config_dir: &std::path::Path) {
     if config.sync.provider != SyncProvider::GoogleDrive {
         return;
     }
-    let base_path = crate::paths::tokens_dir().unwrap_or_else(crate::paths::config_dir_fallback);
+    let base_path = config_dir.join("tokens");
     let store = TokenStore::new(base_path);
     let tokens = match store.load("google_drive") {
         Ok(Some(t)) => t,
@@ -177,7 +177,7 @@ impl CommandExecutor {
         ))));
 
         // Load OAuth2 tokens from TokenStore (runtime-only, not in config.toml).
-        load_oauth2_tokens_into_config(&mut config);
+        load_oauth2_tokens_into_config(&mut config, &config_dir);
 
         let sync = match create_cloud_storage(&config.sync) {
             Ok(storage) => {

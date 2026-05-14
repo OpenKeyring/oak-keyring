@@ -246,7 +246,7 @@ pub async fn handle_initialize_vault(
     let recovery_words = passkey.to_words();
 
     // Step 3: Initialize keystore (creates wrapped_secret_key.json)
-    let vault_path = crate::paths::data_dir().unwrap_or_else(crate::paths::data_dir_fallback);
+    let vault_path = executor.vault_dir.clone();
     match crate::crypto::keystore::KeyStore::initialize(
         &vault_path,
         &mut sk_bytes,

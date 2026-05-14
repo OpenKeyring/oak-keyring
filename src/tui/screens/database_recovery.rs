@@ -153,16 +153,16 @@ impl DatabaseRecoveryScreen {
         match key.code {
             KeyCode::Enter => {
                 if self.okb_password.is_empty() {
-                    self.error = Some(t!("tui.entry.db_recovery_okb_password_empty_error").to_string());
+                    self.error =
+                        Some(t!("tui.entry.db_recovery_okb_password_empty_error").to_string());
                     ScreenResult::Continue
                 } else {
                     self.error = None;
                     let path = std::path::PathBuf::from(self.okb_path.trim());
                     let password = self.okb_password.take_secure();
-                    let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromOkb {
-                        path,
-                        password,
-                    });
+                    let _ = ctx
+                        .command_tx
+                        .try_send(Command::RestoreDatabaseFromOkb { path, password });
                     ScreenResult::Continue
                 }
             }

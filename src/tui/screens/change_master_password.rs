@@ -370,7 +370,10 @@ impl ChangeMasterPasswordScreen {
         let input_block = Block::default()
             .borders(Borders::ALL)
             .border_style(Styles::focused_border())
-            .title(format!(" {} ", t!("tui.import_export.current_password_label")));
+            .title(format!(
+                " {} ",
+                t!("tui.import_export.current_password_label")
+            ));
 
         let display = if self.current_password.is_empty() {
             String::new()

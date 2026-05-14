@@ -357,10 +357,7 @@ pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) 
             };
         }
     };
-    if let Err(e) = executor
-        .vault
-        .unlock(&executor.vault_dir, &master_password)
-    {
+    if let Err(e) = executor.vault.unlock(&executor.vault_dir, &master_password) {
         return CommandResult::Error {
             code: ErrorCode::CryptoEncryptionFailed,
             context: ErrorContext::default(),

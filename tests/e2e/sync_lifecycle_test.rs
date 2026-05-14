@@ -53,8 +53,9 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let executor = CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false)
-        .expect("executor construction should succeed");
+    let executor =
+        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false)
+            .expect("executor construction should succeed");
 
     tokio::spawn(async move {
         executor.run(command_rx).await;
@@ -74,8 +75,9 @@ async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false)
-        .expect("executor construction should succeed");
+    let mut executor =
+        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false)
+            .expect("executor construction should succeed");
 
     let (sync, cloud_dir) = create_fs_sync_service();
     executor.set_sync_service(Some(sync));
@@ -326,8 +328,9 @@ async fn sync_cancellation_returns_cancelled() {
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false)
-        .expect("executor construction should succeed");
+    let mut executor =
+        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false)
+            .expect("executor construction should succeed");
 
     let (sync, _cloud_dir) = create_fs_sync_service();
     executor.set_sync_service(Some(sync));
