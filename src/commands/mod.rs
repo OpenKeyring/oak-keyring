@@ -12,7 +12,8 @@ pub use result::CommandResult;
 // Re-export all auxiliary types for convenience
 pub use types::{
     AppPhase, AuditFilter, AuditTimeRange, BatchTagPanelState, ConfirmButton, ConfirmDialogState,
-    ConfirmVariant, ConflictResolution, CsvColumnMapping, ErrorDialogState, ExportScope,
-    FailedItem, FieldSelector, HealthReport, ImportPreview, ImportSource, NotificationLevel,
-    Overlay, PanelId, RecordFilter, RecordSort, ReviewItem, Screen, SortDirection, SortField,
+    ConfirmVariant, ConflictResolution, CsvColumnMapping, DatabaseRecoverySource, ErrorDialogState,
+    ExportScope, FailedItem, FieldSelector, HealthReport, ImportPreview, ImportSource,
+    NotificationLevel, Overlay, PanelId, RecordFilter, RecordSort, ReviewItem, Screen,
+    SortDirection, SortField,
 };

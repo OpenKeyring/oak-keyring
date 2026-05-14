@@ -6,6 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
+use crate::t;
 use crate::tui::state::loading::ProgressBarState;
 use crate::tui::theme;
 
@@ -37,7 +38,7 @@ impl ProgressBarWidget {
         let lines = vec![
             Line::from(Span::styled(bar, Style::default().fg(theme::PRIMARY))),
             Line::from(Span::styled(
-                "Press Esc to cancel",
+                t!("tui.misc.press_esc_to_cancel"),
                 Style::default().fg(theme::TEXT_MUTED),
             )),
         ];

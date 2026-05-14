@@ -43,31 +43,30 @@ fn create_test_checkpoint() -> SyncCheckpoint {
     SyncCheckpoint::new(temp_dir.path())
 }
 
-fn setup_vault() -> VaultService {
+/// Create a VaultService backed by an in-memory database with pre-inserted records.
+fn setup_vault_with_records(record_ids: &[Uuid], version: u64) -> VaultService {
     let conn = init_db_in_memory();
+    for &id in record_ids {
+        let record = StoredRecord {
+            id,
+            credential_type: CredentialType::Login,
+            encrypted_data: vec![0u8; 16],
+            nonce: [0u8; 24],
+            dek_version: 1,
+            aad: vec![],
+            is_favorite: false,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            updated_by: "test".to_string(),
+            version,
+            deleted: false,
+            deleted_at: None,
+            tags: vec!["test".to_string()],
+        };
+        queries::insert_record(&conn, &record).unwrap();
+    }
     VaultService::new(conn)
-}
-
-/// Insert a bare-minimum StoredRecord so FK constraints are satisfied.
-fn insert_stub_record(vault: &VaultService, id: Uuid, version: u64) {
-    let record = StoredRecord {
-        id,
-        credential_type: CredentialType::Login,
-        encrypted_data: vec![0u8; 16],
-        nonce: [0u8; 24],
-        dek_version: 1,
-        aad: vec![],
-        is_favorite: false,
-        expires_at: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-        updated_by: "test".to_string(),
-        version,
-        deleted: false,
-        deleted_at: None,
-        tags: vec!["test".to_string()],
-    };
-    queries::insert_record(vault.conn_ref(), &record).unwrap();
 }
 
 fn create_cloud_record(
@@ -156,11 +155,9 @@ fn make_health_state(
 #[tokio::test]
 async fn upload_attaches_health_metadata_from_vault() {
     let (storage, _temp_dir) = create_test_storage();
-    let vault = setup_vault();
-    let checkpoint = create_test_checkpoint();
-
     let record_id = Uuid::new_v4();
-    insert_stub_record(&vault, record_id, 1);
+    let vault = setup_vault_with_records(&[record_id], 1);
+    let checkpoint = create_test_checkpoint();
 
     // Persist a health state for the record
     let health = make_health_state(record_id, 1, true, Some(3), false, false);
@@ -213,11 +210,9 @@ async fn upload_attaches_health_metadata_from_vault() {
 #[tokio::test]
 async fn upload_without_health_state_produces_none_metadata() {
     let (storage, _temp_dir) = create_test_storage();
-    let vault = setup_vault();
-    let checkpoint = create_test_checkpoint();
-
     let record_id = Uuid::new_v4();
-    insert_stub_record(&vault, record_id, 1);
+    let vault = setup_vault_with_records(&[record_id], 1);
+    let checkpoint = create_test_checkpoint();
     // No health state inserted for this record
 
     let cloud_record = create_cloud_record(&record_id.to_string(), 1, None);
@@ -261,11 +256,9 @@ async fn upload_without_health_state_produces_none_metadata() {
 #[tokio::test]
 async fn download_persists_health_state_to_vault() {
     let (storage, _temp_dir) = create_test_storage();
-    let vault = setup_vault();
-    let checkpoint = create_test_checkpoint();
-
     let record_id = Uuid::new_v4();
-    insert_stub_record(&vault, record_id, 0);
+    let vault = setup_vault_with_records(&[record_id], 0);
+    let checkpoint = create_test_checkpoint();
 
     // Create a cloud record with health metadata
     let health_meta = RecordHealthMetadata {
@@ -335,11 +328,9 @@ async fn download_persists_health_state_to_vault() {
 #[tokio::test]
 async fn download_without_health_metadata_deletes_local_state() {
     let (storage, _temp_dir) = create_test_storage();
-    let vault = setup_vault();
-    let checkpoint = create_test_checkpoint();
-
     let record_id = Uuid::new_v4();
-    insert_stub_record(&vault, record_id, 1);
+    let vault = setup_vault_with_records(&[record_id], 1);
+    let checkpoint = create_test_checkpoint();
 
     // Pre-existing local health state
     let health = make_health_state(record_id, 1, false, None, false, false);
@@ -405,17 +396,14 @@ async fn dual_vault_sync_health_roundtrip() {
     let (storage, _temp_dir) = create_test_storage();
 
     // -- Vault A: create records, health check, upload --
-    let vault_a = setup_vault();
-
     let id_weak = Uuid::new_v4();
     let id_dup = Uuid::new_v4();
     let id_compromised = Uuid::new_v4();
     let id_expired = Uuid::new_v4();
     let id_clean = Uuid::new_v4();
+    let all_ids = [id_weak, id_dup, id_compromised, id_expired, id_clean];
 
-    for &id in &[id_weak, id_dup, id_compromised, id_expired, id_clean] {
-        insert_stub_record(&vault_a, id, 1);
-    }
+    let vault_a = setup_vault_with_records(&all_ids, 1);
 
     // Persist health states as if a health check ran
     vault_a
@@ -498,10 +486,7 @@ async fn dual_vault_sync_health_roundtrip() {
     storage.upload_metadata(&metadata).await.unwrap();
 
     // -- Vault B: download and verify health states --
-    let vault_b = setup_vault();
-    for &id in &[id_weak, id_dup, id_compromised, id_expired, id_clean] {
-        insert_stub_record(&vault_b, id, 0);
-    }
+    let vault_b = setup_vault_with_records(&all_ids, 0);
 
     let checkpoint_b = create_test_checkpoint();
     let adapter_b = VaultHealthSyncAdapter::new(&vault_b);
@@ -574,14 +559,10 @@ async fn dual_vault_sync_health_roundtrip() {
 #[tokio::test]
 async fn mixed_download_with_and_without_health_persists_correctly() {
     let (storage, _temp_dir) = create_test_storage();
-    let vault = setup_vault();
-    let checkpoint = create_test_checkpoint();
-
     let id_with_health = Uuid::new_v4();
     let id_without_health = Uuid::new_v4();
-
-    insert_stub_record(&vault, id_with_health, 0);
-    insert_stub_record(&vault, id_without_health, 0);
+    let vault = setup_vault_with_records(&[id_with_health, id_without_health], 0);
+    let checkpoint = create_test_checkpoint();
 
     // Pre-existing health for id_without_health (should be deleted)
     let old_health = make_health_state(id_without_health, 1, true, None, false, false);

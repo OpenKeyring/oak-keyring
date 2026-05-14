@@ -3,7 +3,7 @@
 //! Covers: App/AppState navigation, notification priority, lockout escalation,
 //! recovery key grid, set password screen, onboarding defaults, loading indicators.
 
-use oak_keyring::app::App;
+use oak_keyring::app::{App, VaultInitState};
 use oak_keyring::commands::types::Screen;
 use oak_keyring::config::AppConfig;
 use oak_keyring::instance_lock::InstanceLock;
@@ -20,11 +20,18 @@ use oak_keyring::tui::state::notification::{NotificationState, StatusMessage};
 fn app_starts_at_unlock_screen_when_vault_exists() {
     let vault_dir = tempfile::tempdir().unwrap();
     let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+    let vault_dir_path = vault_dir.path().to_path_buf();
+    let config_dir_path = vault_dir.path().to_path_buf();
     let app = App::new(
         AppConfig::default(),
-        vault_dir.path().to_path_buf(),
-        true,
+        VaultInitState {
+            has_vault: true,
+            vault_has_key_only: false,
+            vault_has_db_only: false,
+        },
         instance_lock,
+        vault_dir_path,
+        config_dir_path,
     )
     .expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Unlock);
@@ -34,11 +41,18 @@ fn app_starts_at_unlock_screen_when_vault_exists() {
 fn app_starts_at_onboarding_screen_when_no_vault() {
     let vault_dir = tempfile::tempdir().unwrap();
     let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+    let vault_dir_path = vault_dir.path().to_path_buf();
+    let config_dir_path = vault_dir.path().to_path_buf();
     let app = App::new(
         AppConfig::default(),
-        vault_dir.path().to_path_buf(),
-        false,
+        VaultInitState {
+            has_vault: false,
+            vault_has_key_only: false,
+            vault_has_db_only: false,
+        },
         instance_lock,
+        vault_dir_path,
+        config_dir_path,
     )
     .expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Onboarding);
@@ -170,7 +184,6 @@ fn set_password_screen_new() {
 fn onboarding_welcome_defaults() {
     let screen = OnboardingScreen::default();
     assert!(screen.selected_path.is_none());
-    assert!(screen.path_input.is_empty());
     assert!(screen.error.is_none());
     assert!(screen.recovery_words.is_empty());
     assert!(!screen.recovery_confirmed);
@@ -338,5 +351,65 @@ fn set_password_screen_in_screen_states() {
         SetPasswordContext::OnboardingCreate {
             recovery_words: Vec::new()
         }
+    );
+}
+
+// ── Partial vault startup routing ───────────────────────────────────────────
+
+#[test]
+fn key_only_routes_to_database_recovery() {
+    let state = oak_keyring::tui::state::AppState::new(false, true, false);
+    assert_eq!(state.current_screen, Screen::DatabaseRecovery);
+}
+
+#[test]
+fn db_only_routes_to_key_recovery() {
+    let state = oak_keyring::tui::state::AppState::new(false, false, true);
+    assert_eq!(state.current_screen, Screen::KeyRecovery);
+}
+
+#[test]
+fn key_only_startup_does_not_create_empty_database() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("oak-keyring");
+    let config_dir = temp.path().join("oak-keyring-config");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    // Simulate key-only state: keyfile exists but no vault.db
+    std::fs::write(data_dir.join("wrapped_secret_key.json"), "{}").unwrap();
+
+    let instance_lock = InstanceLock::acquire(&data_dir).unwrap();
+    let app = App::new(
+        AppConfig::default(),
+        VaultInitState {
+            has_vault: false,
+            vault_has_key_only: true,
+            vault_has_db_only: false,
+        },
+        instance_lock,
+        data_dir.clone(),
+        config_dir.clone(),
+    )
+    .expect("app");
+
+    assert_eq!(app.state.current_screen, Screen::DatabaseRecovery);
+
+    // Build executor to verify no vault.db is created
+    let (result_tx, _result_rx) = tokio::sync::mpsc::channel(64);
+    let _executor = oak_keyring::executor::CommandExecutor::new(
+        AppConfig::default(),
+        result_tx,
+        tokio_util::sync::CancellationToken::new(),
+        data_dir.clone(),
+        config_dir,
+        true, // vault_has_key_only
+    )
+    .expect("executor");
+
+    // vault.db must NOT exist on disk
+    assert!(
+        !data_dir.join("vault.db").exists(),
+        "vault.db should not be created in key-only state"
     );
 }

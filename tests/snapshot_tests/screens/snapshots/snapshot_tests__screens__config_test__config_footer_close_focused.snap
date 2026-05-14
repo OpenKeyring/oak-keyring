@@ -1,19 +1,18 @@
 ---
 source: tests/snapshot_tests/screens/config_test.rs
-assertion_line: 49
 expression: backend
 ---
 " Settings   General │ Sync │ Security │ Password │ About                        "
 " ℹ Some config changes require restart to take effect                           "
 "General                                                                         "
 "Language                [ auto ▼ ]                                              "
-"Vault Path          /tmp/oak-keyring-snapshot-test  [ Change ]                  "
 "Auto Lock          [ 300s ▼ ]                                                   "
 "Clipboard Clear        [ 30s ▼ ]                                                "
 "Trash Auto-Delete    [ 30d ▼ ]                                                  "
 "Animation          [ Auto ▼ ]                                                   "
 "  [ Import from Another Manager... ]                                            "
 "  [ Export Data... ]                                                            "
+"                                                                                "
 "                                                                                "
 "                                                                                "
 "                                                                                "

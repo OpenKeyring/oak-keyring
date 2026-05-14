@@ -181,142 +181,155 @@ fn unregister_nonexistent_id_is_noop() {
 // ConfigManagerImpl tests
 // -----------------------------------------------------------------------
 
-/// Helper: create a temporary vault directory with a unique name.
-fn temp_vault_dir() -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("ok_config_impl_test_{}", uuid::Uuid::new_v4()))
-}
-
-/// Helper: clean up temp dir if it exists.
-fn cleanup_dir(dir: &std::path::Path) {
-    let _ = std::fs::remove_dir_all(dir);
+/// Helper: create a temporary config directory.
+fn temp_config_dir() -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().expect("tempdir failed");
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    tmp
 }
 
 #[test]
 fn config_manager_new_initializes_with_given_config() {
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
     let config = AppConfig::default();
-    let manager = ConfigManagerImpl::new(config.clone());
+    let manager = ConfigManagerImpl::new(config.clone(), config_dir);
     assert_eq!(manager.get_config(), config);
 }
 
 #[test]
 fn config_manager_load_reads_from_disk_and_updates_state() {
-    let vault_dir = temp_vault_dir();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+
     // Write a config to disk first
     let disk_config = AppConfig::default();
-    disk_config.save(&vault_dir).unwrap();
+    disk_config.save(&config_dir).unwrap();
 
     // Manager starts with default, then loads from disk
-    let manager = ConfigManagerImpl::new(AppConfig::default());
-    let loaded = manager.load(&vault_dir).unwrap();
+    let manager = ConfigManagerImpl::new(AppConfig::default(), config_dir.clone());
+    let loaded = manager.load(&config_dir).unwrap();
     assert_eq!(loaded, disk_config);
     assert_eq!(manager.get_config(), disk_config);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_manager_load_returns_default_when_no_file_exists() {
-    let vault_dir = temp_vault_dir();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+
     // No config.toml on disk — load should return defaults
-    let manager = ConfigManagerImpl::new(AppConfig::default());
-    let loaded = manager.load(&vault_dir).unwrap();
+    let manager = ConfigManagerImpl::new(AppConfig::default(), config_dir.clone());
+    let loaded = manager.load(&config_dir).unwrap();
     assert_eq!(loaded, AppConfig::default());
     assert_eq!(manager.get_config(), AppConfig::default());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_manager_save_writes_to_disk_and_updates_state() {
-    let vault_dir = temp_vault_dir();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
     let config = AppConfig::default();
-    let manager = ConfigManagerImpl::new(AppConfig::default());
+    let manager = ConfigManagerImpl::new(AppConfig::default(), config_dir.clone());
 
-    manager.save(&config, &vault_dir).unwrap();
+    manager.save(&config, &config_dir).unwrap();
 
     // In-memory state should reflect saved config
     assert_eq!(manager.get_config(), config);
 
     // File should exist on disk with valid content
-    let reloaded = AppConfig::load(&vault_dir).unwrap();
+    let reloaded = AppConfig::load(&config_dir).unwrap();
     assert_eq!(reloaded, config);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_manager_save_overwrites_existing_file() {
-    let vault_dir = temp_vault_dir();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
 
-    let manager = ConfigManagerImpl::new(AppConfig::default());
-    manager.save(&AppConfig::default(), &vault_dir).unwrap();
+    let manager = ConfigManagerImpl::new(AppConfig::default(), config_dir.clone());
+    manager.save(&AppConfig::default(), &config_dir).unwrap();
 
     // Save again — should succeed without error
     let second = AppConfig::default();
-    manager.save(&second, &vault_dir).unwrap();
+    manager.save(&second, &config_dir).unwrap();
     assert_eq!(manager.get_config(), second);
 
-    let from_disk = AppConfig::load(&vault_dir).unwrap();
+    let from_disk = AppConfig::load(&config_dir).unwrap();
     assert_eq!(from_disk, second);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_manager_reload_re_reads_from_disk() {
-    let vault_dir = temp_vault_dir();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
 
     // Write initial config
     let initial = AppConfig::default();
-    initial.save(&vault_dir).unwrap();
+    initial.save(&config_dir).unwrap();
 
-    let manager = ConfigManagerImpl::new(AppConfig::default());
-    manager.load(&vault_dir).unwrap();
+    let manager = ConfigManagerImpl::new(AppConfig::default(), config_dir.clone());
+    manager.load(&config_dir).unwrap();
 
     // Modify config on disk externally
     let modified = AppConfig::default();
-    modified.save(&vault_dir).unwrap();
+    modified.save(&config_dir).unwrap();
 
     // Reload should pick up the new disk state
-    let reloaded = manager.reload(&vault_dir).unwrap();
+    let reloaded = manager.reload(&config_dir).unwrap();
     assert_eq!(reloaded, modified);
     assert_eq!(manager.get_config(), modified);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_manager_reload_returns_default_when_no_file() {
-    let vault_dir = temp_vault_dir();
-    let manager = ConfigManagerImpl::new(AppConfig::default());
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
 
-    let reloaded = manager.reload(&vault_dir).unwrap();
+    let manager = ConfigManagerImpl::new(AppConfig::default(), config_dir.clone());
+    let reloaded = manager.reload(&config_dir).unwrap();
     assert_eq!(reloaded, AppConfig::default());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_manager_get_config_returns_current_snapshot() {
-    let vault_dir = temp_vault_dir();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+
     let initial = AppConfig::default();
-    let manager = ConfigManagerImpl::new(initial.clone());
+    let manager = ConfigManagerImpl::new(initial.clone(), config_dir.clone());
 
     // get_config returns the in-memory state
     assert_eq!(manager.get_config(), initial);
 
     // After save with a new config, get_config reflects the update
     let new_config = AppConfig::default();
-    manager.save(&new_config, &vault_dir).unwrap();
+    manager.save(&new_config, &config_dir).unwrap();
     assert_eq!(manager.get_config(), new_config);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_manager_concurrent_reads_are_safe() {
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+
     let config = AppConfig::default();
-    let manager = Arc::new(ConfigManagerImpl::new(config));
+    let manager = Arc::new(ConfigManagerImpl::new(config, config_dir));
     let num_threads = 8;
 
     let handles: Vec<_> = (0..num_threads)
@@ -336,19 +349,21 @@ fn config_manager_concurrent_reads_are_safe() {
 
 #[test]
 fn config_manager_concurrent_writes_are_safe() {
-    let vault_dir = temp_vault_dir();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+
     let config = AppConfig::default();
-    let manager = Arc::new(ConfigManagerImpl::new(config));
+    let manager = Arc::new(ConfigManagerImpl::new(config, config_dir.clone()));
     let num_threads = 4;
 
     let handles: Vec<_> = (0..num_threads)
         .map(|_| {
             let mgr = Arc::clone(&manager);
-            let dir = vault_dir.clone();
+            let config_dir = config_dir.clone();
             std::thread::spawn(move || {
                 // Each thread saves — should not panic or deadlock
                 let cfg = AppConfig::default();
-                let _ = mgr.save(&cfg, &dir);
+                let _ = mgr.save(&cfg, &config_dir);
             })
         })
         .collect();
@@ -360,26 +375,28 @@ fn config_manager_concurrent_writes_are_safe() {
     // Manager should still be in a valid state
     let _final_config = manager.get_config();
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_manager_concurrent_read_write_safe() {
-    let vault_dir = temp_vault_dir();
-    let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
 
-    let manager = Arc::new(ConfigManagerImpl::new(config));
+    let config = AppConfig::default();
+    config.save(&config_dir).unwrap();
+
+    let manager = Arc::new(ConfigManagerImpl::new(config, config_dir.clone()));
     let num_readers = 6;
     let num_writers = 2;
 
     let read_handles: Vec<_> = (0..num_readers)
         .map(|_| {
             let mgr = Arc::clone(&manager);
-            let dir = vault_dir.clone();
+            let config_dir = config_dir.clone();
             std::thread::spawn(move || {
                 for _ in 0..10 {
-                    let _ = mgr.load(&dir);
+                    let _ = mgr.load(&config_dir);
                     let _ = mgr.get_config();
                 }
             })
@@ -389,11 +406,11 @@ fn config_manager_concurrent_read_write_safe() {
     let write_handles: Vec<_> = (0..num_writers)
         .map(|_| {
             let mgr = Arc::clone(&manager);
-            let dir = vault_dir.clone();
+            let config_dir = config_dir.clone();
             std::thread::spawn(move || {
                 for _ in 0..5 {
                     let cfg = AppConfig::default();
-                    let _ = mgr.save(&cfg, &dir);
+                    let _ = mgr.save(&cfg, &config_dir);
                 }
             })
         })
@@ -403,7 +420,7 @@ fn config_manager_concurrent_read_write_safe() {
         handle.join().expect("thread should not panic");
     }
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 // -----------------------------------------------------------------------
@@ -412,99 +429,124 @@ fn config_manager_concurrent_read_write_safe() {
 
 #[test]
 fn config_watcher_new_initializes_with_no_mtime() {
-    let watcher = ConfigWatcherImpl::new();
+    let tmp = temp_config_dir();
+    let config_path = tmp
+        .path()
+        .join(".config")
+        .join("oak-keyring")
+        .join("config.toml");
+    let watcher = ConfigWatcherImpl::new(config_path);
+
     // A brand-new watcher should have no stored mtime.
     // We verify this indirectly: needs_reload returns true for a first-time check
     // when no file exists only if last_mtime is None.
     // Actually needs_reload returns false when no file exists, so let's check
     // via a file existing scenario.
-    let vault_dir = temp_vault_dir();
     let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    config
+        .save(&tmp.path().join(".config").join("oak-keyring"))
+        .unwrap();
 
     // First time — no stored mtime — should need reload
-    assert!(watcher.needs_reload(&vault_dir));
+    assert!(watcher.needs_reload());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_watcher_needs_reload_returns_true_when_file_newer_than_stored_mtime() {
-    let vault_dir = temp_vault_dir();
-    let watcher = ConfigWatcherImpl::new();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+    let config_path = config_dir.join("config.toml");
+
+    let watcher = ConfigWatcherImpl::new(config_path.clone());
 
     // Write initial config and capture its mtime
     let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    config.save(&config_dir).unwrap();
     let mut watcher = watcher;
-    watcher.update_mtime(&vault_dir);
+    watcher.update_mtime();
 
     // At this point, needs_reload should be false (same mtime)
-    assert!(!watcher.needs_reload(&vault_dir));
+    assert!(!watcher.needs_reload());
 
     // Wait briefly then rewrite the file to get a newer mtime
     std::thread::sleep(std::time::Duration::from_millis(50));
-    config.save(&vault_dir).unwrap();
+    config.save(&config_dir).unwrap();
 
     // Now the file is newer than stored mtime
-    assert!(watcher.needs_reload(&vault_dir));
+    assert!(watcher.needs_reload());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_watcher_needs_reload_returns_false_when_no_config_file() {
-    let vault_dir = temp_vault_dir();
-    let watcher = ConfigWatcherImpl::new();
+    let tmp = temp_config_dir();
+    let config_path = tmp
+        .path()
+        .join(".config")
+        .join("oak-keyring")
+        .join("config.toml");
+    let watcher = ConfigWatcherImpl::new(config_path);
 
     // No file on disk — needs_reload should return false regardless of stored mtime
-    assert!(!watcher.needs_reload(&vault_dir));
+    assert!(!watcher.needs_reload());
 
     // Also true if we had a previous mtime stored
     let mut watcher = watcher;
     watcher.last_mtime = Some(std::time::SystemTime::now());
-    assert!(!watcher.needs_reload(&vault_dir));
+    assert!(!watcher.needs_reload());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_watcher_needs_reload_returns_true_on_first_time_check() {
-    let vault_dir = temp_vault_dir();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+    let config_path = config_dir.join("config.toml");
+
     let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    config.save(&config_dir).unwrap();
 
     // Fresh watcher with no stored mtime
-    let watcher = ConfigWatcherImpl::new();
-    assert!(watcher.needs_reload(&vault_dir));
+    let watcher = ConfigWatcherImpl::new(config_path);
+    assert!(watcher.needs_reload());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_watcher_needs_reload_returns_false_after_update_mtime() {
-    let vault_dir = temp_vault_dir();
-    let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+    let config_path = config_dir.join("config.toml");
 
-    let mut watcher = ConfigWatcherImpl::new();
-    assert!(watcher.needs_reload(&vault_dir));
+    let config = AppConfig::default();
+    config.save(&config_dir).unwrap();
+
+    let mut watcher = ConfigWatcherImpl::new(config_path);
+    assert!(watcher.needs_reload());
 
     // After updating mtime to current file mtime, no reload needed
-    watcher.update_mtime(&vault_dir);
-    assert!(!watcher.needs_reload(&vault_dir));
+    watcher.update_mtime();
+    assert!(!watcher.needs_reload());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_watcher_last_modified_returns_current_file_mtime() {
-    let vault_dir = temp_vault_dir();
-    let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+    let config_path = config_dir.join("config.toml");
 
-    let watcher = ConfigWatcherImpl::new();
-    let mtime = watcher.last_modified(&vault_dir);
+    let config = AppConfig::default();
+    config.save(&config_dir).unwrap();
+
+    let watcher = ConfigWatcherImpl::new(config_path);
+    let mtime = watcher.last_modified();
 
     assert!(mtime.is_some());
 
@@ -514,57 +556,76 @@ fn config_watcher_last_modified_returns_current_file_mtime() {
         .unwrap();
     assert!(elapsed.as_secs() < 5, "mtime should be recent");
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_watcher_last_modified_returns_none_when_no_file() {
-    let vault_dir = temp_vault_dir();
-    let watcher = ConfigWatcherImpl::new();
+    let tmp = temp_config_dir();
+    let config_path = tmp
+        .path()
+        .join(".config")
+        .join("oak-keyring")
+        .join("config.toml");
+    let watcher = ConfigWatcherImpl::new(config_path);
 
-    assert!(watcher.last_modified(&vault_dir).is_none());
+    assert!(watcher.last_modified().is_none());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_watcher_update_mtime_sets_stored_mtime_to_current_file() {
-    let vault_dir = temp_vault_dir();
-    let config = AppConfig::default();
-    config.save(&vault_dir).unwrap();
+    let tmp = temp_config_dir();
+    let config_dir = tmp.path().join(".config").join("oak-keyring");
+    let config_path = config_dir.join("config.toml");
 
-    let mut watcher = ConfigWatcherImpl::new();
+    let config = AppConfig::default();
+    config.save(&config_dir).unwrap();
+
+    let mut watcher = ConfigWatcherImpl::new(config_path);
     assert!(watcher.last_mtime.is_none());
 
-    watcher.update_mtime(&vault_dir);
+    watcher.update_mtime();
     assert!(watcher.last_mtime.is_some());
 
     // The stored mtime should match the file's actual mtime
-    let file_mtime = ConfigWatcherImpl::current_mtime(&vault_dir).unwrap();
+    let file_mtime = watcher.current_mtime().unwrap();
     assert_eq!(watcher.last_mtime.unwrap(), file_mtime);
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_watcher_update_mtime_with_no_file_clears_stored_mtime() {
-    let vault_dir = temp_vault_dir();
-    let mut watcher = ConfigWatcherImpl::new();
+    let tmp = temp_config_dir();
+    let config_path = tmp
+        .path()
+        .join(".config")
+        .join("oak-keyring")
+        .join("config.toml");
+    let mut watcher = ConfigWatcherImpl::new(config_path);
 
     // Simulate having a previous mtime
     watcher.last_mtime = Some(std::time::SystemTime::UNIX_EPOCH);
 
     // update_mtime on a non-existent file should set mtime to None
-    watcher.update_mtime(&vault_dir);
+    watcher.update_mtime();
     assert!(watcher.last_mtime.is_none());
 
-    cleanup_dir(&vault_dir);
+    // cleanup happens when tmp is dropped at end of scope
 }
 
 #[test]
 fn config_watcher_default_is_same_as_new() {
-    let via_new = ConfigWatcherImpl::new();
-    let via_default = ConfigWatcherImpl::default();
+    let tmp = temp_config_dir();
+    let config_path = tmp
+        .path()
+        .join(".config")
+        .join("oak-keyring")
+        .join("config.toml");
+    let via_new = ConfigWatcherImpl::new(config_path.clone());
+    let via_default = ConfigWatcherImpl::new(config_path);
     assert_eq!(via_new.last_mtime, via_default.last_mtime);
 }
 

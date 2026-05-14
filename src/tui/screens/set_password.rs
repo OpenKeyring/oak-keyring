@@ -27,8 +27,24 @@ pub enum PasswordField {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SetPasswordContext {
     PostRecovery,
-    OnboardingCreate { recovery_words: Vec<String> },
+    OnboardingCreate {
+        recovery_words: Vec<String>,
+    },
     OnboardingRestore,
+    /// Rebuild wrapped_secret_key.json from recovered key + new master password.
+    RestoreExistingVault {
+        recovery_words: Vec<String>,
+        next: RestoreNext,
+    },
+}
+
+/// What happens after keyfile is rebuilt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreNext {
+    /// Validate the existing database (no-key + has-db flow).
+    ValidateExistingDatabase,
+    /// Proceed to database recovery screen (no-key + no-db flow).
+    RestoreDatabase,
 }
 
 // ── SetPasswordScreen ────────────────────────────────────────────────────────
@@ -43,7 +59,6 @@ pub struct SetPasswordScreen {
     pub strength: Option<PasswordStrength>,
     pub error: Option<String>,
     pub password_visible: bool,
-    pub vault_path: Option<std::path::PathBuf>,
 }
 
 impl Default for SetPasswordScreen {
@@ -64,13 +79,7 @@ impl SetPasswordScreen {
             strength: None,
             error: None,
             password_visible: false,
-            vault_path: None,
         }
-    }
-
-    pub fn with_vault_path(mut self, path: std::path::PathBuf) -> Self {
-        self.vault_path = Some(path);
-        self
     }
 
     /// Re-evaluate password strength from the new password field.
@@ -331,6 +340,20 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
     fn on_unmount(&mut self) {
         self.new_password.clear();
         self.confirm_password.clear();
+        self.error = None;
+        // Zeroize recovery words in context.
+        match &mut self.context {
+            SetPasswordContext::OnboardingCreate { recovery_words }
+            | SetPasswordContext::RestoreExistingVault { recovery_words, .. } => {
+                use zeroize::Zeroize;
+                for w in recovery_words.iter_mut() {
+                    w.zeroize();
+                    w.clear();
+                }
+                recovery_words.clear();
+            }
+            _ => {}
+        }
     }
 }
 
@@ -358,24 +381,27 @@ impl SetPasswordScreen {
                     self.error = Some(t!("tui.entry.password_mismatch").to_string());
                     return ScreenResult::Continue;
                 }
-                // Passwords match and long enough — send InitializeVault
+                // Passwords match and long enough
                 self.error = None;
                 let password = self.new_password.take_secure();
                 self.confirm_password.clear();
-                let vault_path = self
-                    .vault_path
-                    .clone()
-                    .unwrap_or_else(|| ctx.config.general.vault_path.join("vault.db"));
-                let recovery_words = match &self.context {
-                    SetPasswordContext::OnboardingCreate { recovery_words } => {
-                        Some(recovery_words.clone())
+                let cmd = match &self.context {
+                    SetPasswordContext::RestoreExistingVault { recovery_words, .. } => {
+                        Command::RebuildKeyFileFromRecovery {
+                            master_password: password,
+                            recovery_words: recovery_words.clone(),
+                        }
                     }
-                    _ => None,
-                };
-                let cmd = Command::InitializeVault {
-                    vault_path,
-                    master_password: password,
-                    recovery_words,
+                    SetPasswordContext::OnboardingCreate { recovery_words } => {
+                        Command::InitializeVault {
+                            master_password: password,
+                            recovery_words: Some(recovery_words.clone()),
+                        }
+                    }
+                    _ => Command::InitializeVault {
+                        master_password: password,
+                        recovery_words: None,
+                    },
                 };
                 let _ = ctx.command_tx.try_send(cmd);
                 ScreenResult::Continue
@@ -416,8 +442,24 @@ impl SetPasswordScreen {
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
             CommandResult::VaultInitialized { .. } => ScreenResult::NavigateTo(Screen::Main),
+            CommandResult::KeyFileRebuilt => match &self.context {
+                SetPasswordContext::RestoreExistingVault {
+                    next: RestoreNext::ValidateExistingDatabase,
+                    ..
+                } => ScreenResult::Command(Box::new(Command::ValidateRestoredDatabase)),
+                SetPasswordContext::RestoreExistingVault {
+                    next: RestoreNext::RestoreDatabase,
+                    ..
+                } => ScreenResult::NavigateTo(Screen::DatabaseRecovery),
+                _ => ScreenResult::NavigateTo(Screen::Main),
+            },
             CommandResult::Error { fallback, .. } => {
                 self.error = Some(fallback);
+                ScreenResult::Continue
+            }
+            CommandResult::DatabaseRestored { .. } => ScreenResult::NavigateTo(Screen::Main),
+            CommandResult::DatabaseValidationFailed { reason } => {
+                self.error = Some(reason);
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -457,7 +499,6 @@ mod tests {
         assert!(screen.strength.is_none());
         assert!(screen.error.is_none());
         assert!(!screen.password_visible);
-        assert!(screen.vault_path.is_none());
     }
 
     #[test]
@@ -677,7 +718,7 @@ mod tests {
         assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(
             screen.error.as_deref(),
-            Some("Password must be at least 8 characters")
+            Some(&*t!("tui.entry.password_too_short").to_string())
         );
     }
 
@@ -722,7 +763,10 @@ mod tests {
             &mut ctx,
         );
         assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.error.as_deref(), Some("Passwords do not match"));
+        assert_eq!(
+            screen.error.as_deref(),
+            Some(&*t!("tui.entry.password_mismatch").to_string())
+        );
     }
 
     #[test]
@@ -764,16 +808,6 @@ mod tests {
     }
 
     #[test]
-    fn with_vault_path_sets_path() {
-        let custom = std::path::PathBuf::from("/tmp/custom/vault.db");
-        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        })
-        .with_vault_path(custom.clone());
-        assert_eq!(screen.vault_path.as_deref(), Some(custom.as_path()));
-    }
-
-    #[test]
     fn enter_passes_recovery_words_in_initialize_vault_command() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(16);
         let config = crate::config::AppConfig::default();
@@ -783,11 +817,9 @@ mod tests {
         };
 
         let test_words: Vec<String> = (0..24).map(|i| format!("word{}", i)).collect();
-        let custom_path = std::path::PathBuf::from("/tmp/my-custom/vault.db");
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
             recovery_words: test_words.clone(),
-        })
-        .with_vault_path(custom_path.clone());
+        });
 
         // Type matching 8+ char passwords
         for ch in "longpassword".chars() {
@@ -823,18 +855,10 @@ mod tests {
             &mut ctx,
         );
 
-        // Verify the command carries both vault_path and recovery_words
+        // Verify the command carries recovery_words
         let cmd = rx.try_recv().expect("Command should be sent");
         match cmd {
-            Command::InitializeVault {
-                vault_path,
-                recovery_words,
-                ..
-            } => {
-                assert_eq!(
-                    vault_path, custom_path,
-                    "Should use custom vault_path, not hardcoded"
-                );
+            Command::InitializeVault { recovery_words, .. } => {
                 let words =
                     recovery_words.expect("recovery_words should be Some for OnboardingCreate");
                 assert_eq!(words.len(), 24, "Should carry 24 recovery words");

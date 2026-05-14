@@ -65,11 +65,11 @@ pub fn run(
                         return Ok(());
                     }
                 }
-                CrosstermEvent::Resize(width, height) => {
-                    if handle_message(app, Message::Resize { width, height })? == LoopControl::Exit
-                    {
-                        return Ok(());
-                    }
+                CrosstermEvent::Resize(width, height)
+                    if handle_message(app, Message::Resize { width, height })?
+                        == LoopControl::Exit =>
+                {
+                    return Ok(());
                 }
                 // Ignore mouse events and other crossterm events for now.
                 _ => {}
@@ -397,6 +397,8 @@ fn route_to_screen(
         }
         Screen::Unlock => state.screens.unlock.update(msg, ctx),
         Screen::Onboarding => state.screens.onboarding.update(msg, ctx),
+        Screen::KeyRecovery => state.screens.key_recovery.update(msg, ctx),
+        Screen::DatabaseRecovery => state.screens.database_recovery.update(msg, ctx),
         Screen::Config => {
             state.screens.config.state.terminal_height = state.terminal_size.1;
             state.screens.config.update(msg, ctx)
@@ -424,12 +426,59 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
         }
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
         Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
+        Screen::KeyRecovery => {
+            let origin = state
+                .screen_history
+                .last()
+                .map(|s| s.screen)
+                .and_then(|s| match s {
+                    Screen::Onboarding => Some(
+                        crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore,
+                    ),
+                    _ => None,
+                })
+                .unwrap_or(crate::tui::screens::key_recovery::KeyRecoveryOrigin::StartupDbOnly);
+            state.screens.key_recovery =
+                crate::tui::screens::key_recovery::KeyRecoveryScreen::new(origin);
+            state.screens.key_recovery.on_mount(ctx)
+        }
+        Screen::DatabaseRecovery => {
+            let origin = state
+                .screen_history
+                .last()
+                .map(|s| s.screen)
+                .and_then(|s| match s {
+                    Screen::KeyRecovery => Some(crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore),
+                    _ => None,
+                })
+                .unwrap_or(crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly);
+            state.screens.database_recovery =
+                crate::tui::screens::database_recovery::DatabaseRecoveryScreen::new(origin);
+            state.screens.database_recovery.on_mount(ctx)
+        }
         Screen::Config => state.screens.config.on_mount(ctx),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
         Screen::SetNewMasterPassword => {
             let context = match state.screen_history.last().map(|s| s.screen) {
                 Some(Screen::Unlock) => {
                     crate::tui::screens::set_password::SetPasswordContext::PostRecovery
+                }
+                Some(Screen::KeyRecovery) => {
+                    let words = state.screens.key_recovery.words.collect_words();
+                    // Determine next step from origin: startup → validate DB, onboarding → database recovery
+                    let is_onboarding = matches!(
+                        state.screens.key_recovery.origin,
+                        crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore
+                    );
+                    let next = if is_onboarding {
+                        crate::tui::screens::set_password::RestoreNext::RestoreDatabase
+                    } else {
+                        crate::tui::screens::set_password::RestoreNext::ValidateExistingDatabase
+                    };
+                    crate::tui::screens::set_password::SetPasswordContext::RestoreExistingVault {
+                        recovery_words: words,
+                        next,
+                    }
                 }
                 _ => match state.screens.onboarding.selected_path {
                     Some(crate::tui::screens::onboarding::OnboardingPath::Restore) => {
@@ -440,18 +489,8 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                     },
                 },
             };
-            let vault_path = if !state.screens.onboarding.path_input.is_empty() {
-                Some(std::path::PathBuf::from(
-                    &state.screens.onboarding.path_input,
-                ))
-            } else {
-                None
-            };
             let screen = crate::tui::screens::set_password::SetPasswordScreen::new(context);
-            state.screens.set_new_master_password = match vault_path {
-                Some(p) => screen.with_vault_path(p),
-                None => screen,
-            };
+            state.screens.set_new_master_password = screen;
             state.screens.set_new_master_password.on_mount(ctx)
         }
         Screen::ImportExport => {
@@ -490,6 +529,8 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         Screen::Main => state.screens.main.on_unmount(),
         Screen::Unlock => state.screens.unlock.on_unmount(),
         Screen::Onboarding => state.screens.onboarding.on_unmount(),
+        Screen::KeyRecovery => state.screens.key_recovery.on_unmount(),
+        Screen::DatabaseRecovery => state.screens.database_recovery.on_unmount(),
         Screen::Config => state.screens.config.on_unmount(),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
         Screen::SetNewMasterPassword => {
@@ -527,11 +568,18 @@ mod tests {
     fn test_app() -> App {
         let vault_dir = tempfile::tempdir().unwrap();
         let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+        let vault_dir_path = vault_dir.path().to_path_buf();
+        let config_dir_path = vault_dir.path().to_path_buf();
         let mut app = App::new(
             crate::config::AppConfig::default(),
-            vault_dir.path().to_path_buf(),
-            true,
+            crate::app::VaultInitState {
+                has_vault: true,
+                vault_has_key_only: false,
+                vault_has_db_only: false,
+            },
             instance_lock,
+            vault_dir_path,
+            config_dir_path,
         )
         .expect("app");
         app.phase = AppPhase::Running;

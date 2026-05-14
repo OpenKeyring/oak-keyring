@@ -1,6 +1,5 @@
-use oak_keyring::app::App;
+use oak_keyring::app::{App, VaultInitState};
 use oak_keyring::config::AppConfig;
-use oak_keyring::crypto::keystore::KeyStore;
 use oak_keyring::crypto::self_test;
 use oak_keyring::instance_lock::InstanceLock;
 use oak_keyring::security;
@@ -26,42 +25,69 @@ fn main() {
         std::process::exit(1);
     });
 
-    #[cfg(feature = "test-helpers")]
-    let vault_dir = std::env::var("OAK_VAULT_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| default_vault_dir());
-
-    #[cfg(not(feature = "test-helpers"))]
-    let vault_dir = default_vault_dir();
-
-    let instance_lock = InstanceLock::acquire(&vault_dir).unwrap_or_else(|e| {
-        eprintln!("{e}");
+    // Ensure all required directories exist
+    if oak_keyring::paths::ensure_dirs().is_none() {
+        eprintln!("Fatal: failed to create directories - HOME must be set");
         std::process::exit(1);
-    });
+    }
 
-    let config = AppConfig::load(&vault_dir).unwrap_or_else(|e| {
-        eprintln!("Warning: failed to load config: {e}");
-        AppConfig::default_config()
-    });
+    // Get config and data directories
+    let config_dir =
+        oak_keyring::paths::config_dir().unwrap_or_else(oak_keyring::paths::config_dir_fallback);
+    let data_dir =
+        oak_keyring::paths::data_dir().unwrap_or_else(oak_keyring::paths::data_dir_fallback);
+
+    // Load config (auto-generate if vault exists but config doesn't)
+    let config = match AppConfig::load_or_auto_generate(&config_dir, &data_dir) {
+        Ok(c) => c,
+        Err(e) => {
+            use oak_keyring::config::ConfigError;
+            match &e {
+                ConfigError::Io(_) => {
+                    eprintln!("Warning: config file not found or unreadable, using defaults: {e}");
+                    AppConfig::default_config()
+                }
+                ConfigError::Parse(_) => {
+                    eprintln!("Fatal: config file has invalid format: {e}");
+                    eprintln!("Please fix or remove the config file and try again.");
+                    std::process::exit(1);
+                }
+                ConfigError::Validation(_) => {
+                    eprintln!("Fatal: config validation failed: {e}");
+                    eprintln!("Please correct the config values and try again.");
+                    std::process::exit(1);
+                }
+            }
+        }
+    };
 
     // Initialize i18n based on config (auto-detect or explicit locale)
     i18n::init(&config.general.language);
 
-    let has_vault = KeyStore::vault_exists(&vault_dir);
-    let mut app = App::new(config, vault_dir, has_vault, instance_lock).unwrap_or_else(|e| {
+    // Acquire instance lock using data_dir
+    let instance_lock = InstanceLock::acquire(&data_dir).unwrap_or_else(|e| {
         eprintln!("{e}");
         std::process::exit(1);
     });
+
+    // Determine vault state (4-state routing per spec)
+    let has_key = oak_keyring::paths::has_key_file_at(&data_dir);
+    let has_db = oak_keyring::paths::has_db_file_at(&data_dir);
+    let vault_state = VaultInitState {
+        has_vault: has_key && has_db,
+        vault_has_key_only: has_key && !has_db,
+        vault_has_db_only: !has_key && has_db,
+    };
+
+    let mut app = App::new(config, vault_state, instance_lock, data_dir, config_dir)
+        .unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1);
+        });
     app.run().unwrap_or_else(|e| {
         eprintln!("{e}");
         std::process::exit(1);
     });
-}
-
-fn default_vault_dir() -> std::path::PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("open-keyring")
 }
 
 fn should_print_version<I>(args: I) -> bool

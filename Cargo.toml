@@ -1,6 +1,6 @@
 [package]
 name = "oak-keyring"
-version = "0.3.0"
+version = "0.4.1"
 edition = "2021"
 description = "A terminal TUI password manager with TEA architecture and end-to-end encryption"
 license = "MIT"
@@ -74,9 +74,6 @@ sys-locale = "0.3"
 # Clipboard
 arboard = "3"
 
-# Directories
-dirs = "6"
-
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -100,6 +97,9 @@ notify = "7"
 # String obfuscation
 obfstr = "0.4"
 
+# XDG Base Directory specification
+home = "0.5"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
@@ -111,11 +111,9 @@ insta = "1"
 mockall = "0.13"
 tempfile = "3"
 anyhow = "1"
-oak-keyring = { path = ".", features = ["test-helpers"] }
 
 [features]
 default = []
-test-helpers = []
 
 [build-dependencies]
 

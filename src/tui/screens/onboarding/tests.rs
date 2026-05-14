@@ -3,7 +3,6 @@ use super::*;
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::Command;
-use crate::tui::i18n::LocaleGuard;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -14,7 +13,7 @@ fn onboarding_welcome_defaults() {
     assert!(screen.selected_path.is_none());
     assert_eq!(screen.current_step, OnboardingStep::Welcome);
     assert_eq!(screen.welcome_selected, 0);
-    assert!(screen.path_input.is_empty());
+    assert_eq!(screen.language_index, 0);
     assert!(screen.error.is_none());
     assert!(!screen.recovery_confirmed);
     assert!(screen.recovery_words.is_empty());
@@ -28,7 +27,7 @@ fn onboarding_create_path_steps() {
         selected_path: Some(OnboardingPath::CreateNew),
         ..Default::default()
     };
-    assert_eq!(screen.total_steps(), 5);
+    assert_eq!(screen.total_steps(), 4);
 }
 
 #[test]
@@ -37,7 +36,7 @@ fn onboarding_restore_path_steps() {
         selected_path: Some(OnboardingPath::Restore),
         ..Default::default()
     };
-    assert_eq!(screen.total_steps(), 4);
+    assert_eq!(screen.total_steps(), 3);
 }
 
 #[test]
@@ -65,51 +64,53 @@ fn onboarding_welcome_default_selected_is_first() {
 fn onboarding_welcome_enter_selects_create() {
     let mut screen = OnboardingScreen::default();
     // Default selection is 0 (CreateNew), pressing Enter should select it
-    let result = screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Enter,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    let result = screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.selected_path, Some(OnboardingPath::CreateNew));
-    assert_eq!(screen.current_step, OnboardingStep::VaultPath);
+    assert_eq!(screen.current_step, OnboardingStep::RecoveryDisplay);
 }
 
 #[test]
 fn onboarding_welcome_down_then_enter_selects_restore() {
     let mut screen = OnboardingScreen::default();
     // Press Down to move to index 1 (Restore)
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 1);
 
-    let result = screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Enter,
-        crossterm::event::KeyModifiers::NONE,
+    let result = screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
+    assert!(matches!(
+        result,
+        ScreenResult::NavigateTo(Screen::KeyRecovery)
     ));
-    assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.selected_path, Some(OnboardingPath::Restore));
-    assert_eq!(screen.current_step, OnboardingStep::RecoveryInput);
 }
 
 #[test]
 fn onboarding_welcome_down_twice_then_enter_selects_import() {
     let mut screen = OnboardingScreen::default();
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ));
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 2);
 
-    let result = screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Enter,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    let result = screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.selected_path, Some(OnboardingPath::Import));
     assert_eq!(screen.current_step, OnboardingStep::ImportSource);
@@ -120,20 +121,20 @@ fn onboarding_welcome_down_wraps_around() {
     let mut screen = OnboardingScreen::default();
 
     // Down three times from 0 should wrap back to 0
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 1);
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 2);
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Down,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 0);
 }
 
@@ -141,20 +142,20 @@ fn onboarding_welcome_down_wraps_around() {
 fn onboarding_welcome_up_wraps_around() {
     let mut screen = OnboardingScreen::default();
     // Up from 0 should wrap to 2
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Up,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Up, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 2);
 }
 
 #[test]
 fn onboarding_welcome_tab_moves_down() {
     let mut screen = OnboardingScreen::default();
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Tab,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 1);
 }
 
@@ -162,181 +163,48 @@ fn onboarding_welcome_tab_moves_down() {
 fn onboarding_welcome_backtab_moves_up() {
     let mut screen = OnboardingScreen::default();
     screen.welcome_selected = 2;
-    screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::BackTab,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.welcome_selected, 1);
 }
 
 #[test]
 fn onboarding_welcome_esc_exits() {
     let mut screen = OnboardingScreen::default();
-    let result = screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Esc,
-        crossterm::event::KeyModifiers::NONE,
-    ));
+    let result = screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert!(matches!(result, ScreenResult::ExitApp));
 }
 
 #[test]
-fn onboarding_welcome_ignores_number_keys() {
+fn onboarding_welcome_language_cycling() {
     let mut screen = OnboardingScreen::default();
-    // Number keys no longer select paths — only navigation + Enter
-    let result = screen.handle_welcome_key(KeyEvent::new(
-        KeyCode::Char('1'),
-        crossterm::event::KeyModifiers::NONE,
-    ));
-    assert!(matches!(result, ScreenResult::Continue));
-    // Should not have changed state
-    assert_eq!(screen.welcome_selected, 0);
-    assert!(screen.selected_path.is_none());
-}
+    assert_eq!(screen.language_index, 0);
 
-#[test]
-fn onboarding_vault_path_defaults_to_non_editable() {
-    let screen = OnboardingScreen {
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::VaultPath,
-        ..Default::default()
-    };
-    assert!(!screen.vault_path_editable);
-    assert_eq!(screen.vault_path_focus, 0);
-}
-
-#[test]
-fn onboarding_vault_path_non_editable_ignores_chars() {
-    let mut screen = OnboardingScreen {
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::VaultPath,
-        ..Default::default()
-    };
-    // In non-editable mode, typing characters should be ignored
-    let result = screen.handle_vault_path_key(
-        KeyEvent::new(KeyCode::Char('/'), crossterm::event::KeyModifiers::NONE),
+    // Press 'L' to cycle to next language
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Char('L'), crossterm::event::KeyModifiers::NONE),
         &mut dummy_ctx(),
     );
-    assert!(matches!(result, ScreenResult::Continue));
-    assert!(screen.path_input.is_empty());
-}
+    assert_eq!(screen.language_index, 1);
 
-#[test]
-fn onboarding_vault_path_tab_cycles_buttons() {
-    let mut screen = OnboardingScreen {
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::VaultPath,
-        ..Default::default()
-    };
-    assert_eq!(screen.vault_path_focus, 0);
-    screen.handle_vault_path_key(
-        KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+    // Press 'l' (lowercase) to cycle again
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Char('l'), crossterm::event::KeyModifiers::NONE),
         &mut dummy_ctx(),
     );
-    assert_eq!(screen.vault_path_focus, 1);
-    screen.handle_vault_path_key(
-        KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+    assert_eq!(screen.language_index, 2);
+
+    // Press 'L' to wrap around to auto
+    screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Char('L'), crossterm::event::KeyModifiers::NONE),
         &mut dummy_ctx(),
     );
-    assert_eq!(screen.vault_path_focus, 0);
-}
-
-#[test]
-fn onboarding_vault_path_enter_default_uses_default() {
-    let mut screen = OnboardingScreen {
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::VaultPath,
-        vault_path_focus: 0,
-        ..Default::default()
-    };
-    let result = screen.handle_vault_path_key(
-        KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
-        &mut dummy_ctx(),
-    );
-    assert!(matches!(result, ScreenResult::Continue));
-    // Path input stays empty (default path resolved at advance time)
-    assert!(screen.path_input.is_empty());
-}
-
-#[test]
-fn onboarding_vault_path_enter_custom_switches_to_editable() {
-    let mut screen = OnboardingScreen {
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::VaultPath,
-        vault_path_focus: 1,
-        ..Default::default()
-    };
-    let result = screen.handle_vault_path_key(
-        KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
-        &mut dummy_ctx(),
-    );
-    assert!(matches!(result, ScreenResult::Continue));
-    assert!(screen.vault_path_editable);
-    assert_eq!(screen.vault_path_focus, 2);
-}
-
-#[test]
-fn onboarding_vault_path_editable_types() {
-    let mut screen = OnboardingScreen {
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::VaultPath,
-        vault_path_editable: true,
-        vault_path_focus: 2,
-        ..Default::default()
-    };
-
-    // Type characters
-    let result = screen.handle_vault_path_key(
-        KeyEvent::new(KeyCode::Char('/'), crossterm::event::KeyModifiers::NONE),
-        &mut dummy_ctx(),
-    );
-    assert!(matches!(result, ScreenResult::Continue));
-    assert_eq!(screen.path_input, "/");
-
-    screen.handle_vault_path_key(
-        KeyEvent::new(KeyCode::Char('h'), crossterm::event::KeyModifiers::NONE),
-        &mut dummy_ctx(),
-    );
-    assert_eq!(screen.path_input, "/h");
-
-    // Backspace
-    screen.handle_vault_path_key(
-        KeyEvent::new(KeyCode::Backspace, crossterm::event::KeyModifiers::NONE),
-        &mut dummy_ctx(),
-    );
-    assert_eq!(screen.path_input, "/");
-}
-
-#[test]
-fn onboarding_vault_path_esc_returns_to_button_mode() {
-    let mut screen = OnboardingScreen {
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::VaultPath,
-        vault_path_editable: true,
-        vault_path_focus: 2,
-        ..Default::default()
-    };
-    let result = screen.handle_vault_path_key(
-        KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE),
-        &mut dummy_ctx(),
-    );
-    assert!(matches!(result, ScreenResult::Continue));
-    assert!(!screen.vault_path_editable);
-    assert_eq!(screen.vault_path_focus, 1);
-}
-
-#[test]
-fn onboarding_vault_path_esc_goes_back() {
-    let mut screen = OnboardingScreen {
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::VaultPath,
-        ..Default::default()
-    };
-    let result = screen.handle_vault_path_key(
-        KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE),
-        &mut dummy_ctx(),
-    );
-    assert!(matches!(result, ScreenResult::Continue));
-    assert_eq!(screen.current_step, OnboardingStep::Welcome);
+    assert_eq!(screen.language_index, 0);
 }
 
 #[test]
@@ -594,7 +462,7 @@ fn onboarding_recovery_display_esc_goes_back() {
         KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE),
         &mut dummy_ctx(),
     );
-    assert_eq!(screen.current_step, OnboardingStep::VaultPath);
+    assert_eq!(screen.current_step, OnboardingStep::Welcome);
 }
 
 #[test]
@@ -649,19 +517,16 @@ fn onboarding_step_number_create_path() {
     screen.current_step = OnboardingStep::Welcome;
     assert_eq!(screen.current_step_number(), 1);
 
-    screen.current_step = OnboardingStep::VaultPath;
-    assert_eq!(screen.current_step_number(), 2);
-
     screen.current_step = OnboardingStep::RecoveryDisplay;
-    assert_eq!(screen.current_step_number(), 3);
+    assert_eq!(screen.current_step_number(), 2);
 
     screen.current_step = OnboardingStep::RecoveryVerify {
         positions: [0, 5, 10, 15],
     };
-    assert_eq!(screen.current_step_number(), 4);
+    assert_eq!(screen.current_step_number(), 3);
 
     screen.current_step = OnboardingStep::SetPassword;
-    assert_eq!(screen.current_step_number(), 5);
+    assert_eq!(screen.current_step_number(), 4);
 }
 
 #[test]
@@ -677,11 +542,8 @@ fn onboarding_step_number_restore_path() {
     screen.current_step = OnboardingStep::RecoveryInput;
     assert_eq!(screen.current_step_number(), 2);
 
-    screen.current_step = OnboardingStep::VaultPath;
-    assert_eq!(screen.current_step_number(), 3);
-
     screen.current_step = OnboardingStep::SecurityAdvisory;
-    assert_eq!(screen.current_step_number(), 4);
+    assert_eq!(screen.current_step_number(), 3);
 }
 
 #[test]
@@ -700,15 +562,15 @@ fn onboarding_step_number_import_path() {
     screen.current_step = OnboardingStep::ImportPreview;
     assert_eq!(screen.current_step_number(), 3);
 
-    screen.current_step = OnboardingStep::VaultPath;
-    assert_eq!(screen.current_step_number(), 4);
-
     screen.current_step = OnboardingStep::RecoveryDisplay;
-    assert_eq!(screen.current_step_number(), 5);
+    assert_eq!(screen.current_step_number(), 4);
 
     screen.current_step = OnboardingStep::RecoveryVerify {
         positions: [0, 1, 2, 3],
     };
+    assert_eq!(screen.current_step_number(), 5);
+
+    screen.current_step = OnboardingStep::SetPassword;
     assert_eq!(screen.current_step_number(), 6);
 }
 
@@ -1240,7 +1102,6 @@ fn on_unmount_zeroizes_sensitive_data() {
     use crate::tui::traits::screen::Screen;
 
     let mut screen = OnboardingScreen::default();
-    screen.path_input = "sensitive/path".to_string();
     screen.recovery_words = vec!["secret".to_string(); 24];
     screen.verify_inputs[0] = SensitiveInput::from("secret".to_string());
     screen.verify_positions = [1, 2, 3, 4];
@@ -1250,133 +1111,10 @@ fn on_unmount_zeroizes_sensitive_data() {
 
     screen.on_unmount();
 
-    assert!(screen.path_input.is_empty());
     assert!(screen.recovery_words.is_empty());
     assert!(screen.verify_inputs.iter().all(|s| s.is_empty()));
     assert!(screen.recovery_grid.words.iter().all(|w| w.is_empty()));
     assert_eq!(screen.verify_positions, [0, 0, 0, 0]);
-}
-
-#[test]
-fn onboarding_vault_path_validate_default_path() {
-    // Use a temp directory to make the test independent of the host filesystem.
-    let dir = tempfile::tempdir().unwrap();
-    let screen = OnboardingScreen {
-        path_input: dir.path().to_string_lossy().to_string(),
-        ..Default::default()
-    };
-    let result = screen.validate_vault_path();
-    assert!(result.is_some());
-    let (_msg, is_error) = result.unwrap();
-    assert!(!is_error, "Valid temp dir should not have a blocking error");
-}
-
-#[test]
-fn onboarding_vault_path_validate_nonexistent_directory() {
-    let screen = OnboardingScreen {
-        path_input: "/tmp/oak_test_nonexistent_dir_12345".to_string(),
-        ..Default::default()
-    };
-    let result = screen.validate_vault_path();
-    assert!(result.is_some());
-    let (msg, is_error) = result.unwrap();
-    assert!(
-        !is_error,
-        "Non-existent directory should be a warning, got: {}",
-        msg
-    );
-    assert!(
-        msg.to_lowercase().contains("creat"),
-        "Message should mention creation, got: {}",
-        msg
-    );
-}
-
-#[test]
-fn onboarding_vault_path_validate_existing_empty_dir() {
-    let _guard = LocaleGuard::en();
-    let dir = tempfile::tempdir().unwrap();
-    let screen = OnboardingScreen {
-        path_input: dir.path().to_string_lossy().to_string(),
-        ..Default::default()
-    };
-    let result = screen.validate_vault_path();
-    assert!(result.is_some());
-    let (msg, is_error) = result.unwrap();
-    assert!(
-        !is_error,
-        "Existing empty dir should be valid, got: {}",
-        msg
-    );
-    assert!(
-        msg.contains("valid"),
-        "Message should say valid, got: {}",
-        msg
-    );
-}
-
-#[test]
-fn onboarding_vault_path_validate_existing_nonempty_dir() {
-    let _guard = LocaleGuard::en();
-    let dir = tempfile::tempdir().unwrap();
-    // Create a file to make the directory non-empty
-    std::fs::write(dir.path().join("test.txt"), b"hello").unwrap();
-    let screen = OnboardingScreen {
-        path_input: dir.path().to_string_lossy().to_string(),
-        ..Default::default()
-    };
-    let result = screen.validate_vault_path();
-    assert!(result.is_some());
-    let (msg, is_error) = result.unwrap();
-    assert!(
-        !is_error,
-        "Non-empty dir should be a warning, not error, got: {}",
-        msg
-    );
-    assert!(
-        msg.to_lowercase().contains("not empty"),
-        "Message should mention not empty, got: {}",
-        msg
-    );
-}
-
-#[test]
-fn onboarding_vault_path_validate_file_not_directory() {
-    let file = tempfile::NamedTempFile::new().unwrap();
-    let screen = OnboardingScreen {
-        path_input: file.path().to_string_lossy().to_string(),
-        ..Default::default()
-    };
-    let result = screen.validate_vault_path();
-    assert!(result.is_some());
-    let (msg, is_error) = result.unwrap();
-    assert!(is_error, "File path should be an error, got: {}", msg);
-}
-
-#[test]
-fn onboarding_vault_path_resolved_default_when_empty() {
-    let screen = OnboardingScreen {
-        path_input: String::new(),
-        ..Default::default()
-    };
-    let resolved = screen.resolved_vault_pathbuf();
-    let resolved_str = resolved.to_string_lossy();
-    assert!(!resolved_str.is_empty());
-    assert!(
-        resolved_str.contains("open-keyring"),
-        "Default path should contain 'open-keyring', got: {}",
-        resolved_str
-    );
-}
-
-#[test]
-fn onboarding_vault_path_resolved_custom_when_set() {
-    let screen = OnboardingScreen {
-        path_input: "/custom/path".to_string(),
-        ..Default::default()
-    };
-    let resolved = screen.resolved_vault_pathbuf();
-    assert_eq!(resolved, std::path::PathBuf::from("/custom/path"));
 }
 
 /// Helper to create a dummy ScreenContext for tests.
@@ -1401,91 +1139,4 @@ fn dummy_ctx() -> ScreenContext<'static> {
         command_tx: tx,
         config,
     }
-}
-
-// ── returning_from_set_password guard tests ────────────────────────────
-
-#[test]
-fn on_mount_returning_from_set_password_preserves_state() {
-    use crate::tui::traits::screen::Screen;
-
-    let mut screen = OnboardingScreen {
-        returning_from_set_password: true,
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::SetPassword,
-        path_input: "/custom/vault/path".to_string(),
-        welcome_selected: 1,
-        recovery_confirmed: true,
-        recovery_words: vec!["word".to_string(); 24],
-        ..Default::default()
-    };
-
-    screen.on_mount(&mut dummy_ctx());
-
-    // Step should be SetPassword, all other state preserved
-    assert_eq!(screen.current_step, OnboardingStep::SetPassword);
-    assert_eq!(screen.selected_path, Some(OnboardingPath::CreateNew));
-    assert_eq!(screen.path_input, "/custom/vault/path");
-    assert_eq!(screen.welcome_selected, 1);
-    assert!(screen.recovery_confirmed);
-    assert_eq!(screen.recovery_words.len(), 24);
-    // Flag must be consumed
-    assert!(!screen.returning_from_set_password);
-}
-
-#[test]
-fn on_mount_returning_from_set_password_consumes_flag() {
-    use crate::tui::traits::screen::Screen;
-
-    let mut screen = OnboardingScreen {
-        returning_from_set_password: true,
-        ..Default::default()
-    };
-
-    screen.on_mount(&mut dummy_ctx());
-    assert!(!screen.returning_from_set_password);
-
-    // Second mount without the flag should reset everything
-    screen.on_mount(&mut dummy_ctx());
-    assert_eq!(screen.current_step, OnboardingStep::Welcome);
-    assert!(screen.selected_path.is_none());
-}
-
-#[test]
-fn on_mount_without_flag_resets_state() {
-    use crate::tui::traits::screen::Screen;
-
-    let mut screen = OnboardingScreen {
-        returning_from_set_password: false,
-        selected_path: Some(OnboardingPath::CreateNew),
-        current_step: OnboardingStep::SetPassword,
-        path_input: "/should/be/cleared".to_string(),
-        ..Default::default()
-    };
-
-    screen.on_mount(&mut dummy_ctx());
-
-    // Without the flag, everything resets to defaults
-    assert_eq!(screen.current_step, OnboardingStep::Welcome);
-    assert!(screen.selected_path.is_none());
-    assert!(screen.path_input.is_empty());
-}
-
-#[test]
-fn on_mount_returning_from_import_takes_precedence_over_set_password() {
-    use crate::tui::traits::screen::Screen;
-
-    // If both flags are set, returning_from_import is checked first
-    let mut screen = OnboardingScreen {
-        returning_from_import: true,
-        returning_from_set_password: true,
-        ..Default::default()
-    };
-
-    screen.on_mount(&mut dummy_ctx());
-
-    assert_eq!(screen.current_step, OnboardingStep::VaultPath);
-    assert!(!screen.returning_from_import);
-    // returning_from_set_password remains set since the import guard returned first
-    assert!(screen.returning_from_set_password);
 }

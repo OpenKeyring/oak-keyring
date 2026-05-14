@@ -23,7 +23,7 @@ use crate::commands::types::HealthReport;
 use crate::commands::{Command, InternalCommand, Message};
 use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::{AppConfig, ConfigManager};
-use crate::db::schema::init_db;
+use crate::db::schema::{init_db, init_db_in_memory};
 use crate::services::clipboard::ClipboardService;
 use crate::services::health::HealthService;
 use crate::services::import_export::ImportExportService;
@@ -47,18 +47,24 @@ mod sync_test;
 
 /// Load OAuth2 tokens from TokenStore into the in-memory GoogleDriveConfig.
 /// TokenStore is the single source of truth — config.toml never stores tokens.
-fn load_oauth2_tokens_into_config(config: &mut AppConfig) {
+fn load_oauth2_tokens_into_config(config: &mut AppConfig, config_dir: &std::path::Path) {
     if config.sync.provider != SyncProvider::GoogleDrive {
         return;
     }
-    let base_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("open-keyring")
-        .join("tokens");
+    let base_path = config_dir.join("tokens");
     let store = TokenStore::new(base_path);
     let tokens = match store.load("google_drive") {
         Ok(Some(t)) => t,
-        _ => return,
+        Ok(None) => {
+            tracing::warn!(
+                "Google Drive tokens not found at new path — re-authorization may be required"
+            );
+            return;
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to load Google Drive tokens");
+            return;
+        }
     };
     if let Some(ProviderConfig::GoogleDrive(ref mut cfg)) = config.sync.provider_config {
         cfg.access_token = tokens.access_token;
@@ -92,6 +98,8 @@ pub struct CommandExecutor {
     config_notifier: ServiceNotificationImpl,
     /// Path to the vault directory (contains vault.db, config.toml, etc.).
     pub(super) vault_dir: PathBuf,
+    /// Path to the config directory (contains config.toml).
+    config_dir: PathBuf,
     /// Cached health report, updated after health check runs.
     pub(super) health_report: Option<HealthReport>,
     /// Timestamp of the most recent health check completion.
@@ -119,12 +127,11 @@ pub struct CommandExecutor {
 impl CommandExecutor {
     /// Create a new CommandExecutor, initializing all services.
     ///
-    /// Opens the SQLite database at `vault_dir/vault.db`, creates service
+    /// Opens the SQLite database at the data directory, creates service
     /// instances, and returns a fully-constructed executor ready to run.
     ///
     /// # Arguments
     /// * `config` — Application configuration
-    /// * `vault_dir` — Path to the vault directory
     /// * `result_tx` — Channel sender for dispatching messages to the UI
     /// * `shutdown_token` — Token for graceful executor shutdown
     ///
@@ -137,14 +144,22 @@ impl CommandExecutor {
     #[tracing::instrument(skip(result_tx, shutdown_token))]
     pub fn new(
         mut config: AppConfig,
-        vault_dir: PathBuf,
         result_tx: mpsc::Sender<Message>,
         shutdown_token: CancellationToken,
+        vault_dir: std::path::PathBuf,
+        config_dir: std::path::PathBuf,
+        vault_has_key_only: bool,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        info!(vault_dir = %vault_dir.display(), "initializing CommandExecutor");
+        info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), vault_has_key_only, "initializing CommandExecutor");
 
-        // Open and initialize the SQLite database.
-        let conn = init_db(&vault_dir)?;
+        // Open an in-memory database when key exists but vault.db is missing,
+        // to prevent creating an empty vault.db before recovery completes.
+        let conn = if vault_has_key_only {
+            info!("using in-memory database (key-only state, awaiting recovery)");
+            init_db_in_memory()
+        } else {
+            init_db(&vault_dir)?
+        };
 
         // Create service instances.
         let vault = VaultService::new(conn);
@@ -162,7 +177,7 @@ impl CommandExecutor {
         ))));
 
         // Load OAuth2 tokens from TokenStore (runtime-only, not in config.toml).
-        load_oauth2_tokens_into_config(&mut config);
+        load_oauth2_tokens_into_config(&mut config, &config_dir);
 
         let sync = match create_cloud_storage(&config.sync) {
             Ok(storage) => {
@@ -188,9 +203,10 @@ impl CommandExecutor {
             health,
             clipboard,
             import_export,
-            config: config_impl::ConfigManagerImpl::new(config),
+            config: config_impl::ConfigManagerImpl::new(config, config_dir.clone()),
             config_notifier,
             vault_dir,
+            config_dir,
             health_report: None,
             last_health_check_time: None,
             verified_master_password: None,
@@ -318,10 +334,28 @@ impl CommandExecutor {
 
     // execute(), pre_check(), post_hook(), and dispatch() are defined in execute.rs
 
-    /// Replace the sync service with a pre-built instance (test-only).
-    #[cfg(feature = "test-helpers")]
+    /// Replace the sync service with a pre-built instance.
+    ///
+    /// # Note
+    ///
+    /// This method is intended for testing purposes only, allowing injection of
+    /// mock sync services. In production, the sync service is configured during
+    /// executor construction.
     pub fn set_sync_service(&mut self, sync: Option<crate::services::sync::SyncService>) {
         self.sync = sync;
+    }
+
+    /// Reopen the vault database as file-backed after a restore operation.
+    ///
+    /// Called after `.okb` or cloud restore writes a real `vault.db` to disk,
+    /// replacing the in-memory placeholder that was used during key-only startup.
+    pub(super) fn reopen_file_backed_vault_db(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let conn = init_db(&self.vault_dir)?;
+        self.vault = crate::services::vault::VaultService::new(conn);
+        info!("reopened vault database as file-backed after restore");
+        Ok(())
     }
 }
 

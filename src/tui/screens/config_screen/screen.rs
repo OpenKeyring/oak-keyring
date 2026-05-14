@@ -53,10 +53,6 @@ impl Screen for ConfigScreen {
                 }
             }
         }
-
-        if let Some(ref dialog) = self.state.vault_path_dialog {
-            dialog.render(frame, area);
-        }
     }
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {

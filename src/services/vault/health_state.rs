@@ -92,7 +92,7 @@ impl VaultService {
     }
 
     /// Get a reference to the underlying connection for testing purposes.
-    #[cfg(any(test, feature = "test-helpers"))]
+    #[cfg(test)]
     pub fn conn_ref(&self) -> &rusqlite::Connection {
         &self.conn
     }

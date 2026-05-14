@@ -1,6 +1,5 @@
 ---
 source: tests/snapshot_tests/screens/status_bar_test.rs
-assertion_line: 51
 expression: backend
 ---
-"  ⌘K搜索 n新建 e编辑 d删除 F1帮助 │ v0.3.0 │ 🔍 Checking password security... │ ✓ Synced                                " Hidden by multi-width symbols: [(5, " "), (7, " "), (11, " "), (13, " "), (17, " "), (19, " "), (23, " "), (25, " "), (30, " "), (32, " "), (46, " ")]
+"  ⌘K Search  N New  E Edit  D Delete  F1 Help │ v0.4.1 │ 🔍 Checking password security... │ ✓ Synced                    " Hidden by multi-width symbols: [(58, " ")]

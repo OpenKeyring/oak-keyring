@@ -3,6 +3,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
+use crate::t;
 use crate::tui::theme::{
     self, Styles, BG_SURFACE, BORDER, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_SECONDARY,
     WARNING,
@@ -38,8 +39,9 @@ impl OnboardingScreen {
 
         // Title
         let title = Paragraph::new(format!(
-            "{} Recovery Key - Write These Down!",
-            theme::ICON_WARNING
+            "{} {}",
+            theme::ICON_WARNING,
+            t!("tui.entry.recovery_key_write_down")
         ))
         .style(Style::default().fg(WARNING).add_modifier(Modifier::BOLD))
         .alignment(Alignment::Center);
@@ -47,7 +49,7 @@ impl OnboardingScreen {
 
         // Word grid (read-only)
         if self.recovery_words.is_empty() {
-            let placeholder = Paragraph::new("Generating recovery key...")
+            let placeholder = Paragraph::new(t!("tui.entry.generating_recovery_key"))
                 .style(Style::default().fg(TEXT_MUTED))
                 .alignment(Alignment::Center);
             let grid_area = Block::default()
@@ -82,7 +84,7 @@ impl OnboardingScreen {
         } else {
             Styles::button_secondary()
         };
-        let copy_btn = Paragraph::new(" Copy to clipboard ")
+        let copy_btn = Paragraph::new(t!("tui.entry.copy_to_clipboard_btn"))
             .style(copy_style)
             .alignment(Alignment::Center);
         frame.render_widget(copy_btn, btn_area[1]);
@@ -92,7 +94,7 @@ impl OnboardingScreen {
         } else {
             Styles::button_secondary()
         };
-        let regen_btn = Paragraph::new(" Regenerate ")
+        let regen_btn = Paragraph::new(t!("tui.entry.regenerate_btn"))
             .style(regen_style)
             .alignment(Alignment::Center);
         frame.render_widget(regen_btn, btn_area[3]);
@@ -100,9 +102,12 @@ impl OnboardingScreen {
         // Clipboard clear warning (shown after copy)
         if self.clipboard_copied {
             let warning = Paragraph::new(format!(
-                "{} Clipboard will be cleared after {} seconds",
+                "{} {}",
                 theme::ICON_WARNING,
-                self.clipboard_clear_seconds
+                t!(
+                    "tui.entry.clipboard_clear_warning",
+                    seconds = self.clipboard_clear_seconds
+                )
             ))
             .style(Styles::warning_text())
             .alignment(Alignment::Center);
@@ -123,39 +128,42 @@ impl OnboardingScreen {
         } else {
             Style::default().fg(TEXT_SECONDARY)
         };
-        let checkbox = Paragraph::new(format!(" {} I have saved my recovery key", check_icon))
-            .style(check_style)
-            .alignment(Alignment::Center);
+        let checkbox = Paragraph::new(format!(
+            " {}{}",
+            check_icon,
+            t!("tui.entry.confirm_saved_key")
+        ))
+        .style(check_style)
+        .alignment(Alignment::Center);
         frame.render_widget(checkbox, rows[8]);
 
         // Next step button or instruction
         if self.recovery_confirmed {
             let next_style = Styles::button_primary();
-            let next_btn = Paragraph::new(" Next step ")
+            let next_btn = Paragraph::new(t!("tui.entry.next_step"))
                 .style(next_style)
                 .alignment(Alignment::Center);
             frame.render_widget(next_btn, rows[10]);
         } else {
-            let instruction = Paragraph::new("Check the box above to continue")
+            let instruction = Paragraph::new(t!("tui.entry.check_box_to_continue"))
                 .style(Style::default().fg(TEXT_MUTED))
                 .alignment(Alignment::Center);
             frame.render_widget(instruction, rows[10]);
         }
 
         // Hint
-        let hint = Paragraph::new(
-            "\u{2190}\u{2192}/Tab: navigate  |  Enter: activate  |  Space: toggle  |  Esc: back",
-        )
-        .style(Style::default().fg(TEXT_MUTED))
-        .alignment(Alignment::Center);
+        let hint = Paragraph::new(t!("tui.entry.recovery_display_hint"))
+            .style(Style::default().fg(TEXT_MUTED))
+            .alignment(Alignment::Center);
         frame.render_widget(hint, rows[11]);
 
         // Step indicator
         let step = self.current_step_number();
         let total = self.total_steps();
-        let step_text = Paragraph::new(format!("Step {}/{}", step, total))
-            .style(Style::default().fg(TEXT_MUTED))
-            .alignment(Alignment::Center);
+        let step_text =
+            Paragraph::new(t!("tui.entry.step_n_of_n", current = step, total = total).to_string())
+                .style(Style::default().fg(TEXT_MUTED))
+                .alignment(Alignment::Center);
         frame.render_widget(step_text, rows[12]);
     }
 
@@ -232,13 +240,13 @@ impl OnboardingScreen {
         .split(content_area);
 
         // Title
-        let title = Paragraph::new("Verify Recovery Key")
+        let title = Paragraph::new(t!("tui.entry.verify_recovery_title"))
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
         frame.render_widget(title, rows[0]);
 
         // Instruction
-        let instruction = Paragraph::new("Enter the word at each specified position:")
+        let instruction = Paragraph::new(t!("tui.entry.enter_word_position"))
             .style(Style::default().fg(TEXT_SECONDARY))
             .alignment(Alignment::Center);
         frame.render_widget(instruction, rows[2]);
@@ -250,7 +258,7 @@ impl OnboardingScreen {
             let has_error = self.verify_errors[i];
 
             // Label
-            let label = Paragraph::new(format!("  Word #{}", pos))
+            let label = Paragraph::new(t!("tui.entry.word_n_label", n = pos).to_string())
                 .style(Style::default().fg(TEXT_SECONDARY));
             frame.render_widget(label, rows[4 + i * 2]);
 
@@ -293,7 +301,7 @@ impl OnboardingScreen {
         }
 
         // Hint
-        let hint = Paragraph::new("Tab/Shift+Tab: navigate  |  Enter: verify  |  Esc: back")
+        let hint = Paragraph::new(t!("tui.entry.verify_hint"))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
         frame.render_widget(hint, rows[12]);
@@ -301,9 +309,10 @@ impl OnboardingScreen {
         // Step indicator
         let step = self.current_step_number();
         let total = self.total_steps();
-        let step_text = Paragraph::new(format!("Step {}/{}", step, total))
-            .style(Style::default().fg(TEXT_MUTED))
-            .alignment(Alignment::Center);
+        let step_text =
+            Paragraph::new(t!("tui.entry.step_n_of_n", current = step, total = total).to_string())
+                .style(Style::default().fg(TEXT_MUTED))
+                .alignment(Alignment::Center);
         frame.render_widget(step_text, rows[13]);
     }
 
@@ -325,7 +334,7 @@ impl OnboardingScreen {
         .split(content_area);
 
         // Title
-        let title = Paragraph::new("Enter Recovery Key")
+        let title = Paragraph::new(t!("tui.entry.enter_recovery_title"))
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
         frame.render_widget(title, rows[0]);
@@ -334,7 +343,7 @@ impl OnboardingScreen {
         self.recovery_grid.view(frame, rows[2]);
 
         // Hint
-        let hint = Paragraph::new("Tab: next word  |  Enter: submit  |  Esc: go back")
+        let hint = Paragraph::new(t!("tui.entry.recovery_input_hint"))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
         frame.render_widget(hint, rows[4]);
@@ -342,9 +351,10 @@ impl OnboardingScreen {
         // Step indicator
         let step = self.current_step_number();
         let total = self.total_steps();
-        let step_text = Paragraph::new(format!("Step {}/{}", step, total))
-            .style(Style::default().fg(TEXT_MUTED))
-            .alignment(Alignment::Center);
+        let step_text =
+            Paragraph::new(t!("tui.entry.step_n_of_n", current = step, total = total).to_string())
+                .style(Style::default().fg(TEXT_MUTED))
+                .alignment(Alignment::Center);
         frame.render_widget(step_text, rows[5]);
     }
 
@@ -366,23 +376,23 @@ impl OnboardingScreen {
         .split(content_area);
 
         // Title
-        let title = Paragraph::new(format!("{} Security Notice", theme::ICON_WARNING))
-            .style(Style::default().fg(WARNING).add_modifier(Modifier::BOLD))
-            .alignment(Alignment::Center);
+        let title = Paragraph::new(format!(
+            "{} {}",
+            theme::ICON_WARNING,
+            t!("tui.entry.security_notice")
+        ))
+        .style(Style::default().fg(WARNING).add_modifier(Modifier::BOLD))
+        .alignment(Alignment::Center);
         frame.render_widget(title, rows[0]);
 
         // Notice
-        let notice = Paragraph::new(
-            "Your vault has been restored from a recovery key.\n\
-             We strongly recommend setting a new master password\n\
-             and reviewing your security settings.",
-        )
-        .style(Style::default().fg(TEXT))
-        .wrap(Wrap { trim: true });
+        let notice = Paragraph::new(t!("tui.entry.security_notice_body"))
+            .style(Style::default().fg(TEXT))
+            .wrap(Wrap { trim: true });
         frame.render_widget(notice, rows[2]);
 
         // Hint
-        let hint = Paragraph::new("Press Enter to set a new master password  |  Esc to go back")
+        let hint = Paragraph::new(t!("tui.entry.security_notice_hint"))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
         frame.render_widget(hint, rows[4]);
@@ -390,9 +400,10 @@ impl OnboardingScreen {
         // Step indicator
         let step = self.current_step_number();
         let total = self.total_steps();
-        let step_text = Paragraph::new(format!("Step {}/{}", step, total))
-            .style(Style::default().fg(TEXT_MUTED))
-            .alignment(Alignment::Center);
+        let step_text =
+            Paragraph::new(t!("tui.entry.step_n_of_n", current = step, total = total).to_string())
+                .style(Style::default().fg(TEXT_MUTED))
+                .alignment(Alignment::Center);
         frame.render_widget(step_text, rows[5]);
     }
 }

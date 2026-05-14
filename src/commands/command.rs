@@ -36,7 +36,6 @@ pub enum Command {
     ClearVerifiedPassword,
 
     InitializeVault {
-        vault_path: PathBuf,
         master_password: SecureStr,
         /// Pre-generated BIP39 recovery words. When provided, the executor
         /// reconstructs the Passkey from these words instead of generating
@@ -236,6 +235,30 @@ pub enum Command {
     TriggerRotation,
     /// Check if rotation should be triggered
     CheckRotationTrigger,
+
+    // ── Partial Vault Recovery ─────────────────────
+    /// Validate BIP39 recovery words (must be exactly 24).
+    ValidateRecoveryWords {
+        words: Vec<String>,
+    },
+
+    /// Rebuild wrapped_secret_key.json from recovery words + new master password.
+    RebuildKeyFileFromRecovery {
+        master_password: SecureStr,
+        recovery_words: Vec<String>,
+    },
+
+    /// Restore vault.db from a local .okb backup file.
+    RestoreDatabaseFromOkb {
+        path: PathBuf,
+        password: crate::types::SecureStr,
+    },
+
+    /// Restore vault.db from cloud sync (pull-only, no push).
+    RestoreDatabaseFromCloud,
+
+    /// Validate that the restored vault.db can be decrypted with the current key.
+    ValidateRestoredDatabase,
 }
 
 #[cfg(test)]
@@ -309,6 +332,12 @@ mod exhaustive_tests {
                 // DEK Rotation
                 Command::TriggerRotation => {}
                 Command::CheckRotationTrigger => {}
+                // Partial Vault Recovery
+                Command::ValidateRecoveryWords { .. } => {}
+                Command::RebuildKeyFileFromRecovery { .. } => {}
+                Command::RestoreDatabaseFromOkb { .. } => {}
+                Command::RestoreDatabaseFromCloud => {}
+                Command::ValidateRestoredDatabase => {}
             }
         }
     }

@@ -170,7 +170,8 @@ impl ImportExportScreen {
             let color = Self::strength_color(&s.level);
             Paragraph::new(label).style(ratatui::style::Style::default().fg(color))
         } else {
-            Paragraph::new("Strength: ").style(ratatui::style::Style::default().fg(TEXT_MUTED))
+            let label = t!("tui.import_export.strength_label_short").to_string();
+            Paragraph::new(label).style(ratatui::style::Style::default().fg(TEXT_MUTED))
         };
 
         // Confirm password

@@ -32,53 +32,67 @@ mod tests {
 
     #[test]
     fn load_nonexistent_returns_default() {
-        let tmp = std::env::temp_dir().join(format!("ok_config_test_{}", uuid::Uuid::new_v4()));
-        let config = AppConfig::load(&tmp).expect("load failed");
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        let config = AppConfig::load(&config_dir).expect("load failed");
         assert_eq!(config.general.auto_lock_seconds, 300);
+        // cleanup happens when tmp is dropped at end of scope
     }
 
     #[test]
     fn save_load_roundtrip() {
-        let tmp = std::env::temp_dir().join(format!("ok_config_test_{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
         let mut config = AppConfig::default_config();
         config.general.auto_lock_seconds = 900;
         config.sync.provider = SyncProvider::WebDav;
         config.sync.sync_mode = SyncMode::Manual;
         config.password.length = 24;
 
-        config.save(&tmp).expect("save failed");
-        let loaded = AppConfig::load(&tmp).expect("load failed");
+        config.save(&config_dir).expect("save failed");
+        let loaded = AppConfig::load(&config_dir).expect("load failed");
 
         assert_eq!(loaded.general.auto_lock_seconds, 900);
         assert!(matches!(loaded.sync.provider, SyncProvider::WebDav));
         assert!(matches!(loaded.sync.sync_mode, SyncMode::Manual));
         assert_eq!(loaded.password.length, 24);
+        // tmp is dropped here, cleaning up the directory
     }
 
     #[test]
     fn partial_config_uses_defaults_for_missing() {
-        let tmp = std::env::temp_dir().join(format!("ok_config_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&tmp).unwrap();
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
         std::fs::write(
-            tmp.join("config.toml"),
+            config_dir.join("config.toml"),
             "[general]\nauto_lock_seconds = 60\n",
         )
         .unwrap();
 
-        let config = AppConfig::load(&tmp).expect("load failed");
+        let config = AppConfig::load(&config_dir).expect("load failed");
         assert_eq!(config.general.auto_lock_seconds, 60);
         assert_eq!(config.general.clipboard_clear_seconds, 30); // default
         assert_eq!(config.password.length, 16); // default
+                                                // cleanup happens when tmp is dropped at end of scope
     }
 
     #[test]
     fn malformed_toml_returns_err() {
-        let tmp = std::env::temp_dir().join(format!("ok_config_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&tmp).unwrap();
-        std::fs::write(tmp.join("config.toml"), "this is not toml {{{").unwrap();
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
 
-        let result = AppConfig::load(&tmp);
+        std::fs::write(config_dir.join("config.toml"), "this is not toml {{{").unwrap();
+
+        let result = AppConfig::load(&config_dir);
         assert!(result.is_err());
+        // cleanup happens when tmp is dropped at end of scope
     }
 
     #[test]
@@ -143,11 +157,6 @@ mod tests {
     #[test]
     fn default_config_values_match_spec() {
         let config = AppConfig::default_config();
-        assert!(config
-            .general
-            .vault_path
-            .to_string_lossy()
-            .contains("open-keyring"));
         assert!(matches!(config.sync.provider, SyncProvider::Disabled));
         assert!(matches!(config.sync.sync_mode, SyncMode::Auto));
         assert_eq!(config.sync.auto_interval_seconds, 600);
@@ -500,7 +509,10 @@ root_path = "/"
 
     #[test]
     fn full_config_save_load_roundtrip_with_provider() {
-        let tmp = std::env::temp_dir().join(format!("ok_config_test_{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
         let mut config = AppConfig::default_config();
         config.sync.provider = SyncProvider::WebDav;
         config.sync.provider_config = Some(ProviderConfig::WebDav(crate::config::WebDavConfig {
@@ -511,8 +523,8 @@ root_path = "/"
             bearer_token: None,
         }));
 
-        config.save(&tmp).expect("save failed");
-        let loaded = AppConfig::load(&tmp).expect("load failed");
+        config.save(&config_dir).expect("save failed");
+        let loaded = AppConfig::load(&config_dir).expect("load failed");
 
         match &loaded.sync.provider_config {
             Some(ProviderConfig::WebDav(c)) => {
@@ -521,34 +533,28 @@ root_path = "/"
             }
             other => panic!("expected WebDav, got {:?}", other),
         }
+        // cleanup happens when tmp is dropped at end of scope
     }
 
     #[test]
     fn full_config_save_load_roundtrip_icloud() {
-        let tmp = std::env::temp_dir().join(format!("ok_config_test_{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
         let mut config = AppConfig::default_config();
         config.sync.provider = SyncProvider::ICloud;
         config.sync.provider_config = Some(ProviderConfig::ICloud);
 
-        config.save(&tmp).expect("save failed");
-        let loaded = AppConfig::load(&tmp).expect("load failed");
+        config.save(&config_dir).expect("save failed");
+        let loaded = AppConfig::load(&config_dir).expect("load failed");
 
         assert!(matches!(loaded.sync.provider, SyncProvider::ICloud));
         assert!(matches!(
             loaded.sync.provider_config,
             Some(ProviderConfig::ICloud)
         ));
-    }
-
-    #[test]
-    fn vault_path_uses_platform_default() {
-        let config = AppConfig::default_config();
-        let path_str = config.general.vault_path.to_string_lossy();
-        assert!(
-            path_str.contains("open-keyring"),
-            "default vault_path should contain 'open-keyring', got: {}",
-            path_str
-        );
+        // cleanup happens when tmp is dropped at end of scope
     }
 
     #[test]
@@ -583,12 +589,16 @@ root_path = "/"
     #[test]
     fn saved_config_has_600_permissions() {
         use std::os::unix::fs::PermissionsExt;
-        let tmp = std::env::temp_dir().join(format!("ok_config_test_{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join(".config").join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
         let config = AppConfig::default_config();
-        config.save(&tmp).expect("save failed");
-        let meta = std::fs::metadata(tmp.join("config.toml")).unwrap();
+        config.save(&config_dir).expect("save failed");
+        let meta = std::fs::metadata(config_dir.join("config.toml")).unwrap();
         let mode = meta.permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "expected 600 permissions, got {:o}", mode);
+        // cleanup happens when tmp is dropped at end of scope
     }
 
     #[test]
@@ -603,5 +613,77 @@ foo = "bar"
 "#;
         let config = AppConfig::from_toml(toml_str).unwrap();
         assert_eq!(config.general.auto_lock_seconds, 300);
+    }
+
+    #[test]
+    fn load_or_auto_generate_loads_existing_config() {
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join("config");
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        // Write a valid config file.
+        std::fs::write(
+            config_dir.join("config.toml"),
+            "[general]\nauto_lock_seconds = 123\n",
+        )
+        .unwrap();
+
+        let config = AppConfig::load_or_auto_generate(&config_dir, &data_dir)
+            .expect("load_or_auto_generate should succeed");
+        assert_eq!(
+            config.general.auto_lock_seconds, 123,
+            "should load existing config"
+        );
+    }
+
+    #[test]
+    fn load_or_auto_generate_creates_config_when_vault_complete() {
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join("config");
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        // No config, but vault data files exist.
+        std::fs::write(data_dir.join("wrapped_secret_key.json"), "{}").unwrap();
+        std::fs::write(data_dir.join("vault.db"), "").unwrap();
+
+        let config = AppConfig::load_or_auto_generate(&config_dir, &data_dir)
+            .expect("load_or_auto_generate should succeed");
+        assert_eq!(
+            config.general.auto_lock_seconds, 300,
+            "should use default config"
+        );
+
+        // Config file should have been saved.
+        assert!(
+            config_dir.join("config.toml").exists(),
+            "config.toml should have been auto-generated"
+        );
+    }
+
+    #[test]
+    fn load_or_auto_generate_returns_default_when_vault_incomplete() {
+        let tmp = tempfile::tempdir().expect("tempdir failed");
+        let config_dir = tmp.path().join("config");
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        // No config, no vault.
+        let config = AppConfig::load_or_auto_generate(&config_dir, &data_dir)
+            .expect("load_or_auto_generate should succeed");
+        assert_eq!(
+            config.general.auto_lock_seconds, 300,
+            "should return default config"
+        );
+
+        // Config file should NOT have been auto-generated.
+        assert!(
+            !config_dir.join("config.toml").exists(),
+            "config.toml should NOT be auto-generated when vault is incomplete"
+        );
     }
 }

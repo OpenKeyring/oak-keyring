@@ -10,15 +10,15 @@ use std::path::Path;
 /// 定义配置加载、保存、重新加载的行为。
 /// 实现类（Plan K）持有 AppConfig 实例并响应配置变更。
 pub trait ConfigManager: Send + Sync {
-    /// 从指定目录加载配置
-    fn load(&self, vault_dir: &Path) -> Result<AppConfig, ConfigError>;
+    /// Load configuration from the specified config directory
+    fn load(&self, config_dir: &Path) -> Result<AppConfig, ConfigError>;
 
-    /// 保存配置到指定目录
-    fn save(&self, config: &AppConfig, vault_dir: &Path) -> Result<(), ConfigError>;
+    /// Save configuration to the specified config directory
+    fn save(&self, config: &AppConfig, config_dir: &Path) -> Result<(), ConfigError>;
 
-    /// 重新加载配置（检测到变更后调用）
-    fn reload(&self, vault_dir: &Path) -> Result<AppConfig, ConfigError>;
+    /// Reload configuration from the specified config directory (called after detecting changes)
+    fn reload(&self, config_dir: &Path) -> Result<AppConfig, ConfigError>;
 
-    /// 获取当前内存中的配置快照
+    /// Get current in-memory configuration snapshot
     fn get_config(&self) -> AppConfig;
 }

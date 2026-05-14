@@ -323,3 +323,68 @@ pub async fn handle_resolve_all_conflicts(
         }
     }
 }
+
+/// Restore vault.db from cloud sync (pull-only, never pushes empty local state).
+///
+/// Creates a file-backed vault.db, unlocks it with the cached master password,
+/// then runs a full sync cycle. Since the local vault is empty, the sync
+/// effectively becomes pull-only: all cloud records are downloaded and imported
+/// with no push or deletion of remote data.
+pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) -> CommandResult {
+    if executor.sync.is_none() {
+        return CommandResult::DatabaseRestoreNeedsOAuth;
+    }
+
+    // Create a file-backed vault.db and reopen the executor's vault connection.
+    if let Err(e) = executor.reopen_file_backed_vault_db() {
+        return CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.db_reopen_failed",
+            fallback: format!("Failed to create vault database: {}", e),
+        };
+    }
+
+    // Unlock the vault with the cached master password from keyfile rebuild.
+    let master_password = match executor.verified_master_password.take() {
+        Some(pw) => pw,
+        None => {
+            return CommandResult::Error {
+                code: ErrorCode::ExecutorMasterPasswordRequired,
+                context: ErrorContext::default(),
+                message_key: "error.password_required",
+                fallback: "Master password not available for vault unlock.".to_string(),
+            };
+        }
+    };
+    if let Err(e) = executor.vault.unlock(&executor.vault_dir, &master_password) {
+        return CommandResult::Error {
+            code: ErrorCode::CryptoEncryptionFailed,
+            context: ErrorContext::default(),
+            message_key: "error.unlock_failed",
+            fallback: format!("Failed to unlock vault: {}", e),
+        };
+    }
+    drop(master_password);
+
+    // Run a full sync cycle. With an empty local vault, this is effectively
+    // pull-only: all cloud records are downloaded and no data is pushed.
+    let sync = executor.sync.as_mut().unwrap();
+    match sync.sync(None).await {
+        Ok(result) => {
+            tracing::info!(
+                downloaded = result.downloaded_records.len(),
+                "cloud restore sync complete"
+            );
+            CommandResult::DatabaseRestored {
+                source: crate::commands::types::DatabaseRecoverySource::Cloud,
+            }
+        }
+        Err(e) => CommandResult::Error {
+            code: ErrorCode::SyncProviderError,
+            context: ErrorContext::default(),
+            message_key: "error.cloud_restore_failed",
+            fallback: format!("Cloud database restore failed: {}", e),
+        },
+    }
+}

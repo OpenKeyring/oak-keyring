@@ -2,6 +2,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use crate::t;
 use crate::tui::screens::import_export::ScopeHintStyle;
 use crate::tui::theme::{
     self, BORDER, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_SECONDARY, WARNING,
@@ -16,22 +17,23 @@ impl OnboardingScreen {
         area: ratatui::layout::Rect,
     ) {
         use crate::tui::screens::import_export::{
-            source_needs_password, ImportFocus, IMPORT_SOURCES,
+            import_sources, source_needs_password, ImportFocus,
         };
 
         let content_area = Self::centered_content(area, 20);
-        let source = IMPORT_SOURCES[self.selected_source_idx].0;
+        let sources = import_sources();
+        let source = sources[self.selected_source_idx].0;
         let needs_pw = source_needs_password(source);
 
         let mut lines: Vec<Line> = vec![
             Line::from(Span::styled(
-                "Step 2/6 · Select Import Source",
+                t!("tui.entry.step_onboarding_import_source"),
                 Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
             )),
             Line::raw(""),
         ];
 
-        for (i, (_, name, _, (hint_text, hint_style_enum))) in IMPORT_SOURCES.iter().enumerate() {
+        for (i, (_, name, _, (hint_text, hint_style_enum))) in sources.iter().enumerate() {
             let prefix = if i == self.selected_source_idx {
                 " \u{25B6} "
             } else {
@@ -52,7 +54,7 @@ impl OnboardingScreen {
             let hint_style = Style::default().fg(hint_color);
             lines.push(Line::from(vec![
                 Span::styled(prefix.to_string(), name_style),
-                Span::styled((*name).to_string(), name_style),
+                Span::styled(name.as_str(), name_style),
                 Span::styled(format!("  {}", hint_text), hint_style),
             ]));
         }
@@ -60,40 +62,48 @@ impl OnboardingScreen {
         lines.push(Line::raw(""));
 
         // Import Scope section
-        let scope_separator = format!("\u{2500}\u{2500} Import Scope {}", "\u{2500}".repeat(45));
+        let scope_separator = format!(
+            "{} {}",
+            t!("tui.entry.import_scope_separator"),
+            "\u{2500}".repeat(30)
+        );
         lines.push(Line::from(Span::styled(
             scope_separator,
             Style::default().fg(BORDER),
         )));
 
-        let scope_items: [(Color, &str, &str); 5] = [
+        let scope_items: [(Color, &str, String); 5] = [
             (
                 SUCCESS,
                 theme::ICON_SUCCESS,
-                "Login items (name, account, password, URL, notes)",
+                t!("tui.entry.import_scope_logins").to_string(),
             ),
             (
                 ERROR,
                 theme::ICON_ERROR,
-                "TOTP / 2FA (not supported in current version, discarded during import)",
+                t!("tui.entry.import_scope_totp").to_string(),
             ),
             (
                 WARNING,
                 theme::ICON_WARNING,
-                "Custom fields (formatted and stored in notes field)",
+                t!("tui.entry.import_scope_custom").to_string(),
             ),
-            (SUCCESS, theme::ICON_SUCCESS, "Password history records"),
+            (
+                SUCCESS,
+                theme::ICON_SUCCESS,
+                t!("tui.entry.import_scope_history").to_string(),
+            ),
             (
                 ERROR,
                 theme::ICON_ERROR,
-                "Attachments (ignored during import)",
+                t!("tui.entry.import_scope_attachments").to_string(),
             ),
         ];
 
         for (color, icon, text) in &scope_items {
             lines.push(Line::from(vec![
                 Span::styled(format!(" {} ", icon), Style::default().fg(*color)),
-                Span::styled(*text, Style::default().fg(TEXT_SECONDARY)),
+                Span::styled(text.as_str(), Style::default().fg(TEXT_SECONDARY)),
             ]));
         }
 
@@ -110,7 +120,10 @@ impl OnboardingScreen {
             self.import_file_path.clone()
         };
         lines.push(Line::from(vec![
-            Span::styled("File Path: ", Style::default().fg(TEXT)),
+            Span::styled(
+                t!("tui.entry.import_file_path_label"),
+                Style::default().fg(TEXT),
+            ),
             Span::styled(fp_text, fp_style),
         ]));
 
@@ -126,7 +139,10 @@ impl OnboardingScreen {
                 "*".repeat(self.import_password.len())
             };
             lines.push(Line::from(vec![
-                Span::styled("Password: ", Style::default().fg(TEXT)),
+                Span::styled(
+                    t!("tui.entry.import_password_label"),
+                    Style::default().fg(TEXT),
+                ),
                 Span::styled(pw_display, pw_style),
             ]));
         }
@@ -140,7 +156,7 @@ impl OnboardingScreen {
 
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
-            "\u{2191}\u{2193}: navigate | Tab: cycle fields | Enter: validate | Esc: back",
+            t!("tui.entry.import_source_navigate_hint"),
             Style::default().fg(TEXT_MUTED),
         )));
 
@@ -156,7 +172,7 @@ impl OnboardingScreen {
 
         let mut lines: Vec<Line> = vec![
             Line::from(Span::styled(
-                "Step 3/6 · Import Preview",
+                t!("tui.entry.step_onboarding_import_preview"),
                 Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
             )),
             Line::raw(""),
@@ -165,17 +181,17 @@ impl OnboardingScreen {
         if let Some(ref preview) = self.import_preview {
             lines.push(Line::from(vec![
                 Span::styled(
-                    format!("Importable: {}", preview.importable),
+                    t!("tui.entry.importable_label", count = preview.importable).to_string(),
                     Style::default().fg(SUCCESS),
                 ),
                 Span::raw("  "),
                 Span::styled(
-                    format!("Needs review: {}", preview.needs_review),
+                    t!("tui.entry.needs_review_label", count = preview.needs_review).to_string(),
                     Style::default().fg(WARNING),
                 ),
                 Span::raw("  "),
                 Span::styled(
-                    format!("Failed: {}", preview.failed),
+                    t!("tui.entry.failed_label", count = preview.failed).to_string(),
                     Style::default().fg(ERROR),
                 ),
             ]));
@@ -201,7 +217,7 @@ impl OnboardingScreen {
                 ]));
             }
         } else {
-            lines.push(Line::from("No preview data available"));
+            lines.push(Line::from(t!("tui.entry.no_preview_data")));
         }
 
         lines.push(Line::raw(""));
@@ -221,15 +237,16 @@ impl OnboardingScreen {
         };
         lines.push(Line::from(Span::styled(
             format!(
-                " {} Import problematic entries as notes (instead of skipping)",
-                check_icon
+                " {}{}",
+                check_icon,
+                t!("tui.entry.import_as_notes_checkbox")
             ),
             check_style,
         )));
 
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
-            "Tab: toggle focus | Space/Enter: toggle checkbox | Enter: start import | Esc: back",
+            t!("tui.entry.import_preview_toggle_hint"),
             Style::default().fg(TEXT_MUTED),
         )));
 

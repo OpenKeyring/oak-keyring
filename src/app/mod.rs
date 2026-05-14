@@ -21,6 +21,23 @@ pub mod signal;
 pub mod update;
 pub mod view;
 
+/// Vault file existence state used to determine initial screen routing.
+///
+/// Four states per spec:
+/// - `has_key && has_db` → full vault → UnlockScreen
+/// - `!has_key && !has_db` → no vault → OnboardingScreen
+/// - `!has_key && has_db` → key missing → RecoveryScreen
+/// - `has_key && !has_db` → db missing → DB recovery
+#[derive(Debug, Clone, Copy, Default)]
+pub struct VaultInitState {
+    /// Both key and db exist (full vault).
+    pub has_vault: bool,
+    /// Key exists but db is missing.
+    pub vault_has_key_only: bool,
+    /// Db exists but key is missing.
+    pub vault_has_db_only: bool,
+}
+
 /// Channel buffer sizes.
 const COMMAND_CHANNEL_SIZE: usize = 256;
 const RESULT_CHANNEL_SIZE: usize = 256;
@@ -32,6 +49,8 @@ pub struct App {
     pub phase: AppPhase,
     /// Path to the vault data directory.
     pub vault_dir: std::path::PathBuf,
+    /// Path to the config directory.
+    pub config_dir: std::path::PathBuf,
     /// UI -> Executor: send commands from screens to the executor.
     pub command_tx: mpsc::Sender<Command>,
     /// Receiver half of the command channel, taken once in run().
@@ -43,14 +62,19 @@ pub struct App {
     pub cancel_token: CancellationToken,
     /// Instance lock to prevent multiple TUI instances from running.
     _instance_lock: InstanceLock,
+    /// Key file exists but database is missing — route to DB recovery.
+    pub vault_has_key_only: bool,
+    /// Database exists but key file is missing — route to recovery.
+    pub vault_has_db_only: bool,
 }
 
 impl App {
     pub fn new(
         config: AppConfig,
-        vault_dir: std::path::PathBuf,
-        has_vault: bool,
+        vault_state: VaultInitState,
         instance_lock: InstanceLock,
+        vault_dir: std::path::PathBuf,
+        config_dir: std::path::PathBuf,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_SIZE);
         let (result_tx, result_rx) = mpsc::channel(RESULT_CHANNEL_SIZE);
@@ -58,15 +82,22 @@ impl App {
 
         Ok(Self {
             config,
-            state: AppState::new(has_vault),
+            state: AppState::new(
+                vault_state.has_vault,
+                vault_state.vault_has_key_only,
+                vault_state.vault_has_db_only,
+            ),
             phase: AppPhase::Initializing,
             vault_dir,
+            config_dir,
             command_tx,
             command_rx: Some(command_rx),
             result_tx,
             result_rx,
             cancel_token,
             _instance_lock: instance_lock,
+            vault_has_key_only: vault_state.vault_has_key_only,
+            vault_has_db_only: vault_state.vault_has_db_only,
         })
     }
 
@@ -81,9 +112,11 @@ impl App {
         if let Some(command_rx) = self.command_rx.take() {
             let executor = crate::executor::CommandExecutor::new(
                 self.config.clone(),
-                self.vault_dir.clone(),
                 self.result_tx.clone(),
                 self.cancel_token.clone(), // shutdown_token for executor run loop
+                self.vault_dir.clone(),
+                self.config_dir.clone(),
+                self.vault_has_key_only,
             )?;
 
             tokio::spawn(async move {

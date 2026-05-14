@@ -62,6 +62,8 @@ pub enum AppPhase {
 pub enum Screen {
     Unlock,
     Onboarding,
+    KeyRecovery,
+    DatabaseRecovery,
     Main,
     CreateRecord,
     EditRecord { id: Uuid },
@@ -212,6 +214,13 @@ pub enum SkipReason {
     Duplicate,
     ValidationFailed,
     VaultWriteError,
+}
+
+/// Database recovery source selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatabaseRecoverySource {
+    Cloud,
+    Okb,
 }
 
 /// Confirm dialog action variants

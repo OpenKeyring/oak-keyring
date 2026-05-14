@@ -79,8 +79,8 @@ fn k_key_moves_focus_up() {
 #[test]
 fn j_key_at_bottom_boundary_moves_focus_to_footer() {
     let mut screen = ConfigScreen::new();
-    // General tab has 8 items (0..7), set to last item
-    screen.state.focused_item = 7;
+    // General tab has 7 items (0..6), set to last item
+    screen.state.focused_item = 6;
 
     let (tx, _rx) = mpsc::channel(1);
     let config = AppConfig::default();
@@ -107,7 +107,7 @@ fn k_key_at_top_boundary_triggers_flash() {
 
     let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('k'))), &mut ctx);
     assert!(matches!(result, ScreenResult::Continue));
-    assert_eq!(screen.state.focused_item, 7);
+    assert_eq!(screen.state.focused_item, 6);
     assert!(screen.state.boundary_flash_at.is_some());
 }
 
