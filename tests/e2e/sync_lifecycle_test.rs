@@ -311,7 +311,9 @@ async fn restore_database_from_empty_cloud_does_not_create_vault_db() {
     rebuild_keyfile_from_recovery(&mut ctx).await;
 
     ctx.command_tx
-        .send(Command::RestoreDatabaseFromCloud)
+        .send(Command::RestoreDatabaseFromCloud {
+            master_password: None,
+        })
         .await
         .expect("send should succeed");
 
@@ -340,7 +342,9 @@ async fn restore_database_from_cloud_metadata_without_records_does_not_create_va
     rebuild_keyfile_from_recovery(&mut ctx).await;
 
     ctx.command_tx
-        .send(Command::RestoreDatabaseFromCloud)
+        .send(Command::RestoreDatabaseFromCloud {
+            master_password: None,
+        })
         .await
         .expect("send should succeed");
 
