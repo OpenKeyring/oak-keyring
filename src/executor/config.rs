@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn handle_save_config_includes_warnings_in_result() {
         let tmp = tempfile::tempdir().expect("tempdir failed");
-        // Create oak-keyring subdirectories (paths::data_dir() appends "oak-keyring")
+        // Create config directory for test isolation
         let config_dir = tmp.path().join("oak-keyring");
         std::fs::create_dir_all(&config_dir).unwrap();
         let mut executor = make_executor_with_clipboard_and_config_dir(30, config_dir.clone());
