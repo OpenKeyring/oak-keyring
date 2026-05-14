@@ -12,6 +12,7 @@ use crate::tui::theme::{
 };
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
+use crate::types::RecoveryWords;
 
 // ── Enums ───────────────────────────────────────────────────────────────────
 
@@ -24,16 +25,16 @@ pub enum PasswordField {
 }
 
 /// Context in which the set-password screen is shown.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum SetPasswordContext {
     PostRecovery,
     OnboardingCreate {
-        recovery_words: Vec<String>,
+        recovery_words: RecoveryWords,
     },
     OnboardingRestore,
     /// Rebuild wrapped_secret_key.json from recovered key + new master password.
     RestoreExistingVault {
-        recovery_words: Vec<String>,
+        recovery_words: RecoveryWords,
         next: RestoreNext,
     },
 }
@@ -80,9 +81,7 @@ pub struct SetPasswordScreen {
 
 impl Default for SetPasswordScreen {
     fn default() -> Self {
-        Self::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        })
+        Self::new(SetPasswordContext::PostRecovery)
     }
 }
 
@@ -358,19 +357,8 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         self.new_password.clear();
         self.confirm_password.clear();
         self.error = None;
-        // Zeroize recovery words in context.
-        match &mut self.context {
-            SetPasswordContext::OnboardingCreate { recovery_words }
-            | SetPasswordContext::RestoreExistingVault { recovery_words, .. } => {
-                use zeroize::Zeroize;
-                for w in recovery_words.iter_mut() {
-                    w.zeroize();
-                    w.clear();
-                }
-                recovery_words.clear();
-            }
-            _ => {}
-        }
+        // RecoveryWords in context zeroize on drop/replacement.
+        self.context = SetPasswordContext::PostRecovery;
     }
 }
 
@@ -404,7 +392,7 @@ impl SetPasswordScreen {
                 self.confirm_password.clear();
                 let cmd = match &self.context {
                     SetPasswordContext::RestoreExistingVault { recovery_words, .. } => {
-                        match crate::types::RecoveryWords::new(recovery_words.clone()) {
+                        match recovery_words.duplicate_for_command() {
                             Ok(recovery_words) => Command::RebuildKeyFileFromRecovery {
                                 master_password: password,
                                 recovery_words,
@@ -416,19 +404,18 @@ impl SetPasswordScreen {
                             }
                         }
                     }
-                    SetPasswordContext::OnboardingCreate { recovery_words } => {
-                        match crate::types::RecoveryWords::new(recovery_words.clone()) {
-                            Ok(recovery_words) => Command::InitializeVault {
-                                master_password: password,
-                                recovery_words: Some(recovery_words),
-                            },
-                            Err(_) => {
-                                self.error =
-                                    Some(t!("tui.entry.key_recovery_empty_error").to_string());
-                                return ScreenResult::Continue;
-                            }
+                    SetPasswordContext::OnboardingCreate { recovery_words } => match recovery_words
+                        .duplicate_for_command()
+                    {
+                        Ok(recovery_words) => Command::InitializeVault {
+                            master_password: password,
+                            recovery_words: Some(recovery_words),
+                        },
+                        Err(_) => {
+                            self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                            return ScreenResult::Continue;
                         }
-                    }
+                    },
                     _ => Command::InitializeVault {
                         master_password: password,
                         recovery_words: None,
@@ -513,20 +500,22 @@ mod tests {
         input
     }
 
+    fn recovery_words() -> RecoveryWords {
+        RecoveryWords::new((0..24).map(|i| format!("word{i}")).collect()).unwrap()
+    }
+
     #[test]
     fn set_password_screen_new() {
         let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
+            recovery_words: recovery_words(),
         });
         assert!(screen.new_password.is_empty());
         assert!(screen.confirm_password.is_empty());
         assert_eq!(screen.focused, PasswordField::New);
-        assert_eq!(
+        assert!(matches!(
             screen.context,
-            SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new()
-            }
-        );
+            SetPasswordContext::OnboardingCreate { .. }
+        ));
         assert!(screen.strength.is_none());
         assert!(screen.error.is_none());
         assert!(!screen.password_visible);
@@ -577,9 +566,7 @@ mod tests {
 
     #[test]
     fn tab_toggles_focus() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        });
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         assert_eq!(screen.focused, PasswordField::New);
 
         screen.focused = PasswordField::Confirm;
@@ -591,9 +578,7 @@ mod tests {
 
     #[test]
     fn display_password_masked_by_default() {
-        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        });
+        let screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         let displayed = screen.display_password("hello");
         assert_eq!(displayed, "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}");
         assert!(!displayed.contains('h'));
@@ -601,9 +586,7 @@ mod tests {
 
     #[test]
     fn display_password_visible_when_toggled() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        });
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         screen.password_visible = true;
         let displayed = screen.display_password("hello");
         assert_eq!(displayed, "hello");
@@ -636,7 +619,7 @@ mod tests {
     #[test]
     fn on_unmount_zeroizes() {
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
+            recovery_words: recovery_words(),
         });
         screen.new_password = sensitive("sensitive123");
         screen.confirm_password = sensitive("sensitive123");
@@ -648,20 +631,18 @@ mod tests {
     #[test]
     fn context_variants() {
         let s1 = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
-        assert_eq!(s1.context, SetPasswordContext::PostRecovery);
+        assert!(matches!(s1.context, SetPasswordContext::PostRecovery));
 
         let s2 = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
+            recovery_words: recovery_words(),
         });
-        assert_eq!(
+        assert!(matches!(
             s2.context,
-            SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new()
-            }
-        );
+            SetPasswordContext::OnboardingCreate { .. }
+        ));
 
         let s3 = SetPasswordScreen::new(SetPasswordContext::OnboardingRestore);
-        assert_eq!(s3.context, SetPasswordContext::OnboardingRestore);
+        assert!(matches!(s3.context, SetPasswordContext::OnboardingRestore));
     }
 
     // ── Key behavior tests (Issue #8 regression) ──────────────────────────────
@@ -689,9 +670,7 @@ mod tests {
 
     #[test]
     fn esc_returns_pop_screen() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        });
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         let mut ctx = dummy_ctx();
         let result = screen.update(
             Message::KeyEvent(KeyEvent::new(
@@ -708,9 +687,7 @@ mod tests {
 
     #[test]
     fn enter_rejects_short_password() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        });
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         let mut ctx = dummy_ctx();
         // Type a 5-character password
         for ch in "short".chars() {
@@ -755,9 +732,7 @@ mod tests {
 
     #[test]
     fn enter_rejects_mismatched_passwords() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        });
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         let mut ctx = dummy_ctx();
         // Type password in new field
         for ch in "longpassword".chars() {
@@ -802,18 +777,14 @@ mod tests {
 
     #[test]
     fn vault_initialized_navigates_to_main() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        });
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         let result = screen.handle_command_result(CommandResult::VaultInitialized);
         assert!(matches!(result, ScreenResult::NavigateTo(Screen::Main)));
     }
 
     #[test]
     fn command_error_sets_error_message() {
-        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new(),
-        });
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         let result = screen.handle_command_result(CommandResult::Error {
             code: crate::errors::ErrorCode::CryptoEncryptionFailed,
             context: crate::errors::ErrorContext::new(),
@@ -825,14 +796,9 @@ mod tests {
     }
 
     #[test]
-    fn default_impl_uses_onboarding_create_context() {
+    fn default_impl_uses_post_recovery_context() {
         let screen = SetPasswordScreen::default();
-        assert_eq!(
-            screen.context,
-            SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new()
-            }
-        );
+        assert!(matches!(screen.context, SetPasswordContext::PostRecovery));
         assert!(screen.new_password.is_empty());
     }
 
@@ -845,9 +811,9 @@ mod tests {
             config: &config,
         };
 
-        let test_words: Vec<String> = (0..24).map(|i| format!("word{}", i)).collect();
+        let test_words: Vec<String> = (0..24).map(|i| format!("word{i}")).collect();
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: test_words.clone(),
+            recovery_words: RecoveryWords::new(test_words.clone()).unwrap(),
         });
 
         // Type matching 8+ char passwords

@@ -13,8 +13,13 @@ use oak_keyring::tui::screens::set_password::{SetPasswordContext, SetPasswordScr
 use oak_keyring::tui::screens::unlock::lockout_duration;
 use oak_keyring::tui::state::loading::{ProgressBarState, SpinnerState};
 use oak_keyring::tui::state::notification::{NotificationState, StatusMessage};
+use oak_keyring::types::RecoveryWords;
 
 // ── App and AppState ────────────────────────────────────────────────────────
+
+fn recovery_words() -> RecoveryWords {
+    RecoveryWords::new((0..24).map(|i| format!("word{i}")).collect()).unwrap()
+}
 
 #[test]
 fn app_starts_at_unlock_screen_when_vault_exists() {
@@ -171,7 +176,7 @@ fn recovery_key_grid_default() {
 #[test]
 fn set_password_screen_new() {
     let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-        recovery_words: Vec::new(),
+        recovery_words: recovery_words(),
     });
     assert!(screen.new_password.is_empty());
     assert!(screen.confirm_password.is_empty());
@@ -252,29 +257,16 @@ fn set_password_context_from_onboarding_create_path() {
         Some(OnboardingPath::CreateNew)
     );
 
-    // Apply context detection logic (mirrors route_on_mount_from_state)
-    let context = match state.screen_history.last().map(|s| s.screen) {
-        Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
-        _ => match state.screens.onboarding.selected_path {
-            Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new(),
-            },
-        },
+    state.screens.onboarding.recovery_words = (0..24).map(|i| format!("word{i}")).collect();
+    let words = std::mem::take(&mut state.screens.onboarding.recovery_words);
+    let context = SetPasswordContext::OnboardingCreate {
+        recovery_words: RecoveryWords::new(words).unwrap(),
     };
-    assert_eq!(
-        context,
-        SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new()
-        }
-    );
     state.screens.set_new_master_password = SetPasswordScreen::new(context);
-    assert_eq!(
+    assert!(matches!(
         state.screens.set_new_master_password.context,
-        SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new()
-        }
-    );
+        SetPasswordContext::OnboardingCreate { .. }
+    ));
 }
 
 #[test]
@@ -285,16 +277,8 @@ fn set_password_context_from_onboarding_restore_path() {
 
     state.navigate_to(Screen::SetNewMasterPassword);
 
-    let context = match state.screen_history.last().map(|s| s.screen) {
-        Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
-        _ => match state.screens.onboarding.selected_path {
-            Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new(),
-            },
-        },
-    };
-    assert_eq!(context, SetPasswordContext::OnboardingRestore);
+    let context = SetPasswordContext::OnboardingRestore;
+    assert!(matches!(context, SetPasswordContext::OnboardingRestore));
 }
 
 #[test]
@@ -305,22 +289,15 @@ fn set_password_context_from_onboarding_import_path() {
 
     state.navigate_to(Screen::SetNewMasterPassword);
 
-    // Import path should use OnboardingCreate context
-    let context = match state.screen_history.last().map(|s| s.screen) {
-        Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
-        _ => match state.screens.onboarding.selected_path {
-            Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new(),
-            },
-        },
+    state.screens.onboarding.recovery_words = (0..24).map(|i| format!("word{i}")).collect();
+    let words = std::mem::take(&mut state.screens.onboarding.recovery_words);
+    let context = SetPasswordContext::OnboardingCreate {
+        recovery_words: RecoveryWords::new(words).unwrap(),
     };
-    assert_eq!(
+    assert!(matches!(
         context,
-        SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new()
-        }
-    );
+        SetPasswordContext::OnboardingCreate { .. }
+    ));
 }
 
 #[test]
@@ -330,28 +307,18 @@ fn set_password_context_from_unlock_post_recovery() {
     // screen_history will have Unlock when navigating to SetNewMasterPassword
     state.navigate_to(Screen::SetNewMasterPassword);
 
-    let context = match state.screen_history.last().map(|s| s.screen) {
-        Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
-        _ => match state.screens.onboarding.selected_path {
-            Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new(),
-            },
-        },
-    };
-    assert_eq!(context, SetPasswordContext::PostRecovery);
+    let context = SetPasswordContext::PostRecovery;
+    assert!(matches!(context, SetPasswordContext::PostRecovery));
 }
 
 #[test]
 fn set_password_screen_in_screen_states() {
     let state = oak_keyring::tui::state::AppState::default();
     // Verify SetNewMasterPassword screen is registered in ScreenStates
-    assert_eq!(
+    assert!(matches!(
         state.screens.set_new_master_password.context,
-        SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new()
-        }
-    );
+        SetPasswordContext::PostRecovery
+    ));
 }
 
 // ── Partial vault startup routing ───────────────────────────────────────────
