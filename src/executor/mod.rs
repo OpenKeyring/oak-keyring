@@ -428,7 +428,12 @@ impl PendingFileBackedVaultDb<'_> {
     pub(super) async fn restore_pull_only(
         &mut self,
     ) -> Result<crate::services::sync::SyncResult, crate::errors::mapping::sync::SyncError> {
-        self.executor.sync.as_mut().unwrap().restore_pull_only().await
+        self.executor
+            .sync
+            .as_mut()
+            .unwrap()
+            .restore_pull_only()
+            .await
     }
 
     pub(super) fn set_metadata(
