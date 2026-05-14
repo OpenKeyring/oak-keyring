@@ -411,14 +411,16 @@ impl UnlockScreen {
                             }
                         }
                         UnlockMode::RecoveryKey => {
-                            let words = self
-                                .password_input
-                                .expose(|s| s.split_whitespace().map(String::from).collect());
+                            let words_result = self.password_input.expose(|s| {
+                                crate::types::RecoveryWords::new(
+                                    s.split_whitespace().map(String::from).collect(),
+                                )
+                            });
                             self.password_input.clear();
-                            match crate::types::RecoveryWords::new(words) {
+                            match words_result {
                                 Ok(words) => Command::UnlockWithRecoveryKey { words },
                                 Err(_) => {
-                                    self.state = UnlockPhase::Idle;
+                                    self.state = UnlockPhase::Failed;
                                     self.error_message =
                                         Some(t!("tui.entry.key_recovery_empty_error").to_string());
                                     return ScreenResult::Continue;
@@ -600,6 +602,31 @@ mod tests {
             result,
             ScreenResult::NavigateTo(Screen::SetNewMasterPassword)
         ));
+    }
+
+    #[test]
+    fn recovery_key_mode_builds_recovery_words_command() {
+        let mut screen = UnlockScreen::default();
+        screen.mode = UnlockMode::RecoveryKey;
+        screen.password_input = sensitive("abandon ".repeat(24).trim());
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(1);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+
+        let result = screen.handle_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        match rx.try_recv().expect("command should be sent") {
+            Command::UnlockWithRecoveryKey { words } => assert_eq!(words.len(), 24),
+            other => panic!("expected recovery command, got {other:?}"),
+        }
     }
 
     #[test]
