@@ -361,7 +361,11 @@ impl ScreenTrait for DatabaseRecoveryScreen {
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {}
 
-    fn on_unmount(&mut self) {}
+    fn on_unmount(&mut self) {
+        self.okb_password.clear();
+        self.okb_path.clear();
+        self.error = None;
+    }
 }
 
 // ── Rendering helpers ──────────────────────────────────────────────────────

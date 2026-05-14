@@ -53,11 +53,6 @@ pub struct AppState {
     /// Signal handler state
     pub signal_count: u8,
     pub last_signal_time: Option<std::time::Instant>,
-    /// Pending recovery state: recovery words collected from KeyRecoveryScreen,
-    /// consumed by SetNewMasterPassword when rebuilding keyfile.
-    pub pending_recovery_words: Option<Vec<String>>,
-    /// Origin of the recovery flow (startup or onboarding restore).
-    pub pending_recovery_origin: Option<crate::tui::screens::key_recovery::KeyRecoveryOrigin>,
 }
 
 /// Cross-cutting state shared across all screens.
@@ -103,8 +98,6 @@ impl Default for AppState {
             unicode_capable: true,
             signal_count: 0,
             last_signal_time: None,
-            pending_recovery_words: None,
-            pending_recovery_origin: None,
         }
     }
 }
@@ -136,8 +129,6 @@ impl AppState {
             unicode_capable: true,
             signal_count: 0,
             last_signal_time: None,
-            pending_recovery_words: None,
-            pending_recovery_origin: None,
         }
     }
 

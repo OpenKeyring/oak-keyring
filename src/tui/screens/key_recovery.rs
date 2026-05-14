@@ -215,7 +215,10 @@ impl ScreenTrait for KeyRecoveryScreen {
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {}
 
-    fn on_unmount(&mut self) {}
+    fn on_unmount(&mut self) {
+        use zeroize::Zeroize;
+        self.words.zeroize();
+    }
 }
 
 impl KeyRecoveryScreen {
