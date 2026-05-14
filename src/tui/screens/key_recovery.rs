@@ -68,8 +68,7 @@ impl KeyRecoveryScreen {
                 if self.words.all_filled() {
                     self.error = None;
                     self.validating = true;
-                    let words = self.words.collect_words();
-                    match crate::types::RecoveryWords::new(words) {
+                    match self.words.collect_recovery_words() {
                         Ok(words) => {
                             let _ = ctx
                                 .command_tx

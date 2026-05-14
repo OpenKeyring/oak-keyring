@@ -422,7 +422,9 @@ pub(crate) fn stage_recovery_words_for_navigation(
     target: Screen,
 ) {
     if state.current_screen == Screen::KeyRecovery && target == Screen::SetNewMasterPassword {
-        state.stage_pending_recovery_words(state.screens.key_recovery.words.collect_words());
+        state.stage_pending_recovery_words(
+            state.screens.key_recovery.words.collect_recovery_words().map(|w| w.as_slice().to_vec()).unwrap_or_default()
+        );
     }
 }
 
@@ -478,7 +480,15 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                 Some(Screen::KeyRecovery) => {
                     let words = state
                         .take_pending_recovery_words()
-                        .unwrap_or_else(|| state.screens.key_recovery.words.collect_words());
+                        .unwrap_or_else(|| {
+                            state
+                                .screens
+                                .key_recovery
+                                .words
+                                .collect_recovery_words()
+                                .map(|w| w.as_slice().to_vec())
+                                .unwrap_or_default()
+                        });
                     // Determine next step from origin: startup → validate DB, onboarding → database recovery
                     let is_onboarding = matches!(
                         state.screens.key_recovery.origin,

@@ -223,8 +223,8 @@ impl OnboardingScreen {
             _ => {
                 let result = self.recovery_grid.handle_key(key);
                 match result {
-                    Some(words) => {
-                        match crate::types::RecoveryWords::new(words) {
+                    Some(result) => {
+                        match result {
                             Ok(words) => {
                                 let cmd = Command::UnlockWithRecoveryKey { words };
                                 let _ = ctx.command_tx.try_send(cmd);
