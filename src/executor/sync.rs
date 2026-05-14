@@ -191,6 +191,35 @@ async fn ensure_cloud_restore_has_records(
     }
 }
 
+enum RestoreMasterPassword {
+    Provided(SecureStr),
+    Cached(SecureStr),
+}
+
+impl RestoreMasterPassword {
+    fn password(&self) -> &SecureStr {
+        match self {
+            Self::Provided(password) | Self::Cached(password) => password,
+        }
+    }
+
+    fn restore_cache_on_failure(self, cached_password: &mut Option<SecureStr>) {
+        if let Self::Cached(password) = self {
+            *cached_password = Some(password);
+        }
+    }
+}
+
+fn take_restore_master_password(
+    provided_password: Option<SecureStr>,
+    cached_password: &mut Option<SecureStr>,
+) -> Option<RestoreMasterPassword> {
+    match provided_password {
+        Some(password) => Some(RestoreMasterPassword::Provided(password)),
+        None => cached_password.take().map(RestoreMasterPassword::Cached),
+    }
+}
+
 #[tracing::instrument(skip_all)]
 pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResult {
     if executor.cancel_token().is_cancelled() {
@@ -387,18 +416,20 @@ pub async fn handle_restore_database_from_cloud(
     }
 
     // Unlock with the provided startup password or the cached onboarding password.
-    let master_password = match master_password.or_else(|| executor.verified_master_password.take())
-    {
-        Some(pw) => pw,
-        None => {
-            return CommandResult::Error {
-                code: ErrorCode::ExecutorMasterPasswordRequired,
-                context: ErrorContext::default(),
-                message_key: "error.password_required",
-                fallback: "Master password is required to unlock the recovered vault.".to_string(),
-            };
-        }
-    };
+    let master_password =
+        match take_restore_master_password(master_password, &mut executor.verified_master_password)
+        {
+            Some(pw) => pw,
+            None => {
+                return CommandResult::Error {
+                    code: ErrorCode::ExecutorMasterPasswordRequired,
+                    context: ErrorContext::default(),
+                    message_key: "error.password_required",
+                    fallback: "Master password is required to unlock the recovered vault."
+                        .to_string(),
+                };
+            }
+        };
 
     // Create a pending file-backed vault.db. If unlock or sync fails, dropping
     // the guard removes the uncommitted database files.
@@ -414,7 +445,9 @@ pub async fn handle_restore_database_from_cloud(
         }
     };
 
-    if let Err(e) = pending.unlock(&master_password) {
+    if let Err(e) = pending.unlock(master_password.password()) {
+        drop(pending);
+        master_password.restore_cache_on_failure(&mut executor.verified_master_password);
         return CommandResult::Error {
             code: ErrorCode::CryptoEncryptionFailed,
             context: ErrorContext::default(),
@@ -422,13 +455,14 @@ pub async fn handle_restore_database_from_cloud(
             fallback: format!("Failed to unlock vault: {}", e),
         };
     }
-    drop(master_password);
 
     // Run a full sync cycle. With an empty local vault, this is effectively
     // pull-only: all cloud records are downloaded and no data is pushed.
     match pending.sync_restore().await {
         Ok(result) => {
             if result.downloaded_records.is_empty() {
+                drop(pending);
+                master_password.restore_cache_on_failure(&mut executor.verified_master_password);
                 return CommandResult::Error {
                     code: ErrorCode::SyncProviderError,
                     context: ErrorContext::default(),
@@ -464,6 +498,8 @@ pub async fn handle_restore_database_from_cloud(
                 }
             }
             if apply_errors > 0 {
+                drop(pending);
+                master_password.restore_cache_on_failure(&mut executor.verified_master_password);
                 return CommandResult::Error {
                     code: ErrorCode::SyncProviderError,
                     context: ErrorContext::default(),
@@ -483,12 +519,57 @@ pub async fn handle_restore_database_from_cloud(
                 source: crate::commands::types::DatabaseRecoverySource::Cloud,
             }
         }
-        Err(e) => CommandResult::Error {
-            code: ErrorCode::SyncProviderError,
-            context: ErrorContext::default(),
-            message_key: "error.cloud_restore_failed",
-            fallback: format!("Cloud database restore failed: {}", e),
-        },
+        Err(e) => {
+            drop(pending);
+            master_password.restore_cache_on_failure(&mut executor.verified_master_password);
+            CommandResult::Error {
+                code: ErrorCode::SyncProviderError,
+                context: ErrorContext::default(),
+                message_key: "error.cloud_restore_failed",
+                fallback: format!("Cloud database restore failed: {}", e),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod restore_password_tests {
+    use super::{take_restore_master_password, RestoreMasterPassword};
+    use crate::types::SecureStr;
+
+    #[test]
+    fn cached_restore_password_can_be_restored_after_failure() {
+        let mut cached = Some(SecureStr::new("cached-password".to_string()));
+
+        let selected = take_restore_master_password(None, &mut cached)
+            .expect("cached password should be selected");
+
+        assert!(cached.is_none());
+        assert_eq!(selected.password().expose(), "cached-password");
+
+        selected.restore_cache_on_failure(&mut cached);
+
+        assert_eq!(
+            cached.as_ref().map(|password| password.expose()),
+            Some("cached-password")
+        );
+    }
+
+    #[test]
+    fn provided_restore_password_is_not_cached_after_failure() {
+        let mut cached = None;
+
+        let selected = take_restore_master_password(
+            Some(SecureStr::new("provided-password".to_string())),
+            &mut cached,
+        )
+        .expect("provided password should be selected");
+
+        assert!(matches!(selected, RestoreMasterPassword::Provided(_)));
+
+        selected.restore_cache_on_failure(&mut cached);
+
+        assert!(cached.is_none());
     }
 }
 
