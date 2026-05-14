@@ -1,7 +1,12 @@
+use std::future::Future;
+use std::pin::Pin;
+
 use uuid::Uuid;
 
+use crate::cloud::CloudMetadata;
 use crate::commands::types::ConflictResolution;
 use crate::commands::CommandResult;
+use crate::errors::mapping::sync::SyncError;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::task::SyncVaultData;
@@ -146,6 +151,44 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
         local_metadata_version: metadata_version,
         local_vault_token: vault_token,
     }))
+}
+
+type SyncFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+#[cfg_attr(test, mockall::automock)]
+trait CloudRestoreMetadataSource: Send {
+    fn download_metadata<'a>(
+        &'a mut self,
+    ) -> SyncFuture<'a, Result<Option<CloudMetadata>, SyncError>>;
+}
+
+impl CloudRestoreMetadataSource for crate::services::sync::SyncService {
+    fn download_metadata<'a>(
+        &'a mut self,
+    ) -> SyncFuture<'a, Result<Option<CloudMetadata>, SyncError>> {
+        Box::pin(async move { crate::services::sync::SyncService::download_metadata(self).await })
+    }
+}
+
+async fn ensure_cloud_restore_has_records(
+    metadata_source: &mut dyn CloudRestoreMetadataSource,
+) -> Result<(), CommandResult> {
+    match metadata_source.download_metadata().await {
+        Ok(Some(metadata)) if !metadata.records.is_empty() => Ok(()),
+        Ok(_) => Err(CommandResult::Error {
+            code: ErrorCode::SyncProviderError,
+            context: ErrorContext::default(),
+            message_key: "error.cloud_restore_empty",
+            fallback: "No recoverable cloud sync data was found. Try restoring from a .okb backup."
+                .to_string(),
+        }),
+        Err(e) => Err(CommandResult::Error {
+            code: ErrorCode::SyncProviderError,
+            context: ErrorContext::default(),
+            message_key: "error.cloud_restore_failed",
+            fallback: format!("Cloud database restore failed: {}", e),
+        }),
+    }
 }
 
 #[tracing::instrument(skip_all)]
@@ -335,6 +378,11 @@ pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) 
         return CommandResult::DatabaseRestoreNeedsOAuth;
     }
 
+    let sync = executor.sync.as_mut().unwrap();
+    if let Err(result) = ensure_cloud_restore_has_records(sync).await {
+        return result;
+    }
+
     // Create a file-backed vault.db and reopen the executor's vault connection.
     if let Err(e) = executor.reopen_file_backed_vault_db() {
         return CommandResult::Error {
@@ -386,5 +434,100 @@ pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) 
             message_key: "error.cloud_restore_failed",
             fallback: format!("Cloud database restore failed: {}", e),
         },
+    }
+}
+
+#[cfg(test)]
+mod cloud_restore_metadata_tests {
+    use super::*;
+    use crate::cloud::RecordVersionInfo;
+
+    fn metadata_with_record() -> CloudMetadata {
+        let mut metadata = CloudMetadata::new("test-vault-token".to_string());
+        metadata.upsert_record(
+            "record-1".to_string(),
+            RecordVersionInfo {
+                version: 1,
+                updated_at: "2026-05-14T00:00:00Z".to_string(),
+                updated_by: "test-device".to_string(),
+                checksum: "checksum".to_string(),
+                deleted: false,
+            },
+        );
+        metadata
+    }
+
+    #[tokio::test]
+    async fn cloud_restore_preflight_rejects_missing_metadata() {
+        let mut mock = MockCloudRestoreMetadataSource::new();
+        mock.expect_download_metadata()
+            .once()
+            .returning(|| Box::pin(async { Ok(None) }));
+
+        let result = ensure_cloud_restore_has_records(&mut mock).await;
+
+        assert!(matches!(
+            result,
+            Err(CommandResult::Error {
+                code: ErrorCode::SyncProviderError,
+                message_key: "error.cloud_restore_empty",
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn cloud_restore_preflight_rejects_metadata_without_records() {
+        let mut mock = MockCloudRestoreMetadataSource::new();
+        mock.expect_download_metadata().once().returning(|| {
+            Box::pin(async { Ok(Some(CloudMetadata::new("test-vault-token".to_string()))) })
+        });
+
+        let result = ensure_cloud_restore_has_records(&mut mock).await;
+
+        assert!(matches!(
+            result,
+            Err(CommandResult::Error {
+                code: ErrorCode::SyncProviderError,
+                message_key: "error.cloud_restore_empty",
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn cloud_restore_preflight_rejects_metadata_download_failure() {
+        let mut mock = MockCloudRestoreMetadataSource::new();
+        mock.expect_download_metadata().once().returning(|| {
+            Box::pin(async {
+                Err(SyncError::ProviderError {
+                    provider: "mock".to_string(),
+                    message: "download failed".to_string(),
+                })
+            })
+        });
+
+        let result = ensure_cloud_restore_has_records(&mut mock).await;
+
+        assert!(matches!(
+            result,
+            Err(CommandResult::Error {
+                code: ErrorCode::SyncProviderError,
+                message_key: "error.cloud_restore_failed",
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn cloud_restore_preflight_accepts_metadata_with_records() {
+        let mut mock = MockCloudRestoreMetadataSource::new();
+        mock.expect_download_metadata()
+            .once()
+            .returning(|| Box::pin(async { Ok(Some(metadata_with_record())) }));
+
+        let result = ensure_cloud_restore_has_records(&mut mock).await;
+
+        assert!(result.is_ok());
     }
 }
