@@ -190,6 +190,12 @@ impl SyncService {
                     }
                     record.validate()?;
                     if let Some(remote_info) = metadata.records.get(&record_id) {
+                        if record.version != remote_info.version {
+                            return Err(SyncError::MetadataVersionConflict {
+                                local: remote_info.version,
+                                remote: record.version,
+                            });
+                        }
                         let computed = record.compute_checksum()?;
                         if computed != remote_info.checksum {
                             return Err(SyncError::ChecksumMismatch {
@@ -561,7 +567,7 @@ mod tests {
             id: record_id.clone(),
             version: 1,
             encrypted_data: "ZW5jcnlwdGVk".to_string(),
-            nonce: "bm9uY2U=".to_string(),
+            nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
             dek_version: 1,
             aad: crate::cloud::record::AadFields {
                 record_id,
@@ -808,6 +814,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn restore_pull_only_rejects_record_version_mismatch() {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        let storage = CloudStorage::new(op.clone(), "memory".to_string());
+        let record_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let record = restore_test_record(record_id.clone(), now.clone());
+        let checksum = record.compute_checksum().unwrap();
+
+        let mut metadata = CloudMetadata::new("remote-token".to_string());
+        metadata.upsert_record(
+            record_id.clone(),
+            crate::cloud::metadata::RecordVersionInfo {
+                version: record.version + 1,
+                updated_at: now,
+                updated_by: "test-device".to_string(),
+                checksum,
+                deleted: false,
+            },
+        );
+
+        op.write(
+            crate::cloud::schema::METADATA_FILENAME,
+            crate::cloud::metadata::serialize_metadata(&metadata).unwrap(),
+        )
+        .await
+        .unwrap();
+        op.write(
+            &format!("{}/{}.json", crate::cloud::schema::RECORDS_DIR, record_id),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let mut service = SyncService::new(storage);
+        let result = service.restore_pull_only().await;
+
+        assert!(matches!(
+            result,
+            Err(SyncError::MetadataVersionConflict {
+                local: 2,
+                remote: 1
+            })
+        ));
+    }
+
+    #[tokio::test]
     async fn restore_pull_only_rejects_invalid_record() {
         let op = opendal::Operator::new(opendal::services::Memory::default())
             .unwrap()
@@ -850,6 +904,52 @@ mod tests {
         assert!(matches!(
             result,
             Err(SyncError::AadInconsistent { field, .. }) if field == "record_id"
+        ));
+    }
+
+    #[tokio::test]
+    async fn restore_pull_only_rejects_invalid_nonce_before_local_apply() {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        let storage = CloudStorage::new(op.clone(), "memory".to_string());
+        let record_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut record = restore_test_record(record_id.clone(), now.clone());
+        record.nonce = "bm9uY2U=".to_string();
+        let checksum = record.compute_checksum().unwrap();
+
+        let mut metadata = CloudMetadata::new("remote-token".to_string());
+        metadata.upsert_record(
+            record_id.clone(),
+            crate::cloud::metadata::RecordVersionInfo {
+                version: 1,
+                updated_at: now,
+                updated_by: "test-device".to_string(),
+                checksum,
+                deleted: false,
+            },
+        );
+
+        op.write(
+            crate::cloud::schema::METADATA_FILENAME,
+            crate::cloud::metadata::serialize_metadata(&metadata).unwrap(),
+        )
+        .await
+        .unwrap();
+        op.write(
+            &format!("{}/{}.json", crate::cloud::schema::RECORDS_DIR, record_id),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let mut service = SyncService::new(storage);
+        let result = service.restore_pull_only().await;
+
+        assert!(matches!(
+            result,
+            Err(SyncError::DeserializationFailed { message }) if message.contains("nonce")
         ));
     }
 }

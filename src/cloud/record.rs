@@ -9,6 +9,8 @@ use crate::types::health::RecordHealthState;
 
 use super::validation::{compute_checksum, validate_uuid};
 
+const XCHACHA20_POLY1305_NONCE_LEN: usize = 24;
+
 /// AAD (Additional Authenticated Data) fields for encrypted records.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AadFields {
@@ -166,6 +168,23 @@ impl CloudRecord {
         if self.nonce.is_empty() {
             return Err(SyncError::DeserializationFailed {
                 message: "nonce must be non-empty".to_string(),
+            });
+        }
+        let nonce = {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD
+                .decode(&self.nonce)
+                .map_err(|e| SyncError::DeserializationFailed {
+                    message: format!("nonce must be valid base64: {}", e),
+                })?
+        };
+        if nonce.len() != XCHACHA20_POLY1305_NONCE_LEN {
+            return Err(SyncError::DeserializationFailed {
+                message: format!(
+                    "nonce must decode to {} bytes, got {}",
+                    XCHACHA20_POLY1305_NONCE_LEN,
+                    nonce.len()
+                ),
             });
         }
 
@@ -332,7 +351,7 @@ mod tests {
             id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             version: 5,
             encrypted_data: "dGVzdCBkYXRh".to_string(),
-            nonce: "bm9uY2U".to_string(),
+            nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
             dek_version: 1,
             aad: AadFields {
                 record_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
@@ -434,6 +453,30 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_rejects_invalid_nonce_base64() {
+        let mut record = create_valid_cloud_record();
+        record.nonce = "not-base64!!!".to_string();
+        let result = record.validate();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SyncError::DeserializationFailed { .. }
+        ));
+    }
+
+    #[test]
+    fn test_validate_rejects_wrong_length_nonce() {
+        let mut record = create_valid_cloud_record();
+        record.nonce = "bm9uY2U=".to_string();
+        let result = record.validate();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SyncError::DeserializationFailed { .. }
+        ));
+    }
+
+    #[test]
     fn test_validate_rejects_dek_version_zero() {
         let mut record = create_valid_cloud_record();
         record.dek_version = 0;
@@ -499,7 +542,7 @@ mod tests {
             id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             version: 1,
             encrypted_data: "dGVzdCBkYXRh".to_string(),
-            nonce: "bm9uY2U".to_string(),
+            nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
             dek_version: 1,
             aad: AadFields {
                 record_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
@@ -889,7 +932,14 @@ mod tests {
             dek_version: stored.dek_version,
         };
 
-        let cloud = build_cloud_record(&stored, "GitHub", "dGVzdCBkYXRh", "bm9uY2U", aad, None);
+        let cloud = build_cloud_record(
+            &stored,
+            "GitHub",
+            "dGVzdCBkYXRh",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            aad,
+            None,
+        );
 
         assert_eq!(cloud.id, "550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(cloud.version, 5);
@@ -925,7 +975,7 @@ mod tests {
             &stored,
             "GitHub",
             "dGVzdCBkYXRh",
-            "bm9uY2U",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             aad,
             Some(&health),
         );

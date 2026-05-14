@@ -552,7 +552,6 @@ pub async fn handle_restore_database_from_cloud(
                 };
             }
         };
-
     // Create a pending file-backed vault.db. If unlock or sync fails, dropping
     // the guard removes the uncommitted database files.
     let mut pending = match executor.begin_file_backed_vault_db() {
@@ -612,13 +611,34 @@ pub async fn handle_restore_database_from_cloud(
 
 #[cfg(test)]
 mod restore_password_tests {
-    use super::{persist_restored_cloud_data, take_restore_master_password, RestoreMasterPassword};
+    use super::{
+        handle_restore_database_from_cloud, persist_restored_cloud_data,
+        take_restore_master_password, RestoreMasterPassword,
+    };
     use crate::cloud::{CloudMetadata, CloudRecord};
+    use crate::commands::CommandResult;
+    use crate::config::AppConfig;
     use crate::db::schema::init_db_in_memory;
+    use crate::executor::config_impl::ServiceNotificationImpl;
+    use crate::executor::CommandExecutor;
+    use crate::services::clipboard::{ClipboardService, MockBackend};
+    use crate::services::health::HealthService;
+    use crate::services::import_export::ImportExportService;
     use crate::services::sync::SyncResult;
+    use crate::services::sync::SyncService;
     use crate::services::vault::VaultService;
     use crate::sync::task::SyncReport;
     use crate::types::SecureStr;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+
+    fn create_test_sync_service() -> SyncService {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        SyncService::new(crate::cloud::CloudStorage::new(op, "memory".to_string()))
+    }
 
     #[test]
     fn cached_restore_password_can_be_restored_after_failure() {
@@ -675,7 +695,7 @@ mod restore_password_tests {
                 id: record_id.clone(),
                 version: 1,
                 encrypted_data: "not-base64!!!".to_string(),
-                nonce: "bm9uY2U=".to_string(),
+                nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
                 dek_version: 1,
                 aad: crate::cloud::record::AadFields {
                     record_id,
@@ -728,6 +748,106 @@ mod restore_password_tests {
             cached.as_ref().map(|password| password.expose()),
             Some("cached-password")
         );
+    }
+
+    #[tokio::test]
+    async fn cached_restore_password_is_restored_after_unlock_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let vault_dir = temp.path().join("vault");
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        std::fs::write(vault_dir.join("wrapped_secret_key.json"), "{not-json").unwrap();
+        let conn = init_db_in_memory();
+        let vault = VaultService::new(conn);
+        let (result_tx, _) = mpsc::channel(64);
+        let (internal_tx, internal_rx) = mpsc::channel(64);
+
+        let mut executor = CommandExecutor {
+            vault,
+            sync: Some(create_test_sync_service()),
+            health: HealthService::new(),
+            clipboard: Arc::new(ClipboardService::with_backend(
+                Box::new(MockBackend::new()),
+                30,
+            )),
+            import_export: ImportExportService::new(),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(
+                AppConfig::default(),
+                temp.path().join("config"),
+            ),
+            config_notifier: ServiceNotificationImpl::new(),
+            vault_dir,
+            config_dir: temp.path().join("config"),
+            health_report: None,
+            last_health_check_time: None,
+            result_tx,
+            internal_tx,
+            internal_rx: Some(internal_rx),
+            shutdown_token: CancellationToken::new(),
+            operation_cancel_token: CancellationToken::new(),
+            timer_rebuild_pending: false,
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+            verified_master_password: Some(SecureStr::new("cached-password".to_string())),
+        };
+
+        let result = handle_restore_database_from_cloud(&mut executor, None).await;
+
+        assert!(matches!(result, CommandResult::Error { .. }));
+        assert_eq!(
+            executor
+                .verified_master_password
+                .as_ref()
+                .map(|password| password.expose()),
+            Some("cached-password")
+        );
+    }
+
+    #[tokio::test]
+    async fn provided_restore_password_is_not_cached_after_unlock_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let vault_dir = temp.path().join("vault");
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        std::fs::write(vault_dir.join("wrapped_secret_key.json"), "{not-json").unwrap();
+        let conn = init_db_in_memory();
+        let vault = VaultService::new(conn);
+        let (result_tx, _) = mpsc::channel(64);
+        let (internal_tx, internal_rx) = mpsc::channel(64);
+
+        let mut executor = CommandExecutor {
+            vault,
+            sync: Some(create_test_sync_service()),
+            health: HealthService::new(),
+            clipboard: Arc::new(ClipboardService::with_backend(
+                Box::new(MockBackend::new()),
+                30,
+            )),
+            import_export: ImportExportService::new(),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(
+                AppConfig::default(),
+                temp.path().join("config"),
+            ),
+            config_notifier: ServiceNotificationImpl::new(),
+            vault_dir,
+            config_dir: temp.path().join("config"),
+            health_report: None,
+            last_health_check_time: None,
+            result_tx,
+            internal_tx,
+            internal_rx: Some(internal_rx),
+            shutdown_token: CancellationToken::new(),
+            operation_cancel_token: CancellationToken::new(),
+            timer_rebuild_pending: false,
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+            verified_master_password: None,
+        };
+
+        let result = handle_restore_database_from_cloud(
+            &mut executor,
+            Some(SecureStr::new("provided-password".to_string())),
+        )
+        .await;
+
+        assert!(matches!(result, CommandResult::Error { .. }));
+        assert!(executor.verified_master_password.is_none());
     }
 }
 
