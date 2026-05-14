@@ -811,9 +811,9 @@ mod tests {
             config: &config,
         };
 
-        let test_words: Vec<String> = (0..24).map(|i| format!("word{i}")).collect();
+        let test_words = (0..24).map(|i| format!("word{i}")).collect::<Vec<_>>();
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-            recovery_words: RecoveryWords::new(test_words.clone()).unwrap(),
+            recovery_words: RecoveryWords::new(test_words).unwrap(),
         });
 
         // Type matching 8+ char passwords
@@ -857,9 +857,10 @@ mod tests {
                 let words =
                     recovery_words.expect("recovery_words should be Some for OnboardingCreate");
                 assert_eq!(words.len(), 24, "Should carry 24 recovery words");
+                let expected_words = (0..24).map(|i| format!("word{i}")).collect::<Vec<_>>();
                 assert_eq!(
                     words.as_slice(),
-                    test_words.as_slice(),
+                    expected_words.as_slice(),
                     "Should carry the exact words from context"
                 );
             }

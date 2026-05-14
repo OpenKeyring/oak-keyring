@@ -71,13 +71,6 @@ impl Passkey {
         Ok(Self { mnemonic })
     }
 
-    pub fn from_words(words: &[String], language: MnemonicLanguage) -> Result<Self, String> {
-        let phrase = words.join(" ");
-        let mnemonic =
-            Mnemonic::parse_in(language.to_bip39_language(), &phrase).map_err(|e| e.to_string())?;
-        Ok(Self { mnemonic })
-    }
-
     pub fn from_recovery_words(
         words: &crate::types::RecoveryWords,
         language: MnemonicLanguage,
@@ -89,14 +82,26 @@ impl Passkey {
         parsed.map(|mnemonic| Self { mnemonic })
     }
 
-    pub fn to_words(&self) -> Vec<String> {
-        self.mnemonic.words().map(String::from).collect()
-    }
-
     pub fn to_recovery_words(
         &self,
     ) -> Result<crate::types::RecoveryWords, crate::types::RecoveryWordsError> {
         crate::types::RecoveryWords::new(self.mnemonic.words().map(String::from).collect())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_raw_words_for_test(
+        raw: &[String],
+        language: MnemonicLanguage,
+    ) -> Result<Self, String> {
+        let phrase = raw.join(" ");
+        let mnemonic =
+            Mnemonic::parse_in(language.to_bip39_language(), &phrase).map_err(|e| e.to_string())?;
+        Ok(Self { mnemonic })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn to_words_for_test(&self) -> Vec<String> {
+        self.mnemonic.words().map(String::from).collect()
     }
 
     pub fn to_seed(&self, passphrase: Option<&str>) -> Result<PasskeySeed, String> {
@@ -203,7 +208,7 @@ mod tests {
     fn test_generate_24_words() {
         let pk = Passkey::generate(24, MnemonicLanguage::English)
             .expect("24-word generation should succeed");
-        let words = pk.to_words();
+        let words = pk.to_words_for_test();
         assert_eq!(words.len(), 24);
     }
 
@@ -215,11 +220,11 @@ mod tests {
     }
 
     #[test]
-    fn test_roundtrip_generate_from_words() {
+    fn test_roundtrip_generate_from_raw_helper() {
         let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
-        let words = pk.to_words();
-        let pk2 = Passkey::from_words(&words, MnemonicLanguage::English).unwrap();
-        let words2 = pk2.to_words();
+        let words = pk.to_words_for_test();
+        let pk2 = Passkey::from_raw_words_for_test(&words, MnemonicLanguage::English).unwrap();
+        let words2 = pk2.to_words_for_test();
         assert_eq!(words, words2);
     }
 
@@ -299,17 +304,17 @@ mod tests {
 
     #[test]
     fn test_from_words_invalid_mnemonic_fails() {
-        let bad_words: Vec<String> = (0..24).map(|_| "foobar".to_string()).collect();
-        assert!(Passkey::from_words(&bad_words, MnemonicLanguage::English).is_err());
+        let invalid = (0..24).map(|_| "foobar".to_string()).collect::<Vec<_>>();
+        assert!(Passkey::from_raw_words_for_test(&invalid, MnemonicLanguage::English).is_err());
     }
 
     #[test]
     fn test_full_recovery_flow() {
-        // generate → to_words → from_words → to_seed → to_secret_key
+        // generate -> to_recovery_words -> from_recovery_words -> to_seed -> to_secret_key
         let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
-        let words = pk.to_words();
+        let words = pk.to_recovery_words().unwrap();
 
-        let pk2 = Passkey::from_words(&words, MnemonicLanguage::English).unwrap();
+        let pk2 = Passkey::from_recovery_words(&words, MnemonicLanguage::English).unwrap();
         let seed = pk2.to_seed(None).unwrap();
         let sk = seed.to_secret_key();
         assert_eq!(sk.len(), 32);
@@ -325,7 +330,7 @@ mod tests {
     #[test]
     fn test_generate_english_words() {
         let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
-        let words = pk.to_words();
+        let words = pk.to_words_for_test();
         assert_eq!(words.len(), 24);
         assert!(words.iter().all(|w| w.is_ascii()));
     }
@@ -333,7 +338,7 @@ mod tests {
     #[test]
     fn test_generate_chinese_words() {
         let pk = Passkey::generate(24, MnemonicLanguage::ChineseSimplified).unwrap();
-        let words = pk.to_words();
+        let words = pk.to_words_for_test();
         assert_eq!(words.len(), 24);
         assert!(words.iter().all(|w| !w.is_ascii()));
     }
@@ -341,17 +346,18 @@ mod tests {
     #[test]
     fn test_roundtrip_chinese_mnemonic() {
         let pk = Passkey::generate(24, MnemonicLanguage::ChineseSimplified).unwrap();
-        let words = pk.to_words();
-        let pk2 = Passkey::from_words(&words, MnemonicLanguage::ChineseSimplified).unwrap();
-        let words2 = pk2.to_words();
+        let words = pk.to_words_for_test();
+        let pk2 =
+            Passkey::from_raw_words_for_test(&words, MnemonicLanguage::ChineseSimplified).unwrap();
+        let words2 = pk2.to_words_for_test();
         assert_eq!(words, words2);
     }
 
     #[test]
     fn test_cross_language_from_words_fails() {
         let pk = Passkey::generate(24, MnemonicLanguage::ChineseSimplified).unwrap();
-        let words = pk.to_words();
-        let result = Passkey::from_words(&words, MnemonicLanguage::English);
+        let words = pk.to_words_for_test();
+        let result = Passkey::from_raw_words_for_test(&words, MnemonicLanguage::English);
         assert!(result.is_err(), "cross-language parse must fail");
     }
 
@@ -377,7 +383,8 @@ mod tests {
     fn test_to_seed_language_independence() {
         let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
         let seed1 = pk.to_seed(None).unwrap();
-        let pk2 = Passkey::from_words(&pk.to_words(), MnemonicLanguage::English).unwrap();
+        let words = pk.to_recovery_words().unwrap();
+        let pk2 = Passkey::from_recovery_words(&words, MnemonicLanguage::English).unwrap();
         let seed2 = pk2.to_seed(None).unwrap();
         assert_eq!(seed1.to_secret_key(), seed2.to_secret_key());
     }

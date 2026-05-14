@@ -454,12 +454,13 @@ fn onboarding_recovery_display_copy_skipped_when_empty() {
 
 #[test]
 fn onboarding_recovery_display_regenerate_generates_new_words_locally() {
+    let original_first_word = "word0".to_string();
     let original_words = (0..24).map(|i| format!("word{i}")).collect::<Vec<_>>();
     let mut screen = OnboardingScreen {
         selected_path: Some(OnboardingPath::CreateNew),
         current_step: OnboardingStep::RecoveryDisplay,
         recovery_focus: RecoveryFocus::RegenerateButton,
-        recovery_words: Some(RecoveryWords::new(original_words.clone()).unwrap()),
+        recovery_words: Some(RecoveryWords::new(original_words).unwrap()),
         recovery_confirmed: true,
         clipboard_copied: true,
         ..Default::default()
@@ -478,7 +479,7 @@ fn onboarding_recovery_display_regenerate_generates_new_words_locally() {
         .recovery_words
         .as_ref()
         .expect("words should be regenerated");
-    assert_ne!(words.word(0), Some(original_words[0].as_str()));
+    assert_ne!(words.word(0), Some(original_first_word.as_str()));
     assert_eq!(words.len(), 24);
 }
 
