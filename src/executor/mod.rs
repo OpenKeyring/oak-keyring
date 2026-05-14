@@ -421,6 +421,12 @@ impl Drop for PendingFileBackedVaultDb<'_> {
             return;
         }
 
+        // Pending file-backed databases are speculative recovery outputs. If a
+        // restore/init path returns before commit(), leaving those files on disk
+        // would make the next startup treat an empty or partial database as a
+        // real vault. Roll back to the in-memory placeholder first so the
+        // executor cannot keep using a connection to files we are about to
+        // remove.
         self.executor.vault = crate::services::vault::VaultService::new(init_db_in_memory());
 
         for path in vault_db_paths(&self.executor.vault_dir) {
