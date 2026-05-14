@@ -59,6 +59,7 @@ fn make_executor_with_one_login() -> CommandExecutor {
 
     CommandExecutor {
         vault,
+        vault_db_file_backed: false,
         sync: None,
         health: HealthService::new(),
         clipboard: Arc::new(ClipboardService::with_backend(
@@ -100,6 +101,7 @@ fn make_executor_no_records() -> CommandExecutor {
 
     CommandExecutor {
         vault,
+        vault_db_file_backed: false,
         sync: None,
         health: HealthService::new(),
         clipboard: Arc::new(ClipboardService::with_backend(

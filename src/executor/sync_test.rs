@@ -22,6 +22,7 @@ async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
 
     let mut executor = CommandExecutor {
         vault,
+        vault_db_file_backed: false,
         sync: None,
         health: HealthService::new(),
         clipboard: Arc::new(ClipboardService::with_backend(
@@ -73,6 +74,7 @@ async fn trigger_sync_returns_cancelled_when_shutdown_token_cancelled() {
 
     let mut executor = CommandExecutor {
         vault,
+        vault_db_file_backed: false,
         sync: None,
         health: HealthService::new(),
         clipboard: Arc::new(ClipboardService::with_backend(

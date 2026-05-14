@@ -298,6 +298,7 @@ mod tests {
 
         super::super::CommandExecutor {
             vault,
+            vault_db_file_backed: false,
             sync: None,
             health: HealthService::new(),
             clipboard,
@@ -345,6 +346,7 @@ mod tests {
 
         super::super::CommandExecutor {
             vault,
+            vault_db_file_backed: false,
             sync: None,
             health: HealthService::new(),
             clipboard,

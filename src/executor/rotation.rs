@@ -355,6 +355,7 @@ mod tests {
 
         CommandExecutor {
             vault,
+            vault_db_file_backed: false,
             sync,
             health: HealthService::new(),
             clipboard,

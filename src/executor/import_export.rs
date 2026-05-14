@@ -640,6 +640,7 @@ mod tests {
 
         CommandExecutor {
             vault,
+            vault_db_file_backed: false,
             sync: None,
             health: HealthService::new(),
             clipboard: Arc::new(ClipboardService::with_backend(
