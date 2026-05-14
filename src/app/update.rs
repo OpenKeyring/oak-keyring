@@ -397,6 +397,8 @@ fn route_to_screen(
         }
         Screen::Unlock => state.screens.unlock.update(msg, ctx),
         Screen::Onboarding => state.screens.onboarding.update(msg, ctx),
+        Screen::KeyRecovery => ScreenResult::Continue,
+        Screen::DatabaseRecovery => ScreenResult::Continue,
         Screen::Config => {
             state.screens.config.state.terminal_height = state.terminal_size.1;
             state.screens.config.update(msg, ctx)
@@ -424,6 +426,8 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
         }
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
         Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
+        Screen::KeyRecovery => {}
+        Screen::DatabaseRecovery => {}
         Screen::Config => state.screens.config.on_mount(ctx),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
         Screen::SetNewMasterPassword => {
@@ -480,6 +484,8 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         Screen::Main => state.screens.main.on_unmount(),
         Screen::Unlock => state.screens.unlock.on_unmount(),
         Screen::Onboarding => state.screens.onboarding.on_unmount(),
+        Screen::KeyRecovery => {}
+        Screen::DatabaseRecovery => {}
         Screen::Config => state.screens.config.on_unmount(),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
         Screen::SetNewMasterPassword => {
@@ -516,6 +522,7 @@ mod tests {
 
     fn test_app() -> App {
         let vault_dir = tempfile::tempdir().unwrap();
+        let config_dir = tempfile::tempdir().unwrap();
         let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
         let mut app = App::new(
             crate::config::AppConfig::default(),

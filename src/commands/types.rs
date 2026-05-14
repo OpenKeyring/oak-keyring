@@ -62,6 +62,8 @@ pub enum AppPhase {
 pub enum Screen {
     Unlock,
     Onboarding,
+    KeyRecovery,
+    DatabaseRecovery,
     Main,
     CreateRecord,
     EditRecord { id: Uuid },

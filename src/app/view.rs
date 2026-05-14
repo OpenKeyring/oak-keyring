@@ -27,6 +27,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Screen::Onboarding => {
             app.state.screens.onboarding.view(frame, area);
         }
+        Screen::KeyRecovery => {}
+        Screen::DatabaseRecovery => {}
         Screen::Config => {
             app.state.screens.config.view(frame, area);
         }

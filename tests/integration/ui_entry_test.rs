@@ -19,6 +19,7 @@ use oak_keyring::tui::state::notification::{NotificationState, StatusMessage};
 #[test]
 fn app_starts_at_unlock_screen_when_vault_exists() {
     let vault_dir = tempfile::tempdir().unwrap();
+    let config_dir = tempfile::tempdir().unwrap();
     let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
     let app = App::new(
         AppConfig::default(),
@@ -36,6 +37,7 @@ fn app_starts_at_unlock_screen_when_vault_exists() {
 #[test]
 fn app_starts_at_onboarding_screen_when_no_vault() {
     let vault_dir = tempfile::tempdir().unwrap();
+    let config_dir = tempfile::tempdir().unwrap();
     let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
     let app = App::new(
         AppConfig::default(),
@@ -344,4 +346,36 @@ fn set_password_screen_in_screen_states() {
             recovery_words: Vec::new()
         }
     );
+}
+
+// ── Partial vault startup routing ───────────────────────────────────────────
+
+#[test]
+fn key_only_startup_does_not_create_empty_database() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data_dir");
+    let config_dir = temp.path().join("config_dir");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(data_dir.join("wrapped_secret_key.json"), "{}").unwrap();
+
+    let instance_lock = InstanceLock::acquire(&data_dir).unwrap();
+    let app = App::new(
+        AppConfig::default(),
+        data_dir.clone(),
+        config_dir,
+        oak_keyring::app::VaultInitState {
+            has_vault: false,
+            vault_has_key_only: true,
+            vault_has_db_only: false,
+        },
+        instance_lock,
+    )
+    .expect("app");
+
+    assert_eq!(
+        app.state.current_screen,
+        Screen::DatabaseRecovery
+    );
+    assert!(!data_dir.join("vault.db").exists());
 }
