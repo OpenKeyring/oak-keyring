@@ -398,10 +398,9 @@ pub async fn handle_resolve_all_conflicts(
 
 /// Restore vault.db from cloud sync (pull-only, never pushes empty local state).
 ///
-/// Creates a file-backed vault.db, unlocks it with the cached master password,
-/// then runs a full sync cycle. Since the local vault is empty, the sync
-/// effectively becomes pull-only: all cloud records are downloaded and imported
-/// with no push or deletion of remote data.
+/// Creates a file-backed vault.db, unlocks it with the cached or provided
+/// master password, then pulls remote metadata and records directly from cloud
+/// storage and applies them to the reopened vault.
 pub async fn handle_restore_database_from_cloud(
     executor: &mut CommandExecutor,
     master_password: Option<SecureStr>,
@@ -456,64 +455,78 @@ pub async fn handle_restore_database_from_cloud(
         };
     }
 
-    // Run a full sync cycle. With an empty local vault, this is effectively
-    // pull-only: all cloud records are downloaded and no data is pushed.
-    match pending.sync_restore().await {
+    match pending.restore_pull_only().await {
         Ok(result) => {
-            if result.downloaded_records.is_empty() {
-                drop(pending);
-                master_password.restore_cache_on_failure(&mut executor.verified_master_password);
-                return CommandResult::Error {
-                    code: ErrorCode::SyncProviderError,
-                    context: ErrorContext::default(),
-                    message_key: "error.cloud_restore_empty",
-                    fallback:
-                        "No recoverable cloud sync data was found. Try restoring from a .okb backup."
-                            .to_string(),
-                };
-            }
-            let mut apply_errors = 0usize;
             for record in &result.downloaded_records {
                 if let Err(e) = pending.apply_downloaded_cloud_record(record) {
-                    apply_errors += 1;
-                    tracing::warn!(
-                        record_id = %record.id,
-                        error = %e,
-                        "Failed to apply downloaded record during cloud restore"
-                    );
-                }
-            }
-            for state in &result.downloaded_health_states {
-                if let Err(e) = pending.upsert_record_health_state(state) {
-                    apply_errors += 1;
-                    tracing::warn!(error = %e, "Failed to apply downloaded health state during cloud restore");
-                }
-            }
-            if !result.downloaded_health_deleted.is_empty() {
-                if let Err(e) =
-                    pending.delete_record_health_states(&result.downloaded_health_deleted)
-                {
-                    apply_errors += 1;
-                    tracing::warn!(error = %e, "Failed to delete stale health states during cloud restore");
-                }
-            }
-            if apply_errors > 0 {
-                drop(pending);
-                master_password.restore_cache_on_failure(&mut executor.verified_master_password);
-                return CommandResult::Error {
-                    code: ErrorCode::SyncProviderError,
-                    context: ErrorContext::default(),
-                    message_key: "error.cloud_restore_failed",
-                    fallback: format!(
-                        "Cloud database restore failed while applying downloaded records: {} errors.",
-                        apply_errors
-                    ),
+                    drop(pending);
+                    master_password.restore_cache_on_failure(&mut executor.verified_master_password);
+                    return CommandResult::Error {
+                        code: ErrorCode::SyncProviderError,
+                        context: ErrorContext::default(),
+                        message_key: "error.cloud_restore_failed",
+                        fallback: format!("Failed to apply cloud-restored record: {}", e),
+                    };
                 };
             }
+
+            for state in &result.downloaded_health_states {
+                if let Err(e) = pending.upsert_record_health_state(state) {
+                    drop(pending);
+                    master_password.restore_cache_on_failure(&mut executor.verified_master_password);
+                    return CommandResult::Error {
+                        code: ErrorCode::SyncProviderError,
+                        context: ErrorContext::default(),
+                        message_key: "error.cloud_restore_failed",
+                        fallback: format!("Failed to persist cloud-restored health state: {}", e),
+                    };
+                };
+            }
+
+            if !result.downloaded_health_deleted.is_empty() {
+                if let Err(e) = pending.delete_record_health_states(&result.downloaded_health_deleted) {
+                    drop(pending);
+                    master_password.restore_cache_on_failure(&mut executor.verified_master_password);
+                    return CommandResult::Error {
+                        code: ErrorCode::SyncProviderError,
+                        context: ErrorContext::default(),
+                        message_key: "error.cloud_restore_failed",
+                        fallback: format!("Failed to remove stale cloud-restored health states: {}", e),
+                    };
+                }
+            }
+
+            if let Some(metadata) = result.remote_metadata.as_ref() {
+                if let Err(e) =
+                    pending.set_metadata("metadata_version", &metadata.metadata_version.to_string())
+                {
+                    drop(pending);
+                    master_password.restore_cache_on_failure(&mut executor.verified_master_password);
+                    return CommandResult::Error {
+                        code: ErrorCode::SyncProviderError,
+                        context: ErrorContext::default(),
+                        message_key: "error.cloud_restore_failed",
+                        fallback: format!("Failed to persist restored metadata_version: {}", e),
+                    };
+                }
+                if let Err(e) =
+                    pending.set_metadata("vault_identity_token", &metadata.vault_identity_token)
+                {
+                    drop(pending);
+                    master_password.restore_cache_on_failure(&mut executor.verified_master_password);
+                    return CommandResult::Error {
+                        code: ErrorCode::SyncProviderError,
+                        context: ErrorContext::default(),
+                        message_key: "error.cloud_restore_failed",
+                        fallback: format!("Failed to persist restored vault_identity_token: {}", e),
+                    };
+                }
+            }
+
             pending.commit();
             tracing::info!(
                 downloaded = result.downloaded_records.len(),
-                "cloud restore sync complete"
+                "cloud restore pull complete"
             );
             CommandResult::DatabaseRestored {
                 source: crate::commands::types::DatabaseRecoverySource::Cloud,
@@ -522,11 +535,12 @@ pub async fn handle_restore_database_from_cloud(
         Err(e) => {
             drop(pending);
             master_password.restore_cache_on_failure(&mut executor.verified_master_password);
+            let err: &dyn ServiceError = &e;
             CommandResult::Error {
-                code: ErrorCode::SyncProviderError,
-                context: ErrorContext::default(),
-                message_key: "error.cloud_restore_failed",
-                fallback: format!("Cloud database restore failed: {}", e),
+                code: err.to_error_code(),
+                context: err.to_error_context(),
+                message_key: "error.sync_failed",
+                fallback: format!("Cloud restore failed: {}", e),
             }
         }
     }

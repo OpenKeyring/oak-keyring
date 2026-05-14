@@ -425,10 +425,18 @@ impl PendingFileBackedVaultDb<'_> {
         self.executor.vault.delete_record_health_states(record_ids)
     }
 
-    pub(super) async fn sync_restore(
+    pub(super) async fn restore_pull_only(
         &mut self,
     ) -> Result<crate::services::sync::SyncResult, crate::errors::mapping::sync::SyncError> {
-        self.executor.sync.as_mut().unwrap().sync(None).await
+        self.executor.sync.as_mut().unwrap().restore_pull_only().await
+    }
+
+    pub(super) fn set_metadata(
+        &mut self,
+        key: &str,
+        value: &str,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        self.executor.vault.set_metadata(key, value)
     }
 
     pub(super) fn commit(mut self) {
