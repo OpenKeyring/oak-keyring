@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::commands::types::*;
-use crate::types::{CredentialType, EncryptedPayload, SecureStr};
+use crate::types::{CredentialType, EncryptedPayload, RecoveryWords, SecureStr};
 
 /// UI → Executor business command.
 ///
@@ -17,7 +17,7 @@ pub enum Command {
     },
 
     UnlockWithRecoveryKey {
-        words: Vec<String>,
+        words: RecoveryWords,
     },
 
     LockVault,
@@ -41,7 +41,7 @@ pub enum Command {
         /// reconstructs the Passkey from these words instead of generating
         /// a new mnemonic. This ensures the words shown to the user match
         /// the key material stored on disk.
-        recovery_words: Option<Vec<String>>,
+        recovery_words: Option<RecoveryWords>,
     },
 
     // ── Record CRUD ──────────────────────────────
@@ -239,13 +239,13 @@ pub enum Command {
     // ── Partial Vault Recovery ─────────────────────
     /// Validate BIP39 recovery words (must be exactly 24).
     ValidateRecoveryWords {
-        words: Vec<String>,
+        words: RecoveryWords,
     },
 
     /// Rebuild wrapped_secret_key.json from recovery words + new master password.
     RebuildKeyFileFromRecovery {
         master_password: SecureStr,
-        recovery_words: Vec<String>,
+        recovery_words: RecoveryWords,
     },
 
     /// Restore vault.db from a local .okb backup file.

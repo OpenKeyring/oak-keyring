@@ -157,9 +157,7 @@ pub enum CommandResult {
     VaultLocked,
     MasterPasswordVerified,
     MasterPasswordChanged,
-    VaultInitialized {
-        recovery_words: Vec<String>,
-    },
+    VaultInitialized,
 
     // ── Audit Results ────────────────────────
     AuditLogLoaded {
@@ -352,7 +350,7 @@ mod exhaustive_tests {
                 CommandResult::VaultLocked => {}
                 CommandResult::MasterPasswordVerified => {}
                 CommandResult::MasterPasswordChanged => {}
-                CommandResult::VaultInitialized { .. } => {}
+                CommandResult::VaultInitialized => {}
                 // Audit Results
                 CommandResult::AuditLogLoaded { .. } => {}
                 // DEK Rotation Results

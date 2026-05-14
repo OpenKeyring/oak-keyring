@@ -37,6 +37,61 @@ fn empty_okb_payload() -> Vec<u8> {
     .to_vec()
 }
 
+struct ExecutorHarness {
+    executor: CommandExecutor,
+    result_rx: mpsc::Receiver<Message>,
+}
+
+impl std::ops::Deref for ExecutorHarness {
+    type Target = CommandExecutor;
+
+    fn deref(&self) -> &Self::Target {
+        &self.executor
+    }
+}
+
+impl std::ops::DerefMut for ExecutorHarness {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.executor
+    }
+}
+
+fn recovery_words_fixture() -> oak_keyring::types::RecoveryWords {
+    oak_keyring::types::RecoveryWords::new(vec!["abandon".to_string(); 24]).unwrap()
+}
+
+async fn test_executor() -> ExecutorHarness {
+    let (result_tx, result_rx) = mpsc::channel(64);
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("oak-keyring");
+    let config_dir = temp.path().join("oak-keyring");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    let executor = CommandExecutor::new(
+        AppConfig::default(),
+        result_tx,
+        CancellationToken::new(),
+        data_dir,
+        config_dir,
+        false,
+    )
+    .unwrap();
+
+    ExecutorHarness {
+        executor,
+        result_rx,
+    }
+}
+
+async fn recv_result(executor: &mut ExecutorHarness) -> CommandResult {
+    let msg = executor.result_rx.recv().await.expect("result");
+    match msg {
+        Message::CommandCompleted(result) => result,
+        other => panic!("unexpected message: {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn executor_can_be_constructed() {
     let (result_tx, _result_rx) = mpsc::channel(64);
@@ -123,40 +178,16 @@ async fn executor_run_loop_processes_commands() {
 }
 
 #[tokio::test]
-async fn dispatch_validate_recovery_words_rejects_non_24_words() {
-    let (result_tx, mut result_rx) = tokio::sync::mpsc::channel(64);
-    let (command_tx, command_rx) = tokio::sync::mpsc::channel(64);
-    let temp = tempfile::tempdir().unwrap();
-    let data_dir = temp.path().join("oak-keyring");
-    let config_dir = temp.path().join("oak-keyring");
-    std::fs::create_dir_all(&data_dir).unwrap();
-    std::fs::create_dir_all(&config_dir).unwrap();
-
-    let executor = CommandExecutor::new(
-        AppConfig::default(),
-        result_tx,
-        CancellationToken::new(),
-        data_dir,
-        config_dir,
-        DbStartupMode::FileBacked,
-    )
-    .unwrap();
-    let handle = tokio::spawn(async move { executor.run(command_rx).await });
-
-    command_tx
-        .send(Command::ValidateRecoveryWords {
-            words: vec!["abandon".to_string(); 12],
+async fn dispatch_validate_recovery_words_rejects_invalid_words_without_raw_vec() {
+    let mut executor = test_executor().await;
+    executor
+        .execute(Command::ValidateRecoveryWords {
+            words: recovery_words_fixture(),
         })
-        .await
-        .unwrap();
-    let msg = result_rx.recv().await.expect("result");
-    let result = match msg {
-        Message::CommandCompleted(result) => result,
-        other => panic!("unexpected message: {other:?}"),
-    };
-    assert!(matches!(&result, CommandResult::Error { fallback, .. } if fallback.contains("24")));
-    drop(command_tx);
-    handle.await.unwrap();
+        .await;
+
+    let msg = recv_result(&mut executor).await;
+    assert!(matches!(msg, CommandResult::Error { .. }));
 }
 
 #[tokio::test]

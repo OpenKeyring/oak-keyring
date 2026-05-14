@@ -164,7 +164,7 @@ async fn init_and_unlock_vault(
 
     let result = recv_command_result(result_rx).await;
     match result {
-        CommandResult::VaultInitialized { .. } => {}
+        CommandResult::VaultInitialized => {}
         other => panic!("Expected VaultInitialized, got {:?}", other),
     }
 }

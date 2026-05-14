@@ -64,7 +64,7 @@ async fn setup_unlocked_executor(
 
     let result = recv_command_result(&mut result_rx).await;
     match result {
-        CommandResult::VaultInitialized { .. } => {
+        CommandResult::VaultInitialized => {
             // Vault initialized successfully
         }
         other => panic!("Expected VaultInitialized, got {:?}", other),

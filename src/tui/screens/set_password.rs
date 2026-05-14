@@ -404,15 +404,29 @@ impl SetPasswordScreen {
                 self.confirm_password.clear();
                 let cmd = match &self.context {
                     SetPasswordContext::RestoreExistingVault { recovery_words, .. } => {
-                        Command::RebuildKeyFileFromRecovery {
-                            master_password: password,
-                            recovery_words: recovery_words.clone(),
+                        match crate::types::RecoveryWords::new(recovery_words.clone()) {
+                            Ok(recovery_words) => Command::RebuildKeyFileFromRecovery {
+                                master_password: password,
+                                recovery_words,
+                            },
+                            Err(_) => {
+                                self.error =
+                                    Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                                return ScreenResult::Continue;
+                            }
                         }
                     }
                     SetPasswordContext::OnboardingCreate { recovery_words } => {
-                        Command::InitializeVault {
-                            master_password: password,
-                            recovery_words: Some(recovery_words.clone()),
+                        match crate::types::RecoveryWords::new(recovery_words.clone()) {
+                            Ok(recovery_words) => Command::InitializeVault {
+                                master_password: password,
+                                recovery_words: Some(recovery_words),
+                            },
+                            Err(_) => {
+                                self.error =
+                                    Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                                return ScreenResult::Continue;
+                            }
                         }
                     }
                     _ => Command::InitializeVault {
@@ -458,7 +472,7 @@ impl SetPasswordScreen {
 
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
-            CommandResult::VaultInitialized { .. } => ScreenResult::NavigateTo(Screen::Main),
+            CommandResult::VaultInitialized => ScreenResult::NavigateTo(Screen::Main),
             CommandResult::KeyFileRebuilt => match &self.context {
                 SetPasswordContext::RestoreExistingVault {
                     next: RestoreNext::ValidateExistingDatabase,
@@ -791,9 +805,7 @@ mod tests {
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
             recovery_words: Vec::new(),
         });
-        let result = screen.handle_command_result(CommandResult::VaultInitialized {
-            recovery_words: vec![],
-        });
+        let result = screen.handle_command_result(CommandResult::VaultInitialized);
         assert!(matches!(result, ScreenResult::NavigateTo(Screen::Main)));
     }
 
@@ -880,7 +892,8 @@ mod tests {
                     recovery_words.expect("recovery_words should be Some for OnboardingCreate");
                 assert_eq!(words.len(), 24, "Should carry 24 recovery words");
                 assert_eq!(
-                    words, test_words,
+                    words.as_slice(),
+                    test_words.as_slice(),
                     "Should carry the exact words from context"
                 );
             }

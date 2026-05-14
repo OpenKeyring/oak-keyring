@@ -224,10 +224,18 @@ impl OnboardingScreen {
                 let result = self.recovery_grid.handle_key(key);
                 match result {
                     Some(words) => {
-                        let cmd = Command::UnlockWithRecoveryKey { words };
-                        let _ = ctx.command_tx.try_send(cmd);
-                        // Advance to SecurityAdvisory
-                        self.current_step = OnboardingStep::SecurityAdvisory;
+                        match crate::types::RecoveryWords::new(words) {
+                            Ok(words) => {
+                                let cmd = Command::UnlockWithRecoveryKey { words };
+                                let _ = ctx.command_tx.try_send(cmd);
+                                // Advance to SecurityAdvisory
+                                self.current_step = OnboardingStep::SecurityAdvisory;
+                            }
+                            Err(_) => {
+                                self.error =
+                                    Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                            }
+                        }
                         ScreenResult::Continue
                     }
                     None => ScreenResult::Continue,

@@ -69,9 +69,17 @@ impl KeyRecoveryScreen {
                     self.error = None;
                     self.validating = true;
                     let words = self.words.collect_words();
-                    let _ = ctx
-                        .command_tx
-                        .try_send(Command::ValidateRecoveryWords { words });
+                    match crate::types::RecoveryWords::new(words) {
+                        Ok(words) => {
+                            let _ = ctx
+                                .command_tx
+                                .try_send(Command::ValidateRecoveryWords { words });
+                        }
+                        Err(_) => {
+                            self.validating = false;
+                            self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                        }
+                    }
                 } else {
                     self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
                 }

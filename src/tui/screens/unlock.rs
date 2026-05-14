@@ -415,7 +415,15 @@ impl UnlockScreen {
                                 .password_input
                                 .expose(|s| s.split_whitespace().map(String::from).collect());
                             self.password_input.clear();
-                            Command::UnlockWithRecoveryKey { words }
+                            match crate::types::RecoveryWords::new(words) {
+                                Ok(words) => Command::UnlockWithRecoveryKey { words },
+                                Err(_) => {
+                                    self.state = UnlockPhase::Idle;
+                                    self.error_message =
+                                        Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                                    return ScreenResult::Continue;
+                                }
+                            }
                         }
                     };
                     let _ = ctx.command_tx.try_send(cmd);
