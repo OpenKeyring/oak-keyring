@@ -628,17 +628,17 @@ mod tests {
     }
 
     #[test]
-    fn key_recovery_words_are_captured_before_unmount_zeroizes_grid() {
+    fn key_recovery_to_set_password_preserves_words_through_screen_lifecycle() {
+        use crate::commands::result::CommandResult;
         use crate::tui::screens::key_recovery::{KeyRecoveryOrigin, KeyRecoveryScreen};
         use crate::tui::screens::set_password::{RestoreNext, SetPasswordContext};
-        use crate::tui::state::AppState;
-        use zeroize::Zeroize;
 
         let original_words: Vec<String> = (0..24).map(|i| format!("word{}", i)).collect();
-        let mut state = AppState::new(false, false, true);
-        state.current_screen = Screen::KeyRecovery;
-        state.screens.key_recovery = KeyRecoveryScreen::new(KeyRecoveryOrigin::StartupDbOnly);
-        for (slot, word) in state
+        let mut app = test_app();
+        app.state.current_screen = Screen::KeyRecovery;
+        app.state.screens.key_recovery = KeyRecoveryScreen::new(KeyRecoveryOrigin::StartupDbOnly);
+        for (slot, word) in app
+            .state
             .screens
             .key_recovery
             .words
@@ -649,27 +649,35 @@ mod tests {
             *slot = word.clone();
         }
 
-        stage_recovery_words_for_navigation(&mut state, Screen::SetNewMasterPassword);
-        state.screens.key_recovery.words.zeroize();
+        let result = handle_message(
+            &mut app,
+            Message::CommandCompleted(CommandResult::RecoveryWordsValidated),
+        )
+        .expect("message handled");
 
-        let words = state
-            .take_pending_recovery_words()
-            .expect("pending recovery words should survive key recovery unmount");
-        assert_eq!(words[0], "word0");
-        assert_eq!(words[23], "word23");
-        assert_eq!(words, original_words);
-
-        let context = SetPasswordContext::RestoreExistingVault {
-            recovery_words: words,
-            next: RestoreNext::ValidateExistingDatabase,
-        };
-
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::SetNewMasterPassword);
+        assert!(app
+            .state
+            .screens
+            .key_recovery
+            .words
+            .words
+            .iter()
+            .all(String::is_empty));
         assert!(matches!(
-            context,
+            app.state.screens.set_new_master_password.context,
             SetPasswordContext::RestoreExistingVault {
                 next: RestoreNext::ValidateExistingDatabase,
-                ..
-            }
+                ref recovery_words,
+            } if recovery_words == &original_words
+        ));
+        assert!(matches!(
+            app.state
+                .screen_history
+                .last()
+                .map(|snapshot| snapshot.screen),
+            Some(Screen::KeyRecovery)
         ));
     }
 }

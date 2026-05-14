@@ -104,6 +104,12 @@ impl Default for AppState {
     }
 }
 
+impl Drop for AppState {
+    fn drop(&mut self) {
+        self.clear_pending_recovery_words();
+    }
+}
+
 impl AppState {
     /// Create a new AppState with the initial screen determined by vault file state.
     ///
