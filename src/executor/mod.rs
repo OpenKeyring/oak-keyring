@@ -505,6 +505,14 @@ mod db_startup_mode_tests {
     fn db_startup_mode_uses_file_backed_when_db_exists() {
         assert_eq!(
             DbStartupMode::from_vault_state(VaultInitState {
+                has_vault: true,
+                vault_has_key_only: false,
+                vault_has_db_only: false,
+            }),
+            DbStartupMode::FileBacked
+        );
+        assert_eq!(
+            DbStartupMode::from_vault_state(VaultInitState {
                 has_vault: false,
                 vault_has_key_only: false,
                 vault_has_db_only: true,

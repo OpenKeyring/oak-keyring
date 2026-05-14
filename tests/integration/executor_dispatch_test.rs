@@ -583,8 +583,8 @@ async fn initialize_vault_db_failure_removes_new_key_file() {
         "failed DB creation must not leave a newly created key file behind"
     );
     assert!(
-        std::fs::symlink_metadata(data_dir.join("vault.db")).is_err(),
-        "failed DB creation must remove newly created vault.db artifacts"
+        std::fs::symlink_metadata(data_dir.join("vault.db")).is_ok(),
+        "failed DB creation must preserve pre-existing vault.db artifacts"
     );
 
     drop(command_tx);
