@@ -10,7 +10,7 @@ use crate::errors::mapping::sync::SyncError;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::task::SyncVaultData;
-use crate::types::SyncStats;
+use crate::types::{SecureStr, SyncStats};
 
 use super::CommandExecutor;
 
@@ -373,7 +373,10 @@ pub async fn handle_resolve_all_conflicts(
 /// then runs a full sync cycle. Since the local vault is empty, the sync
 /// effectively becomes pull-only: all cloud records are downloaded and imported
 /// with no push or deletion of remote data.
-pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) -> CommandResult {
+pub async fn handle_restore_database_from_cloud(
+    executor: &mut CommandExecutor,
+    master_password: Option<SecureStr>,
+) -> CommandResult {
     if executor.sync.is_none() {
         return CommandResult::DatabaseRestoreNeedsOAuth;
     }
@@ -383,14 +386,16 @@ pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) 
         return result;
     }
 
-    let master_password = match executor.verified_master_password.take() {
+    // Unlock with the provided startup password or the cached onboarding password.
+    let master_password = match master_password.or_else(|| executor.verified_master_password.take())
+    {
         Some(pw) => pw,
         None => {
             return CommandResult::Error {
                 code: ErrorCode::ExecutorMasterPasswordRequired,
                 context: ErrorContext::default(),
                 message_key: "error.password_required",
-                fallback: "Master password not available for vault unlock.".to_string(),
+                fallback: "Master password is required to unlock the recovered vault.".to_string(),
             };
         }
     };

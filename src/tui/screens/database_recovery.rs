@@ -32,10 +32,13 @@ pub enum DatabaseRecoveryMode {
     SourceSelection,
     OkbPathInput,
     OkbPasswordInput,
+    OkbMasterPasswordInput,
     CloudSyncing,
+    CloudMasterPasswordInput,
     CloudNeedsOAuth,
     CloudFailed,
     CloudSucceeded,
+    OkbSucceeded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +56,7 @@ pub struct DatabaseRecoveryScreen {
     pub focus: DatabaseRecoveryFocus,
     pub okb_path: String,
     pub okb_password: SensitiveInput,
+    pub master_password: SensitiveInput,
     pub error: Option<String>,
     pub progress: Option<(usize, usize, String)>,
 }
@@ -71,6 +75,7 @@ impl DatabaseRecoveryScreen {
             focus: DatabaseRecoveryFocus::Cloud,
             okb_path: String::new(),
             okb_password: SensitiveInput::new(),
+            master_password: SensitiveInput::new(),
             error: None,
             progress: None,
         }
@@ -100,8 +105,15 @@ impl DatabaseRecoveryScreen {
                 ScreenResult::Continue
             }
             KeyCode::Enter if self.focus == DatabaseRecoveryFocus::Cloud => {
-                self.mode = DatabaseRecoveryMode::CloudSyncing;
-                let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromCloud);
+                if matches!(self.origin, DatabaseRecoveryOrigin::StartupKeyOnly) {
+                    self.mode = DatabaseRecoveryMode::CloudMasterPasswordInput;
+                    self.error = None;
+                } else {
+                    self.mode = DatabaseRecoveryMode::CloudSyncing;
+                    let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromCloud {
+                        master_password: None,
+                    });
+                }
                 ScreenResult::Continue
             }
             KeyCode::Enter if self.focus == DatabaseRecoveryFocus::Okb => {
@@ -158,11 +170,17 @@ impl DatabaseRecoveryScreen {
                     ScreenResult::Continue
                 } else {
                     self.error = None;
-                    let path = std::path::PathBuf::from(self.okb_path.trim());
-                    let password = self.okb_password.take_secure();
-                    let _ = ctx
-                        .command_tx
-                        .try_send(Command::RestoreDatabaseFromOkb { path, password });
+                    if matches!(self.origin, DatabaseRecoveryOrigin::StartupKeyOnly) {
+                        self.mode = DatabaseRecoveryMode::OkbMasterPasswordInput;
+                    } else {
+                        let path = std::path::PathBuf::from(self.okb_path.trim());
+                        let password = self.okb_password.take_secure();
+                        let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromOkb {
+                            path,
+                            password,
+                            master_password: None,
+                        });
+                    }
                     ScreenResult::Continue
                 }
             }
@@ -186,6 +204,87 @@ impl DatabaseRecoveryScreen {
         }
     }
 
+    fn handle_cloud_master_password(
+        &mut self,
+        key: KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
+        match key.code {
+            KeyCode::Enter => {
+                if self.master_password.is_empty() {
+                    self.error = Some(t!("tui.entry.unlock_prompt").to_string());
+                } else {
+                    self.error = None;
+                    self.mode = DatabaseRecoveryMode::CloudSyncing;
+                    let master_password = self.master_password.take_secure();
+                    let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromCloud {
+                        master_password: Some(master_password),
+                    });
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Esc => {
+                self.master_password.clear();
+                self.error = None;
+                self.mode = DatabaseRecoveryMode::SourceSelection;
+                ScreenResult::Continue
+            }
+            KeyCode::Char(c) => {
+                self.master_password.push_char(c);
+                self.error = None;
+                ScreenResult::Continue
+            }
+            KeyCode::Backspace => {
+                self.master_password.pop_char();
+                self.error = None;
+                ScreenResult::Continue
+            }
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn handle_okb_master_password(
+        &mut self,
+        key: KeyEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
+        match key.code {
+            KeyCode::Enter => {
+                if self.master_password.is_empty() {
+                    self.error = Some(t!("tui.entry.unlock_prompt").to_string());
+                } else {
+                    self.error = None;
+                    let path = std::path::PathBuf::from(self.okb_path.trim());
+                    let password = self.okb_password.take_secure();
+                    let master_password = self.master_password.take_secure();
+                    let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromOkb {
+                        path,
+                        password,
+                        master_password: Some(master_password),
+                    });
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Esc => {
+                self.master_password.clear();
+                self.error = None;
+                self.mode = DatabaseRecoveryMode::OkbPasswordInput;
+                ScreenResult::Continue
+            }
+            KeyCode::Char(c) => {
+                self.master_password.push_char(c);
+                self.error = None;
+                ScreenResult::Continue
+            }
+            KeyCode::Backspace => {
+                self.master_password.pop_char();
+                self.error = None;
+                ScreenResult::Continue
+            }
+            _ => ScreenResult::Continue,
+        }
+    }
+
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
             CommandResult::DatabaseRestoreNeedsOAuth => {
@@ -200,8 +299,15 @@ impl DatabaseRecoveryScreen {
                 self.progress = Some((current, total, label));
                 ScreenResult::Continue
             }
-            CommandResult::DatabaseRestored { .. } => {
-                self.mode = DatabaseRecoveryMode::CloudSucceeded;
+            CommandResult::DatabaseRestored { source } => {
+                self.mode = match source {
+                    crate::commands::types::DatabaseRecoverySource::Cloud => {
+                        DatabaseRecoveryMode::CloudSucceeded
+                    }
+                    crate::commands::types::DatabaseRecoverySource::Okb => {
+                        DatabaseRecoveryMode::OkbSucceeded
+                    }
+                };
                 ScreenResult::Continue
             }
             CommandResult::DatabaseValidationFailed { reason } => {
@@ -210,8 +316,15 @@ impl DatabaseRecoveryScreen {
             }
             CommandResult::OAuth2Authorized { .. } => {
                 // OAuth completed — re-trigger cloud restore
-                self.mode = DatabaseRecoveryMode::CloudSyncing;
-                ScreenResult::Command(Box::new(Command::RestoreDatabaseFromCloud))
+                if matches!(self.origin, DatabaseRecoveryOrigin::StartupKeyOnly) {
+                    self.mode = DatabaseRecoveryMode::CloudMasterPasswordInput;
+                    ScreenResult::Continue
+                } else {
+                    self.mode = DatabaseRecoveryMode::CloudSyncing;
+                    ScreenResult::Command(Box::new(Command::RestoreDatabaseFromCloud {
+                        master_password: None,
+                    }))
+                }
             }
             CommandResult::OAuth2Failed { error, .. } => {
                 self.error = Some(error);
@@ -246,6 +359,12 @@ impl DatabaseRecoveryScreen {
             DatabaseRecoveryMode::SourceSelection => self.handle_source_selection(key, &mut ctx),
             DatabaseRecoveryMode::OkbPathInput => self.handle_okb_input(key, &mut ctx),
             DatabaseRecoveryMode::OkbPasswordInput => self.handle_okb_password(key, &mut ctx),
+            DatabaseRecoveryMode::OkbMasterPasswordInput => {
+                self.handle_okb_master_password(key, &mut ctx)
+            }
+            DatabaseRecoveryMode::CloudMasterPasswordInput => {
+                self.handle_cloud_master_password(key, &mut ctx)
+            }
             _ => ScreenResult::Continue,
         }
     }
@@ -262,10 +381,17 @@ impl ScreenTrait for DatabaseRecoveryScreen {
                     DatabaseRecoveryMode::SourceSelection => self.handle_source_selection(key, ctx),
                     DatabaseRecoveryMode::OkbPathInput => self.handle_okb_input(key, ctx),
                     DatabaseRecoveryMode::OkbPasswordInput => self.handle_okb_password(key, ctx),
+                    DatabaseRecoveryMode::OkbMasterPasswordInput => {
+                        self.handle_okb_master_password(key, ctx)
+                    }
+                    DatabaseRecoveryMode::CloudMasterPasswordInput => {
+                        self.handle_cloud_master_password(key, ctx)
+                    }
                     DatabaseRecoveryMode::CloudSyncing
                     | DatabaseRecoveryMode::CloudNeedsOAuth
                     | DatabaseRecoveryMode::CloudFailed
-                    | DatabaseRecoveryMode::CloudSucceeded => match key.code {
+                    | DatabaseRecoveryMode::CloudSucceeded
+                    | DatabaseRecoveryMode::OkbSucceeded => match key.code {
                         KeyCode::Esc => {
                             self.mode = DatabaseRecoveryMode::SourceSelection;
                             self.error = None;
@@ -274,9 +400,16 @@ impl ScreenTrait for DatabaseRecoveryScreen {
                         KeyCode::Enter
                             if matches!(self.mode, DatabaseRecoveryMode::CloudFailed) =>
                         {
-                            self.mode = DatabaseRecoveryMode::CloudSyncing;
                             self.error = None;
-                            let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromCloud);
+                            if matches!(self.origin, DatabaseRecoveryOrigin::StartupKeyOnly) {
+                                self.mode = DatabaseRecoveryMode::CloudMasterPasswordInput;
+                            } else {
+                                self.mode = DatabaseRecoveryMode::CloudSyncing;
+                                let _ =
+                                    ctx.command_tx.try_send(Command::RestoreDatabaseFromCloud {
+                                        master_password: None,
+                                    });
+                            }
                             ScreenResult::Continue
                         }
                         KeyCode::Enter
@@ -287,6 +420,11 @@ impl ScreenTrait for DatabaseRecoveryScreen {
                         }
                         KeyCode::Enter
                             if matches!(self.mode, DatabaseRecoveryMode::CloudSucceeded) =>
+                        {
+                            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+                        }
+                        KeyCode::Enter
+                            if matches!(self.mode, DatabaseRecoveryMode::OkbSucceeded) =>
                         {
                             ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
                         }
@@ -344,6 +482,12 @@ impl ScreenTrait for DatabaseRecoveryScreen {
             DatabaseRecoveryMode::OkbPasswordInput => {
                 self.render_okb_password(frame, &rows);
             }
+            DatabaseRecoveryMode::OkbMasterPasswordInput => {
+                self.render_master_password(frame, &rows, t!("tui.entry.db_recovery_okb_title"));
+            }
+            DatabaseRecoveryMode::CloudMasterPasswordInput => {
+                self.render_master_password(frame, &rows, t!("tui.entry.db_recovery_cloud_title"));
+            }
             DatabaseRecoveryMode::CloudSyncing => {
                 self.render_cloud_syncing(frame, &rows);
             }
@@ -356,6 +500,9 @@ impl ScreenTrait for DatabaseRecoveryScreen {
             DatabaseRecoveryMode::CloudSucceeded => {
                 self.render_cloud_succeeded(frame, &rows);
             }
+            DatabaseRecoveryMode::OkbSucceeded => {
+                self.render_okb_succeeded(frame, &rows);
+            }
         }
     }
 
@@ -363,6 +510,7 @@ impl ScreenTrait for DatabaseRecoveryScreen {
 
     fn on_unmount(&mut self) {
         self.okb_password.clear();
+        self.master_password.clear();
         self.okb_path.clear();
         self.error = None;
     }
@@ -610,6 +758,73 @@ impl DatabaseRecoveryScreen {
         frame.render_widget(step, rows[7]);
     }
 
+    fn render_master_password(
+        &self,
+        frame: &mut ratatui::Frame,
+        rows: &[ratatui::layout::Rect],
+        title_text: std::borrow::Cow<'static, str>,
+    ) {
+        let title = Paragraph::new(Line::from(Span::styled(
+            title_text,
+            Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(title, rows[2]);
+
+        let instruction = Paragraph::new(Line::from(Span::styled(
+            t!("tui.entry.unlock_prompt"),
+            Style::default().fg(TEXT),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(instruction, rows[3]);
+
+        let input_area = rows[4];
+        let input_layout =
+            Layout::vertical([Constraint::Length(3), Constraint::Length(1)]).split(input_area);
+
+        let display = if self.master_password.is_empty() {
+            t!("tui.import_export.master_password_placeholder").to_string()
+        } else {
+            "•".repeat(self.master_password.len())
+        };
+        let style = if self.master_password.is_empty() {
+            Style::default().fg(TEXT_MUTED)
+        } else {
+            Style::default().fg(TEXT)
+        };
+        let input = Paragraph::new(Line::from(Span::styled(display, style))).block(
+            Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .border_style(Style::default().fg(PRIMARY))
+                .title(t!("tui.import_export.master_password_label")),
+        );
+        frame.render_widget(input, input_layout[0]);
+
+        if let Some(ref err) = self.error {
+            let error_line = Paragraph::new(Line::from(Span::styled(
+                format!("✕ {}", err),
+                Style::default().fg(ERROR),
+            )))
+            .alignment(Alignment::Center);
+            frame.render_widget(error_line, rows[5]);
+        }
+
+        let hotkey = Paragraph::new(Line::from(Span::styled(
+            t!("tui.entry.db_recovery_okb_password_hotkey"),
+            Style::default().fg(TEXT_MUTED),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(hotkey, rows[6]);
+
+        let step_text = self.step_text();
+        let step = Paragraph::new(Line::from(Span::styled(
+            step_text.as_ref(),
+            Style::default().fg(TEXT_MUTED),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(step, rows[7]);
+    }
+
     fn render_cloud_syncing(&self, frame: &mut ratatui::Frame, rows: &[ratatui::layout::Rect]) {
         let title = Paragraph::new(Line::from(Span::styled(
             t!("tui.entry.db_recovery_cloud_title"),
@@ -820,6 +1035,42 @@ impl DatabaseRecoveryScreen {
         .alignment(Alignment::Center);
         frame.render_widget(step, rows[7]);
     }
+
+    fn render_okb_succeeded(&self, frame: &mut ratatui::Frame, rows: &[ratatui::layout::Rect]) {
+        let title = Paragraph::new(Line::from(Span::styled(
+            t!("tui.entry.db_recovery_okb_title"),
+            Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(title, rows[2]);
+
+        let content = vec![Line::from(Span::styled(
+            t!("tui.entry.db_recovery_cloud_success_verified"),
+            Style::default().fg(SUCCESS),
+        ))];
+        let para = Paragraph::new(content).alignment(Alignment::Center);
+        let combined = ratatui::layout::Rect {
+            y: rows[3].y,
+            height: rows[4].y + rows[4].height - rows[3].y,
+            ..rows[3]
+        };
+        frame.render_widget(para, combined);
+
+        let hotkey = Paragraph::new(Line::from(Span::styled(
+            t!("tui.entry.db_recovery_cloud_success_hotkey"),
+            Style::default().fg(TEXT_MUTED),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(hotkey, rows[6]);
+
+        let step_text = self.step_text();
+        let step = Paragraph::new(Line::from(Span::styled(
+            step_text.as_ref(),
+            Style::default().fg(TEXT_MUTED),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(step, rows[7]);
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -827,6 +1078,7 @@ impl DatabaseRecoveryScreen {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::traits::screen::{Screen, ScreenContext};
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent {
@@ -834,6 +1086,20 @@ mod tests {
             modifiers: KeyModifiers::NONE,
             kind: KeyEventKind::Press,
             state: crossterm::event::KeyEventState::NONE,
+        }
+    }
+
+    fn char_key(c: char) -> KeyEvent {
+        key(KeyCode::Char(c))
+    }
+
+    fn context<'a>(
+        tx: &'a tokio::sync::mpsc::Sender<Command>,
+        config: &'a crate::config::AppConfig,
+    ) -> ScreenContext<'a> {
+        ScreenContext {
+            command_tx: tx,
+            config,
         }
     }
 
@@ -858,5 +1124,132 @@ mod tests {
         screen.mode = DatabaseRecoveryMode::OkbPathInput;
         screen.handle_key_for_test(key(KeyCode::Enter));
         assert_eq!(screen.error.as_deref(), Some("Enter a .okb path."));
+    }
+
+    #[test]
+    fn startup_cloud_requires_master_password_before_restore_command() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = context(&tx, &config);
+        let mut screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::StartupKeyOnly);
+
+        let result = screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.mode, DatabaseRecoveryMode::CloudMasterPasswordInput);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn startup_cloud_master_password_sends_restore_command_with_password() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = context(&tx, &config);
+        let mut screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::StartupKeyOnly);
+
+        screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+        for c in "master-secret".chars() {
+            screen.update(Message::KeyEvent(char_key(c)), &mut ctx);
+        }
+        screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+
+        match rx.try_recv().expect("restore command") {
+            Command::RestoreDatabaseFromCloud { master_password } => {
+                let master_password = master_password.expect("startup restore sends password");
+                assert_eq!(master_password.expose(), "master-secret");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn onboarding_cloud_restore_sends_none_immediately() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = context(&tx, &config);
+        let mut screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::OnboardingRestore);
+
+        screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+
+        assert_eq!(screen.mode, DatabaseRecoveryMode::CloudSyncing);
+        match rx.try_recv().expect("restore command") {
+            Command::RestoreDatabaseFromCloud { master_password } => {
+                assert!(master_password.is_none());
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn startup_okb_collects_master_password_after_backup_password() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = context(&tx, &config);
+        let mut screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::StartupKeyOnly);
+        screen.focus = DatabaseRecoveryFocus::Okb;
+
+        screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+        for c in "/tmp/backup.okb".chars() {
+            screen.update(Message::KeyEvent(char_key(c)), &mut ctx);
+        }
+        screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+        for c in "backup-secret".chars() {
+            screen.update(Message::KeyEvent(char_key(c)), &mut ctx);
+        }
+        screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+
+        assert_eq!(screen.mode, DatabaseRecoveryMode::OkbMasterPasswordInput);
+        assert!(rx.try_recv().is_err());
+
+        for c in "master-secret".chars() {
+            screen.update(Message::KeyEvent(char_key(c)), &mut ctx);
+        }
+        screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+
+        match rx.try_recv().expect("restore command") {
+            Command::RestoreDatabaseFromOkb {
+                path,
+                password,
+                master_password,
+            } => {
+                assert_eq!(path, std::path::PathBuf::from("/tmp/backup.okb"));
+                assert_eq!(password.expose(), "backup-secret");
+                let master_password = master_password.expect("startup restore sends password");
+                assert_eq!(master_password.expose(), "master-secret");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn onboarding_okb_restore_sends_none_after_backup_password() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = context(&tx, &config);
+        let mut screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::OnboardingRestore);
+        screen.focus = DatabaseRecoveryFocus::Okb;
+
+        screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+        for c in "/tmp/backup.okb".chars() {
+            screen.update(Message::KeyEvent(char_key(c)), &mut ctx);
+        }
+        screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+        for c in "backup-secret".chars() {
+            screen.update(Message::KeyEvent(char_key(c)), &mut ctx);
+        }
+        screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+
+        match rx.try_recv().expect("restore command") {
+            Command::RestoreDatabaseFromOkb {
+                path,
+                password,
+                master_password,
+            } => {
+                assert_eq!(path, std::path::PathBuf::from("/tmp/backup.okb"));
+                assert_eq!(password.expose(), "backup-secret");
+                assert!(master_password.is_none());
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
     }
 }

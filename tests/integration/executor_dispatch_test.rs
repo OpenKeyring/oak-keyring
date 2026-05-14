@@ -180,6 +180,7 @@ async fn restore_database_from_okb_rejects_empty_path() {
         .send(Command::RestoreDatabaseFromOkb {
             path: std::path::PathBuf::new(),
             password: SecureStr::new("test-password".to_string()),
+            master_password: None,
         })
         .await
         .unwrap();
@@ -223,6 +224,7 @@ async fn restore_database_from_okb_rejects_missing_file() {
         .send(Command::RestoreDatabaseFromOkb {
             path: std::path::PathBuf::from("/definitely/missing/backup.okb"),
             password: SecureStr::new("test-password".to_string()),
+            master_password: None,
         })
         .await
         .unwrap();
@@ -269,6 +271,7 @@ async fn restore_database_from_okb_wrong_password_does_not_create_vault_db() {
                 .canonicalize()
                 .unwrap(),
             password: SecureStr::new("wrong-password".to_string()),
+            master_password: None,
         })
         .await
         .unwrap();
@@ -320,6 +323,7 @@ async fn restore_database_from_malformed_okb_does_not_create_vault_db() {
         .send(Command::RestoreDatabaseFromOkb {
             path: okb_path,
             password,
+            master_password: None,
         })
         .await
         .unwrap();
@@ -371,6 +375,7 @@ async fn restore_database_from_empty_okb_does_not_create_vault_db() {
         .send(Command::RestoreDatabaseFromOkb {
             path: okb_path,
             password,
+            master_password: None,
         })
         .await
         .unwrap();
@@ -421,6 +426,7 @@ async fn restore_database_from_okb_without_cached_master_password_does_not_creat
                 .canonicalize()
                 .unwrap(),
             password: SecureStr::new("test-password".to_string()),
+            master_password: None,
         })
         .await
         .unwrap();
