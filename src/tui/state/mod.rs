@@ -53,6 +53,7 @@ pub struct AppState {
     /// Signal handler state
     pub signal_count: u8,
     pub last_signal_time: Option<std::time::Instant>,
+    pending_recovery_words: Option<Vec<String>>,
 }
 
 /// Cross-cutting state shared across all screens.
@@ -98,6 +99,7 @@ impl Default for AppState {
             unicode_capable: true,
             signal_count: 0,
             last_signal_time: None,
+            pending_recovery_words: None,
         }
     }
 }
@@ -129,6 +131,27 @@ impl AppState {
             unicode_capable: true,
             signal_count: 0,
             last_signal_time: None,
+            pending_recovery_words: None,
+        }
+    }
+
+    pub fn stage_pending_recovery_words(&mut self, words: Vec<String>) {
+        self.clear_pending_recovery_words();
+        self.pending_recovery_words = Some(words);
+    }
+
+    pub fn take_pending_recovery_words(&mut self) -> Option<Vec<String>> {
+        self.pending_recovery_words.take()
+    }
+
+    pub fn clear_pending_recovery_words(&mut self) {
+        if let Some(mut words) = self.pending_recovery_words.take() {
+            use zeroize::Zeroize;
+            for word in &mut words {
+                word.zeroize();
+                word.clear();
+            }
+            words.clear();
         }
     }
 
