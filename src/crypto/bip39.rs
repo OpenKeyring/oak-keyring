@@ -78,8 +78,25 @@ impl Passkey {
         Ok(Self { mnemonic })
     }
 
+    pub fn from_recovery_words(
+        words: &crate::types::RecoveryWords,
+        language: MnemonicLanguage,
+    ) -> Result<Self, String> {
+        let mut phrase = words.iter().collect::<Vec<_>>().join(" ");
+        let parsed =
+            Mnemonic::parse_in(language.to_bip39_language(), &phrase).map_err(|e| e.to_string());
+        phrase.zeroize();
+        parsed.map(|mnemonic| Self { mnemonic })
+    }
+
     pub fn to_words(&self) -> Vec<String> {
         self.mnemonic.words().map(String::from).collect()
+    }
+
+    pub fn to_recovery_words(
+        &self,
+    ) -> Result<crate::types::RecoveryWords, crate::types::RecoveryWordsError> {
+        crate::types::RecoveryWords::new(self.mnemonic.words().map(String::from).collect())
     }
 
     pub fn to_seed(&self, passphrase: Option<&str>) -> Result<PasskeySeed, String> {
@@ -204,6 +221,24 @@ mod tests {
         let pk2 = Passkey::from_words(&words, MnemonicLanguage::English).unwrap();
         let words2 = pk2.to_words();
         assert_eq!(words, words2);
+    }
+
+    #[test]
+    fn test_recovery_words_roundtrip_generate_from_recovery_words() {
+        let pk = Passkey::generate(24, MnemonicLanguage::English).unwrap();
+        let words = pk.to_recovery_words().unwrap();
+        let pk2 = Passkey::from_recovery_words(&words, MnemonicLanguage::English).unwrap();
+        let words2 = pk2.to_recovery_words().unwrap();
+        assert_eq!(
+            words.iter().collect::<Vec<_>>(),
+            words2.iter().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_from_recovery_words_invalid_mnemonic_fails() {
+        let words = crate::types::RecoveryWords::new(vec!["foobar".to_string(); 24]).unwrap();
+        assert!(Passkey::from_recovery_words(&words, MnemonicLanguage::English).is_err());
     }
 
     #[test]
