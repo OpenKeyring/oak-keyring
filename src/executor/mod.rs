@@ -148,17 +148,19 @@ impl CommandExecutor {
         shutdown_token: CancellationToken,
         vault_dir: std::path::PathBuf,
         config_dir: std::path::PathBuf,
-        vault_has_key_only: bool,
+        vault_has_file_backed_db: bool,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), vault_has_key_only, "initializing CommandExecutor");
+        info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), vault_has_file_backed_db, "initializing CommandExecutor");
 
-        // Open an in-memory database when key exists but vault.db is missing,
-        // to prevent creating an empty vault.db before recovery completes.
-        let conn = if vault_has_key_only {
-            info!("using in-memory database (key-only state, awaiting recovery)");
-            init_db_in_memory()
-        } else {
+        // Only open a file-backed database when a real vault.db already exists.
+        // New-vault, key-only recovery, and db-only recovery flows start in
+        // memory so startup cannot create an empty vault.db before a workflow
+        // reaches its explicit commit point.
+        let conn = if vault_has_file_backed_db {
             init_db(&vault_dir)?
+        } else {
+            info!("using in-memory database until vault database is committed");
+            init_db_in_memory()
         };
 
         // Create service instances.
@@ -345,18 +347,100 @@ impl CommandExecutor {
         self.sync = sync;
     }
 
-    /// Reopen the vault database as file-backed after a restore operation.
-    ///
-    /// Called after `.okb` or cloud restore writes a real `vault.db` to disk,
-    /// replacing the in-memory placeholder that was used during key-only startup.
-    pub(super) fn reopen_file_backed_vault_db(
+    pub(super) fn begin_file_backed_vault_db(
         &mut self,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
         let conn = init_db(&self.vault_dir)?;
         self.vault = crate::services::vault::VaultService::new(conn);
-        info!("reopened vault database as file-backed after restore");
-        Ok(())
+        info!("opened pending file-backed vault database");
+        Ok(PendingFileBackedVaultDb {
+            executor: self,
+            committed: false,
+        })
     }
+}
+
+pub(super) struct PendingFileBackedVaultDb<'a> {
+    executor: &'a mut CommandExecutor,
+    committed: bool,
+}
+
+impl PendingFileBackedVaultDb<'_> {
+    pub(super) fn unlock(
+        &mut self,
+        master_password: &crate::types::SecureStr,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        self.executor
+            .vault
+            .unlock(&self.executor.vault_dir, master_password)
+    }
+
+    pub(super) fn create_record(
+        &mut self,
+        params: crate::types::record::CreateRecordParams,
+    ) -> Result<uuid::Uuid, crate::errors::mapping::vault::VaultError> {
+        self.executor.vault.create_record(params)
+    }
+
+    pub(super) fn apply_downloaded_cloud_record(
+        &mut self,
+        record: &crate::cloud::CloudRecord,
+    ) -> Result<bool, crate::errors::mapping::vault::VaultError> {
+        self.executor.vault.apply_downloaded_cloud_record(record)
+    }
+
+    pub(super) fn upsert_record_health_state(
+        &mut self,
+        state: &crate::types::health::RecordHealthState,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        self.executor.vault.upsert_record_health_state(state)
+    }
+
+    pub(super) fn delete_record_health_states(
+        &mut self,
+        record_ids: &[uuid::Uuid],
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        self.executor.vault.delete_record_health_states(record_ids)
+    }
+
+    pub(super) async fn sync_restore(
+        &mut self,
+    ) -> Result<crate::services::sync::SyncResult, crate::errors::mapping::sync::SyncError> {
+        self.executor.sync.as_mut().unwrap().sync(None).await
+    }
+
+    pub(super) fn commit(mut self) {
+        self.committed = true;
+        info!("committed file-backed vault database");
+    }
+}
+
+impl Drop for PendingFileBackedVaultDb<'_> {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+
+        self.executor.vault = crate::services::vault::VaultService::new(init_db_in_memory());
+
+        for path in vault_db_paths(&self.executor.vault_dir) {
+            if let Err(e) = std::fs::remove_file(&path) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(path = %path.display(), error = %e, "failed to remove uncommitted vault database file");
+                }
+            }
+        }
+        info!("rolled back uncommitted file-backed vault database");
+    }
+}
+
+fn vault_db_paths(vault_dir: &std::path::Path) -> [std::path::PathBuf; 4] {
+    [
+        vault_dir.join("vault.db"),
+        vault_dir.join("vault.db-wal"),
+        vault_dir.join("vault.db-shm"),
+        vault_dir.join("vault.db.migration.bak"),
+    ]
 }
 
 #[cfg(test)]

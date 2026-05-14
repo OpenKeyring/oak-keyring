@@ -403,7 +403,7 @@ fn key_only_startup_does_not_create_empty_database() {
         tokio_util::sync::CancellationToken::new(),
         data_dir.clone(),
         config_dir,
-        true, // vault_has_key_only
+        false, // no existing file-backed vault.db
     )
     .expect("executor");
 

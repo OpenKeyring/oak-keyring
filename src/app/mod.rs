@@ -62,6 +62,8 @@ pub struct App {
     pub cancel_token: CancellationToken,
     /// Instance lock to prevent multiple TUI instances from running.
     _instance_lock: InstanceLock,
+    /// Complete vault exists and executor should open file-backed vault.db.
+    pub vault_has_file_backed_db: bool,
     /// Key file exists but database is missing — route to DB recovery.
     pub vault_has_key_only: bool,
     /// Database exists but key file is missing — route to recovery.
@@ -96,6 +98,7 @@ impl App {
             result_rx,
             cancel_token,
             _instance_lock: instance_lock,
+            vault_has_file_backed_db: vault_state.has_vault,
             vault_has_key_only: vault_state.vault_has_key_only,
             vault_has_db_only: vault_state.vault_has_db_only,
         })
@@ -116,7 +119,7 @@ impl App {
                 self.cancel_token.clone(), // shutdown_token for executor run loop
                 self.vault_dir.clone(),
                 self.config_dir.clone(),
-                self.vault_has_key_only,
+                self.vault_has_file_backed_db,
             )?;
 
             tokio::spawn(async move {

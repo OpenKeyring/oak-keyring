@@ -383,17 +383,6 @@ pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) 
         return result;
     }
 
-    // Create a file-backed vault.db and reopen the executor's vault connection.
-    if let Err(e) = executor.reopen_file_backed_vault_db() {
-        return CommandResult::Error {
-            code: ErrorCode::VaultDatabaseIoError,
-            context: ErrorContext::default(),
-            message_key: "error.db_reopen_failed",
-            fallback: format!("Failed to create vault database: {}", e),
-        };
-    }
-
-    // Unlock the vault with the cached master password from keyfile rebuild.
     let master_password = match executor.verified_master_password.take() {
         Some(pw) => pw,
         None => {
@@ -405,7 +394,22 @@ pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) 
             };
         }
     };
-    if let Err(e) = executor.vault.unlock(&executor.vault_dir, &master_password) {
+
+    // Create a pending file-backed vault.db. If unlock or sync fails, dropping
+    // the guard removes the uncommitted database files.
+    let mut pending = match executor.begin_file_backed_vault_db() {
+        Ok(pending) => pending,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::VaultDatabaseIoError,
+                context: ErrorContext::default(),
+                message_key: "error.db_reopen_failed",
+                fallback: format!("Failed to create vault database: {}", e),
+            };
+        }
+    };
+
+    if let Err(e) = pending.unlock(&master_password) {
         return CommandResult::Error {
             code: ErrorCode::CryptoEncryptionFailed,
             context: ErrorContext::default(),
@@ -417,9 +421,55 @@ pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) 
 
     // Run a full sync cycle. With an empty local vault, this is effectively
     // pull-only: all cloud records are downloaded and no data is pushed.
-    let sync = executor.sync.as_mut().unwrap();
-    match sync.sync(None).await {
+    match pending.sync_restore().await {
         Ok(result) => {
+            if result.downloaded_records.is_empty() {
+                return CommandResult::Error {
+                    code: ErrorCode::SyncProviderError,
+                    context: ErrorContext::default(),
+                    message_key: "error.cloud_restore_empty",
+                    fallback:
+                        "No recoverable cloud sync data was found. Try restoring from a .okb backup."
+                            .to_string(),
+                };
+            }
+            let mut apply_errors = 0usize;
+            for record in &result.downloaded_records {
+                if let Err(e) = pending.apply_downloaded_cloud_record(record) {
+                    apply_errors += 1;
+                    tracing::warn!(
+                        record_id = %record.id,
+                        error = %e,
+                        "Failed to apply downloaded record during cloud restore"
+                    );
+                }
+            }
+            for state in &result.downloaded_health_states {
+                if let Err(e) = pending.upsert_record_health_state(state) {
+                    apply_errors += 1;
+                    tracing::warn!(error = %e, "Failed to apply downloaded health state during cloud restore");
+                }
+            }
+            if !result.downloaded_health_deleted.is_empty() {
+                if let Err(e) =
+                    pending.delete_record_health_states(&result.downloaded_health_deleted)
+                {
+                    apply_errors += 1;
+                    tracing::warn!(error = %e, "Failed to delete stale health states during cloud restore");
+                }
+            }
+            if apply_errors > 0 {
+                return CommandResult::Error {
+                    code: ErrorCode::SyncProviderError,
+                    context: ErrorContext::default(),
+                    message_key: "error.cloud_restore_failed",
+                    fallback: format!(
+                        "Cloud database restore failed while applying downloaded records: {} errors.",
+                        apply_errors
+                    ),
+                };
+            }
+            pending.commit();
             tracing::info!(
                 downloaded = result.downloaded_records.len(),
                 "cloud restore sync complete"

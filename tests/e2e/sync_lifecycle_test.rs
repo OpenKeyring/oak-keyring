@@ -113,7 +113,7 @@ async fn setup_key_only_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     let cancel_token = CancellationToken::new();
 
     let mut executor =
-        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, true)
+        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false)
             .expect("executor construction should succeed");
 
     let (sync, cloud_dir) = create_fs_sync_service();
