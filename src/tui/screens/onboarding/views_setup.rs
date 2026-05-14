@@ -56,7 +56,7 @@ impl OnboardingScreen {
         let brand = Paragraph::new(Line::from(vec![
             Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
             Span::styled(
-                "OpenKeyring",
+                t!("tui.entry.brand"),
                 Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
             ),
         ]))
@@ -73,7 +73,7 @@ impl OnboardingScreen {
 
         // Subtitle
         let subtitle = Paragraph::new(Span::styled(
-            "Secure, open-source terminal password manager",
+            t!("tui.entry.onboarding_subtitle"),
             Style::default().fg(TEXT_SECONDARY),
         ))
         .alignment(Alignment::Center);
@@ -138,22 +138,27 @@ impl OnboardingScreen {
 
         // Language hint
         let languages = ["auto", "en", "zh-CN"];
-        let lang_text = format!("L: Language ({})", languages[self.language_index]);
+        let lang_text = t!(
+            "tui.entry.language_hint",
+            lang = languages[self.language_index]
+        )
+        .to_string();
         let lang_hint = Paragraph::new(lang_text)
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
         frame.render_widget(lang_hint, rows[10]);
 
         // Hint
-        let hint = Paragraph::new("\u{2191}\u{2193}/Tab: navigate  |  Enter: select  |  Esc: quit")
+        let hint = Paragraph::new(t!("tui.entry.onboarding_welcome_hint"))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
         frame.render_widget(hint, rows[11]);
 
         // Step indicator
-        let step_text = Paragraph::new("Step 1/1")
-            .style(Style::default().fg(TEXT_MUTED))
-            .alignment(Alignment::Center);
+        let step_text =
+            Paragraph::new(t!("tui.entry.step_n_of_n", current = 1, total = 1).to_string())
+                .style(Style::default().fg(TEXT_MUTED))
+                .alignment(Alignment::Center);
         frame.render_widget(step_text, rows[12]);
     }
 
@@ -175,19 +180,19 @@ impl OnboardingScreen {
         .split(content_area);
 
         // Title
-        let title = Paragraph::new("Set Master Password")
+        let title = Paragraph::new(t!("tui.entry.set_password_title"))
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
         frame.render_widget(title, rows[0]);
 
         // Instruction
-        let instruction = Paragraph::new("You will be redirected to set your master password.")
+        let instruction = Paragraph::new(t!("tui.entry.set_password_redirect"))
             .style(Style::default().fg(TEXT_SECONDARY))
             .alignment(Alignment::Center);
         frame.render_widget(instruction, rows[3]);
 
         // Hint
-        let hint = Paragraph::new("Enter to continue  |  Esc to go back")
+        let hint = Paragraph::new(t!("tui.entry.enter_to_continue_esc_back"))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
         frame.render_widget(hint, rows[5]);
@@ -195,9 +200,10 @@ impl OnboardingScreen {
         // Step indicator
         let step = self.current_step_number();
         let total = self.total_steps();
-        let step_text = Paragraph::new(format!("Step {}/{}", step, total))
-            .style(Style::default().fg(TEXT_MUTED))
-            .alignment(Alignment::Center);
+        let step_text =
+            Paragraph::new(t!("tui.entry.step_n_of_n", current = step, total = total).to_string())
+                .style(Style::default().fg(TEXT_MUTED))
+                .alignment(Alignment::Center);
         frame.render_widget(step_text, rows[6]);
     }
 }

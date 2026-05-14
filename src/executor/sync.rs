@@ -325,9 +325,7 @@ pub async fn handle_resolve_all_conflicts(
 }
 
 /// Restore vault.db from cloud sync (pull-only).
-pub async fn handle_restore_database_from_cloud(
-    executor: &mut CommandExecutor,
-) -> CommandResult {
+pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) -> CommandResult {
     if executor.sync.is_none() {
         return CommandResult::DatabaseRestoreNeedsOAuth;
     }

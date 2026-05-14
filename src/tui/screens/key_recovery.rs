@@ -8,7 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph};
+use ratatui::widgets::Paragraph;
 
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
@@ -69,7 +69,9 @@ impl KeyRecoveryScreen {
                     self.error = None;
                     self.validating = true;
                     let words = self.words.collect_words();
-                    let _ = ctx.command_tx.try_send(Command::ValidateRecoveryWords { words });
+                    let _ = ctx
+                        .command_tx
+                        .try_send(Command::ValidateRecoveryWords { words });
                 } else {
                     self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
                 }
@@ -98,8 +100,7 @@ impl ScreenTrait for KeyRecoveryScreen {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key)
-                if key.kind == KeyEventKind::Press
-                    && key.modifiers.is_empty()
+                if key.kind == KeyEventKind::Press && key.modifiers.is_empty()
                     || key.modifiers == KeyModifiers::SHIFT =>
             {
                 self.handle_key_inner(key, ctx)
@@ -141,11 +142,11 @@ impl ScreenTrait for KeyRecoveryScreen {
 
         // Brand
         let brand = Paragraph::new(Line::from(vec![
+            Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
             Span::styled(
-                format!("{} ", theme::ICON_LOCK),
-                Style::default().fg(BRAND),
+                "OpenKeyring",
+                Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("OpenKeyring", Style::default().fg(BRAND).add_modifier(Modifier::BOLD)),
         ]))
         .alignment(Alignment::Center);
         frame.render_widget(brand, rows[0]);

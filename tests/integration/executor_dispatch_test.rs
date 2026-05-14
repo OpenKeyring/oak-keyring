@@ -61,15 +61,17 @@ async fn dispatch_validate_recovery_words_rejects_non_24_words() {
     let (result_tx, mut result_rx) = tokio::sync::mpsc::channel(64);
     let (command_tx, command_rx) = tokio::sync::mpsc::channel(64);
     let temp = tempfile::tempdir().unwrap();
-    let vault_dir = temp.path().to_path_buf();
-    std::env::set_var("OAK_VAULT_DIR", &vault_dir);
-    std::env::set_var("OAK_CONFIG_DIR", &vault_dir);
+    let data_dir = temp.path().join("oak-keyring");
+    let config_dir = temp.path().join("oak-keyring");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
 
     let executor = CommandExecutor::new(
         AppConfig::default(),
         result_tx,
         CancellationToken::new(),
-        oak_keyring::executor::DbStartupMode::FileBacked,
+        data_dir,
+        config_dir,
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -85,9 +87,7 @@ async fn dispatch_validate_recovery_words_rejects_non_24_words() {
         Message::CommandCompleted(result) => result,
         other => panic!("unexpected message: {other:?}"),
     };
-    assert!(
-        matches!(&result, CommandResult::Error { fallback, .. } if fallback.contains("24"))
-    );
+    assert!(matches!(&result, CommandResult::Error { fallback, .. } if fallback.contains("24")));
     drop(command_tx);
     handle.await.unwrap();
 }

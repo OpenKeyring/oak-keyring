@@ -153,7 +153,11 @@ impl DatabaseRecoveryScreen {
                 self.mode = DatabaseRecoveryMode::CloudNeedsOAuth;
                 ScreenResult::Continue
             }
-            CommandResult::DatabaseRestoreProgress { current, total, label } => {
+            CommandResult::DatabaseRestoreProgress {
+                current,
+                total,
+                label,
+            } => {
                 self.progress = Some((current, total, label));
                 ScreenResult::Continue
             }
@@ -215,9 +219,7 @@ impl ScreenTrait for DatabaseRecoveryScreen {
                     && (key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT) =>
             {
                 match self.mode {
-                    DatabaseRecoveryMode::SourceSelection => {
-                        self.handle_source_selection(key, ctx)
-                    }
+                    DatabaseRecoveryMode::SourceSelection => self.handle_source_selection(key, ctx),
                     DatabaseRecoveryMode::OkbPathInput => self.handle_okb_input(key, ctx),
                     DatabaseRecoveryMode::CloudSyncing
                     | DatabaseRecoveryMode::CloudNeedsOAuth
@@ -233,27 +235,17 @@ impl ScreenTrait for DatabaseRecoveryScreen {
                         {
                             self.mode = DatabaseRecoveryMode::CloudSyncing;
                             self.error = None;
-                            let _ = ctx
-                                .command_tx
-                                .try_send(Command::RestoreDatabaseFromCloud);
+                            let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromCloud);
                             ScreenResult::Continue
                         }
                         KeyCode::Enter
-                            if matches!(
-                                self.mode,
-                                DatabaseRecoveryMode::CloudNeedsOAuth
-                            ) =>
+                            if matches!(self.mode, DatabaseRecoveryMode::CloudNeedsOAuth) =>
                         {
-                            let _ = ctx
-                                .command_tx
-                                .try_send(Command::OAuth2AuthorizeGoogleDrive);
+                            let _ = ctx.command_tx.try_send(Command::OAuth2AuthorizeGoogleDrive);
                             ScreenResult::Continue
                         }
                         KeyCode::Enter
-                            if matches!(
-                                self.mode,
-                                DatabaseRecoveryMode::CloudSucceeded
-                            ) =>
+                            if matches!(self.mode, DatabaseRecoveryMode::CloudSucceeded) =>
                         {
                             ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
                         }
@@ -270,24 +262,24 @@ impl ScreenTrait for DatabaseRecoveryScreen {
         let content_area = Self::centered_content(area, 17);
 
         let rows = Layout::vertical([
-            Constraint::Length(1),  // brand
-            Constraint::Length(1),  // separator
-            Constraint::Length(2),  // title
-            Constraint::Length(2),  // instruction
-            Constraint::Length(6),  // content area
-            Constraint::Length(1),  // error/hint
-            Constraint::Length(1),  // hotkeys
-            Constraint::Length(1),  // step
+            Constraint::Length(1), // brand
+            Constraint::Length(1), // separator
+            Constraint::Length(2), // title
+            Constraint::Length(2), // instruction
+            Constraint::Length(6), // content area
+            Constraint::Length(1), // error/hint
+            Constraint::Length(1), // hotkeys
+            Constraint::Length(1), // step
         ])
         .split(content_area);
 
         // Brand
         let brand = Paragraph::new(Line::from(vec![
+            Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
             Span::styled(
-                format!("{} ", theme::ICON_LOCK),
-                Style::default().fg(BRAND),
+                "OpenKeyring",
+                Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("OpenKeyring", Style::default().fg(BRAND).add_modifier(Modifier::BOLD)),
         ]))
         .alignment(Alignment::Center);
         frame.render_widget(brand, rows[0]);
@@ -349,11 +341,7 @@ impl DatabaseRecoveryScreen {
         h_layout[1]
     }
 
-    fn render_source_selection(
-        &self,
-        frame: &mut ratatui::Frame,
-        rows: &[ratatui::layout::Rect],
-    ) {
+    fn render_source_selection(&self, frame: &mut ratatui::Frame, rows: &[ratatui::layout::Rect]) {
         let title = Paragraph::new(Line::from(Span::styled(
             t!("tui.entry.db_recovery_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
@@ -382,7 +370,10 @@ impl DatabaseRecoveryScreen {
             Style::default().fg(TEXT)
         };
         let cloud_card = Paragraph::new(vec![
-            Line::from(Span::styled(t!("tui.entry.db_recovery_cloud_card_title"), cloud_style.add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                t!("tui.entry.db_recovery_cloud_card_title"),
+                cloud_style.add_modifier(Modifier::BOLD),
+            )),
             Line::from(Span::styled(
                 t!("tui.entry.db_recovery_cloud_card_desc"),
                 Style::default().fg(TEXT_MUTED),
@@ -405,7 +396,10 @@ impl DatabaseRecoveryScreen {
             Style::default().fg(TEXT)
         };
         let okb_card = Paragraph::new(vec![
-            Line::from(Span::styled(t!("tui.entry.db_recovery_okb_card_title"), okb_style.add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                t!("tui.entry.db_recovery_okb_card_title"),
+                okb_style.add_modifier(Modifier::BOLD),
+            )),
             Line::from(Span::styled(
                 t!("tui.entry.db_recovery_okb_card_desc"),
                 Style::default().fg(TEXT_MUTED),
@@ -456,11 +450,8 @@ impl DatabaseRecoveryScreen {
         frame.render_widget(instruction, rows[3]);
 
         let input_area = rows[4];
-        let input_layout = Layout::vertical([
-            Constraint::Length(3),
-            Constraint::Length(1),
-        ])
-        .split(input_area);
+        let input_layout =
+            Layout::vertical([Constraint::Length(3), Constraint::Length(1)]).split(input_area);
 
         let display = if self.okb_path.is_empty() {
             t!("tui.entry.db_recovery_okb_path_placeholder").to_string()
@@ -472,13 +463,12 @@ impl DatabaseRecoveryScreen {
         } else {
             Style::default().fg(TEXT)
         };
-        let input = Paragraph::new(Line::from(Span::styled(display, style)))
-            .block(
-                Block::default()
-                    .borders(ratatui::widgets::Borders::ALL)
-                    .border_style(Style::default().fg(PRIMARY))
-                    .title(t!("tui.entry.db_recovery_okb_path_label")),
-            );
+        let input = Paragraph::new(Line::from(Span::styled(display, style))).block(
+            Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .border_style(Style::default().fg(PRIMARY))
+                .title(t!("tui.entry.db_recovery_okb_path_label")),
+        );
         frame.render_widget(input, input_layout[0]);
 
         // Error
@@ -528,8 +518,15 @@ impl DatabaseRecoveryScreen {
                     Style::default().fg(TEXT_MUTED),
                 )),
                 Line::from(Span::styled(
-                    format!("  {}/{} ({:.0}%)", current, total,
-                        if total > 0 { (current as f64 / total as f64) * 100.0 } else { 0.0 }
+                    format!(
+                        "  {}/{} ({:.0}%)",
+                        current,
+                        total,
+                        if total > 0 {
+                            (current as f64 / total as f64) * 100.0
+                        } else {
+                            0.0
+                        }
                     ),
                     Style::default().fg(PRIMARY),
                 )),
@@ -576,11 +573,7 @@ impl DatabaseRecoveryScreen {
         frame.render_widget(step, rows[7]);
     }
 
-    fn render_cloud_needs_oauth(
-        &self,
-        frame: &mut ratatui::Frame,
-        rows: &[ratatui::layout::Rect],
-    ) {
+    fn render_cloud_needs_oauth(&self, frame: &mut ratatui::Frame, rows: &[ratatui::layout::Rect]) {
         let title = Paragraph::new(Line::from(Span::styled(
             t!("tui.entry.db_recovery_cloud_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
@@ -588,12 +581,10 @@ impl DatabaseRecoveryScreen {
         .alignment(Alignment::Center);
         frame.render_widget(title, rows[2]);
 
-        let instruction = Paragraph::new(vec![
-            Line::from(Span::styled(
-                t!("tui.entry.db_recovery_cloud_oauth_needed"),
-                Style::default().fg(TEXT),
-            )),
-        ])
+        let instruction = Paragraph::new(vec![Line::from(Span::styled(
+            t!("tui.entry.db_recovery_cloud_oauth_needed"),
+            Style::default().fg(TEXT),
+        ))])
         .alignment(Alignment::Center);
         frame.render_widget(instruction, rows[3]);
 
@@ -640,10 +631,7 @@ impl DatabaseRecoveryScreen {
         frame.render_widget(title, rows[2]);
 
         let default_failed = t!("tui.entry.db_recovery_cloud_failed_default");
-        let error_text = self
-            .error
-            .as_deref()
-            .unwrap_or(default_failed.as_ref());
+        let error_text = self.error.as_deref().unwrap_or(default_failed.as_ref());
         let content = vec![
             Line::from(Span::styled(
                 format!("✕ {}", error_text),
@@ -679,11 +667,7 @@ impl DatabaseRecoveryScreen {
         frame.render_widget(step, rows[7]);
     }
 
-    fn render_cloud_succeeded(
-        &self,
-        frame: &mut ratatui::Frame,
-        rows: &[ratatui::layout::Rect],
-    ) {
+    fn render_cloud_succeeded(&self, frame: &mut ratatui::Frame, rows: &[ratatui::layout::Rect]) {
         let title = Paragraph::new(Line::from(Span::styled(
             t!("tui.entry.db_recovery_cloud_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),

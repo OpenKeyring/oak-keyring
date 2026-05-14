@@ -256,12 +256,13 @@ fn esc_from_config_entry_uses_pop_screen_not_forward_navigation() {
 
 #[test]
 fn import_sources_have_scope_hint_styles() {
+    use super::import_sources;
     use super::ScopeHintStyle;
 
-    assert_eq!(IMPORT_SOURCES[0].3 .1, ScopeHintStyle::Full); // KeePass
-    assert_eq!(IMPORT_SOURCES[1].3 .1, ScopeHintStyle::Partial); // 1Password 1pux
-    assert_eq!(IMPORT_SOURCES[2].3 .1, ScopeHintStyle::Partial); // 1Password opvault
-    assert_eq!(IMPORT_SOURCES[3].3 .1, ScopeHintStyle::Limited); // Bitwarden
-    assert_eq!(IMPORT_SOURCES[4].3 .1, ScopeHintStyle::Full); // CSV
-    assert_eq!(IMPORT_SOURCES[5].3 .1, ScopeHintStyle::Full); // OpenKeyring Backup
+    assert_eq!(import_sources()[0].3 .1, ScopeHintStyle::Full); // KeePass
+    assert_eq!(import_sources()[1].3 .1, ScopeHintStyle::Partial); // 1Password 1pux
+    assert_eq!(import_sources()[2].3 .1, ScopeHintStyle::Partial); // 1Password opvault
+    assert_eq!(import_sources()[3].3 .1, ScopeHintStyle::Limited); // Bitwarden
+    assert_eq!(import_sources()[4].3 .1, ScopeHintStyle::Full); // CSV
+    assert_eq!(import_sources()[5].3 .1, ScopeHintStyle::Full); // OpenKeyring Backup
 }

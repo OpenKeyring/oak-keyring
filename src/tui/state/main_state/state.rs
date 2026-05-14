@@ -6,6 +6,7 @@ use crate::commands::types::{
     ConfirmVariant, FieldSelector, Overlay, PanelId, RecordFilter, RecordSort, Screen as ScreenEnum,
 };
 use crate::commands::{Command, Message};
+use crate::t;
 use crate::tui::screens::main::overlay::{ActiveOverlay, OverlayKeyResult, OverlayManager};
 use crate::tui::screens::main::MainScreen;
 use crate::tui::state::animation::EffectKind;
@@ -624,11 +625,11 @@ impl Screen for MainScreenState {
                         clear_after_seconds,
                     } => {
                         let field_name = match field {
-                            FieldSelector::Password => "密码",
-                            FieldSelector::Username => "用户名",
-                            FieldSelector::Url => "网址",
-                            FieldSelector::Notes => "备注",
-                            FieldSelector::Passphrase => "SSH 密码短语",
+                            FieldSelector::Password => t!("tui.field_selector.password"),
+                            FieldSelector::Username => t!("tui.field_selector.username"),
+                            FieldSelector::Url => t!("tui.field_selector.url"),
+                            FieldSelector::Notes => t!("tui.field_selector.notes"),
+                            FieldSelector::Passphrase => t!("tui.field_selector.passphrase"),
                         };
                         self.status_bar.status_message = Some(StatusMessage::ClipboardCountdown {
                             field: field_name.to_string(),
@@ -641,7 +642,7 @@ impl Screen for MainScreenState {
                         clear_after_seconds,
                     } => {
                         self.status_bar.status_message = Some(StatusMessage::ClipboardCountdown {
-                            field: "历史密码".to_string(),
+                            field: t!("tui.field_selector.history_password").to_string(),
                             seconds: clear_after_seconds as u32,
                         });
                         self.status_bar.clipboard_countdown = Some(clear_after_seconds as u32);

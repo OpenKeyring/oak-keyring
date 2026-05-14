@@ -373,9 +373,6 @@ fn key_only_startup_does_not_create_empty_database() {
     )
     .expect("app");
 
-    assert_eq!(
-        app.state.current_screen,
-        Screen::DatabaseRecovery
-    );
+    assert_eq!(app.state.current_screen, Screen::DatabaseRecovery);
     assert!(!data_dir.join("vault.db").exists());
 }

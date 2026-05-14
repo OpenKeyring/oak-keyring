@@ -3,6 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::Command;
+use crate::t;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SecureStr;
 
@@ -255,7 +256,7 @@ impl OnboardingScreen {
         ctx: &mut ScreenContext,
     ) -> ScreenResult {
         use crate::tui::screens::import_export::{
-            source_needs_password, ImportFocus, IMPORT_SOURCES,
+            import_sources, source_needs_password, ImportFocus,
         };
 
         match key.code {
@@ -266,13 +267,13 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Down => {
-                if self.selected_source_idx < IMPORT_SOURCES.len() - 1 {
+                if self.selected_source_idx < import_sources().len() - 1 {
                     self.selected_source_idx += 1;
                 }
                 ScreenResult::Continue
             }
             KeyCode::Tab => {
-                let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let source = import_sources()[self.selected_source_idx].0;
                 let needs_pw = source_needs_password(source);
                 self.import_focus = match self.import_focus {
                     ImportFocus::SourceList => ImportFocus::FilePath,
@@ -282,7 +283,7 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::BackTab => {
-                let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let source = import_sources()[self.selected_source_idx].0;
                 let needs_pw = source_needs_password(source);
                 self.import_focus = match self.import_focus {
                     ImportFocus::Password => ImportFocus::FilePath,
@@ -316,10 +317,10 @@ impl OnboardingScreen {
             },
             KeyCode::Enter => {
                 if self.import_file_path.is_empty() {
-                    self.error = Some("File path is required".to_string());
+                    self.error = Some(t!("tui.entry.file_path_required").to_string());
                     return ScreenResult::Continue;
                 }
-                let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let source = import_sources()[self.selected_source_idx].0;
                 let password = if self.import_password.is_empty() {
                     None
                 } else {
@@ -346,7 +347,7 @@ impl OnboardingScreen {
         key: KeyEvent,
         ctx: &mut ScreenContext,
     ) -> ScreenResult {
-        use crate::tui::screens::import_export::IMPORT_SOURCES;
+        use crate::tui::screens::import_export::import_sources;
 
         match key.code {
             KeyCode::Tab => {
@@ -362,7 +363,7 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Enter => {
-                let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let source = import_sources()[self.selected_source_idx].0;
                 let cmd = Command::ExecuteImport {
                     session_id: self.import_session_id,
                     source,

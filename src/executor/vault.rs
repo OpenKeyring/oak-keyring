@@ -358,9 +358,7 @@ pub async fn handle_rebuild_keyfile_from_recovery(
 }
 
 /// Validate that the restored vault.db can be decrypted with the current key.
-pub async fn handle_validate_restored_database(
-    executor: &mut CommandExecutor,
-) -> CommandResult {
+pub async fn handle_validate_restored_database(executor: &mut CommandExecutor) -> CommandResult {
     if !executor.vault_dir.join("vault.db").exists() {
         return CommandResult::DatabaseValidationFailed {
             reason: "vault.db was not restored.".to_string(),

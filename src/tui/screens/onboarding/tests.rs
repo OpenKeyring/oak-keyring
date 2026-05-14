@@ -87,7 +87,10 @@ fn onboarding_welcome_down_then_enter_selects_restore() {
         KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
         &mut dummy_ctx(),
     );
-    assert!(matches!(result, ScreenResult::NavigateTo(Screen::KeyRecovery)));
+    assert!(matches!(
+        result,
+        ScreenResult::NavigateTo(Screen::KeyRecovery)
+    ));
     assert_eq!(screen.selected_path, Some(OnboardingPath::Restore));
 }
 

@@ -58,7 +58,8 @@ impl ImportExportScreen {
             .style(ratatui::style::Style::default().fg(TEXT));
 
         // Source items
-        let source_items: Vec<ratatui::text::Line> = IMPORT_SOURCES
+        let sources = import_sources();
+        let source_items: Vec<ratatui::text::Line> = sources
             .iter()
             .enumerate()
             .map(|(i, (_, name, needs_pw, (hint_text, hint_style)))| {
@@ -92,7 +93,7 @@ impl ImportExportScreen {
                     ScopeHintStyle::Limited => ERROR,
                 };
                 let hint_span = ratatui::text::Span::styled(
-                    *hint_text,
+                    hint_text.as_str(),
                     ratatui::style::Style::default().fg(hint_color),
                 );
                 ratatui::text::Line::from(vec![name_span, pw_hint, sep, hint_span])
@@ -701,15 +702,18 @@ impl ImportExportScreen {
             // Breakdown by reason
             for reason in &breakdown_keys {
                 let count = self.skip_breakdown.get(reason).copied().unwrap_or(0);
-                let (label, style) = match reason {
-                    SkipReason::Duplicate => (
-                        "Duplicates",
-                        ratatui::style::Style::default().fg(TEXT_SECONDARY),
-                    ),
-                    SkipReason::ValidationFailed => (
-                        "Validation failed",
-                        ratatui::style::Style::default().fg(WARNING),
-                    ),
+                let label = match reason {
+                    SkipReason::Duplicate => {
+                        t!("tui.import_export.skip_reason_duplicates").to_string()
+                    }
+                    SkipReason::ValidationFailed => {
+                        t!("tui.import_export.skip_reason_validation_failed").to_string()
+                    }
+                    _ => continue,
+                };
+                let style = match reason {
+                    SkipReason::Duplicate => ratatui::style::Style::default().fg(TEXT_SECONDARY),
+                    SkipReason::ValidationFailed => ratatui::style::Style::default().fg(WARNING),
                     _ => continue,
                 };
                 let detail =

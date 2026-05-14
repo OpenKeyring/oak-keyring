@@ -1,4 +1,5 @@
 use crate::commands::types::{ExportFormat, ImportSource};
+use crate::t;
 
 // ── Enums ───────────────────────────────────────────────────────────────────
 
@@ -60,53 +61,64 @@ pub enum ExportScopeOption {
 
 // ── Source metadata ─────────────────────────────────────────────────────────
 
-pub const IMPORT_SOURCES: [(ImportSource, &str, bool, (&str, ScopeHintStyle)); 6] = [
-    (
-        ImportSource::KeePass,
-        "KeePass (.kdbx)",
-        true,
-        ("Password / URL / Notes", ScopeHintStyle::Full),
-    ),
-    (
-        ImportSource::OnePassword1pux,
-        "1Password (.1pux)",
-        false,
+pub fn import_sources() -> Vec<(ImportSource, String, bool, (String, ScopeHintStyle))> {
+    vec![
         (
-            "Password / TOTP  \u{26A0} Custom fields",
-            ScopeHintStyle::Partial,
+            ImportSource::KeePass,
+            t!("tui.import_export.source_keepass").to_string(),
+            true,
+            (
+                t!("tui.import_export.source_keepass_scope").to_string(),
+                ScopeHintStyle::Full,
+            ),
         ),
-    ),
-    (
-        ImportSource::OnePasswordOpvault,
-        "1Password (.opvault)",
-        true,
         (
-            "Password / TOTP  \u{26A0} Custom fields",
-            ScopeHintStyle::Partial,
+            ImportSource::OnePassword1pux,
+            t!("tui.import_export.source_1password_1pux").to_string(),
+            false,
+            (
+                t!("tui.import_export.source_1password_scope").to_string(),
+                ScopeHintStyle::Partial,
+            ),
         ),
-    ),
-    (
-        ImportSource::Bitwarden,
-        "Bitwarden (.json)",
-        true,
         (
-            "Password / TOTP / URL  \u{2717} Attachments",
-            ScopeHintStyle::Limited,
+            ImportSource::OnePasswordOpvault,
+            t!("tui.import_export.source_1password_opvault").to_string(),
+            true,
+            (
+                t!("tui.import_export.source_1password_scope").to_string(),
+                ScopeHintStyle::Partial,
+            ),
         ),
-    ),
-    (
-        ImportSource::Csv,
-        "CSV",
-        false,
-        ("Column-mapped fields", ScopeHintStyle::Full),
-    ),
-    (
-        ImportSource::OpenKeyringBackup,
-        "OpenKeyring Backup (.okb)",
-        false,
-        ("All data", ScopeHintStyle::Full),
-    ),
-];
+        (
+            ImportSource::Bitwarden,
+            t!("tui.import_export.source_bitwarden").to_string(),
+            true,
+            (
+                t!("tui.import_export.source_bitwarden_scope").to_string(),
+                ScopeHintStyle::Limited,
+            ),
+        ),
+        (
+            ImportSource::Csv,
+            t!("tui.import_export.source_csv").to_string(),
+            false,
+            (
+                t!("tui.import_export.source_csv_scope").to_string(),
+                ScopeHintStyle::Full,
+            ),
+        ),
+        (
+            ImportSource::OpenKeyringBackup,
+            t!("tui.import_export.source_okb").to_string(),
+            false,
+            (
+                t!("tui.import_export.source_okb_scope").to_string(),
+                ScopeHintStyle::Full,
+            ),
+        ),
+    ]
+}
 
 /// Visual style category for a source's scope hint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,16 +132,16 @@ pub enum ScopeHintStyle {
 }
 
 #[allow(dead_code)]
-pub(super) fn source_display(source: ImportSource) -> &'static str {
-    IMPORT_SOURCES
+pub(super) fn source_display(source: ImportSource) -> String {
+    import_sources()
         .iter()
         .find(|(s, _, _, _)| *s == source)
-        .map(|(_, name, _, _)| *name)
-        .unwrap_or("Unknown")
+        .map(|(_, name, _, _)| name.clone())
+        .unwrap_or_else(|| t!("tui.import_export.source_unknown").to_string())
 }
 
 pub fn source_needs_password(source: ImportSource) -> bool {
-    IMPORT_SOURCES
+    import_sources()
         .iter()
         .find(|(s, _, _, _)| *s == source)
         .map(|(_, _, pw, _)| *pw)

@@ -165,7 +165,7 @@ impl ImportExportScreen {
     }
 
     pub(super) fn current_source(&self) -> ImportSource {
-        IMPORT_SOURCES[self.selected_source_idx].0
+        import_sources()[self.selected_source_idx].0
     }
 
     pub(super) fn import_focus_cycle_next(&mut self) {
@@ -255,7 +255,7 @@ impl ImportExportScreen {
         self.import_step = restore.import_step;
         self.selected_source_idx = restore
             .selected_source_idx
-            .min(IMPORT_SOURCES.len().saturating_sub(1));
+            .min(import_sources().len().saturating_sub(1));
         self.import_focus = restore.import_focus;
         self.export_step = restore.export_step;
         self.export_focus = restore.export_focus;
@@ -437,7 +437,7 @@ impl ImportExportScreen {
             }
             KeyCode::Down
                 if self.import_focus == ImportFocus::SourceList
-                    && self.selected_source_idx < IMPORT_SOURCES.len() - 1 =>
+                    && self.selected_source_idx < import_sources().len() - 1 =>
             {
                 self.selected_source_idx += 1;
             }

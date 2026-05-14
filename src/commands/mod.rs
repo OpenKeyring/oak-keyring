@@ -14,6 +14,6 @@ pub use types::{
     AppPhase, AuditFilter, AuditTimeRange, BatchTagPanelState, ConfirmButton, ConfirmDialogState,
     ConfirmVariant, ConflictResolution, CsvColumnMapping, DatabaseRecoverySource, ErrorDialogState,
     ExportScope, FailedItem, FieldSelector, HealthReport, ImportPreview, ImportSource,
-    NotificationLevel, Overlay, PanelId, RecordFilter, RecordSort, ReviewItem, Screen, SortDirection,
-    SortField,
+    NotificationLevel, Overlay, PanelId, RecordFilter, RecordSort, ReviewItem, Screen,
+    SortDirection, SortField,
 };

@@ -397,7 +397,7 @@ impl ChangeMasterPasswordScreen {
         });
 
         // Hint
-        let hint = Paragraph::new("Enter: verify | Esc: back")
+        let hint = Paragraph::new(t!("tui.misc.enter_verify_esc_back"))
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
 

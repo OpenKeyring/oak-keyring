@@ -22,42 +22,6 @@ const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 /// Section separator character.
 const SEPARATOR: &str = " \u{2502} "; // " │ "
 
-// ── Shortcut strings per panel (unicode) ──────────────────────────────────────
-
-const SHORTCUTS_SIDEBAR_LIST: &str = "\u{2318}K\u{641C}\u{7D22} n\u{65B0}\u{5EFA} e\u{7F16}\u{8F91} d\u{5220}\u{9664} F1\u{5E2E}\u{52A9}";
-// ⌘K搜索 n新建 e编辑 d删除 F1帮助
-
-const SHORTCUTS_DETAIL: &str = "c\u{590D}\u{5236}\u{5BC6}\u{7801} u\u{590D}\u{5236}\u{7528}\u{6237}\u{540D} p\u{663E}\u{793A}/\u{9690}\u{85CF} e\u{7F16}\u{8F91} d\u{5220}\u{9664} F1\u{5E2E}\u{52A9}";
-// c复制密码 u复制用户名 p显示/隐藏 e编辑 d删除 F1帮助
-
-// ── ASCII fallbacks for shortcuts ─────────────────────────────────────────────
-
-const SHORTCUTS_SIDEBAR_LIST_ASCII: &str = "Ctrl+K Search  N New  E Edit  D Delete  F1 Help";
-const SHORTCUTS_DETAIL_ASCII: &str =
-    "C CopyPwd  U CopyUser  P Show/Hide  E Edit  D Delete  F1 Help";
-
-// ── Trash shortcut strings (unicode) ──────────────────────────────────────────
-
-const SHORTCUTS_TRASH_LIST: &str = "r\u{6062}\u{590D} D\u{6C38}\u{4E45}\u{5220}\u{9664} a\u{6E05}\u{7A7A}\u{56DE}\u{6536}\u{7AD9} F1\u{5E2E}\u{52A9}";
-// r恢复 D永久删除 a清空回收站 F1帮助
-
-const SHORTCUTS_TRASH_DETAIL: &str =
-    "c\u{590D}\u{5236}\u{5BC6}\u{7801} u\u{590D}\u{5236}\u{7528}\u{6237}\u{540D} p\u{663E}\u{793A}/\u{9690}\u{85CF} r\u{6062}\u{590D} D\u{6C38}\u{4E45}\u{5220}\u{9664} F1\u{5E2E}\u{52A9}";
-// c复制密码 u复制用户名 p显示/隐藏 r恢复 D永久删除 F1帮助
-
-// ── Trash shortcut ASCII fallbacks ─────────────────────────────────────────────
-
-const SHORTCUTS_TRASH_LIST_ASCII: &str = "R Restore  D PermDelete  A EmptyTrash  F1 Help";
-const SHORTCUTS_TRASH_DETAIL_ASCII: &str =
-    "C CopyPwd  U CopyUser  P Show/Hide  R Restore  D PermDelete  F1 Help";
-
-// ── Visual mode shortcut strings ──────────────────────────────────────────────
-
-const SHORTCUTS_VISUAL_UNICODE: &str = "Space\u{9009}\u{62E9} a\u{5168}\u{9009} d\u{6279}\u{91CF}\u{5220}\u{9664} t\u{6279}\u{91CF}\u{6807}\u{7B7E} Esc\u{9000}\u{51FA}";
-// Space选择 a全选 d批量删除 t批量标签 Esc退出
-
-const SHORTCUTS_VISUAL_ASCII: &str = "Space Select  A All  D BatchDel  T BatchTag  Esc Exit";
-
 /// Visual indicator text shown in status bar when visual mode is active.
 const VISUAL_INDICATOR_UNICODE: &str = "VISUAL";
 const VISUAL_INDICATOR_ASCII: &str = "[VISUAL]";
@@ -211,45 +175,45 @@ impl StatusBarPanel {
 }
 
 /// Return the shortcut hint string based on the focused panel and trash state.
-fn shortcuts_text(focused_panel: PanelId, unicode: bool, is_trash: bool) -> &'static str {
+fn shortcuts_text(focused_panel: PanelId, unicode: bool, is_trash: bool) -> String {
     match (focused_panel, is_trash) {
         (PanelId::Sidebar, _) | (PanelId::List, false) => {
             if unicode {
-                SHORTCUTS_SIDEBAR_LIST
+                t!("tui.status_bar.shortcuts_sidebar_list").to_string()
             } else {
-                SHORTCUTS_SIDEBAR_LIST_ASCII
+                t!("tui.status_bar.shortcuts_sidebar_list_ascii").to_string()
             }
         }
         (PanelId::List, true) => {
             if unicode {
-                SHORTCUTS_TRASH_LIST
+                t!("tui.status_bar.shortcuts_trash_list").to_string()
             } else {
-                SHORTCUTS_TRASH_LIST_ASCII
+                t!("tui.status_bar.shortcuts_trash_list_ascii").to_string()
             }
         }
         (PanelId::Detail, false) => {
             if unicode {
-                SHORTCUTS_DETAIL
+                t!("tui.status_bar.shortcuts_detail").to_string()
             } else {
-                SHORTCUTS_DETAIL_ASCII
+                t!("tui.status_bar.shortcuts_detail_ascii").to_string()
             }
         }
         (PanelId::Detail, true) => {
             if unicode {
-                SHORTCUTS_TRASH_DETAIL
+                t!("tui.status_bar.shortcuts_trash_detail").to_string()
             } else {
-                SHORTCUTS_TRASH_DETAIL_ASCII
+                t!("tui.status_bar.shortcuts_trash_detail_ascii").to_string()
             }
         }
     }
 }
 
 /// Return the visual mode shortcut text.
-fn visual_shortcuts_text(unicode: bool) -> &'static str {
+fn visual_shortcuts_text(unicode: bool) -> String {
     if unicode {
-        SHORTCUTS_VISUAL_UNICODE
+        t!("tui.status_bar.shortcuts_visual").to_string()
     } else {
-        SHORTCUTS_VISUAL_ASCII
+        t!("tui.status_bar.shortcuts_visual_ascii").to_string()
     }
 }
 

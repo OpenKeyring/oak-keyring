@@ -27,7 +27,9 @@ pub enum PasswordField {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SetPasswordContext {
     PostRecovery,
-    OnboardingCreate { recovery_words: Vec<String> },
+    OnboardingCreate {
+        recovery_words: Vec<String>,
+    },
     OnboardingRestore,
     /// Rebuild wrapped_secret_key.json from recovered key + new master password.
     RestoreExistingVault {
@@ -370,12 +372,12 @@ impl SetPasswordScreen {
                 let password = self.new_password.take_secure();
                 self.confirm_password.clear();
                 let cmd = match &self.context {
-                    SetPasswordContext::RestoreExistingVault {
-                        recovery_words, ..
-                    } => Command::RebuildKeyFileFromRecovery {
-                        master_password: password,
-                        recovery_words: recovery_words.clone(),
-                    },
+                    SetPasswordContext::RestoreExistingVault { recovery_words, .. } => {
+                        Command::RebuildKeyFileFromRecovery {
+                            master_password: password,
+                            recovery_words: recovery_words.clone(),
+                        }
+                    }
                     SetPasswordContext::OnboardingCreate { recovery_words } => {
                         Command::InitializeVault {
                             master_password: password,

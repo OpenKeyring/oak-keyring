@@ -173,6 +173,48 @@ tui:
     db_recovery_cloud_success_hotkey: "Enter: continue"
     db_recovery_step_1_1: "Step 1/1"
     db_recovery_step_3_3: "Step 3/3"
+    # ---- Onboarding hardcoded conversions ----
+    recovery_key_write_down: "Recovery Key - Write These Down!"
+    generating_recovery_key: "Generating recovery key..."
+    copy_to_clipboard_btn: " Copy to clipboard "
+    regenerate_btn: " Regenerate "
+    clipboard_clear_warning: "⚠ Clipboard will be cleared after %{seconds} seconds"
+    confirm_saved_key: " I have saved my recovery key"
+    check_box_to_continue: "Check the box above to continue"
+    next_step: " Next step "
+    recovery_display_hint: "←→/Tab: navigate  |  Enter: activate  |  Space: toggle  |  Esc: back"
+    verify_recovery_title: "Verify Recovery Key"
+    enter_word_position: "Enter the word at each specified position:"
+    word_n_label: "  Word #%{n}"
+    verify_hint: "Tab/Shift+Tab: navigate  |  Enter: verify  |  Esc: back"
+    enter_recovery_title: "Enter Recovery Key"
+    recovery_input_hint: "Tab: next word  |  Enter: submit  |  Esc: go back"
+    security_notice: "⚠ Security Notice"
+    security_notice_body: "Your vault has been restored from a recovery key.\nWe strongly recommend setting a new master password\nand reviewing your security settings."
+    security_notice_hint: "Press Enter to set a new master password  |  Esc to go back"
+    step_n_of_n: "Step %{current}/%{total}"
+    file_path_required: "File path is required"
+    onboarding_welcome_hint: "↑↓/Tab: navigate  |  Enter: select  |  Esc: quit"
+    language_hint: "L: Language (%{lang})"
+    set_password_redirect: "You will be redirected to set your master password."
+    enter_to_continue_esc_back: "Enter to continue  |  Esc to go back"
+    import_scope_logins: "Login items (name, account, password, URL, notes)"
+    import_scope_totp: "TOTP / 2FA (not supported in current version, discarded during import)"
+    import_scope_custom: "Custom fields (formatted and stored in notes field)"
+    import_scope_history: "Password history records"
+    import_scope_attachments: "Attachments (ignored during import)"
+    import_source_navigate_hint: "↑↓: navigate | Tab: cycle fields | Enter: validate | Esc: back"
+    import_file_path_label: "File Path: "
+    import_password_label: "Password: "
+    import_preview_toggle_hint: "Tab: toggle focus | Space/Enter: toggle checkbox | Enter: start import | Esc: back"
+    import_as_notes_checkbox: " Import problematic entries as notes (instead of skipping)"
+    no_preview_data: "No preview data available"
+    importable_label: "Importable: %{count}"
+    needs_review_label: "Needs review: %{count}"
+    failed_label: "Failed: %{count}"
+    step_onboarding_import_source: "Step 2/6 · Select Import Source"
+    step_onboarding_import_preview: "Step 3/6 · Import Preview"
+    import_scope_separator: "── Import Scope ──"
 
   # ---- U2: Main Layout ----
   main:
@@ -677,6 +719,23 @@ tui:
     format_csv: ".csv (Plaintext)"
     csv_security_warning: "Warning: CSV exports are unencrypted plaintext. Do not share this file."
     records_exported: "Records exported: %{count}"
+    # ---- Import source metadata ----
+    source_keepass: "KeePass (.kdbx)"
+    source_keepass_scope: "Password / URL / Notes"
+    source_1password_1pux: "1Password (.1pux)"
+    source_1password_opvault: "1Password (.opvault)"
+    source_1password_scope: "Password / TOTP  ⚠ Custom fields"
+    source_bitwarden: "Bitwarden (.json)"
+    source_bitwarden_scope: "Password / TOTP / URL  ✗ Attachments"
+    source_csv: "CSV"
+    source_csv_scope: "Column-mapped fields"
+    source_okb: "OpenKeyring Backup (.okb)"
+    source_okb_scope: "All data"
+    source_unknown: "Unknown"
+    skip_reason_duplicates: "Duplicates"
+    skip_reason_validation_failed: "Validation failed"
+    skip_records_count: "    %{label}: %{count} records"
+    strength_label_short: "Strength: "
 
   # ---- U10: Audit Log ----
   audit:
@@ -875,6 +934,17 @@ tui:
     sync_failed: "Sync failed"
     sync_offline: "Offline"
     sync_not_configured: "Not configured"
+    # ---- Status bar shortcut strings ----
+    shortcuts_sidebar_list: "⌘K Search  N New  E Edit  D Delete  F1 Help"
+    shortcuts_sidebar_list_ascii: "Ctrl+K Search  N New  E Edit  D Delete  F1 Help"
+    shortcuts_detail: "c CopyPwd  u CopyUser  p Show/Hide  e Edit  d Delete  F1 Help"
+    shortcuts_detail_ascii: "C CopyPwd  U CopyUser  P Show/Hide  E Edit  D Delete  F1 Help"
+    shortcuts_trash_list: "r Restore  D PermDelete  A EmptyTrash  F1 Help"
+    shortcuts_trash_list_ascii: "R Restore  D PermDelete  A EmptyTrash  F1 Help"
+    shortcuts_trash_detail: "c CopyPwd  u CopyUser  p Show/Hide  r Restore  D PermDelete  F1 Help"
+    shortcuts_trash_detail_ascii: "C CopyPwd  U CopyUser  P Show/Hide  R Restore  D PermDelete  F1 Help"
+    shortcuts_visual: "Space Select  a All  d BatchDel  t BatchTag  Esc Exit"
+    shortcuts_visual_ascii: "Space Select  A All  D BatchDel  T BatchTag  Esc Exit"
 
   # ---- Sync Indicator ----
   sync_indicator:
@@ -1043,3 +1113,17 @@ tui:
     copied_history: "Historical password copied (%{seconds}s until cleared)"
     no_history: "No history yet"
     copy_button: "[Copy]"
+
+  # ---- Field selector labels ----
+  field_selector:
+    password: "Password"
+    username: "Username"
+    url: "URL"
+    notes: "Notes"
+    passphrase: "SSH Passphrase"
+    history_password: "History Password"
+
+  # ---- Misc i18n ----
+  misc:
+    press_esc_to_cancel: "Press Esc to cancel"
+    enter_verify_esc_back: "Enter: verify | Esc: back"

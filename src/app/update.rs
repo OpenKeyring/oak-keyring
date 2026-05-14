@@ -432,7 +432,9 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                 .last()
                 .map(|s| s.screen)
                 .and_then(|s| match s {
-                    Screen::Onboarding => Some(crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore),
+                    Screen::Onboarding => Some(
+                        crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore,
+                    ),
                     _ => None,
                 })
                 .unwrap_or(crate::tui::screens::key_recovery::KeyRecoveryOrigin::StartupDbOnly);
