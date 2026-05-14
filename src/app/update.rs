@@ -398,7 +398,7 @@ fn route_to_screen(
         Screen::Unlock => state.screens.unlock.update(msg, ctx),
         Screen::Onboarding => state.screens.onboarding.update(msg, ctx),
         Screen::KeyRecovery => state.screens.key_recovery.update(msg, ctx),
-        Screen::DatabaseRecovery => ScreenResult::Continue,
+        Screen::DatabaseRecovery => state.screens.database_recovery.update(msg, ctx),
         Screen::Config => {
             state.screens.config.state.terminal_height = state.terminal_size.1;
             state.screens.config.update(msg, ctx)
@@ -440,7 +440,20 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
                 crate::tui::screens::key_recovery::KeyRecoveryScreen::new(origin);
             state.screens.key_recovery.on_mount(ctx)
         }
-        Screen::DatabaseRecovery => {}
+        Screen::DatabaseRecovery => {
+            let origin = state
+                .screen_history
+                .last()
+                .map(|s| s.screen)
+                .and_then(|s| match s {
+                    Screen::KeyRecovery => Some(crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore),
+                    _ => None,
+                })
+                .unwrap_or(crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly);
+            state.screens.database_recovery =
+                crate::tui::screens::database_recovery::DatabaseRecoveryScreen::new(origin);
+            state.screens.database_recovery.on_mount(ctx)
+        }
         Screen::Config => state.screens.config.on_mount(ctx),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
         Screen::SetNewMasterPassword => {
@@ -515,7 +528,7 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         Screen::Unlock => state.screens.unlock.on_unmount(),
         Screen::Onboarding => state.screens.onboarding.on_unmount(),
         Screen::KeyRecovery => state.screens.key_recovery.on_unmount(),
-        Screen::DatabaseRecovery => {}
+        Screen::DatabaseRecovery => state.screens.database_recovery.on_unmount(),
         Screen::Config => state.screens.config.on_unmount(),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
         Screen::SetNewMasterPassword => {

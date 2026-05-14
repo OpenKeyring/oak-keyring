@@ -17,6 +17,7 @@ pub mod tag_management;
 use crate::commands::types::{AppPhase, Screen};
 use crate::tui::screens::audit_log::AuditLogScreen;
 use crate::tui::screens::change_master_password::ChangeMasterPasswordScreen;
+use crate::tui::screens::database_recovery::DatabaseRecoveryScreen;
 use crate::tui::screens::config_screen::ConfigScreen;
 use crate::tui::screens::create_record::CreateRecordScreen;
 use crate::tui::screens::edit_record::EditRecordScreen;
@@ -76,6 +77,7 @@ pub struct ScreenStates {
     pub unlock: UnlockScreen,
     pub onboarding: OnboardingScreen,
     pub key_recovery: KeyRecoveryScreen,
+    pub database_recovery: DatabaseRecoveryScreen,
     pub main: MainScreenState,
     pub config: ConfigScreen,
     pub change_master_password: ChangeMasterPasswordScreen,

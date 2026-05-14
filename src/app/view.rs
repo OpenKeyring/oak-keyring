@@ -30,7 +30,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Screen::KeyRecovery => {
             app.state.screens.key_recovery.view(frame, area);
         }
-        Screen::DatabaseRecovery => {}
+        Screen::DatabaseRecovery => {
+            app.state.screens.database_recovery.view(frame, area);
+        }
         Screen::Config => {
             app.state.screens.config.view(frame, area);
         }
