@@ -115,13 +115,14 @@ impl AppState {
     /// Four states per spec:
     /// - key + db → UnlockScreen
     /// - no key, no db → OnboardingScreen
-    /// - no key, db → OnboardingScreen (Restore path — recovery word restore)
-    /// - key, no db → OnboardingScreen (CreateNew path — DB re-initialization)
+    /// - no key, db → KeyRecoveryScreen
+    /// - key, no db → DatabaseRecoveryScreen
     pub fn new(has_vault: bool, vault_has_key_only: bool, vault_has_db_only: bool) -> Self {
-        let initial_screen = if has_vault && !vault_has_key_only && !vault_has_db_only {
-            Screen::Unlock
-        } else {
-            Screen::Onboarding
+        let initial_screen = match (has_vault, vault_has_key_only, vault_has_db_only) {
+            (true, false, false) => Screen::Unlock,
+            (false, true, false) => Screen::DatabaseRecovery,
+            (false, false, true) => Screen::KeyRecovery,
+            _ => Screen::Onboarding,
         };
 
         Self {
