@@ -3,6 +3,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
+use crate::t;
 use crate::tui::theme::{
     self, Styles, BG, BG_SURFACE, BORDER, BRAND, PRIMARY, TEXT, TEXT_MUTED, TEXT_SECONDARY,
 };
@@ -82,18 +83,18 @@ impl OnboardingScreen {
         let cards = [
             (
                 "\u{2726}", // ✦
-                "创建新 vault",
-                "生成新的恢复助记词、设置主密码并创建空数据库。",
+                t!("tui.entry.onboarding_create_card_title"),
+                t!("tui.entry.onboarding_create_card_desc"),
             ),
             (
                 "\u{21BB}", // ↻
-                "恢复已有 vault（云端或 .okb）",
-                "用恢复助记词重建密钥，再恢复加密数据库。",
+                t!("tui.entry.onboarding_restore_card_title"),
+                t!("tui.entry.onboarding_restore_card_desc"),
             ),
             (
                 "\u{2193}", // ↓
-                "从其它密码管理器导入",
-                "创建新的 oak-keyring vault 后导入外部数据。",
+                t!("tui.entry.onboarding_import_card_title"),
+                t!("tui.entry.onboarding_import_card_desc"),
             ),
         ];
 

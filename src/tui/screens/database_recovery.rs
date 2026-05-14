@@ -12,6 +12,7 @@ use ratatui::widgets::{Block, Paragraph};
 
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
+use crate::t;
 use crate::tui::theme::{self, BRAND, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED};
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
 
@@ -71,10 +72,10 @@ impl DatabaseRecoveryScreen {
         }
     }
 
-    fn step_text(&self) -> &'static str {
+    fn step_text(&self) -> std::borrow::Cow<'static, str> {
         match self.origin {
-            DatabaseRecoveryOrigin::StartupKeyOnly => "Step 1/1",
-            DatabaseRecoveryOrigin::OnboardingRestore => "Step 3/3",
+            DatabaseRecoveryOrigin::StartupKeyOnly => t!("tui.entry.db_recovery_step_1_1"),
+            DatabaseRecoveryOrigin::OnboardingRestore => t!("tui.entry.db_recovery_step_3_3"),
         }
     }
 
@@ -114,10 +115,10 @@ impl DatabaseRecoveryScreen {
             KeyCode::Enter => {
                 let path = self.okb_path.trim();
                 if path.is_empty() {
-                    self.error = Some("Enter a .okb path.".to_string());
+                    self.error = Some(t!("tui.entry.db_recovery_okb_empty_error").to_string());
                     ScreenResult::Continue
                 } else if !path.ends_with(".okb") {
-                    self.error = Some("Path must end with .okb.".to_string());
+                    self.error = Some(t!("tui.entry.db_recovery_okb_ext_error").to_string());
                     ScreenResult::Continue
                 } else {
                     self.error = None;
@@ -339,14 +340,14 @@ impl DatabaseRecoveryScreen {
         rows: &[ratatui::layout::Rect],
     ) {
         let title = Paragraph::new(Line::from(Span::styled(
-            "恢复 vault 数据库",
+            t!("tui.entry.db_recovery_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center);
         frame.render_widget(title, rows[2]);
 
         let instruction = Paragraph::new(Line::from(Span::styled(
-            "选择加密数据库来源。恢复完成后会用当前 key 解密验证。",
+            t!("tui.entry.db_recovery_select_hint"),
             Style::default().fg(TEXT),
         )))
         .alignment(Alignment::Center);
@@ -366,9 +367,9 @@ impl DatabaseRecoveryScreen {
             Style::default().fg(TEXT)
         };
         let cloud_card = Paragraph::new(vec![
-            Line::from(Span::styled("↻  云端同步恢复", cloud_style.add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(t!("tui.entry.db_recovery_cloud_card_title"), cloud_style.add_modifier(Modifier::BOLD))),
             Line::from(Span::styled(
-                "    使用已配置的 OAuth；没有配置则先授权。",
+                t!("tui.entry.db_recovery_cloud_card_desc"),
                 Style::default().fg(TEXT_MUTED),
             )),
         ])
@@ -389,9 +390,9 @@ impl DatabaseRecoveryScreen {
             Style::default().fg(TEXT)
         };
         let okb_card = Paragraph::new(vec![
-            Line::from(Span::styled("↓  从 .okb 备份恢复", okb_style.add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(t!("tui.entry.db_recovery_okb_card_title"), okb_style.add_modifier(Modifier::BOLD))),
             Line::from(Span::styled(
-                "    输入本地 .okb 文件路径。",
+                t!("tui.entry.db_recovery_okb_card_desc"),
                 Style::default().fg(TEXT_MUTED),
             )),
         ])
@@ -408,15 +409,16 @@ impl DatabaseRecoveryScreen {
 
         // Hotkeys
         let hotkey = Paragraph::new(Line::from(Span::styled(
-            "↑↓/Tab: navigate  |  Enter: select  |  Esc: back",
+            t!("tui.entry.db_recovery_source_hotkey"),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
         frame.render_widget(hotkey, rows[6]);
 
         // Step
+        let step_text = self.step_text();
         let step = Paragraph::new(Line::from(Span::styled(
-            self.step_text(),
+            step_text.as_ref(),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
@@ -425,14 +427,14 @@ impl DatabaseRecoveryScreen {
 
     fn render_okb_input(&self, frame: &mut ratatui::Frame, rows: &[ratatui::layout::Rect]) {
         let title = Paragraph::new(Line::from(Span::styled(
-            "从 .okb 备份恢复",
+            t!("tui.entry.db_recovery_okb_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center);
         frame.render_widget(title, rows[2]);
 
         let instruction = Paragraph::new(Line::from(Span::styled(
-            "输入本地 .okb 文件路径，提交后检查文件存在性和格式。",
+            t!("tui.entry.db_recovery_okb_instruction"),
             Style::default().fg(TEXT),
         )))
         .alignment(Alignment::Center);
@@ -446,7 +448,7 @@ impl DatabaseRecoveryScreen {
         .split(input_area);
 
         let display = if self.okb_path.is_empty() {
-            "/path/to/backup.okb".to_string()
+            t!("tui.entry.db_recovery_okb_path_placeholder").to_string()
         } else {
             self.okb_path.clone()
         };
@@ -460,7 +462,7 @@ impl DatabaseRecoveryScreen {
                 Block::default()
                     .borders(ratatui::widgets::Borders::ALL)
                     .border_style(Style::default().fg(PRIMARY))
-                    .title(" .okb path "),
+                    .title(t!("tui.entry.db_recovery_okb_path_label")),
             );
         frame.render_widget(input, input_layout[0]);
 
@@ -476,14 +478,15 @@ impl DatabaseRecoveryScreen {
 
         // Hotkeys
         let hotkey = Paragraph::new(Line::from(Span::styled(
-            "Enter: restore .okb  |  Esc: source selection",
+            t!("tui.entry.db_recovery_okb_hotkey"),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
         frame.render_widget(hotkey, rows[6]);
 
+        let step_text = self.step_text();
         let step = Paragraph::new(Line::from(Span::styled(
-            self.step_text(),
+            step_text.as_ref(),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
@@ -492,7 +495,7 @@ impl DatabaseRecoveryScreen {
 
     fn render_cloud_syncing(&self, frame: &mut ratatui::Frame, rows: &[ratatui::layout::Rect]) {
         let title = Paragraph::new(Line::from(Span::styled(
-            "云端同步恢复",
+            t!("tui.entry.db_recovery_cloud_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center);
@@ -501,7 +504,7 @@ impl DatabaseRecoveryScreen {
         let content = if let Some((current, total, ref label)) = self.progress {
             vec![
                 Line::from(Span::styled(
-                    "正在从云端同步加密 vault.db。",
+                    t!("tui.entry.db_recovery_cloud_syncing"),
                     Style::default().fg(TEXT),
                 )),
                 Line::from(Span::styled("", Style::default().fg(TEXT))),
@@ -519,16 +522,16 @@ impl DatabaseRecoveryScreen {
         } else {
             vec![
                 Line::from(Span::styled(
-                    "正在从云端同步加密 vault.db。",
+                    t!("tui.entry.db_recovery_cloud_syncing"),
                     Style::default().fg(TEXT),
                 )),
                 Line::from(Span::styled("", Style::default().fg(TEXT))),
                 Line::from(Span::styled(
-                    "✓ OAuth 配置已找到",
+                    t!("tui.entry.db_recovery_cloud_oauth_found"),
                     Style::default().fg(SUCCESS),
                 )),
                 Line::from(Span::styled(
-                    "→ 正在下载 vault.db...",
+                    t!("tui.entry.db_recovery_cloud_downloading"),
                     Style::default().fg(TEXT_MUTED),
                 )),
             ]
@@ -543,14 +546,15 @@ impl DatabaseRecoveryScreen {
 
         // Hotkeys
         let hotkey = Paragraph::new(Line::from(Span::styled(
-            "Esc: cancel and return to source selection",
+            t!("tui.entry.db_recovery_cloud_cancel_hint"),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
         frame.render_widget(hotkey, rows[6]);
 
+        let step_text = self.step_text();
         let step = Paragraph::new(Line::from(Span::styled(
-            self.step_text(),
+            step_text.as_ref(),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
@@ -563,7 +567,7 @@ impl DatabaseRecoveryScreen {
         rows: &[ratatui::layout::Rect],
     ) {
         let title = Paragraph::new(Line::from(Span::styled(
-            "云端同步恢复",
+            t!("tui.entry.db_recovery_cloud_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center);
@@ -571,7 +575,7 @@ impl DatabaseRecoveryScreen {
 
         let instruction = Paragraph::new(vec![
             Line::from(Span::styled(
-                "需要先授权云端同步，授权完成后会自动下载 vault.db。",
+                t!("tui.entry.db_recovery_cloud_oauth_needed"),
                 Style::default().fg(TEXT),
             )),
         ])
@@ -581,11 +585,11 @@ impl DatabaseRecoveryScreen {
         let card_area = rows[4];
         let card = Paragraph::new(vec![
             Line::from(Span::styled(
-                "↗  开始 OAuth 授权",
+                t!("tui.entry.db_recovery_cloud_oauth_card_title"),
                 Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                "    授权只用于读取 oak-keyring 同步数据。",
+                t!("tui.entry.db_recovery_cloud_oauth_card_desc"),
                 Style::default().fg(TEXT_MUTED),
             )),
         ])
@@ -597,14 +601,15 @@ impl DatabaseRecoveryScreen {
         frame.render_widget(card, card_area);
 
         let hotkey = Paragraph::new(Line::from(Span::styled(
-            "Enter: authorize  |  Esc: source selection",
+            t!("tui.entry.db_recovery_cloud_oauth_hotkey"),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
         frame.render_widget(hotkey, rows[6]);
 
+        let step_text = self.step_text();
         let step = Paragraph::new(Line::from(Span::styled(
-            self.step_text(),
+            step_text.as_ref(),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
@@ -613,16 +618,17 @@ impl DatabaseRecoveryScreen {
 
     fn render_cloud_failed(&self, frame: &mut ratatui::Frame, rows: &[ratatui::layout::Rect]) {
         let title = Paragraph::new(Line::from(Span::styled(
-            "云端同步恢复",
+            t!("tui.entry.db_recovery_cloud_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center);
         frame.render_widget(title, rows[2]);
 
+        let default_failed = t!("tui.entry.db_recovery_cloud_failed_default");
         let error_text = self
             .error
             .as_deref()
-            .unwrap_or("没有找到可恢复的 vault.db，或同步失败。");
+            .unwrap_or(default_failed.as_ref());
         let content = vec![
             Line::from(Span::styled(
                 format!("✕ {}", error_text),
@@ -630,7 +636,7 @@ impl DatabaseRecoveryScreen {
             )),
             Line::from(Span::styled("", Style::default().fg(TEXT))),
             Line::from(Span::styled(
-                "你可以重试云端同步，或返回选择 .okb 备份。",
+                t!("tui.entry.db_recovery_cloud_failed_hint"),
                 Style::default().fg(TEXT_MUTED),
             )),
         ];
@@ -643,14 +649,15 @@ impl DatabaseRecoveryScreen {
         frame.render_widget(para, combined);
 
         let hotkey = Paragraph::new(Line::from(Span::styled(
-            "Enter: retry cloud sync  |  Esc: source selection",
+            t!("tui.entry.db_recovery_cloud_failed_hotkey"),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
         frame.render_widget(hotkey, rows[6]);
 
+        let step_text = self.step_text();
         let step = Paragraph::new(Line::from(Span::styled(
-            self.step_text(),
+            step_text.as_ref(),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
@@ -663,7 +670,7 @@ impl DatabaseRecoveryScreen {
         rows: &[ratatui::layout::Rect],
     ) {
         let title = Paragraph::new(Line::from(Span::styled(
-            "云端同步恢复",
+            t!("tui.entry.db_recovery_cloud_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center);
@@ -671,11 +678,11 @@ impl DatabaseRecoveryScreen {
 
         let content = vec![
             Line::from(Span::styled(
-                "✓ 已下载 vault.db",
+                t!("tui.entry.db_recovery_cloud_success_downloaded"),
                 Style::default().fg(SUCCESS),
             )),
             Line::from(Span::styled(
-                "✓ 已通过当前 vault key 解密验证",
+                t!("tui.entry.db_recovery_cloud_success_verified"),
                 Style::default().fg(SUCCESS),
             )),
         ];
@@ -688,14 +695,15 @@ impl DatabaseRecoveryScreen {
         frame.render_widget(para, combined);
 
         let hotkey = Paragraph::new(Line::from(Span::styled(
-            "Enter: continue",
+            t!("tui.entry.db_recovery_cloud_success_hotkey"),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
         frame.render_widget(hotkey, rows[6]);
 
+        let step_text = self.step_text();
         let step = Paragraph::new(Line::from(Span::styled(
-            self.step_text(),
+            step_text.as_ref(),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);

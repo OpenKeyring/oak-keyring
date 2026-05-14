@@ -13,6 +13,7 @@ use ratatui::widgets::{Paragraph};
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::{Command, Message};
+use crate::t;
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::theme::{self, BRAND, ERROR, PRIMARY, TEXT, TEXT_MUTED};
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
@@ -53,10 +54,10 @@ impl KeyRecoveryScreen {
         }
     }
 
-    fn step_text(&self) -> &'static str {
+    fn step_text(&self) -> std::borrow::Cow<'static, str> {
         match self.origin {
-            KeyRecoveryOrigin::StartupDbOnly => "Step 1/2",
-            KeyRecoveryOrigin::OnboardingRestore => "Step 1/3",
+            KeyRecoveryOrigin::StartupDbOnly => t!("tui.entry.key_recovery_step_1_2"),
+            KeyRecoveryOrigin::OnboardingRestore => t!("tui.entry.key_recovery_step_1_3"),
         }
     }
 
@@ -70,7 +71,7 @@ impl KeyRecoveryScreen {
                     let words = self.words.collect_words();
                     let _ = ctx.command_tx.try_send(Command::ValidateRecoveryWords { words });
                 } else {
-                    self.error = Some("Enter all 24 recovery words.".to_string());
+                    self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
                 }
                 ScreenResult::Continue
             }
@@ -154,7 +155,7 @@ impl ScreenTrait for KeyRecoveryScreen {
 
         // Title
         let title = Paragraph::new(Line::from(Span::styled(
-            "恢复 vault 密钥",
+            t!("tui.entry.key_recovery_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center);
@@ -162,7 +163,7 @@ impl ScreenTrait for KeyRecoveryScreen {
 
         // Instruction
         let instruction = Paragraph::new(Line::from(Span::styled(
-            "输入你的恢复助记词，用来重建 wrapped_secret_key.json。",
+            t!("tui.entry.key_recovery_instruction"),
             Style::default().fg(TEXT),
         )))
         .alignment(Alignment::Center);
@@ -185,9 +186,9 @@ impl ScreenTrait for KeyRecoveryScreen {
 
         // Hotkeys
         let hotkey = if self.error.is_some() {
-            "Tab: next word  |  Enter: retry  |  Esc: back"
+            t!("tui.entry.key_recovery_hotkey_error")
         } else {
-            "Tab: next word  |  Shift+Tab: previous  |  Enter: continue  |  Esc: back"
+            t!("tui.entry.key_recovery_hotkey")
         };
         let hotkey_para = Paragraph::new(Line::from(Span::styled(
             hotkey,
@@ -197,8 +198,9 @@ impl ScreenTrait for KeyRecoveryScreen {
         frame.render_widget(hotkey_para, rows[7]);
 
         // Step indicator
+        let step_text = self.step_text();
         let step = Paragraph::new(Line::from(Span::styled(
-            self.step_text(),
+            step_text.as_ref(),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);
@@ -258,7 +260,7 @@ mod tests {
         assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(
             screen.error.as_deref(),
-            Some("Enter all 24 recovery words.")
+            Some(t!("tui.entry.key_recovery_empty_error").as_ref())
         );
     }
 }
