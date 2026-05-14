@@ -23,7 +23,7 @@ use crate::commands::types::HealthReport;
 use crate::commands::{Command, InternalCommand, Message};
 use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::{AppConfig, ConfigManager};
-use crate::db::schema::init_db;
+use crate::db::schema::{init_db, init_db_in_memory};
 use crate::services::clipboard::ClipboardService;
 use crate::services::health::HealthService;
 use crate::services::import_export::ImportExportService;
@@ -148,11 +148,18 @@ impl CommandExecutor {
         shutdown_token: CancellationToken,
         vault_dir: std::path::PathBuf,
         config_dir: std::path::PathBuf,
+        vault_has_key_only: bool,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), "initializing CommandExecutor");
+        info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), vault_has_key_only, "initializing CommandExecutor");
 
-        // Open and initialize the SQLite database.
-        let conn = init_db(&vault_dir)?;
+        // Open an in-memory database when key exists but vault.db is missing,
+        // to prevent creating an empty vault.db before recovery completes.
+        let conn = if vault_has_key_only {
+            info!("using in-memory database (key-only state, awaiting recovery)");
+            init_db_in_memory()
+        } else {
+            init_db(&vault_dir)?
+        };
 
         // Create service instances.
         let vault = VaultService::new(conn);
@@ -336,6 +343,19 @@ impl CommandExecutor {
     /// executor construction.
     pub fn set_sync_service(&mut self, sync: Option<crate::services::sync::SyncService>) {
         self.sync = sync;
+    }
+
+    /// Reopen the vault database as file-backed after a restore operation.
+    ///
+    /// Called after `.okb` or cloud restore writes a real `vault.db` to disk,
+    /// replacing the in-memory placeholder that was used during key-only startup.
+    pub(super) fn reopen_file_backed_vault_db(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let conn = init_db(&self.vault_dir)?;
+        self.vault = crate::services::vault::VaultService::new(conn);
+        info!("reopened vault database as file-backed after restore");
+        Ok(())
     }
 }
 

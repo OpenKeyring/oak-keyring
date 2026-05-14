@@ -347,7 +347,12 @@ pub async fn handle_rebuild_keyfile_from_recovery(
         &crate::crypto::argon2::Argon2Params::medium(),
         language,
     ) {
-        Ok(_) => CommandResult::KeyFileRebuilt,
+        Ok(_) => {
+            // Cache the master password so subsequent restore handlers can
+            // unlock the vault after reopening the file-backed database.
+            executor.verified_master_password = Some(master_password);
+            CommandResult::KeyFileRebuilt
+        }
         Err(e) => CommandResult::Error {
             code: ErrorCode::CryptoEncryptionFailed,
             context: ErrorContext::default(),

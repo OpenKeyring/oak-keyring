@@ -251,6 +251,7 @@ pub enum Command {
     /// Restore vault.db from a local .okb backup file.
     RestoreDatabaseFromOkb {
         path: PathBuf,
+        password: crate::types::SecureStr,
     },
 
     /// Restore vault.db from cloud sync (pull-only, no push).

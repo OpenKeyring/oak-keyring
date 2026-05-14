@@ -28,7 +28,7 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let executor = CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir)
+    let executor = CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false)
         .expect("executor construction should succeed");
 
     // Spawn the executor run loop
@@ -311,7 +311,7 @@ async fn save_and_reload_preserves_config() {
         let cancel_token = CancellationToken::new();
 
         let executor =
-            CommandExecutor::new(disk_config, result_tx, cancel_token, data_dir, config_dir)
+            CommandExecutor::new(disk_config, result_tx, cancel_token, data_dir, config_dir, false)
                 .expect("executor construction should succeed");
 
         tokio::spawn(async move {

@@ -15,6 +15,7 @@ use crate::commands::{Command, Message};
 use crate::t;
 use crate::tui::theme::{self, BRAND, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED};
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
+use crate::types::sensitive::SensitiveInput;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ pub enum DatabaseRecoveryOrigin {
 pub enum DatabaseRecoveryMode {
     SourceSelection,
     OkbPathInput,
+    OkbPasswordInput,
     CloudSyncing,
     CloudNeedsOAuth,
     CloudFailed,
@@ -50,6 +52,7 @@ pub struct DatabaseRecoveryScreen {
     pub mode: DatabaseRecoveryMode,
     pub focus: DatabaseRecoveryFocus,
     pub okb_path: String,
+    pub okb_password: SensitiveInput,
     pub error: Option<String>,
     pub progress: Option<(usize, usize, String)>,
 }
@@ -67,6 +70,7 @@ impl DatabaseRecoveryScreen {
             mode: DatabaseRecoveryMode::SourceSelection,
             focus: DatabaseRecoveryFocus::Cloud,
             okb_path: String::new(),
+            okb_password: SensitiveInput::new(),
             error: None,
             progress: None,
         }
@@ -110,7 +114,7 @@ impl DatabaseRecoveryScreen {
         }
     }
 
-    fn handle_okb_input(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
+    fn handle_okb_input(&mut self, key: KeyEvent, _ctx: &mut ScreenContext) -> ScreenResult {
         match key.code {
             KeyCode::Enter => {
                 let path = self.okb_path.trim();
@@ -122,9 +126,7 @@ impl DatabaseRecoveryScreen {
                     ScreenResult::Continue
                 } else {
                     self.error = None;
-                    let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromOkb {
-                        path: std::path::PathBuf::from(path),
-                    });
+                    self.mode = DatabaseRecoveryMode::OkbPasswordInput;
                     ScreenResult::Continue
                 }
             }
@@ -140,6 +142,43 @@ impl DatabaseRecoveryScreen {
             }
             KeyCode::Backspace => {
                 self.okb_path.pop();
+                self.error = None;
+                ScreenResult::Continue
+            }
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn handle_okb_password(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
+        match key.code {
+            KeyCode::Enter => {
+                if self.okb_password.is_empty() {
+                    self.error = Some(t!("tui.entry.db_recovery_okb_password_empty_error").to_string());
+                    ScreenResult::Continue
+                } else {
+                    self.error = None;
+                    let path = std::path::PathBuf::from(self.okb_path.trim());
+                    let password = self.okb_password.take_secure();
+                    let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromOkb {
+                        path,
+                        password,
+                    });
+                    ScreenResult::Continue
+                }
+            }
+            KeyCode::Esc => {
+                self.mode = DatabaseRecoveryMode::OkbPathInput;
+                self.okb_password.clear();
+                self.error = None;
+                ScreenResult::Continue
+            }
+            KeyCode::Char(c) => {
+                self.okb_password.push_char(c);
+                self.error = None;
+                ScreenResult::Continue
+            }
+            KeyCode::Backspace => {
+                self.okb_password.pop_char();
                 self.error = None;
                 ScreenResult::Continue
             }
@@ -206,6 +245,7 @@ impl DatabaseRecoveryScreen {
         match self.mode {
             DatabaseRecoveryMode::SourceSelection => self.handle_source_selection(key, &mut ctx),
             DatabaseRecoveryMode::OkbPathInput => self.handle_okb_input(key, &mut ctx),
+            DatabaseRecoveryMode::OkbPasswordInput => self.handle_okb_password(key, &mut ctx),
             _ => ScreenResult::Continue,
         }
     }
@@ -221,6 +261,7 @@ impl ScreenTrait for DatabaseRecoveryScreen {
                 match self.mode {
                     DatabaseRecoveryMode::SourceSelection => self.handle_source_selection(key, ctx),
                     DatabaseRecoveryMode::OkbPathInput => self.handle_okb_input(key, ctx),
+                    DatabaseRecoveryMode::OkbPasswordInput => self.handle_okb_password(key, ctx),
                     DatabaseRecoveryMode::CloudSyncing
                     | DatabaseRecoveryMode::CloudNeedsOAuth
                     | DatabaseRecoveryMode::CloudFailed
@@ -299,6 +340,9 @@ impl ScreenTrait for DatabaseRecoveryScreen {
             }
             DatabaseRecoveryMode::OkbPathInput => {
                 self.render_okb_input(frame, &rows);
+            }
+            DatabaseRecoveryMode::OkbPasswordInput => {
+                self.render_okb_password(frame, &rows);
             }
             DatabaseRecoveryMode::CloudSyncing => {
                 self.render_cloud_syncing(frame, &rows);
@@ -484,6 +528,70 @@ impl DatabaseRecoveryScreen {
         // Hotkeys
         let hotkey = Paragraph::new(Line::from(Span::styled(
             t!("tui.entry.db_recovery_okb_hotkey"),
+            Style::default().fg(TEXT_MUTED),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(hotkey, rows[6]);
+
+        let step_text = self.step_text();
+        let step = Paragraph::new(Line::from(Span::styled(
+            step_text.as_ref(),
+            Style::default().fg(TEXT_MUTED),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(step, rows[7]);
+    }
+
+    fn render_okb_password(&self, frame: &mut ratatui::Frame, rows: &[ratatui::layout::Rect]) {
+        let title = Paragraph::new(Line::from(Span::styled(
+            t!("tui.entry.db_recovery_okb_title"),
+            Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(title, rows[2]);
+
+        let instruction = Paragraph::new(Line::from(Span::styled(
+            t!("tui.entry.db_recovery_okb_password_instruction"),
+            Style::default().fg(TEXT),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(instruction, rows[3]);
+
+        let input_area = rows[4];
+        let input_layout =
+            Layout::vertical([Constraint::Length(3), Constraint::Length(1)]).split(input_area);
+
+        let display = if self.okb_password.is_empty() {
+            t!("tui.entry.db_recovery_okb_password_placeholder").to_string()
+        } else {
+            "•".repeat(self.okb_password.len())
+        };
+        let style = if self.okb_password.is_empty() {
+            Style::default().fg(TEXT_MUTED)
+        } else {
+            Style::default().fg(TEXT)
+        };
+        let input = Paragraph::new(Line::from(Span::styled(display, style))).block(
+            Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .border_style(Style::default().fg(PRIMARY))
+                .title(t!("tui.entry.db_recovery_okb_password_label")),
+        );
+        frame.render_widget(input, input_layout[0]);
+
+        // Error
+        if let Some(ref err) = self.error {
+            let error_line = Paragraph::new(Line::from(Span::styled(
+                format!("✕ {}", err),
+                Style::default().fg(ERROR),
+            )))
+            .alignment(Alignment::Center);
+            frame.render_widget(error_line, rows[5]);
+        }
+
+        // Hotkeys
+        let hotkey = Paragraph::new(Line::from(Span::styled(
+            t!("tui.entry.db_recovery_okb_password_hotkey"),
             Style::default().fg(TEXT_MUTED),
         )))
         .alignment(Alignment::Center);

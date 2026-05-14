@@ -305,8 +305,8 @@ impl CommandExecutor {
                 vault::handle_rebuild_keyfile_from_recovery(self, master_password, recovery_words)
                     .await
             }
-            Command::RestoreDatabaseFromOkb { path } => {
-                import_export::handle_restore_database_from_okb(self, path).await
+            Command::RestoreDatabaseFromOkb { path, password } => {
+                import_export::handle_restore_database_from_okb(self, path, password).await
             }
             Command::RestoreDatabaseFromCloud => {
                 sync::handle_restore_database_from_cloud(self).await

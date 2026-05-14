@@ -65,11 +65,10 @@ pub fn run(
                         return Ok(());
                     }
                 }
-                CrosstermEvent::Resize(width, height) => {
-                    if handle_message(app, Message::Resize { width, height })? == LoopControl::Exit
-                    {
-                        return Ok(());
-                    }
+                CrosstermEvent::Resize(width, height)
+                    if handle_message(app, Message::Resize { width, height })? == LoopControl::Exit =>
+                {
+                    return Ok(());
                 }
                 // Ignore mouse events and other crossterm events for now.
                 _ => {}

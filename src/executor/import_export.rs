@@ -9,6 +9,7 @@ use crate::commands::{CommandResult, Message};
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::services::import_export::duplicate::ExistingRecordKey;
 use crate::services::import_export::export::ExportRecord;
+use crate::services::import_export::parser::FormatParser;
 use crate::services::import_export::types::ImportResult;
 use crate::types::record::{CreateRecordParams, DecryptedRecord};
 use crate::types::{CredentialType, EncryptedPayload, SecureStr};
@@ -972,10 +973,15 @@ mod tests {
 }
 
 /// Restore vault.db from a local .okb backup file.
+///
+/// Parses the encrypted OKB file using the export password, imports all records
+/// into the vault, then reopens the vault as file-backed.
 pub async fn handle_restore_database_from_okb(
-    _executor: &mut CommandExecutor,
+    executor: &mut CommandExecutor,
     path: PathBuf,
+    password: SecureStr,
 ) -> CommandResult {
+    // Path guards
     if path.as_os_str().is_empty() {
         return CommandResult::Error {
             code: ErrorCode::DataEmptyField,
@@ -1000,7 +1006,77 @@ pub async fn handle_restore_database_from_okb(
             fallback: format!("Backup file does not exist: {}", path.display()),
         };
     }
-    // Full OKB restore implementation in Task 6.
+
+    // Parse the OKB file with the export password.
+    let parser = crate::services::import_export::parsers::okb::OkbParser;
+    let items = match parser.parse(&path, Some(&password), None) {
+        Ok(items) => items,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::ImportFileUnreadable,
+                context: ErrorContext::default(),
+                message_key: "error.okb_decrypt_failed",
+                fallback: format!("Failed to decrypt .okb backup: {}", e),
+            };
+        }
+    };
+
+    // Create a file-backed vault.db and reopen the executor's vault connection.
+    if let Err(e) = executor.reopen_file_backed_vault_db() {
+        return CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.db_reopen_failed",
+            fallback: format!("Failed to create vault database: {}", e),
+        };
+    }
+
+    // Unlock the vault with the cached master password from keyfile rebuild.
+    let master_password = match executor.verified_master_password.take() {
+        Some(pw) => pw,
+        None => {
+            return CommandResult::Error {
+                code: ErrorCode::ExecutorMasterPasswordRequired,
+                context: ErrorContext::default(),
+                message_key: "error.password_required",
+                fallback: "Master password not available for vault unlock.".to_string(),
+            };
+        }
+    };
+    if let Err(e) = executor
+        .vault
+        .unlock(&executor.vault_dir, &master_password)
+    {
+        return CommandResult::Error {
+            code: ErrorCode::CryptoEncryptionFailed,
+            context: ErrorContext::default(),
+            message_key: "error.unlock_failed",
+            fallback: format!("Failed to unlock vault: {}", e),
+        };
+    }
+
+    // Import all parsed records into the vault.
+    let mut imported = 0usize;
+    let mut errors = 0usize;
+    for item in items {
+        let cred_type =
+            crate::services::import_export::mapping::infer_credential_type(&item.fields);
+        let payload = fields_to_payload(cred_type, &item.fields);
+        let params = CreateRecordParams {
+            credential_type: cred_type,
+            payload,
+            tags: item.tags.clone(),
+            is_favorite: false,
+            expires_at: None,
+        };
+        match executor.vault.create_record(params) {
+            Ok(_) => imported += 1,
+            Err(_) => errors += 1,
+        }
+    }
+
+    tracing::info!(imported, errors, "OKB restore complete");
+
     CommandResult::DatabaseRestored {
         source: crate::commands::types::DatabaseRecoverySource::Okb,
     }

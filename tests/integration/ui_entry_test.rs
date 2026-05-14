@@ -359,3 +359,47 @@ fn db_only_routes_to_key_recovery() {
     let state = oak_keyring::tui::state::AppState::new(false, false, true);
     assert_eq!(state.current_screen, Screen::KeyRecovery);
 }
+
+#[test]
+fn key_only_startup_does_not_create_empty_database() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("oak-keyring");
+    let config_dir = temp.path().join("oak-keyring-config");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    // Simulate key-only state: keyfile exists but no vault.db
+    std::fs::write(data_dir.join("wrapped_secret_key.json"), "{}").unwrap();
+
+    let instance_lock = InstanceLock::acquire(&data_dir).unwrap();
+    let app = App::new(
+        AppConfig::default(),
+        VaultInitState {
+            has_vault: false,
+            vault_has_key_only: true,
+            vault_has_db_only: false,
+        },
+        instance_lock,
+    )
+    .expect("app");
+
+    assert_eq!(app.state.current_screen, Screen::DatabaseRecovery);
+
+    // Build executor to verify no vault.db is created
+    let (result_tx, _result_rx) = tokio::sync::mpsc::channel(64);
+    let _executor = oak_keyring::executor::CommandExecutor::new(
+        AppConfig::default(),
+        result_tx,
+        tokio_util::sync::CancellationToken::new(),
+        data_dir.clone(),
+        config_dir,
+        true, // vault_has_key_only
+    )
+    .expect("executor");
+
+    // vault.db must NOT exist on disk
+    assert!(
+        !data_dir.join("vault.db").exists(),
+        "vault.db should not be created in key-only state"
+    );
+}
