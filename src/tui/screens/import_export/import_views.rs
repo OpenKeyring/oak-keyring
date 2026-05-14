@@ -251,6 +251,7 @@ impl ImportExportScreen {
             row_idx += 1;
 
             // CSV fields
+            let none_label = t!("tui.import_export.none").to_string();
             let csv_fields: Vec<(String, &str, ImportFocus)> = vec![
                 (
                     t!("tui.import_export.column_name").to_string(),
@@ -279,7 +280,7 @@ impl ImportExportScreen {
                 ),
                 (
                     t!("tui.import_export.column_tags").to_string(),
-                    self.csv_mapping.tags_column.as_deref().unwrap_or("(none)"),
+                    self.csv_mapping.tags_column.as_deref().unwrap_or(&none_label),
                     ImportFocus::CsvTags,
                 ),
             ];
@@ -717,7 +718,7 @@ impl ImportExportScreen {
                     _ => continue,
                 };
                 let detail =
-                    Paragraph::new(format!("    {}: {} records", label, count)).style(style);
+                    Paragraph::new(t!("tui.import_export.skip_records_count", label = label, count = count).to_string()).style(style);
                 frame.render_widget(detail, rows[row_idx]);
                 row_idx += 1;
             }
