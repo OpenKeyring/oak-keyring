@@ -190,7 +190,7 @@ fn onboarding_welcome_defaults() {
     let screen = OnboardingScreen::default();
     assert!(screen.selected_path.is_none());
     assert!(screen.error.is_none());
-    assert!(screen.recovery_words.is_empty());
+    assert!(screen.recovery_words.is_none());
     assert!(!screen.recovery_confirmed);
 }
 
@@ -257,10 +257,9 @@ fn set_password_context_from_onboarding_create_path() {
         Some(OnboardingPath::CreateNew)
     );
 
-    state.screens.onboarding.recovery_words = (0..24).map(|i| format!("word{i}")).collect();
-    let words = std::mem::take(&mut state.screens.onboarding.recovery_words);
+    state.screens.onboarding.recovery_words = Some(recovery_words());
     let context = SetPasswordContext::OnboardingCreate {
-        recovery_words: RecoveryWords::new(words).unwrap(),
+        recovery_words: state.screens.onboarding.recovery_words.take().unwrap(),
     };
     state.screens.set_new_master_password = SetPasswordScreen::new(context);
     assert!(matches!(
@@ -289,10 +288,9 @@ fn set_password_context_from_onboarding_import_path() {
 
     state.navigate_to(Screen::SetNewMasterPassword);
 
-    state.screens.onboarding.recovery_words = (0..24).map(|i| format!("word{i}")).collect();
-    let words = std::mem::take(&mut state.screens.onboarding.recovery_words);
+    state.screens.onboarding.recovery_words = Some(recovery_words());
     let context = SetPasswordContext::OnboardingCreate {
-        recovery_words: RecoveryWords::new(words).unwrap(),
+        recovery_words: state.screens.onboarding.recovery_words.take().unwrap(),
     };
     assert!(matches!(
         context,

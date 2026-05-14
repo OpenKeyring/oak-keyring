@@ -3,9 +3,45 @@ use super::*;
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::Command;
+use crate::tui::traits::screen::Screen as ScreenTrait;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
+use crate::types::RecoveryWords;
 use crossterm::event::{KeyCode, KeyEvent};
+
+fn recovery_words_fixture() -> RecoveryWords {
+    RecoveryWords::new(vec!["abandon".to_string(); 24]).unwrap()
+}
+
+fn indexed_recovery_words() -> RecoveryWords {
+    RecoveryWords::new(vec![
+        "abandon".to_string(),
+        "ability".to_string(),
+        "able".to_string(),
+        "about".to_string(),
+        "above".to_string(),
+        "absent".to_string(),
+        "absorb".to_string(),
+        "abstract".to_string(),
+        "absurd".to_string(),
+        "abundance".to_string(),
+        "academy".to_string(),
+        "accept".to_string(),
+        "access".to_string(),
+        "accident".to_string(),
+        "account".to_string(),
+        "accuse".to_string(),
+        "achieve".to_string(),
+        "acid".to_string(),
+        "acoustic".to_string(),
+        "acquire".to_string(),
+        "across".to_string(),
+        "act".to_string(),
+        "action".to_string(),
+        "actor".to_string(),
+    ])
+    .unwrap()
+}
 
 #[test]
 fn onboarding_welcome_defaults() {
@@ -16,9 +52,29 @@ fn onboarding_welcome_defaults() {
     assert_eq!(screen.language_index, 0);
     assert!(screen.error.is_none());
     assert!(!screen.recovery_confirmed);
-    assert!(screen.recovery_words.is_empty());
+    assert!(screen.recovery_words.is_none());
     assert!(screen.verify_inputs.iter().all(|s| s.is_empty()));
     assert!(screen.verify_errors.iter().all(|&e| !e));
+}
+
+#[test]
+fn generate_recovery_words_stores_secure_owner() {
+    let mut screen = OnboardingScreen::default();
+    screen.generate_recovery_words("en");
+    let words = screen
+        .recovery_words
+        .as_ref()
+        .expect("words should be generated");
+    assert_eq!(words.len(), 24);
+}
+
+#[test]
+fn on_unmount_drops_generated_recovery_words() {
+    let mut screen = OnboardingScreen::default();
+    screen.generate_recovery_words("en");
+    assert!(screen.recovery_words.is_some());
+    screen.on_unmount();
+    assert!(screen.recovery_words.is_none());
 }
 
 #[test]
@@ -275,7 +331,7 @@ fn onboarding_recovery_display_enter_with_confirm() {
         current_step: OnboardingStep::RecoveryDisplay,
         recovery_confirmed: true,
         recovery_focus: RecoveryFocus::ConfirmCheckbox,
-        recovery_words: vec!["abandon".to_string(); 24],
+        recovery_words: Some(recovery_words_fixture()),
         ..Default::default()
     };
 
@@ -360,7 +416,7 @@ fn onboarding_recovery_display_copy_button_sets_copied_flag() {
         selected_path: Some(OnboardingPath::CreateNew),
         current_step: OnboardingStep::RecoveryDisplay,
         recovery_focus: RecoveryFocus::CopyButton,
-        recovery_words: vec!["abandon".to_string(); 24],
+        recovery_words: Some(recovery_words_fixture()),
         ..Default::default()
     };
 
@@ -381,7 +437,7 @@ fn onboarding_recovery_display_copy_skipped_when_empty() {
         selected_path: Some(OnboardingPath::CreateNew),
         current_step: OnboardingStep::RecoveryDisplay,
         recovery_focus: RecoveryFocus::CopyButton,
-        recovery_words: vec![],
+        recovery_words: None,
         ..Default::default()
     };
 
@@ -398,12 +454,12 @@ fn onboarding_recovery_display_copy_skipped_when_empty() {
 
 #[test]
 fn onboarding_recovery_display_regenerate_generates_new_words_locally() {
-    let original_words: Vec<String> = (0..24).map(|i| format!("word{}", i)).collect();
+    let original_words = (0..24).map(|i| format!("word{i}")).collect::<Vec<_>>();
     let mut screen = OnboardingScreen {
         selected_path: Some(OnboardingPath::CreateNew),
         current_step: OnboardingStep::RecoveryDisplay,
         recovery_focus: RecoveryFocus::RegenerateButton,
-        recovery_words: original_words.clone(),
+        recovery_words: Some(RecoveryWords::new(original_words.clone()).unwrap()),
         recovery_confirmed: true,
         clipboard_copied: true,
         ..Default::default()
@@ -418,8 +474,12 @@ fn onboarding_recovery_display_regenerate_generates_new_words_locally() {
     assert!(!screen.recovery_confirmed);
     assert!(!screen.clipboard_copied);
     // Words are regenerated locally — new BIP39 mnemonic replaces the old ones
-    assert_ne!(screen.recovery_words, original_words);
-    assert_eq!(screen.recovery_words.len(), 24);
+    let words = screen
+        .recovery_words
+        .as_ref()
+        .expect("words should be regenerated");
+    assert_ne!(words.word(0), Some(original_words[0].as_str()));
+    assert_eq!(words.len(), 24);
 }
 
 #[test]
@@ -428,7 +488,7 @@ fn onboarding_recovery_display_regenerate_sends_command_even_with_empty_words() 
         selected_path: Some(OnboardingPath::CreateNew),
         current_step: OnboardingStep::RecoveryDisplay,
         recovery_focus: RecoveryFocus::RegenerateButton,
-        recovery_words: vec![],
+        recovery_words: None,
         ..Default::default()
     };
 
@@ -440,13 +500,12 @@ fn onboarding_recovery_display_regenerate_sends_command_even_with_empty_words() 
     // Should regenerate locally — words are no longer empty
     assert!(matches!(result, ScreenResult::Continue));
     assert!(
-        !screen.recovery_words.is_empty(),
+        screen.recovery_words.is_some(),
         "recovery_words should be populated after regenerate"
     );
     assert_eq!(
-        screen.recovery_words.len(),
-        24,
-        "should generate exactly 24 words"
+        screen.recovery_words.as_ref().map(RecoveryWords::len),
+        Some(24)
     );
 }
 
@@ -871,32 +930,7 @@ fn onboarding_verify_tab_on_last_box_submits_when_all_filled() {
         },
         verify_focus_index: 3,
         verify_positions: [0, 5, 10, 15],
-        recovery_words: vec![
-            "abandon".to_string(),
-            "ability".to_string(),
-            "able".to_string(),
-            "about".to_string(),
-            "above".to_string(),
-            "absent".to_string(), // index 5
-            "absorb".to_string(),
-            "abstract".to_string(),
-            "absurd".to_string(),
-            "abundance".to_string(),
-            "academy".to_string(), // index 10
-            "accept".to_string(),
-            "access".to_string(),
-            "accident".to_string(),
-            "account".to_string(),
-            "accuse".to_string(), // index 15
-            "achieve".to_string(),
-            "acid".to_string(),
-            "acoustic".to_string(),
-            "acquire".to_string(),
-            "across".to_string(),
-            "act".to_string(),
-            "action".to_string(),
-            "actor".to_string(),
-        ],
+        recovery_words: Some(indexed_recovery_words()),
         verify_inputs: [
             SensitiveInput::from("abandon".to_string()), // matches pos 0
             SensitiveInput::from("absent".to_string()),  // matches pos 5
@@ -1031,32 +1065,7 @@ fn onboarding_verify_enter_validates() {
             positions: [0, 5, 10, 15],
         },
         verify_positions: [0, 5, 10, 15],
-        recovery_words: vec![
-            "abandon".to_string(),
-            "ability".to_string(),
-            "able".to_string(),
-            "about".to_string(),
-            "above".to_string(),
-            "absent".to_string(),
-            "absorb".to_string(),
-            "abstract".to_string(),
-            "absurd".to_string(),
-            "abundance".to_string(),
-            "academy".to_string(),
-            "accept".to_string(),
-            "access".to_string(),
-            "accident".to_string(),
-            "account".to_string(),
-            "accuse".to_string(),
-            "achieve".to_string(),
-            "acid".to_string(),
-            "acoustic".to_string(),
-            "acquire".to_string(),
-            "across".to_string(),
-            "act".to_string(),
-            "action".to_string(),
-            "actor".to_string(),
-        ],
+        recovery_words: Some(indexed_recovery_words()),
         verify_inputs: [
             SensitiveInput::from("abandon".to_string()),
             SensitiveInput::from("WRONG".to_string()),
@@ -1102,7 +1111,7 @@ fn on_unmount_zeroizes_sensitive_data() {
     use crate::tui::traits::screen::Screen;
 
     let mut screen = OnboardingScreen::default();
-    screen.recovery_words = vec!["secret".to_string(); 24];
+    screen.recovery_words = Some(recovery_words_fixture());
     screen.verify_inputs[0] = SensitiveInput::from("secret".to_string());
     screen.verify_positions = [1, 2, 3, 4];
     for word in &mut screen.recovery_grid.words {
@@ -1111,7 +1120,7 @@ fn on_unmount_zeroizes_sensitive_data() {
 
     screen.on_unmount();
 
-    assert!(screen.recovery_words.is_empty());
+    assert!(screen.recovery_words.is_none());
     assert!(screen.verify_inputs.iter().all(|s| s.is_empty()));
     assert!(screen.recovery_grid.words.iter().all(|w| w.is_empty()));
     assert_eq!(screen.verify_positions, [0, 0, 0, 0]);

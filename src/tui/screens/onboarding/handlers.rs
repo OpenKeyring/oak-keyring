@@ -5,7 +5,6 @@ use crate::commands::types::Screen;
 use crate::commands::Command;
 use crate::t;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
-use crate::types::sensitive::SecureStr;
 
 use super::screen::OnboardingScreen;
 use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
@@ -99,10 +98,9 @@ impl OnboardingScreen {
             }
             KeyCode::Enter => match self.recovery_focus {
                 RecoveryFocus::CopyButton => {
-                    if !self.recovery_words.is_empty() {
-                        let words_str = self.recovery_words.join(" ");
+                    if let Some(words) = &self.recovery_words {
                         let cmd = Command::CopyRawToClipboard {
-                            value: SecureStr::new(words_str),
+                            value: words.to_phrase_secure(),
                         };
                         let _ = ctx.command_tx.try_send(cmd);
                         self.clipboard_copied = true;
@@ -192,9 +190,10 @@ impl OnboardingScreen {
     /// On success, advance to SetPassword. On failure, mark errors.
     fn submit_recovery_verify(&mut self) -> ScreenResult {
         let all_correct = self.verify_positions.iter().enumerate().all(|(i, &pos)| {
-            pos < self.recovery_words.len()
-                && self.verify_inputs[i]
-                    .expose(|s| s.eq_ignore_ascii_case(&self.recovery_words[pos]))
+            self.recovery_words
+                .as_ref()
+                .and_then(|words| words.word(pos))
+                .is_some_and(|word| self.verify_inputs[i].expose(|s| s.eq_ignore_ascii_case(word)))
         });
         if all_correct {
             self.verify_errors = [false; 4];
@@ -202,9 +201,13 @@ impl OnboardingScreen {
         } else {
             // Mark mismatches
             for (i, &pos) in self.verify_positions.iter().enumerate() {
-                self.verify_errors[i] = pos >= self.recovery_words.len()
-                    || !self.verify_inputs[i]
-                        .expose(|s| s.eq_ignore_ascii_case(&self.recovery_words[pos]));
+                self.verify_errors[i] = !self
+                    .recovery_words
+                    .as_ref()
+                    .and_then(|words| words.word(pos))
+                    .is_some_and(|word| {
+                        self.verify_inputs[i].expose(|s| s.eq_ignore_ascii_case(word))
+                    });
             }
         }
         ScreenResult::Continue

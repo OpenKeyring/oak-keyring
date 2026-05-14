@@ -78,22 +78,14 @@ fn build_set_password_context_before_unmount(
             Some(crate::tui::screens::onboarding::OnboardingPath::Restore) => {
                 Some(SetPasswordContext::OnboardingRestore)
             }
-            _ => take_onboarding_recovery_words(&mut state.screens.onboarding.recovery_words)
+            _ => state
+                .screens
+                .onboarding
+                .recovery_words
+                .take()
                 .map(|recovery_words| SetPasswordContext::OnboardingCreate { recovery_words }),
         },
         _ => None,
-    }
-}
-
-fn take_onboarding_recovery_words(words: &mut Vec<String>) -> Option<crate::types::RecoveryWords> {
-    if words.len() != crate::types::RecoveryWords::WORD_COUNT || words.iter().any(String::is_empty)
-    {
-        return None;
-    }
-
-    match crate::types::RecoveryWords::new(std::mem::take(words)) {
-        Ok(recovery_words) => Some(recovery_words),
-        Err(_) => None,
     }
 }
 
@@ -701,7 +693,10 @@ mod tests {
         state.current_screen = Screen::Onboarding;
         state.screens.onboarding.selected_path =
             Some(crate::tui::screens::onboarding::OnboardingPath::CreateNew);
-        state.screens.onboarding.recovery_words = (0..24).map(|i| format!("word{i}")).collect();
+        state.screens.onboarding.recovery_words = Some(
+            crate::types::RecoveryWords::new((0..24).map(|i| format!("word{i}")).collect())
+                .unwrap(),
+        );
 
         assert!(prepare_set_password_context_for_navigation(
             &mut state,
@@ -724,7 +719,7 @@ mod tests {
         app.state.current_screen = Screen::Onboarding;
         app.state.screens.onboarding.selected_path =
             Some(crate::tui::screens::onboarding::OnboardingPath::CreateNew);
-        app.state.screens.onboarding.recovery_words.clear();
+        app.state.screens.onboarding.recovery_words = None;
 
         let result = handle_message(&mut app, Message::NavigateTo(Screen::SetNewMasterPassword))
             .expect("message handled");

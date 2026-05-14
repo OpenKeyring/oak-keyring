@@ -8,6 +8,7 @@ use crate::t;
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
+use crate::types::RecoveryWords;
 
 use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
 
@@ -24,8 +25,8 @@ pub struct OnboardingScreen {
     pub welcome_selected: usize,
     /// Currently selected language index (0=auto, 1=en, 2=zh-CN).
     pub language_index: usize,
-    /// 24 recovery words populated after VaultInitialized command result.
-    pub recovery_words: Vec<String>,
+    /// Secure owner for generated 24-word recovery words.
+    pub recovery_words: Option<RecoveryWords>,
     /// Embedded grid for RecoveryInput step.
     pub recovery_grid: WordGridState,
     /// Verify step inputs for 4 positions.
@@ -70,7 +71,7 @@ impl Default for OnboardingScreen {
             recovery_confirmed: false,
             welcome_selected: 0,
             language_index: 0,
-            recovery_words: Vec::new(),
+            recovery_words: None,
             recovery_grid: WordGridState::default(),
             verify_inputs: std::array::from_fn(|_| SensitiveInput::new()),
             verify_errors: [false; 4],
@@ -97,9 +98,11 @@ impl OnboardingScreen {
     /// Generate a fresh 24-word BIP39 recovery key and store in `recovery_words`.
     pub(crate) fn generate_recovery_words(&mut self, config_language: &str) {
         let language = MnemonicLanguage::from_config_language(config_language);
-        match Passkey::generate(24, language) {
-            Ok(pk) => {
-                self.recovery_words = pk.to_words();
+        match Passkey::generate(24, language)
+            .and_then(|pk| pk.to_recovery_words().map_err(|e| format!("{e:?}")))
+        {
+            Ok(words) => {
+                self.recovery_words = Some(words);
             }
             Err(e) => {
                 tracing::error!(error = %e, "failed to generate recovery words");
@@ -215,8 +218,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.recovery_confirmed = false;
         self.welcome_selected = 0;
         self.language_index = 0;
-        self.recovery_words.zeroize();
-        self.recovery_words.clear();
+        self.recovery_words = None;
         self.recovery_grid.zeroize();
         self.verify_inputs = std::array::from_fn(|_| SensitiveInput::new());
         self.verify_errors = [false; 4];
@@ -238,8 +240,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
     fn on_unmount(&mut self) {
         self.error = None;
         self.recovery_confirmed = false;
-        self.recovery_words.zeroize();
-        self.recovery_words.clear();
+        self.recovery_words = None;
         self.recovery_grid.zeroize();
         for input in &mut self.verify_inputs {
             input.clear();
