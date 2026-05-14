@@ -1,3 +1,4 @@
+pub mod key_recovery;
 pub mod main;
 pub mod onboarding;
 pub mod recovery_key;

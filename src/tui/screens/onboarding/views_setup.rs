@@ -82,18 +82,18 @@ impl OnboardingScreen {
         let cards = [
             (
                 "\u{2726}", // ✦
-                "Create new vault",
-                "Start fresh \u{2014} generate recovery key and set password",
+                "创建新 vault",
+                "生成新的恢复助记词、设置主密码并创建空数据库。",
             ),
             (
                 "\u{21BB}", // ↻
-                "Restore existing vault",
-                "Recover an OpenKeyring vault using a recovery key",
+                "恢复已有 vault（云端或 .okb）",
+                "用恢复助记词重建密钥，再恢复加密数据库。",
             ),
             (
                 "\u{2193}", // ↓
-                "Import from other manager",
-                "Migrate from KeePass, 1Password, Bitwarden, etc.",
+                "从其它密码管理器导入",
+                "创建新的 oak-keyring vault 后导入外部数据。",
             ),
         ];
 

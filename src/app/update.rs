@@ -397,7 +397,7 @@ fn route_to_screen(
         }
         Screen::Unlock => state.screens.unlock.update(msg, ctx),
         Screen::Onboarding => state.screens.onboarding.update(msg, ctx),
-        Screen::KeyRecovery => ScreenResult::Continue,
+        Screen::KeyRecovery => state.screens.key_recovery.update(msg, ctx),
         Screen::DatabaseRecovery => ScreenResult::Continue,
         Screen::Config => {
             state.screens.config.state.terminal_height = state.terminal_size.1;
@@ -426,7 +426,20 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
         }
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
         Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
-        Screen::KeyRecovery => {}
+        Screen::KeyRecovery => {
+            let origin = state
+                .screen_history
+                .last()
+                .map(|s| s.screen)
+                .and_then(|s| match s {
+                    Screen::Onboarding => Some(crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore),
+                    _ => None,
+                })
+                .unwrap_or(crate::tui::screens::key_recovery::KeyRecoveryOrigin::StartupDbOnly);
+            state.screens.key_recovery =
+                crate::tui::screens::key_recovery::KeyRecoveryScreen::new(origin);
+            state.screens.key_recovery.on_mount(ctx)
+        }
         Screen::DatabaseRecovery => {}
         Screen::Config => state.screens.config.on_mount(ctx),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
@@ -484,7 +497,7 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         Screen::Main => state.screens.main.on_unmount(),
         Screen::Unlock => state.screens.unlock.on_unmount(),
         Screen::Onboarding => state.screens.onboarding.on_unmount(),
-        Screen::KeyRecovery => {}
+        Screen::KeyRecovery => state.screens.key_recovery.on_unmount(),
         Screen::DatabaseRecovery => {}
         Screen::Config => state.screens.config.on_unmount(),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),

@@ -21,6 +21,7 @@ use crate::tui::screens::config_screen::ConfigScreen;
 use crate::tui::screens::create_record::CreateRecordScreen;
 use crate::tui::screens::edit_record::EditRecordScreen;
 use crate::tui::screens::import_export::ImportExportScreen;
+use crate::tui::screens::key_recovery::KeyRecoveryScreen;
 use crate::tui::screens::onboarding::OnboardingScreen;
 use crate::tui::screens::password_generator::PasswordGeneratorScreen;
 use crate::tui::screens::set_password::SetPasswordScreen;
@@ -51,6 +52,11 @@ pub struct AppState {
     /// Signal handler state
     pub signal_count: u8,
     pub last_signal_time: Option<std::time::Instant>,
+    /// Pending recovery state: recovery words collected from KeyRecoveryScreen,
+    /// consumed by SetNewMasterPassword when rebuilding keyfile.
+    pub pending_recovery_words: Option<Vec<String>>,
+    /// Origin of the recovery flow (startup or onboarding restore).
+    pub pending_recovery_origin: Option<crate::tui::screens::key_recovery::KeyRecoveryOrigin>,
 }
 
 /// Cross-cutting state shared across all screens.
@@ -69,6 +75,7 @@ pub struct SharedState {
 pub struct ScreenStates {
     pub unlock: UnlockScreen,
     pub onboarding: OnboardingScreen,
+    pub key_recovery: KeyRecoveryScreen,
     pub main: MainScreenState,
     pub config: ConfigScreen,
     pub change_master_password: ChangeMasterPasswordScreen,
@@ -94,6 +101,8 @@ impl Default for AppState {
             unicode_capable: true,
             signal_count: 0,
             last_signal_time: None,
+            pending_recovery_words: None,
+            pending_recovery_origin: None,
         }
     }
 }
@@ -124,6 +133,8 @@ impl AppState {
             unicode_capable: true,
             signal_count: 0,
             last_signal_time: None,
+            pending_recovery_words: None,
+            pending_recovery_origin: None,
         }
     }
 

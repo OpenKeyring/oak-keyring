@@ -59,7 +59,7 @@ impl OnboardingScreen {
                     }
                     1 => {
                         self.selected_path = Some(OnboardingPath::Restore);
-                        self.current_step = OnboardingStep::RecoveryInput;
+                        return ScreenResult::NavigateTo(Screen::KeyRecovery);
                     }
                     2 => {
                         self.selected_path = Some(OnboardingPath::Import);
