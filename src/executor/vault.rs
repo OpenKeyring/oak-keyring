@@ -265,15 +265,31 @@ pub async fn handle_initialize_vault(
         }
     }
 
-    // Step 4: Unlock the vault with the new password
-    match executor.vault.unlock(&vault_path, &master_password) {
-        Ok(()) => CommandResult::VaultInitialized { recovery_words },
-        Err(_) => {
-            // Keystore was created but vault unlock failed
-            // Still return initialized since keystore exists
-            tracing::warn!("Vault initialized but auto-unlock failed");
+    // Step 4: Commit the database only after the keystore exists and the new
+    // password can unlock the file-backed vault.
+    let mut pending = match executor.begin_file_backed_vault_db() {
+        Ok(pending) => pending,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::VaultDatabaseIoError,
+                context: ErrorContext::default(),
+                message_key: "error.db_reopen_failed",
+                fallback: format!("Failed to create vault database: {}", e),
+            };
+        }
+    };
+
+    match pending.unlock(&master_password) {
+        Ok(()) => {
+            pending.commit();
             CommandResult::VaultInitialized { recovery_words }
         }
+        Err(e) => CommandResult::Error {
+            code: ErrorCode::CryptoEncryptionFailed,
+            context: ErrorContext::default(),
+            message_key: "error.unlock_failed",
+            fallback: format!("Failed to unlock vault: {}", e),
+        },
     }
 }
 

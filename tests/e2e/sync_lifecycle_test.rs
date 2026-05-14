@@ -7,9 +7,12 @@
 //! 4. Downloaded records applied to local vault
 //! 5. Result returned via Message channel
 
+use oak_keyring::cloud::metadata::{serialize_metadata, CloudMetadata};
+use oak_keyring::cloud::schema::METADATA_FILENAME;
 use oak_keyring::commands::types::ConflictResolution;
 use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
+use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
 use oak_keyring::errors::ErrorCode;
 use oak_keyring::executor::CommandExecutor;
 use oak_keyring::services::sync::SyncService;
@@ -99,6 +102,34 @@ async fn setup_unlocked_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     ctx
 }
 
+async fn setup_key_only_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
+    let data_dir = vault_dir.path().join("oak-keyring");
+    let config_dir = vault_dir.path().join("oak-keyring");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
+    let (result_tx, result_rx) = mpsc::channel(64);
+    let (command_tx, command_rx) = mpsc::channel(64);
+    let config = AppConfig::default();
+    let cancel_token = CancellationToken::new();
+
+    let mut executor =
+        CommandExecutor::new(config, result_tx, cancel_token, data_dir, config_dir, false)
+            .expect("executor construction should succeed");
+
+    let (sync, cloud_dir) = create_fs_sync_service();
+    executor.set_sync_service(Some(sync));
+
+    tokio::spawn(async move {
+        executor.run(command_rx).await;
+    });
+
+    SyncTestContext {
+        cloud_dir,
+        command_tx,
+        result_rx,
+    }
+}
+
 async fn init_and_unlock_vault(
     command_tx: &mpsc::Sender<Command>,
     result_rx: &mut mpsc::Receiver<Message>,
@@ -149,6 +180,29 @@ async fn create_login_record(
         CommandResult::RecordCreated { id } => id,
         other => panic!("Expected RecordCreated, got {:?}", other),
     }
+}
+
+async fn rebuild_keyfile_from_recovery(ctx: &mut SyncTestContext) {
+    let passkey = Passkey::generate(24, MnemonicLanguage::English).expect("passkey");
+    ctx.command_tx
+        .send(Command::RebuildKeyFileFromRecovery {
+            master_password: SecureStr::new("test_password_123".to_string()),
+            recovery_words: passkey.to_words(),
+        })
+        .await
+        .expect("send should succeed");
+
+    let result = recv_command_result(&mut ctx.result_rx).await;
+    match result {
+        CommandResult::KeyFileRebuilt => {}
+        other => panic!("Expected KeyFileRebuilt, got {:?}", other),
+    }
+}
+
+fn write_empty_cloud_metadata(ctx: &SyncTestContext) {
+    let metadata = CloudMetadata::new("test-vault-token".to_string());
+    let json = serialize_metadata(&metadata).expect("serialize metadata");
+    std::fs::write(ctx.cloud_dir.path().join(METADATA_FILENAME), json).unwrap();
 }
 
 /// Receive the next non-background CommandResult, draining health-check
@@ -228,6 +282,64 @@ async fn trigger_sync_empty_vault_completes() {
         }
         other => panic!("Expected SyncCompleted, got {:?}", other),
     }
+}
+
+#[tokio::test]
+async fn restore_database_from_empty_cloud_does_not_create_vault_db() {
+    let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
+    let data_dir = vault_dir.path().join("oak-keyring");
+    let mut ctx = setup_key_only_sync_executor(&vault_dir).await;
+
+    rebuild_keyfile_from_recovery(&mut ctx).await;
+
+    ctx.command_tx
+        .send(Command::RestoreDatabaseFromCloud)
+        .await
+        .expect("send should succeed");
+
+    let result = recv_command_result(&mut ctx.result_rx).await;
+    assert!(
+        matches!(
+            &result,
+            CommandResult::Error { fallback, .. }
+                if fallback.contains("No recoverable cloud sync data")
+        ),
+        "Expected empty-cloud restore error, got {:?}",
+        result
+    );
+    assert!(
+        !data_dir.join("vault.db").exists(),
+        "empty cloud restore must not create vault.db"
+    );
+}
+
+#[tokio::test]
+async fn restore_database_from_cloud_metadata_without_records_does_not_create_vault_db() {
+    let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
+    let data_dir = vault_dir.path().join("oak-keyring");
+    let mut ctx = setup_key_only_sync_executor(&vault_dir).await;
+    write_empty_cloud_metadata(&ctx);
+    rebuild_keyfile_from_recovery(&mut ctx).await;
+
+    ctx.command_tx
+        .send(Command::RestoreDatabaseFromCloud)
+        .await
+        .expect("send should succeed");
+
+    let result = recv_command_result(&mut ctx.result_rx).await;
+    assert!(
+        matches!(
+            &result,
+            CommandResult::Error { fallback, .. }
+                if fallback.contains("No recoverable cloud sync data")
+        ),
+        "Expected empty-cloud restore error, got {:?}",
+        result
+    );
+    assert!(
+        !data_dir.join("vault.db").exists(),
+        "cloud metadata without records must not create vault.db"
+    );
 }
 
 // ==================== Test 3: Upload Pending Records ====================

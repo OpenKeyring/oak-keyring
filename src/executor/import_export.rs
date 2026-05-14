@@ -1024,17 +1024,15 @@ pub async fn handle_restore_database_from_okb(
     // Export password no longer needed — drop immediately.
     drop(password);
 
-    // Create a file-backed vault.db and reopen the executor's vault connection.
-    if let Err(e) = executor.reopen_file_backed_vault_db() {
+    if items.is_empty() {
         return CommandResult::Error {
-            code: ErrorCode::VaultDatabaseIoError,
+            code: ErrorCode::ImportFileFormatInvalid,
             context: ErrorContext::default(),
-            message_key: "error.db_reopen_failed",
-            fallback: format!("Failed to create vault database: {}", e),
+            message_key: "error.okb_empty",
+            fallback: "No records found in .okb backup.".to_string(),
         };
     }
 
-    // Unlock the vault with the cached master password from keyfile rebuild.
     let master_password = match executor.verified_master_password.take() {
         Some(pw) => pw,
         None => {
@@ -1046,7 +1044,23 @@ pub async fn handle_restore_database_from_okb(
             };
         }
     };
-    if let Err(e) = executor.vault.unlock(&executor.vault_dir, &master_password) {
+
+    // Create a pending file-backed vault.db. If any later step fails, dropping
+    // the guard restores the executor to an in-memory vault and removes the
+    // uncommitted database files.
+    let mut pending = match executor.begin_file_backed_vault_db() {
+        Ok(pending) => pending,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::VaultDatabaseIoError,
+                context: ErrorContext::default(),
+                message_key: "error.db_reopen_failed",
+                fallback: format!("Failed to create vault database: {}", e),
+            };
+        }
+    };
+
+    if let Err(e) = pending.unlock(&master_password) {
         return CommandResult::Error {
             code: ErrorCode::CryptoEncryptionFailed,
             context: ErrorContext::default(),
@@ -1070,12 +1084,25 @@ pub async fn handle_restore_database_from_okb(
             is_favorite: false,
             expires_at: None,
         };
-        match executor.vault.create_record(params) {
+        match pending.create_record(params) {
             Ok(_) => imported += 1,
             Err(_) => errors += 1,
         }
     }
 
+    if errors > 0 || imported == 0 {
+        return CommandResult::Error {
+            code: ErrorCode::ImportPartialFailure,
+            context: ErrorContext::default(),
+            message_key: "error.okb_restore_import_failed",
+            fallback: format!(
+                "Failed to restore .okb backup: imported {}, failed {}.",
+                imported, errors
+            ),
+        };
+    }
+
+    pending.commit();
     tracing::info!(imported, errors, "OKB restore complete");
 
     CommandResult::DatabaseRestored {
