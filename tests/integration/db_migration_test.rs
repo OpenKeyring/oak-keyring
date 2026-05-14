@@ -87,6 +87,58 @@ fn init_db_creates_fresh_db_from_empty_file() {
 }
 
 #[test]
+fn init_db_rejects_existing_corrupt_database() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("vault.db"), b"not a sqlite database").unwrap();
+
+    let err = oak_keyring::db::schema::init_db(dir.path()).unwrap_err();
+    match err {
+        oak_keyring::db::schema::InitDbError::Sqlite(source) => {
+            let message = source.to_string();
+            assert!(
+                message.contains("file is not a database")
+                    || message.contains("database disk image is malformed"),
+                "unexpected sqlite error: {message}"
+            );
+        }
+        other => panic!("expected sqlite error for corrupt database, got {other:?}"),
+    }
+}
+
+#[test]
+fn init_db_rejects_current_schema_database_with_foreign_key_violation() {
+    let (_dir, path) = setup_fresh_db();
+    {
+        let conn = rusqlite::Connection::open(path.join("vault.db")).unwrap();
+        oak_keyring::db::schema::apply_pragmas(&conn).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             INSERT INTO record_health_state
+                (record_id, record_version, evaluated_at, weak_password, duplicate_group_size, compromised, expired)
+             VALUES
+                ('missing-record', 1, NULL, NULL, NULL, NULL, NULL);",
+        )
+        .unwrap();
+        conn.close().unwrap();
+    }
+
+    let err = oak_keyring::db::schema::init_db(&path).unwrap_err();
+    match err {
+        oak_keyring::db::schema::InitDbError::ForeignKeyCheckFailed(message) => {
+            assert!(
+                message.contains("table=record_health_state"),
+                "unexpected foreign key check message: {message}"
+            );
+            assert!(
+                message.contains("parent=records"),
+                "unexpected foreign key check message: {message}"
+            );
+        }
+        other => panic!("expected foreign key check error, got {other:?}"),
+    }
+}
+
+#[test]
 fn init_db_rejects_newer_schema_version() {
     let dir = tempfile::tempdir().unwrap();
 
