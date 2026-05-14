@@ -1,25 +1,34 @@
+use std::io::{ErrorKind, Read};
 use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
+use std::os::fd::FromRawFd;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const RUNNING_STABILITY_WINDOW: Duration = Duration::from_millis(300);
+const TERMINATE_TIMEOUT: Duration = Duration::from_secs(2);
 const LOCK_FILENAME: &str = ".instance.lock";
 
 #[cfg(unix)]
 struct OkProcess {
     child: Option<Child>,
+    pty_master: File,
 }
 
 #[cfg(unix)]
 impl OkProcess {
     fn spawn(vault_dir: &std::path::Path) -> Self {
+        let (child, pty_master) = spawn_ok_with_pty(vault_dir);
         Self {
-            child: Some(spawn_ok_with_pty(vault_dir)),
+            child: Some(child),
+            pty_master,
         }
     }
 
@@ -30,13 +39,45 @@ impl OkProcess {
             .try_wait()
     }
 
-    fn terminate(&mut self) {
+    fn terminate_and_wait(&mut self) -> Option<std::process::ExitStatus> {
         if let Some(mut child) = self.child.take() {
             if child.try_wait().ok().flatten().is_none() {
                 send_sigterm(&child);
             }
-            let _ = child.wait();
+            if let Some(status) = wait_for_child_exit(&mut child, TERMINATE_TIMEOUT) {
+                return Some(status);
+            }
+
+            send_sigkill(&child);
+            return child.wait().ok();
         }
+        None
+    }
+
+    fn terminate(&mut self) {
+        let _ = self.terminate_and_wait();
+    }
+
+    fn wait_for_tui_output(&mut self) {
+        let deadline = Instant::now() + WAIT_TIMEOUT;
+        let mut buf = [0_u8; 1024];
+
+        while Instant::now() < deadline {
+            if let Some(status) = self.try_wait().expect("should be able to check status") {
+                panic!("process exited before rendering TUI output: {status}");
+            }
+
+            match self.pty_master.read(&mut buf) {
+                Ok(n) if n > 0 => return,
+                Ok(_) => {}
+                Err(e) if e.kind() == ErrorKind::WouldBlock => {}
+                Err(e) => panic!("failed reading TUI PTY output: {e}"),
+            }
+
+            thread::sleep(POLL_INTERVAL);
+        }
+
+        panic!("timed out waiting for TUI output");
     }
 }
 
@@ -47,25 +88,36 @@ impl Drop for OkProcess {
     }
 }
 
-/// Allocate a PTY for the subprocess using the `script` command.
+/// Allocate a PTY for the subprocess.
 /// This allows the TUI to initialize its terminal (raw mode, alternate screen).
 /// Returns the process group ID for use in signal handling.
 #[cfg(unix)]
-fn spawn_ok_with_pty(vault_dir: &std::path::Path) -> Child {
+fn spawn_ok_with_pty(vault_dir: &std::path::Path) -> (Child, File) {
     let ok_bin = env!("CARGO_BIN_EXE_ok");
+    let mut master_fd = -1;
+    let mut slave_fd = -1;
 
-    // `script -q /dev/null` allocates a PTY and runs the command
-    // On macOS: script -q /dev/null /path/to/ok
-    // On Linux: script -qec "/path/to/ok" /dev/null
-    let mut cmd = if cfg!(target_os = "macos") {
-        let mut c = Command::new("script");
-        c.args(["-q", "/dev/null", ok_bin]);
-        c
-    } else {
-        let mut c = Command::new("script");
-        c.args(["-qe", "-c", ok_bin, "/dev/null"]);
-        c
+    // SAFETY: openpty initializes valid master/slave file descriptors when it
+    // returns 0. Null termios/winsize pointers request platform defaults.
+    let openpty_result = unsafe {
+        libc::openpty(
+            &mut master_fd,
+            &mut slave_fd,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
     };
+    assert_eq!(openpty_result, 0, "openpty should allocate a PTY");
+    set_close_on_exec(master_fd);
+    set_nonblocking(master_fd);
+
+    // SAFETY: openpty returned owned file descriptors above.
+    let pty_master = unsafe { File::from_raw_fd(master_fd) };
+    // SAFETY: openpty returned owned file descriptors above.
+    let pty_slave = unsafe { File::from_raw_fd(slave_fd) };
+
+    let mut cmd = Command::new(ok_bin);
 
     // Create a new process group so we can signal the entire group
     // SAFETY: pre_exec runs between fork and exec — setsid() is safe here
@@ -79,25 +131,76 @@ fn spawn_ok_with_pty(vault_dir: &std::path::Path) -> Child {
 
     cmd.env("XDG_DATA_HOME", vault_dir)
         .env("XDG_CONFIG_HOME", vault_dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdin(Stdio::from(
+            pty_slave.try_clone().expect("should clone PTY slave"),
+        ))
+        .stdout(Stdio::from(
+            pty_slave.try_clone().expect("should clone PTY slave"),
+        ))
+        .stderr(Stdio::from(pty_slave))
         .spawn()
+        .map(|child| (child, pty_master))
         .expect("should spawn ok with PTY")
+}
+
+#[cfg(unix)]
+fn set_close_on_exec(fd: i32) {
+    // SAFETY: fcntl with F_GETFD/F_SETFD reads and updates descriptor flags for
+    // a valid fd returned by openpty.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    assert_ne!(flags, -1, "should read fd flags");
+    let result = unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
+    assert_ne!(result, -1, "should set FD_CLOEXEC");
+}
+
+#[cfg(unix)]
+fn set_nonblocking(fd: i32) {
+    // SAFETY: fcntl with F_GETFL/F_SETFL reads and updates descriptor status
+    // flags for a valid fd returned by openpty.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    assert_ne!(flags, -1, "should read fd status flags");
+    let result = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    assert_ne!(result, -1, "should set O_NONBLOCK");
+}
+
+#[cfg(unix)]
+fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> Option<std::process::ExitStatus> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait().ok().flatten() {
+            return Some(status);
+        }
+
+        if Instant::now() >= deadline {
+            return None;
+        }
+
+        thread::sleep(POLL_INTERVAL);
+    }
 }
 
 /// Send SIGTERM to gracefully shut down the TUI process group.
 #[cfg(unix)]
 fn send_sigterm(child: &Child) {
-    // Send SIGTERM to the process group
+    send_signal_to_process_group(child, libc::SIGTERM);
+}
+
+#[cfg(unix)]
+fn send_sigkill(child: &Child) {
+    send_signal_to_process_group(child, libc::SIGKILL);
+}
+
+#[cfg(unix)]
+fn send_signal_to_process_group(child: &Child, signal: i32) {
+    // Send the signal to the process group.
     // SAFETY: child.id() returns a valid PID; getpgid queries the kernel
     // for the process group ID of that PID — no pointer dereference involved.
     let pgid = unsafe { libc::getpgid(child.id() as i32) };
     if pgid > 0 {
-        // SAFETY: pgid is verified positive above. kill(-pgid, sig) sends SIGTERM
+        // SAFETY: pgid is verified positive above. kill(-pgid, sig) sends signal
         // to all processes in process group pgid, which is safe per POSIX.
         unsafe {
-            libc::kill(-pgid, libc::SIGTERM);
+            libc::kill(-pgid, signal);
         }
     }
 }
@@ -251,5 +354,23 @@ fn lock_released_after_first_instance_exits() {
     assert!(
         status.is_none(),
         "second instance should still be running (lock was released)"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn sigterm_exits_running_tui_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let vault_dir = dir.path().to_path_buf();
+    let mut process = wait_for_instance_running(&vault_dir);
+    process.wait_for_tui_output();
+
+    let status = process
+        .terminate_and_wait()
+        .expect("process should produce an exit status after SIGTERM");
+
+    assert!(
+        status.success(),
+        "SIGTERM should follow graceful shutdown and exit successfully, got {status}"
     );
 }
