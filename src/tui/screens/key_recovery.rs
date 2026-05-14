@@ -114,6 +114,11 @@ impl ScreenTrait for KeyRecoveryScreen {
                 self.error = Some(fallback);
                 ScreenResult::Continue
             }
+            Message::CommandCompleted(CommandResult::Cancelled { .. }) => {
+                self.validating = false;
+                self.error = None;
+                ScreenResult::Continue
+            }
             _ => ScreenResult::Continue,
         }
     }

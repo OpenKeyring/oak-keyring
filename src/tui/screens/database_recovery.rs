@@ -165,11 +165,26 @@ impl DatabaseRecoveryScreen {
                 self.error = Some(reason);
                 ScreenResult::Continue
             }
+            CommandResult::OAuth2Authorized { .. } => {
+                // OAuth completed — re-trigger cloud restore
+                self.mode = DatabaseRecoveryMode::CloudSyncing;
+                ScreenResult::Command(Box::new(Command::RestoreDatabaseFromCloud))
+            }
+            CommandResult::OAuth2Failed { error, .. } => {
+                self.error = Some(error);
+                self.mode = DatabaseRecoveryMode::SourceSelection;
+                ScreenResult::Continue
+            }
             CommandResult::Error { fallback, .. } => {
                 self.error = Some(fallback);
                 if matches!(self.mode, DatabaseRecoveryMode::CloudSyncing) {
                     self.mode = DatabaseRecoveryMode::CloudFailed;
                 }
+                ScreenResult::Continue
+            }
+            CommandResult::Cancelled { .. } => {
+                self.mode = DatabaseRecoveryMode::SourceSelection;
+                self.error = None;
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
