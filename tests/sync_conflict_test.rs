@@ -12,7 +12,7 @@ fn create_valid_cloud_record() -> CloudRecord {
         id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
         version: 5,
         encrypted_data: "dGVzdCBkYXRh".to_string(),
-        nonce: "bm9uY2U".to_string(),
+        nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
         dek_version: 1,
         aad: AadFields {
             record_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
