@@ -567,7 +567,6 @@ mod tests {
 
     fn test_app() -> App {
         let vault_dir = tempfile::tempdir().unwrap();
-        let config_dir = tempfile::tempdir().unwrap();
         let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
         let mut app = App::new(
             crate::config::AppConfig::default(),
