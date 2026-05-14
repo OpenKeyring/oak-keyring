@@ -212,7 +212,8 @@ impl DatabaseRecoveryScreen {
         match key.code {
             KeyCode::Enter => {
                 if self.master_password.is_empty() {
-                    self.error = Some(t!("tui.entry.unlock_prompt").to_string());
+                    self.error =
+                        Some(t!("tui.entry.db_recovery_master_password_empty_error").to_string());
                 } else {
                     self.error = None;
                     self.mode = DatabaseRecoveryMode::CloudSyncing;
@@ -251,7 +252,8 @@ impl DatabaseRecoveryScreen {
         match key.code {
             KeyCode::Enter => {
                 if self.master_password.is_empty() {
-                    self.error = Some(t!("tui.entry.unlock_prompt").to_string());
+                    self.error =
+                        Some(t!("tui.entry.db_recovery_master_password_empty_error").to_string());
                 } else {
                     self.error = None;
                     let path = std::path::PathBuf::from(self.okb_path.trim());
@@ -772,7 +774,7 @@ impl DatabaseRecoveryScreen {
         frame.render_widget(title, rows[2]);
 
         let instruction = Paragraph::new(Line::from(Span::styled(
-            t!("tui.entry.unlock_prompt"),
+            t!("tui.entry.db_recovery_master_password_title"),
             Style::default().fg(TEXT),
         )))
         .alignment(Alignment::Center);
@@ -783,7 +785,7 @@ impl DatabaseRecoveryScreen {
             Layout::vertical([Constraint::Length(3), Constraint::Length(1)]).split(input_area);
 
         let display = if self.master_password.is_empty() {
-            t!("tui.import_export.master_password_placeholder").to_string()
+            t!("tui.entry.db_recovery_master_password_placeholder").to_string()
         } else {
             "•".repeat(self.master_password.len())
         };
@@ -796,7 +798,7 @@ impl DatabaseRecoveryScreen {
             Block::default()
                 .borders(ratatui::widgets::Borders::ALL)
                 .border_style(Style::default().fg(PRIMARY))
-                .title(t!("tui.import_export.master_password_label")),
+                .title(t!("tui.entry.db_recovery_master_password_title")),
         );
         frame.render_widget(input, input_layout[0]);
 
@@ -1038,7 +1040,7 @@ impl DatabaseRecoveryScreen {
 
     fn render_okb_succeeded(&self, frame: &mut ratatui::Frame, rows: &[ratatui::layout::Rect]) {
         let title = Paragraph::new(Line::from(Span::styled(
-            t!("tui.entry.db_recovery_okb_title"),
+            t!("tui.entry.db_recovery_okb_succeeded_title"),
             Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center);

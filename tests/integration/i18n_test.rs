@@ -115,3 +115,45 @@ fn zh_cn_locale_file_contains_required_modules() {
         );
     }
 }
+
+#[test]
+fn locale_files_do_not_define_duplicate_keys_in_same_map() {
+    fn assert_no_duplicate_keys(path: &str) {
+        let content = std::fs::read_to_string(path).unwrap();
+        let mut stack: Vec<(usize, std::collections::HashSet<String>)> = Vec::new();
+
+        for (line_no, line) in content.lines().enumerate() {
+            if line.trim().is_empty() || line.trim_start().starts_with('#') {
+                continue;
+            }
+
+            let indent = line.chars().take_while(|c| *c == ' ').count();
+            let trimmed = line.trim_start();
+            let Some((key, _rest)) = trimmed.split_once(':') else {
+                continue;
+            };
+            if key.starts_with('-') {
+                continue;
+            }
+
+            while stack.last().is_some_and(|(level, _)| *level > indent) {
+                stack.pop();
+            }
+            if stack.last().is_none_or(|(level, _)| *level != indent) {
+                stack.push((indent, std::collections::HashSet::new()));
+            }
+
+            let current = stack.last_mut().unwrap();
+            assert!(
+                current.1.insert(key.to_string()),
+                "duplicate key `{}` in {} at line {}",
+                key,
+                path,
+                line_no + 1
+            );
+        }
+    }
+
+    assert_no_duplicate_keys("locales/en.yml");
+    assert_no_duplicate_keys("locales/zh-CN.yml");
+}

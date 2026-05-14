@@ -174,7 +174,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         let new_input_block = Block::default()
             .borders(Borders::ALL)
             .border_style(new_border_style)
-            .title(" New Password ");
+            .title(t!("tui.entry.new_password_title").to_string());
 
         let new_input_text = if new_display.is_empty() {
             Paragraph::new(new_placeholder)
@@ -243,7 +243,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         let confirm_input_block = Block::default()
             .borders(Borders::ALL)
             .border_style(confirm_border_style)
-            .title(" Confirm Password ");
+            .title(t!("tui.entry.confirm_new_password_title").to_string());
 
         let confirm_input_text = if confirm_display.is_empty() {
             Paragraph::new(confirm_placeholder)

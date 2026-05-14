@@ -4,6 +4,7 @@ use zeroize::Zeroize;
 use crate::commands::types::ImportPreview;
 use crate::commands::Message;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
+use crate::t;
 use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
@@ -102,7 +103,13 @@ impl OnboardingScreen {
             }
             Err(e) => {
                 tracing::error!(error = %e, "failed to generate recovery words");
-                self.error = Some(format!("Failed to generate recovery key: {}", e));
+                self.error = Some(
+                    t!(
+                        "tui.entry.recovery_key_generation_failed",
+                        error = e.to_string()
+                    )
+                    .to_string(),
+                );
             }
         }
     }
