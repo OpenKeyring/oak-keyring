@@ -6,6 +6,57 @@ use crate::types::SecureStr;
 
 use super::CommandExecutor;
 
+fn artifact_existed_before(path: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
+fn remove_initialized_artifact(path: &std::path::Path, label: &str) {
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                artifact = label,
+                error = %e,
+                "failed to clean up partial vault initialization artifact"
+            );
+        }
+    }
+}
+
+fn cleanup_failed_new_vault_initialization(
+    vault_dir: &std::path::Path,
+    key_existed_before: bool,
+    vault_db_existed_before: bool,
+    wal_existed_before: bool,
+    shm_existed_before: bool,
+) {
+    if !key_existed_before {
+        remove_initialized_artifact(&vault_dir.join("wrapped_secret_key.json"), "key_file");
+    }
+
+    if !vault_db_existed_before {
+        for (path, existed_before, label) in [
+            (vault_dir.join("vault.db"), false, "database"),
+            (
+                vault_dir.join("vault.db-wal"),
+                wal_existed_before,
+                "database_wal",
+            ),
+            (
+                vault_dir.join("vault.db-shm"),
+                shm_existed_before,
+                "database_shm",
+            ),
+        ] {
+            if !existed_before {
+                remove_initialized_artifact(&path, label);
+            }
+        }
+    }
+}
+
 /// Schedule health check after a successful unlock.
 ///
 /// Reads the persisted `last_health_check_at` from metadata, evaluates
@@ -245,8 +296,17 @@ pub async fn handle_initialize_vault(
     let mut sk_bytes = seed.to_secret_key();
     let recovery_words = passkey.to_words();
 
-    // Step 3: Initialize keystore (creates wrapped_secret_key.json)
     let vault_path = executor.vault_dir.clone();
+    let key_path = vault_path.join("wrapped_secret_key.json");
+    let db_path = vault_path.join("vault.db");
+    let wal_path = vault_path.join("vault.db-wal");
+    let shm_path = vault_path.join("vault.db-shm");
+    let key_existed_before = artifact_existed_before(&key_path);
+    let vault_db_existed_before = artifact_existed_before(&db_path);
+    let wal_existed_before = artifact_existed_before(&wal_path);
+    let shm_existed_before = artifact_existed_before(&shm_path);
+
+    // Step 3: Initialize keystore (creates wrapped_secret_key.json)
     match crate::crypto::keystore::KeyStore::initialize(
         &vault_path,
         &mut sk_bytes,
@@ -270,6 +330,13 @@ pub async fn handle_initialize_vault(
     let mut pending = match executor.begin_file_backed_vault_db() {
         Ok(pending) => pending,
         Err(e) => {
+            cleanup_failed_new_vault_initialization(
+                &vault_path,
+                key_existed_before,
+                vault_db_existed_before,
+                wal_existed_before,
+                shm_existed_before,
+            );
             return CommandResult::Error {
                 code: ErrorCode::VaultDatabaseIoError,
                 context: ErrorContext::default(),
@@ -284,12 +351,22 @@ pub async fn handle_initialize_vault(
             pending.commit();
             CommandResult::VaultInitialized { recovery_words }
         }
-        Err(e) => CommandResult::Error {
-            code: ErrorCode::CryptoEncryptionFailed,
-            context: ErrorContext::default(),
-            message_key: "error.unlock_failed",
-            fallback: format!("Failed to unlock vault: {}", e),
-        },
+        Err(e) => {
+            drop(pending);
+            cleanup_failed_new_vault_initialization(
+                &vault_path,
+                key_existed_before,
+                vault_db_existed_before,
+                wal_existed_before,
+                shm_existed_before,
+            );
+            CommandResult::Error {
+                code: ErrorCode::CryptoEncryptionFailed,
+                context: ErrorContext::default(),
+                message_key: "error.unlock_failed",
+                fallback: format!("Failed to unlock vault: {}", e),
+            }
+        }
     }
 }
 

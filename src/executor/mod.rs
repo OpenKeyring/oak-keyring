@@ -143,8 +143,9 @@ pub struct CommandExecutor {
 impl CommandExecutor {
     /// Create a new CommandExecutor, initializing all services.
     ///
-    /// Opens the SQLite database at the data directory, creates service
-    /// instances, and returns a fully-constructed executor ready to run.
+    /// Opens the SQLite database at the data directory, or uses an in-memory
+    /// database for deferred startup modes, creates service instances, and
+    /// returns a fully-constructed executor ready to run.
     ///
     /// # Arguments
     /// * `config` — Application configuration
@@ -360,15 +361,22 @@ impl CommandExecutor {
         self.sync = sync;
     }
 
+    /// Open a speculative file-backed vault database.
+    ///
+    /// The returned guard must be committed after the restore/init flow has
+    /// fully validated and applied data. Dropping it rolls back newly created
+    /// database artifacts while preserving artifacts that existed beforehand.
     pub(super) fn begin_file_backed_vault_db(
         &mut self,
     ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
+        let existed_before = vault_db_paths(&self.vault_dir).map(|path| artifact_exists(&path));
         let conn = init_db(&self.vault_dir)?;
         self.vault = crate::services::vault::VaultService::new(conn);
         info!("opened pending file-backed vault database");
         Ok(PendingFileBackedVaultDb {
             executor: self,
             committed: false,
+            existed_before,
         })
     }
 }
@@ -376,6 +384,7 @@ impl CommandExecutor {
 pub(super) struct PendingFileBackedVaultDb<'a> {
     executor: &'a mut CommandExecutor,
     committed: bool,
+    existed_before: [bool; 4],
 }
 
 impl PendingFileBackedVaultDb<'_> {
@@ -442,7 +451,13 @@ impl Drop for PendingFileBackedVaultDb<'_> {
         // remove.
         self.executor.vault = crate::services::vault::VaultService::new(init_db_in_memory());
 
-        for path in vault_db_paths(&self.executor.vault_dir) {
+        for (path, existed_before) in vault_db_paths(&self.executor.vault_dir)
+            .into_iter()
+            .zip(self.existed_before)
+        {
+            if existed_before {
+                continue;
+            }
             if let Err(e) = std::fs::remove_file(&path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     tracing::warn!(path = %path.display(), error = %e, "failed to remove uncommitted vault database file");
@@ -451,6 +466,10 @@ impl Drop for PendingFileBackedVaultDb<'_> {
         }
         info!("rolled back uncommitted file-backed vault database");
     }
+}
+
+fn artifact_exists(path: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
 }
 
 fn vault_db_paths(vault_dir: &std::path::Path) -> [std::path::PathBuf; 4] {

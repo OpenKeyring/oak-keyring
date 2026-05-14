@@ -536,3 +536,57 @@ async fn initialize_vault_creates_file_backed_database_after_empty_startup() {
     drop(command_tx);
     handle.await.unwrap();
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn initialize_vault_db_failure_removes_new_key_file() {
+    let (result_tx, mut result_rx) = tokio::sync::mpsc::channel(64);
+    let (command_tx, command_rx) = tokio::sync::mpsc::channel(64);
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("oak-keyring");
+    let config_dir = temp.path().join("oak-keyring-config");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    let missing_target = temp.path().join("missing-parent").join("vault.db");
+    std::os::unix::fs::symlink(&missing_target, data_dir.join("vault.db")).unwrap();
+    assert!(!data_dir.join("vault.db").exists());
+    assert!(!data_dir.join("wrapped_secret_key.json").exists());
+
+    let executor = CommandExecutor::new(
+        AppConfig::default(),
+        result_tx,
+        CancellationToken::new(),
+        data_dir.clone(),
+        config_dir,
+        DbStartupMode::DeferredInMemory,
+    )
+    .unwrap();
+    let handle = tokio::spawn(async move { executor.run(command_rx).await });
+
+    command_tx
+        .send(Command::InitializeVault {
+            master_password: SecureStr::new("correct horse battery staple".to_string()),
+            recovery_words: None,
+        })
+        .await
+        .unwrap();
+
+    let msg = result_rx.recv().await.expect("result");
+    match msg {
+        Message::CommandCompleted(CommandResult::Error { .. }) => {}
+        other => panic!("expected database reopen error, got {other:?}"),
+    }
+
+    assert!(
+        !data_dir.join("wrapped_secret_key.json").exists(),
+        "failed DB creation must not leave a newly created key file behind"
+    );
+    assert!(
+        std::fs::symlink_metadata(data_dir.join("vault.db")).is_err(),
+        "failed DB creation must remove newly created vault.db artifacts"
+    );
+
+    drop(command_tx);
+    handle.await.unwrap();
+}
