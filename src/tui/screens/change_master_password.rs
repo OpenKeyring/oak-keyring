@@ -147,7 +147,7 @@ impl Screen for ChangeMasterPasswordScreen {
             let new_input_block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(new_border_style)
-                .title(" New Password ");
+                .title(format!(" {} ", t!("tui.entry.new_password")));
 
             let new_input_text = if new_display.is_empty() {
                 Paragraph::new(new_placeholder)
@@ -216,7 +216,7 @@ impl Screen for ChangeMasterPasswordScreen {
             let confirm_input_block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(confirm_border_style)
-                .title(" Confirm Password ");
+                .title(format!(" {} ", t!("tui.entry.confirm_password")));
 
             let confirm_input_text = if confirm_display.is_empty() {
                 Paragraph::new(confirm_placeholder)
@@ -366,7 +366,7 @@ impl ChangeMasterPasswordScreen {
         let input_block = Block::default()
             .borders(Borders::ALL)
             .border_style(Styles::focused_border())
-            .title(" Current Password ");
+            .title(format!(" {} ", t!("tui.import_export.current_password_label")));
 
         let display = if self.current_password.is_empty() {
             String::new()

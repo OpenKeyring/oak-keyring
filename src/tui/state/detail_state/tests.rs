@@ -375,7 +375,7 @@ fn make_ssh_data() -> DetailViewData {
                 kind: DetailFieldKind::PrivateKey,
             },
             DetailField {
-                label: t!("tui.entry.passphrase_label").to_string(),
+                label: t!("tui.password_detail.passphrase_label").to_string(),
                 value: FieldValue::Masked,
                 copyable: true,
                 toggleable: true,
