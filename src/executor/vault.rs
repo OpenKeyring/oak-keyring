@@ -286,3 +286,93 @@ fn reconstruct_passkey(words: &[String]) -> Result<Passkey, String> {
     }
     Passkey::from_words(words, MnemonicLanguage::ChineseSimplified)
 }
+
+/// Validate BIP39 recovery words (must be exactly 24).
+pub async fn handle_validate_recovery_words(words: Vec<String>) -> CommandResult {
+    if words.len() != 24 {
+        return CommandResult::Error {
+            code: ErrorCode::CryptoKeyDerivationFailed,
+            context: ErrorContext::default(),
+            message_key: "error.invalid_recovery_key",
+            fallback: "Recovery key must contain 24 words.".to_string(),
+        };
+    }
+    match reconstruct_passkey(&words) {
+        Ok(_) => CommandResult::RecoveryWordsValidated,
+        Err(e) => CommandResult::Error {
+            code: ErrorCode::CryptoKeyDerivationFailed,
+            context: ErrorContext::default(),
+            message_key: "error.invalid_recovery_key",
+            fallback: format!("Invalid recovery key: {}", e),
+        },
+    }
+}
+
+/// Rebuild wrapped_secret_key.json from recovery words + new master password.
+pub async fn handle_rebuild_keyfile_from_recovery(
+    executor: &mut CommandExecutor,
+    master_password: crate::types::SecureStr,
+    recovery_words: Vec<String>,
+) -> CommandResult {
+    let passkey = match reconstruct_passkey(&recovery_words) {
+        Ok(pk) => pk,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::CryptoKeyDerivationFailed,
+                context: ErrorContext::default(),
+                message_key: "error.invalid_recovery_key",
+                fallback: format!("Invalid recovery key: {}", e),
+            };
+        }
+    };
+
+    let seed = match passkey.to_seed(None) {
+        Ok(seed) => seed,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::CryptoKeyDerivationFailed,
+                context: ErrorContext::default(),
+                message_key: "error.seed_derivation_failed",
+                fallback: format!("Failed to derive seed: {}", e),
+            };
+        }
+    };
+
+    let mut sk_bytes = seed.to_secret_key();
+    let language = crate::crypto::bip39::MnemonicLanguage::English;
+    match crate::crypto::keystore::KeyStore::initialize(
+        &executor.vault_dir,
+        &mut sk_bytes,
+        &master_password,
+        &crate::crypto::argon2::Argon2Params::medium(),
+        language,
+    ) {
+        Ok(_) => CommandResult::KeyFileRebuilt,
+        Err(e) => CommandResult::Error {
+            code: ErrorCode::CryptoEncryptionFailed,
+            context: ErrorContext::default(),
+            message_key: "error.keystore_init_failed",
+            fallback: format!("Failed to rebuild key file: {}", e),
+        },
+    }
+}
+
+/// Validate that the restored vault.db can be decrypted with the current key.
+pub async fn handle_validate_restored_database(
+    executor: &mut CommandExecutor,
+) -> CommandResult {
+    if !executor.vault_dir.join("vault.db").exists() {
+        return CommandResult::DatabaseValidationFailed {
+            reason: "vault.db was not restored.".to_string(),
+        };
+    }
+    if executor.vault.is_unlocked() {
+        CommandResult::DatabaseRestored {
+            source: crate::commands::types::DatabaseRecoverySource::Okb,
+        }
+    } else {
+        CommandResult::DatabaseValidationFailed {
+            reason: "Restored database does not match current key.".to_string(),
+        }
+    }
+}

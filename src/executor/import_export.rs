@@ -970,3 +970,38 @@ mod tests {
         assert_eq!(breakdown.get(&SkipReason::VaultWriteError), None);
     }
 }
+
+/// Restore vault.db from a local .okb backup file.
+pub async fn handle_restore_database_from_okb(
+    _executor: &mut CommandExecutor,
+    path: PathBuf,
+) -> CommandResult {
+    if path.as_os_str().is_empty() {
+        return CommandResult::Error {
+            code: ErrorCode::DataEmptyField,
+            context: ErrorContext::default(),
+            message_key: "error.okb_path_empty",
+            fallback: "Enter a .okb path.".to_string(),
+        };
+    }
+    if path.extension().and_then(|e| e.to_str()) != Some("okb") {
+        return CommandResult::Error {
+            code: ErrorCode::ImportFileFormatInvalid,
+            context: ErrorContext::default(),
+            message_key: "error.okb_invalid_extension",
+            fallback: "Path must end with .okb.".to_string(),
+        };
+    }
+    if !path.exists() {
+        return CommandResult::Error {
+            code: ErrorCode::ImportFileUnreadable,
+            context: ErrorContext::default(),
+            message_key: "error.okb_missing",
+            fallback: format!("Backup file does not exist: {}", path.display()),
+        };
+    }
+    // Full OKB restore implementation in Task 6.
+    CommandResult::DatabaseRestored {
+        source: crate::commands::types::DatabaseRecoverySource::Okb,
+    }
+}

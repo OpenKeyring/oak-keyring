@@ -323,3 +323,16 @@ pub async fn handle_resolve_all_conflicts(
         }
     }
 }
+
+/// Restore vault.db from cloud sync (pull-only).
+pub async fn handle_restore_database_from_cloud(
+    executor: &mut CommandExecutor,
+) -> CommandResult {
+    if executor.sync.is_none() {
+        return CommandResult::DatabaseRestoreNeedsOAuth;
+    }
+    // Full cloud restore implementation in Task 6.
+    CommandResult::DatabaseRestored {
+        source: crate::commands::types::DatabaseRecoverySource::Cloud,
+    }
+}

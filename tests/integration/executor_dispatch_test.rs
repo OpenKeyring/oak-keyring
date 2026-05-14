@@ -1,4 +1,4 @@
-use oak_keyring::commands::Command;
+use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
 use oak_keyring::executor::CommandExecutor;
 use tokio::sync::mpsc;
@@ -54,4 +54,40 @@ async fn executor_run_loop_processes_commands() {
 
     let result = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
     assert!(result.is_ok(), "Executor should stop when channel closes");
+}
+
+#[tokio::test]
+async fn dispatch_validate_recovery_words_rejects_non_24_words() {
+    let (result_tx, mut result_rx) = tokio::sync::mpsc::channel(64);
+    let (command_tx, command_rx) = tokio::sync::mpsc::channel(64);
+    let temp = tempfile::tempdir().unwrap();
+    let vault_dir = temp.path().to_path_buf();
+    std::env::set_var("OAK_VAULT_DIR", &vault_dir);
+    std::env::set_var("OAK_CONFIG_DIR", &vault_dir);
+
+    let executor = CommandExecutor::new(
+        AppConfig::default(),
+        result_tx,
+        CancellationToken::new(),
+        oak_keyring::executor::DbStartupMode::FileBacked,
+    )
+    .unwrap();
+    let handle = tokio::spawn(async move { executor.run(command_rx).await });
+
+    command_tx
+        .send(Command::ValidateRecoveryWords {
+            words: vec!["abandon".to_string(); 12],
+        })
+        .await
+        .unwrap();
+    let msg = result_rx.recv().await.expect("result");
+    let result = match msg {
+        Message::CommandCompleted(result) => result,
+        other => panic!("unexpected message: {other:?}"),
+    };
+    assert!(
+        matches!(&result, CommandResult::Error { fallback, .. } if fallback.contains("24"))
+    );
+    drop(command_tx);
+    handle.await.unwrap();
 }

@@ -216,6 +216,13 @@ pub enum SkipReason {
     VaultWriteError,
 }
 
+/// Database recovery source selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatabaseRecoverySource {
+    Cloud,
+    Okb,
+}
+
 /// Confirm dialog action variants
 #[derive(Debug, Clone)]
 pub enum ConfirmVariant {
