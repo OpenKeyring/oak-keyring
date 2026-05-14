@@ -171,7 +171,13 @@ impl SyncService {
                 })?;
         metadata.validate()?;
 
-        let mut ids: Vec<String> = metadata.records.keys().cloned().collect();
+        let mut ids: Vec<String> = Vec::with_capacity(metadata.records.len());
+        for id in metadata.records.keys() {
+            Uuid::parse_str(id).map_err(|_| SyncError::DeserializationFailed {
+                message: format!("metadata record key must be a UUID: {}", id),
+            })?;
+            ids.push(id.clone());
+        }
         ids.sort();
 
         let mut downloaded_records = Vec::new();
@@ -950,6 +956,41 @@ mod tests {
         assert!(matches!(
             result,
             Err(SyncError::DeserializationFailed { message }) if message.contains("nonce")
+        ));
+    }
+
+    #[tokio::test]
+    async fn restore_pull_only_rejects_invalid_metadata_record_key() {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        let storage = CloudStorage::new(op.clone(), "memory".to_string());
+        let mut metadata = CloudMetadata::new("remote-token".to_string());
+        metadata.upsert_record(
+            "not-a-uuid".to_string(),
+            crate::cloud::metadata::RecordVersionInfo {
+                version: 1,
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                updated_by: "test-device".to_string(),
+                checksum: "unused".to_string(),
+                deleted: false,
+            },
+        );
+
+        op.write(
+            crate::cloud::schema::METADATA_FILENAME,
+            crate::cloud::metadata::serialize_metadata(&metadata).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let mut service = SyncService::new(storage);
+        let result = service.restore_pull_only().await;
+
+        assert!(matches!(
+            result,
+            Err(SyncError::DeserializationFailed { message })
+                if message.contains("metadata record key") && message.contains("not-a-uuid")
         ));
     }
 }
