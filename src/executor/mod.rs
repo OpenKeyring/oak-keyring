@@ -45,27 +45,6 @@ mod vault_test;
 #[cfg(test)]
 mod sync_test;
 
-/// Determines how the executor initializes the database on startup.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum DbStartupMode {
-    /// Open the file-backed vault.db on disk.
-    FileBacked,
-    /// Use an in-memory database, deferring file-backed DB creation.
-    DeferredInMemory,
-}
-
-#[allow(dead_code)]
-impl DbStartupMode {
-    pub fn from_vault_state(state: crate::app::VaultInitState) -> Self {
-        if state.has_vault || state.vault_has_db_only {
-            Self::FileBacked
-        } else {
-            Self::DeferredInMemory
-        }
-    }
-}
-
 /// Load OAuth2 tokens from TokenStore into the in-memory GoogleDriveConfig.
 /// TokenStore is the single source of truth — config.toml never stores tokens.
 fn load_oauth2_tokens_into_config(config: &mut AppConfig) {
@@ -372,34 +351,5 @@ mod shutdown_tests {
         assert!(!operation.is_cancelled());
         shutdown.cancel();
         assert!(operation.is_cancelled());
-    }
-}
-
-#[cfg(test)]
-mod db_startup_mode_tests {
-    use super::*;
-
-    #[test]
-    fn db_startup_mode_defers_database_when_db_missing() {
-        assert_eq!(
-            DbStartupMode::from_vault_state(crate::app::VaultInitState {
-                has_vault: false,
-                vault_has_key_only: true,
-                vault_has_db_only: false,
-            }),
-            DbStartupMode::DeferredInMemory
-        );
-    }
-
-    #[test]
-    fn db_startup_mode_opens_file_when_db_exists() {
-        assert_eq!(
-            DbStartupMode::from_vault_state(crate::app::VaultInitState {
-                has_vault: false,
-                vault_has_key_only: false,
-                vault_has_db_only: true,
-            }),
-            DbStartupMode::FileBacked
-        );
     }
 }
