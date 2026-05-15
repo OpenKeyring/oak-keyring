@@ -980,6 +980,7 @@ pub async fn handle_restore_database_from_okb(
     executor: &mut CommandExecutor,
     path: PathBuf,
     password: SecureStr,
+    master_password: Option<SecureStr>,
 ) -> CommandResult {
     // Path guards
     if path.as_os_str().is_empty() {
@@ -1033,14 +1034,16 @@ pub async fn handle_restore_database_from_okb(
         };
     }
 
-    let master_password = match executor.verified_master_password.take() {
+    // Unlock with the provided startup password or the cached onboarding password.
+    let master_password = match master_password.or_else(|| executor.verified_master_password.take())
+    {
         Some(pw) => pw,
         None => {
             return CommandResult::Error {
                 code: ErrorCode::ExecutorMasterPasswordRequired,
                 context: ErrorContext::default(),
                 message_key: "error.password_required",
-                fallback: "Master password not available for vault unlock.".to_string(),
+                fallback: "Master password is required to unlock the recovered vault.".to_string(),
             };
         }
     };

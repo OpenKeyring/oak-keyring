@@ -32,9 +32,15 @@ const APP_NAME: &str = "oak-keyring";
 /// }
 /// ```
 pub fn config_dir() -> Option<PathBuf> {
-    std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| home::home_dir().map(|h| h.join(".config")))
+    config_dir_from(
+        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
+        home::home_dir(),
+    )
+}
+
+fn config_dir_from(xdg_config_home: Option<PathBuf>, home_dir: Option<PathBuf>) -> Option<PathBuf> {
+    xdg_config_home
+        .or_else(|| home_dir.map(|h| h.join(".config")))
         .map(|p| p.join(APP_NAME))
 }
 
@@ -62,9 +68,15 @@ pub fn config_dir_fallback() -> PathBuf {
 /// }
 /// ```
 pub fn data_dir() -> Option<PathBuf> {
-    std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| home::home_dir().map(|h| h.join(".local/share")))
+    data_dir_from(
+        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
+        home::home_dir(),
+    )
+}
+
+fn data_dir_from(xdg_data_home: Option<PathBuf>, home_dir: Option<PathBuf>) -> Option<PathBuf> {
+    xdg_data_home
+        .or_else(|| home_dir.map(|h| h.join(".local/share")))
         .map(|p| p.join(APP_NAME))
 }
 
@@ -197,48 +209,34 @@ mod tests {
 
     #[test]
     fn data_dir_structure() {
-        // Ensure clean environment for this test
-        std::env::remove_var("XDG_DATA_HOME");
-
-        let dir = data_dir();
-        assert!(
-            dir.is_some(),
-            "data_dir should return Some when HOME is set"
-        );
-
-        let dir = dir.unwrap();
-        let s = dir.to_string_lossy();
-        assert!(
-            s.contains(".local/share") || s.contains("local/share"),
-            "data path should contain .local/share"
-        );
-        assert!(
-            s.ends_with("oak-keyring"),
-            "data path should end with oak-keyring"
-        );
+        let dir = data_dir_from(None, Some(PathBuf::from("/home/tester"))).unwrap();
+        assert_eq!(dir, PathBuf::from("/home/tester/.local/share/oak-keyring"));
     }
 
     #[test]
     fn config_dir_structure() {
-        // Ensure clean environment for this test
-        std::env::remove_var("XDG_CONFIG_HOME");
+        let dir = config_dir_from(None, Some(PathBuf::from("/home/tester"))).unwrap();
+        assert_eq!(dir, PathBuf::from("/home/tester/.config/oak-keyring"));
+    }
 
-        let dir = config_dir();
-        assert!(
-            dir.is_some(),
-            "config_dir should return Some when HOME is set"
-        );
+    #[test]
+    fn data_dir_prefers_xdg_data_home() {
+        let dir = data_dir_from(
+            Some(PathBuf::from("/tmp/xdg-data")),
+            Some(PathBuf::from("/home/tester")),
+        )
+        .unwrap();
+        assert_eq!(dir, PathBuf::from("/tmp/xdg-data/oak-keyring"));
+    }
 
-        let dir = dir.unwrap();
-        let s = dir.to_string_lossy();
-        assert!(
-            s.contains(".config") || s.contains("config"),
-            "config path should contain .config"
-        );
-        assert!(
-            s.ends_with("oak-keyring"),
-            "config path should end with oak-keyring"
-        );
+    #[test]
+    fn config_dir_prefers_xdg_config_home() {
+        let dir = config_dir_from(
+            Some(PathBuf::from("/tmp/xdg-config")),
+            Some(PathBuf::from("/home/tester")),
+        )
+        .unwrap();
+        assert_eq!(dir, PathBuf::from("/tmp/xdg-config/oak-keyring"));
     }
 
     #[test]

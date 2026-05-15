@@ -52,7 +52,7 @@ impl CommandExecutor {
                 | Command::ValidateRecoveryWords { .. }
                 | Command::RebuildKeyFileFromRecovery { .. }
                 | Command::RestoreDatabaseFromOkb { .. }
-                | Command::RestoreDatabaseFromCloud
+                | Command::RestoreDatabaseFromCloud { .. }
                 | Command::ValidateRestoredDatabase
         );
 
@@ -305,11 +305,21 @@ impl CommandExecutor {
                 vault::handle_rebuild_keyfile_from_recovery(self, master_password, recovery_words)
                     .await
             }
-            Command::RestoreDatabaseFromOkb { path, password } => {
-                import_export::handle_restore_database_from_okb(self, path, password).await
+            Command::RestoreDatabaseFromOkb {
+                path,
+                password,
+                master_password,
+            } => {
+                import_export::handle_restore_database_from_okb(
+                    self,
+                    path,
+                    password,
+                    master_password,
+                )
+                .await
             }
-            Command::RestoreDatabaseFromCloud => {
-                sync::handle_restore_database_from_cloud(self).await
+            Command::RestoreDatabaseFromCloud { master_password } => {
+                sync::handle_restore_database_from_cloud(self, master_password).await
             }
             Command::ValidateRestoredDatabase => {
                 vault::handle_validate_restored_database(self).await

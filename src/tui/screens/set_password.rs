@@ -47,6 +47,23 @@ pub enum RestoreNext {
     RestoreDatabase,
 }
 
+impl Drop for SetPasswordContext {
+    fn drop(&mut self) {
+        match self {
+            Self::OnboardingCreate { recovery_words }
+            | Self::RestoreExistingVault { recovery_words, .. } => {
+                use zeroize::Zeroize;
+                for w in recovery_words.iter_mut() {
+                    w.zeroize();
+                    w.clear();
+                }
+                recovery_words.clear();
+            }
+            Self::PostRecovery | Self::OnboardingRestore => {}
+        }
+    }
+}
+
 // ── SetPasswordScreen ────────────────────────────────────────────────────────
 
 /// Password setting screen with strength indicator and confirmation field.
@@ -174,7 +191,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         let new_input_block = Block::default()
             .borders(Borders::ALL)
             .border_style(new_border_style)
-            .title(" New Password ");
+            .title(t!("tui.entry.new_password_title").to_string());
 
         let new_input_text = if new_display.is_empty() {
             Paragraph::new(new_placeholder)
@@ -243,7 +260,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         let confirm_input_block = Block::default()
             .borders(Borders::ALL)
             .border_style(confirm_border_style)
-            .title(" Confirm Password ");
+            .title(t!("tui.entry.confirm_new_password_title").to_string());
 
         let confirm_input_text = if confirm_display.is_empty() {
             Paragraph::new(confirm_placeholder)

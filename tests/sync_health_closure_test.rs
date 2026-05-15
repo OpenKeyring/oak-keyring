@@ -78,7 +78,7 @@ fn create_cloud_record(
         id: id.to_string(),
         version,
         encrypted_data: "dGVzdCBkYXRh".to_string(),
-        nonce: "bm9uY2U".to_string(),
+        nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
         dek_version: 1,
         aad: AadFields {
             record_id: id.to_string(),

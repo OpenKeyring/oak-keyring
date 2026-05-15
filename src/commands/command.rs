@@ -252,10 +252,13 @@ pub enum Command {
     RestoreDatabaseFromOkb {
         path: PathBuf,
         password: crate::types::SecureStr,
+        master_password: Option<crate::types::SecureStr>,
     },
 
     /// Restore vault.db from cloud sync (pull-only, no push).
-    RestoreDatabaseFromCloud,
+    RestoreDatabaseFromCloud {
+        master_password: Option<crate::types::SecureStr>,
+    },
 
     /// Validate that the restored vault.db can be decrypted with the current key.
     ValidateRestoredDatabase,
@@ -336,7 +339,7 @@ mod exhaustive_tests {
                 Command::ValidateRecoveryWords { .. } => {}
                 Command::RebuildKeyFileFromRecovery { .. } => {}
                 Command::RestoreDatabaseFromOkb { .. } => {}
-                Command::RestoreDatabaseFromCloud => {}
+                Command::RestoreDatabaseFromCloud { .. } => {}
                 Command::ValidateRestoredDatabase => {}
             }
         }

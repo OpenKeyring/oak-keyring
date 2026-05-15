@@ -8,9 +8,10 @@ use crate::commands::types::ConflictResolution;
 use crate::commands::CommandResult;
 use crate::errors::mapping::sync::SyncError;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
+use crate::services::vault::VaultService;
 use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::task::SyncVaultData;
-use crate::types::SyncStats;
+use crate::types::{SecureStr, SyncStats};
 
 use super::CommandExecutor;
 
@@ -188,6 +189,157 @@ async fn ensure_cloud_restore_has_records(
             message_key: "error.cloud_restore_failed",
             fallback: format!("Cloud database restore failed: {}", e),
         }),
+    }
+}
+
+trait CloudRestoreLocalTarget {
+    fn apply_downloaded_cloud_record(
+        &mut self,
+        record: &crate::cloud::CloudRecord,
+    ) -> Result<bool, crate::errors::mapping::vault::VaultError>;
+
+    fn upsert_record_health_state(
+        &mut self,
+        state: &crate::types::health::RecordHealthState,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError>;
+
+    fn delete_record_health_states(
+        &mut self,
+        record_ids: &[uuid::Uuid],
+    ) -> Result<(), crate::errors::mapping::vault::VaultError>;
+
+    fn set_metadata(
+        &mut self,
+        key: &str,
+        value: &str,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError>;
+}
+
+impl CloudRestoreLocalTarget for VaultService {
+    fn apply_downloaded_cloud_record(
+        &mut self,
+        record: &crate::cloud::CloudRecord,
+    ) -> Result<bool, crate::errors::mapping::vault::VaultError> {
+        VaultService::apply_downloaded_cloud_record(self, record)
+    }
+
+    fn upsert_record_health_state(
+        &mut self,
+        state: &crate::types::health::RecordHealthState,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        VaultService::upsert_record_health_state(self, state)
+    }
+
+    fn delete_record_health_states(
+        &mut self,
+        record_ids: &[uuid::Uuid],
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        VaultService::delete_record_health_states(self, record_ids)
+    }
+
+    fn set_metadata(
+        &mut self,
+        key: &str,
+        value: &str,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        VaultService::set_metadata(self, key, value)
+    }
+}
+
+impl CloudRestoreLocalTarget for super::PendingFileBackedVaultDb<'_> {
+    fn apply_downloaded_cloud_record(
+        &mut self,
+        record: &crate::cloud::CloudRecord,
+    ) -> Result<bool, crate::errors::mapping::vault::VaultError> {
+        super::PendingFileBackedVaultDb::apply_downloaded_cloud_record(self, record)
+    }
+
+    fn upsert_record_health_state(
+        &mut self,
+        state: &crate::types::health::RecordHealthState,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        super::PendingFileBackedVaultDb::upsert_record_health_state(self, state)
+    }
+
+    fn delete_record_health_states(
+        &mut self,
+        record_ids: &[uuid::Uuid],
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        super::PendingFileBackedVaultDb::delete_record_health_states(self, record_ids)
+    }
+
+    fn set_metadata(
+        &mut self,
+        key: &str,
+        value: &str,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        super::PendingFileBackedVaultDb::set_metadata(self, key, value)
+    }
+}
+
+fn persist_restored_cloud_data(
+    target: &mut impl CloudRestoreLocalTarget,
+    result: &crate::services::sync::SyncResult,
+) -> Result<(), crate::errors::mapping::vault::VaultError> {
+    // Apply downloaded CloudRecords before health states so FK constraints on
+    // record_health_state.record_id are satisfied.
+    for record in &result.downloaded_records {
+        target.apply_downloaded_cloud_record(record)?;
+    }
+
+    for state in &result.downloaded_health_states {
+        target.upsert_record_health_state(state)?;
+    }
+
+    if !result.downloaded_health_deleted.is_empty() {
+        target.delete_record_health_states(&result.downloaded_health_deleted)?;
+    }
+
+    if let Some(metadata) = result.remote_metadata.as_ref() {
+        target.set_metadata("metadata_version", &metadata.metadata_version.to_string())?;
+        target.set_metadata("vault_identity_token", &metadata.vault_identity_token)?;
+    }
+
+    Ok(())
+}
+
+fn cloud_restore_local_error_result(
+    e: &crate::errors::mapping::vault::VaultError,
+) -> CommandResult {
+    CommandResult::Error {
+        code: e.to_error_code(),
+        context: e.to_error_context(),
+        message_key: "error.db_restore_failed",
+        fallback: format!("Failed to apply cloud restore locally: {}", e),
+    }
+}
+
+enum RestoreMasterPassword {
+    Provided(SecureStr),
+    Cached(SecureStr),
+}
+
+impl RestoreMasterPassword {
+    fn password(&self) -> &SecureStr {
+        match self {
+            Self::Provided(password) | Self::Cached(password) => password,
+        }
+    }
+
+    fn restore_cache_on_failure(self, cached_password: &mut Option<SecureStr>) {
+        if let Self::Cached(password) = self {
+            *cached_password = Some(password);
+        }
+    }
+}
+
+fn take_restore_master_password(
+    provided_password: Option<SecureStr>,
+    cached_password: &mut Option<SecureStr>,
+) -> Option<RestoreMasterPassword> {
+    match provided_password {
+        Some(password) => Some(RestoreMasterPassword::Provided(password)),
+        None => cached_password.take().map(RestoreMasterPassword::Cached),
     }
 }
 
@@ -369,32 +521,36 @@ pub async fn handle_resolve_all_conflicts(
 
 /// Restore vault.db from cloud sync (pull-only, never pushes empty local state).
 ///
-/// Creates a file-backed vault.db, unlocks it with the cached master password,
-/// then runs a full sync cycle. Since the local vault is empty, the sync
-/// effectively becomes pull-only: all cloud records are downloaded and imported
-/// with no push or deletion of remote data.
-pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) -> CommandResult {
-    if executor.sync.is_none() {
-        return CommandResult::DatabaseRestoreNeedsOAuth;
-    }
-
-    let sync = executor.sync.as_mut().unwrap();
+/// Creates a file-backed vault.db, unlocks it with the cached or provided
+/// master password, then pulls remote metadata and records directly from cloud
+/// storage and applies them to the reopened vault.
+pub async fn handle_restore_database_from_cloud(
+    executor: &mut CommandExecutor,
+    master_password: Option<SecureStr>,
+) -> CommandResult {
+    let sync = match executor.sync.as_mut() {
+        Some(s) => s,
+        None => return CommandResult::DatabaseRestoreNeedsOAuth,
+    };
     if let Err(result) = ensure_cloud_restore_has_records(sync).await {
         return result;
     }
 
-    let master_password = match executor.verified_master_password.take() {
-        Some(pw) => pw,
-        None => {
-            return CommandResult::Error {
-                code: ErrorCode::ExecutorMasterPasswordRequired,
-                context: ErrorContext::default(),
-                message_key: "error.password_required",
-                fallback: "Master password not available for vault unlock.".to_string(),
-            };
-        }
-    };
-
+    // Unlock with the provided startup password or the cached onboarding password.
+    let master_password =
+        match take_restore_master_password(master_password, &mut executor.verified_master_password)
+        {
+            Some(pw) => pw,
+            None => {
+                return CommandResult::Error {
+                    code: ErrorCode::ExecutorMasterPasswordRequired,
+                    context: ErrorContext::default(),
+                    message_key: "error.password_required",
+                    fallback: "Master password is required to unlock the recovered vault."
+                        .to_string(),
+                };
+            }
+        };
     // Create a pending file-backed vault.db. If unlock or sync fails, dropping
     // the guard removes the uncommitted database files.
     let mut pending = match executor.begin_file_backed_vault_db() {
@@ -409,7 +565,9 @@ pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) 
         }
     };
 
-    if let Err(e) = pending.unlock(&master_password) {
+    if let Err(e) = pending.unlock(master_password.password()) {
+        drop(pending);
+        master_password.restore_cache_on_failure(&mut executor.verified_master_password);
         return CommandResult::Error {
             code: ErrorCode::CryptoEncryptionFailed,
             context: ErrorContext::default(),
@@ -417,73 +575,278 @@ pub async fn handle_restore_database_from_cloud(executor: &mut CommandExecutor) 
             fallback: format!("Failed to unlock vault: {}", e),
         };
     }
-    drop(master_password);
 
-    // Run a full sync cycle. With an empty local vault, this is effectively
-    // pull-only: all cloud records are downloaded and no data is pushed.
-    match pending.sync_restore().await {
+    match pending.restore_pull_only().await {
         Ok(result) => {
-            if result.downloaded_records.is_empty() {
-                return CommandResult::Error {
-                    code: ErrorCode::SyncProviderError,
-                    context: ErrorContext::default(),
-                    message_key: "error.cloud_restore_empty",
-                    fallback:
-                        "No recoverable cloud sync data was found. Try restoring from a .okb backup."
-                            .to_string(),
-                };
+            if let Err(e) = persist_restored_cloud_data(&mut pending, &result) {
+                drop(pending);
+                master_password.restore_cache_on_failure(&mut executor.verified_master_password);
+                tracing::warn!(error = %e, "failed to apply cloud restore locally");
+                return cloud_restore_local_error_result(&e);
             }
-            let mut apply_errors = 0usize;
-            for record in &result.downloaded_records {
-                if let Err(e) = pending.apply_downloaded_cloud_record(record) {
-                    apply_errors += 1;
-                    tracing::warn!(
-                        record_id = %record.id,
-                        error = %e,
-                        "Failed to apply downloaded record during cloud restore"
-                    );
-                }
-            }
-            for state in &result.downloaded_health_states {
-                if let Err(e) = pending.upsert_record_health_state(state) {
-                    apply_errors += 1;
-                    tracing::warn!(error = %e, "Failed to apply downloaded health state during cloud restore");
-                }
-            }
-            if !result.downloaded_health_deleted.is_empty() {
-                if let Err(e) =
-                    pending.delete_record_health_states(&result.downloaded_health_deleted)
-                {
-                    apply_errors += 1;
-                    tracing::warn!(error = %e, "Failed to delete stale health states during cloud restore");
-                }
-            }
-            if apply_errors > 0 {
-                return CommandResult::Error {
-                    code: ErrorCode::SyncProviderError,
-                    context: ErrorContext::default(),
-                    message_key: "error.cloud_restore_failed",
-                    fallback: format!(
-                        "Cloud database restore failed while applying downloaded records: {} errors.",
-                        apply_errors
-                    ),
-                };
-            }
+
             pending.commit();
             tracing::info!(
                 downloaded = result.downloaded_records.len(),
-                "cloud restore sync complete"
+                "cloud restore pull complete"
             );
             CommandResult::DatabaseRestored {
                 source: crate::commands::types::DatabaseRecoverySource::Cloud,
             }
         }
-        Err(e) => CommandResult::Error {
-            code: ErrorCode::SyncProviderError,
-            context: ErrorContext::default(),
-            message_key: "error.cloud_restore_failed",
-            fallback: format!("Cloud database restore failed: {}", e),
-        },
+        Err(e) => {
+            drop(pending);
+            master_password.restore_cache_on_failure(&mut executor.verified_master_password);
+            let err: &dyn ServiceError = &e;
+            CommandResult::Error {
+                code: err.to_error_code(),
+                context: err.to_error_context(),
+                message_key: "error.sync_failed",
+                fallback: format!("Cloud restore failed: {}", e),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod restore_password_tests {
+    use super::{
+        handle_restore_database_from_cloud, persist_restored_cloud_data,
+        take_restore_master_password, RestoreMasterPassword,
+    };
+    use crate::cloud::{CloudMetadata, CloudRecord};
+    use crate::commands::CommandResult;
+    use crate::config::AppConfig;
+    use crate::db::schema::init_db_in_memory;
+    use crate::executor::config_impl::ServiceNotificationImpl;
+    use crate::executor::CommandExecutor;
+    use crate::services::clipboard::{ClipboardService, MockBackend};
+    use crate::services::health::HealthService;
+    use crate::services::import_export::ImportExportService;
+    use crate::services::sync::SyncResult;
+    use crate::services::sync::SyncService;
+    use crate::services::vault::VaultService;
+    use crate::sync::task::SyncReport;
+    use crate::types::SecureStr;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+
+    fn create_test_sync_service() -> SyncService {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        SyncService::new(crate::cloud::CloudStorage::new(op, "memory".to_string()))
+    }
+
+    #[test]
+    fn cached_restore_password_can_be_restored_after_failure() {
+        let mut cached = Some(SecureStr::new("cached-password".to_string()));
+
+        let selected = take_restore_master_password(None, &mut cached)
+            .expect("cached password should be selected");
+
+        assert!(cached.is_none());
+        assert_eq!(selected.password().expose(), "cached-password");
+
+        selected.restore_cache_on_failure(&mut cached);
+
+        assert_eq!(
+            cached.as_ref().map(|password| password.expose()),
+            Some("cached-password")
+        );
+    }
+
+    #[test]
+    fn provided_restore_password_is_not_cached_after_failure() {
+        let mut cached = None;
+
+        let selected = take_restore_master_password(
+            Some(SecureStr::new("provided-password".to_string())),
+            &mut cached,
+        )
+        .expect("provided password should be selected");
+
+        assert!(matches!(selected, RestoreMasterPassword::Provided(_)));
+
+        selected.restore_cache_on_failure(&mut cached);
+
+        assert!(cached.is_none());
+    }
+
+    fn restore_test_result_with_invalid_record() -> SyncResult {
+        let record_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut metadata = CloudMetadata::new("remote-token".to_string());
+        metadata.metadata_version = 7;
+
+        SyncResult {
+            report: SyncReport {
+                downloaded: 1,
+                uploaded: 0,
+                conflicts: 0,
+                failed: 0,
+                duration_ms: 0,
+            },
+            downloaded_health_states: Vec::new(),
+            downloaded_health_deleted: Vec::new(),
+            downloaded_records: vec![CloudRecord {
+                id: record_id.clone(),
+                version: 1,
+                encrypted_data: "not-base64!!!".to_string(),
+                nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
+                dek_version: 1,
+                aad: crate::cloud::record::AadFields {
+                    record_id,
+                    dek_version: 1,
+                },
+                metadata: crate::cloud::record::RecordMetadata {
+                    name: "Restored Login".to_string(),
+                    tags: Vec::new(),
+                    updated_at: now,
+                    credential_type: Some(crate::types::CredentialType::Login),
+                    is_favorite: Some(false),
+                    expires_at: None,
+                    updated_by: Some("test-device".to_string()),
+                    health: None,
+                },
+                deleted: Some(false),
+                deleted_at: None,
+            }],
+            remote_metadata: Some(metadata),
+        }
+    }
+
+    #[test]
+    fn restored_cloud_data_fails_closed_before_metadata_persist_on_record_apply_error() {
+        let conn = init_db_in_memory();
+        let mut vault = VaultService::new(conn);
+        let result = restore_test_result_with_invalid_record();
+
+        let err = persist_restored_cloud_data(&mut vault, &result).unwrap_err();
+
+        assert!(err.to_string().contains("invalid encrypted_data base64"));
+        assert_eq!(vault.get_metadata("metadata_version").unwrap(), None);
+        assert_eq!(vault.get_metadata("vault_identity_token").unwrap(), None);
+    }
+
+    #[test]
+    fn cached_restore_password_can_be_restored_after_local_apply_failure() {
+        let mut cached = Some(SecureStr::new("cached-password".to_string()));
+        let selected = take_restore_master_password(None, &mut cached)
+            .expect("cached password should be selected");
+        let conn = init_db_in_memory();
+        let mut vault = VaultService::new(conn);
+        let result = restore_test_result_with_invalid_record();
+
+        let local_apply_result = persist_restored_cloud_data(&mut vault, &result);
+        assert!(local_apply_result.is_err());
+        selected.restore_cache_on_failure(&mut cached);
+
+        assert_eq!(
+            cached.as_ref().map(|password| password.expose()),
+            Some("cached-password")
+        );
+    }
+
+    #[tokio::test]
+    async fn cached_restore_password_is_restored_after_unlock_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let vault_dir = temp.path().join("vault");
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        std::fs::write(vault_dir.join("wrapped_secret_key.json"), "{not-json").unwrap();
+        let conn = init_db_in_memory();
+        let vault = VaultService::new(conn);
+        let (result_tx, _) = mpsc::channel(64);
+        let (internal_tx, internal_rx) = mpsc::channel(64);
+
+        let mut executor = CommandExecutor {
+            vault,
+            sync: Some(create_test_sync_service()),
+            health: HealthService::new(),
+            clipboard: Arc::new(ClipboardService::with_backend(
+                Box::new(MockBackend::new()),
+                30,
+            )),
+            import_export: ImportExportService::new(),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(
+                AppConfig::default(),
+                temp.path().join("config"),
+            ),
+            config_notifier: ServiceNotificationImpl::new(),
+            vault_dir,
+            config_dir: temp.path().join("config"),
+            health_report: None,
+            last_health_check_time: None,
+            result_tx,
+            internal_tx,
+            internal_rx: Some(internal_rx),
+            shutdown_token: CancellationToken::new(),
+            operation_cancel_token: CancellationToken::new(),
+            timer_rebuild_pending: false,
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+            verified_master_password: Some(SecureStr::new("cached-password".to_string())),
+        };
+
+        let result = handle_restore_database_from_cloud(&mut executor, None).await;
+
+        assert!(matches!(result, CommandResult::Error { .. }));
+        assert_eq!(
+            executor
+                .verified_master_password
+                .as_ref()
+                .map(|password| password.expose()),
+            Some("cached-password")
+        );
+    }
+
+    #[tokio::test]
+    async fn provided_restore_password_is_not_cached_after_unlock_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let vault_dir = temp.path().join("vault");
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        std::fs::write(vault_dir.join("wrapped_secret_key.json"), "{not-json").unwrap();
+        let conn = init_db_in_memory();
+        let vault = VaultService::new(conn);
+        let (result_tx, _) = mpsc::channel(64);
+        let (internal_tx, internal_rx) = mpsc::channel(64);
+
+        let mut executor = CommandExecutor {
+            vault,
+            sync: Some(create_test_sync_service()),
+            health: HealthService::new(),
+            clipboard: Arc::new(ClipboardService::with_backend(
+                Box::new(MockBackend::new()),
+                30,
+            )),
+            import_export: ImportExportService::new(),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(
+                AppConfig::default(),
+                temp.path().join("config"),
+            ),
+            config_notifier: ServiceNotificationImpl::new(),
+            vault_dir,
+            config_dir: temp.path().join("config"),
+            health_report: None,
+            last_health_check_time: None,
+            result_tx,
+            internal_tx,
+            internal_rx: Some(internal_rx),
+            shutdown_token: CancellationToken::new(),
+            operation_cancel_token: CancellationToken::new(),
+            timer_rebuild_pending: false,
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+            verified_master_password: None,
+        };
+
+        let result = handle_restore_database_from_cloud(
+            &mut executor,
+            Some(SecureStr::new("provided-password".to_string())),
+        )
+        .await;
+
+        assert!(matches!(result, CommandResult::Error { .. }));
+        assert!(executor.verified_master_password.is_none());
     }
 }
 
