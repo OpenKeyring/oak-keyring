@@ -2,4 +2,4 @@
 source: tests/snapshot_tests/screens/status_bar_test.rs
 expression: backend
 ---
-"  ⌘K Search  N New  E Edit  D Delete  F1 Help │ v0.4.2 │ 🔍 Checking password security... │ ✓ Synced                    " Hidden by multi-width symbols: [(58, " ")]
+"  ⌘K Search  N New  E Edit  D Delete  F1 Help │ v0.5.0 │ 🔍 Checking password security... │ ✓ Synced                    " Hidden by multi-width symbols: [(58, " ")]
