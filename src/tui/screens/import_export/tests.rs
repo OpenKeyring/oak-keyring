@@ -4,6 +4,15 @@ use crate::crypto::strength::StrengthLevel;
 use crate::tui::theme::{ERROR, PRIMARY, SUCCESS, WARNING};
 use crate::tui::traits::screen::Screen as ScreenTrait;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
+use crate::types::sensitive::SensitiveInput;
+
+fn sensitive(s: &str) -> SensitiveInput {
+    let mut input = SensitiveInput::new();
+    for c in s.chars() {
+        input.push_char(c);
+    }
+    input
+}
 
 #[test]
 fn new_screen_defaults_to_import() {
@@ -21,7 +30,7 @@ fn new_screen_defaults_to_import() {
 fn on_mount_resets_state() {
     let mut screen = ImportExportScreen::new();
     screen.file_path = "/some/path".to_string();
-    screen.decrypt_password = "secret".to_string();
+    screen.decrypt_password = sensitive("secret");
     screen.error_message = Some("error".to_string());
 
     let (tx, _rx) = tokio::sync::mpsc::channel(1);
@@ -42,10 +51,10 @@ fn on_mount_resets_state() {
 fn on_unmount_clears_sensitive() {
     let mut screen = ImportExportScreen::new();
     screen.file_path = "sensitive_path".to_string();
-    screen.decrypt_password = "sensitive_pw".to_string();
-    screen.export_password = "export_pw".to_string();
-    screen.export_confirm_password = "confirm_pw".to_string();
-    screen.master_password = "master_pw".to_string();
+    screen.decrypt_password = sensitive("sensitive_pw");
+    screen.export_password = sensitive("export_pw");
+    screen.export_confirm_password = sensitive("confirm_pw");
+    screen.master_password = sensitive("master_pw");
 
     ScreenTrait::on_unmount(&mut screen);
 
@@ -123,7 +132,7 @@ fn export_strength_updates() {
     let mut screen = ImportExportScreen::new();
     assert!(screen.export_password_strength.is_none());
 
-    screen.export_password = "a".to_string();
+    screen.export_password = sensitive("a");
     screen.update_export_strength();
     assert_eq!(
         screen.export_password_strength.as_ref().unwrap().level,
@@ -192,9 +201,9 @@ fn import_export_restore_state_restores_navigation_without_sensitive_buffers() {
     screen.export_step = ExportStep::MasterPasswordConfirm;
     screen.export_focus = ExportFocus::ConfirmPassword;
     screen.export_scope_option = ExportScopeOption::CurrentFilter;
-    screen.decrypt_password = "secret".to_string();
-    screen.export_password = "export-secret".to_string();
-    screen.master_password = "master-secret".to_string();
+    screen.decrypt_password = sensitive("secret");
+    screen.export_password = sensitive("export-secret");
+    screen.master_password = sensitive("master-secret");
 
     let restore = screen.to_restore_state();
 
@@ -247,12 +256,13 @@ fn esc_from_config_entry_uses_pop_screen_not_forward_navigation() {
 
 #[test]
 fn import_sources_have_scope_hint_styles() {
+    use super::import_sources;
     use super::ScopeHintStyle;
 
-    assert_eq!(IMPORT_SOURCES[0].3 .1, ScopeHintStyle::Full); // KeePass
-    assert_eq!(IMPORT_SOURCES[1].3 .1, ScopeHintStyle::Partial); // 1Password 1pux
-    assert_eq!(IMPORT_SOURCES[2].3 .1, ScopeHintStyle::Partial); // 1Password opvault
-    assert_eq!(IMPORT_SOURCES[3].3 .1, ScopeHintStyle::Limited); // Bitwarden
-    assert_eq!(IMPORT_SOURCES[4].3 .1, ScopeHintStyle::Full); // CSV
-    assert_eq!(IMPORT_SOURCES[5].3 .1, ScopeHintStyle::Full); // OpenKeyring Backup
+    assert_eq!(import_sources()[0].3 .1, ScopeHintStyle::Full); // KeePass
+    assert_eq!(import_sources()[1].3 .1, ScopeHintStyle::Partial); // 1Password 1pux
+    assert_eq!(import_sources()[2].3 .1, ScopeHintStyle::Partial); // 1Password opvault
+    assert_eq!(import_sources()[3].3 .1, ScopeHintStyle::Limited); // Bitwarden
+    assert_eq!(import_sources()[4].3 .1, ScopeHintStyle::Full); // CSV
+    assert_eq!(import_sources()[5].3 .1, ScopeHintStyle::Full); // OpenKeyring Backup
 }

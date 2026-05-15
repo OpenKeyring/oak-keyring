@@ -24,8 +24,6 @@ pub enum OnboardingStep {
     /// Initial choice screen — pick a path.
     #[default]
     Welcome,
-    /// Vault location input.
-    VaultPath,
     /// Show 24 recovery words (read-only 4x6 grid).
     RecoveryDisplay,
     /// Verify 4 random positions from the recovery words.
@@ -40,9 +38,4 @@ pub enum OnboardingStep {
     ImportPreview,
     /// Set master password (inline — navigates to SetNewMasterPassword on enter).
     SetPassword,
-}
-
-/// Returns the default vault path as a display string for the VaultPath step.
-pub(crate) fn default_vault_path_display() -> String {
-    crate::config::general::default_vault_path_display()
 }

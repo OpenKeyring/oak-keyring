@@ -20,7 +20,7 @@ pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> 
     let old_config = executor.config.get_config();
     let changed = detect_changed_fields(&old_config, &config);
 
-    match executor.config.save(&config, &executor.vault_dir) {
+    match executor.config.save(&config, &executor.config_dir) {
         Ok(()) => {
             let warnings = apply_config_changes(executor, &changed, &config);
 
@@ -51,9 +51,6 @@ fn detect_changed_fields(old: &AppConfig, new: &AppConfig) -> Vec<&'static str> 
     }
     if old.general.clipboard_clear_seconds != new.general.clipboard_clear_seconds {
         changed.push("general.clipboard_clear_seconds");
-    }
-    if old.general.vault_path != new.general.vault_path {
-        changed.push("general.vault_path");
     }
     if old.sync.provider != new.sync.provider
         || old.sync.auto_interval_seconds != new.sync.auto_interval_seconds
@@ -120,10 +117,6 @@ fn apply_config_changes(
                         warnings.push(format!("Sync service rebuild failed: {}", e));
                     }
                 }
-            }
-            "general.vault_path" => {
-                tracing::warn!("vault_path changed — requires application restart");
-                warnings.push("vault_path changed — requires application restart".to_string());
             }
             _ => {}
         }
@@ -214,10 +207,7 @@ pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor
     let token_store = {
         let mut ts_guard = executor.oauth2_token_store.lock().await;
         if ts_guard.is_none() {
-            let base_path = dirs::config_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("open-keyring")
-                .join("tokens");
+            let base_path = executor.config_dir.join("tokens");
             *ts_guard = Some(TokenStore::new(base_path));
         }
         ts_guard.clone().unwrap()
@@ -282,6 +272,57 @@ mod tests {
     use crate::services::clipboard::{ClipboardService, MockBackend};
     use std::sync::Arc;
 
+    fn make_executor_with_clipboard_and_config_dir(
+        timeout: u64,
+        config_dir: std::path::PathBuf,
+    ) -> super::super::CommandExecutor {
+        use crate::services::health::HealthService;
+        use crate::services::import_export::ImportExportService;
+        use crate::services::vault::VaultService;
+        use tokio::sync::mpsc;
+        use tokio_util::sync::CancellationToken;
+
+        let conn = crate::db::schema::init_db_in_memory();
+        let vault = VaultService::new(conn);
+        let (result_tx, _) = mpsc::channel(64);
+        let (internal_tx, internal_rx) = mpsc::channel(64);
+
+        let clipboard = Arc::new(ClipboardService::with_backend(
+            Box::new(MockBackend::new()),
+            timeout,
+        ));
+        let mut config_notifier = ServiceNotificationImpl::new();
+        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
+            &clipboard,
+        ))));
+
+        super::super::CommandExecutor {
+            vault,
+            vault_db_file_backed: false,
+            sync: None,
+            health: HealthService::new(),
+            clipboard,
+            import_export: ImportExportService::new(),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(
+                AppConfig::default(),
+                config_dir.clone(),
+            ),
+            config_notifier,
+            vault_dir: std::path::PathBuf::from(":memory:"),
+            config_dir,
+            health_report: None,
+            last_health_check_time: None,
+            verified_master_password: None,
+            result_tx,
+            internal_tx,
+            internal_rx: Some(internal_rx),
+            shutdown_token: CancellationToken::new(),
+            operation_cancel_token: CancellationToken::new(),
+            timer_rebuild_pending: false,
+            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        }
+    }
+
     fn make_executor_with_clipboard(timeout: u64) -> super::super::CommandExecutor {
         use crate::services::health::HealthService;
         use crate::services::import_export::ImportExportService;
@@ -305,13 +346,18 @@ mod tests {
 
         super::super::CommandExecutor {
             vault,
+            vault_db_file_backed: false,
             sync: None,
             health: HealthService::new(),
             clipboard,
             import_export: ImportExportService::new(),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(
+                AppConfig::default(),
+                std::path::PathBuf::from(":memory:"),
+            ),
             config_notifier,
             vault_dir: std::path::PathBuf::from(":memory:"),
+            config_dir: std::path::PathBuf::from(":memory:"),
             health_report: None,
             last_health_check_time: None,
             result_tx,
@@ -321,6 +367,7 @@ mod tests {
             operation_cancel_token: CancellationToken::new(),
             timer_rebuild_pending: false,
             oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+            verified_master_password: None,
         }
     }
 
@@ -400,22 +447,12 @@ mod tests {
     }
 
     #[test]
-    fn apply_config_changes_returns_warning_on_vault_path_change() {
-        let mut executor = make_executor_with_clipboard(30);
-        let new_config = AppConfig::default();
-
-        let warnings = apply_config_changes(&mut executor, &["general.vault_path"], &new_config);
-
-        assert!(warnings
-            .iter()
-            .any(|w| w.contains("requires application restart")));
-    }
-
-    #[test]
     fn handle_save_config_includes_warnings_in_result() {
         let tmp = tempfile::tempdir().expect("tempdir failed");
-        let mut executor = make_executor_with_clipboard(30);
-        executor.vault_dir = tmp.path().to_path_buf();
+        // Create config directory for test isolation
+        let config_dir = tmp.path().join("oak-keyring");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let mut executor = make_executor_with_clipboard_and_config_dir(30, config_dir.clone());
         let mut new_config = AppConfig::default();
         new_config.general.clipboard_clear_seconds = 90;
 
@@ -426,24 +463,6 @@ mod tests {
             }
             _ => panic!("Expected ConfigSaved"),
         }
-    }
-
-    #[test]
-    fn handle_save_config_includes_vault_path_warning() {
-        let tmp = tempfile::tempdir().expect("tempdir failed");
-        let mut executor = make_executor_with_clipboard(30);
-        executor.vault_dir = tmp.path().to_path_buf();
-        let mut new_config = AppConfig::default();
-        new_config.general.vault_path = std::path::PathBuf::from("/totally/different/path");
-
-        let result = handle_save_config(&mut executor, new_config);
-        match result {
-            CommandResult::ConfigSaved { warnings } => {
-                assert!(warnings
-                    .iter()
-                    .any(|w| w.contains("requires application restart")));
-            }
-            _ => panic!("Expected ConfigSaved"),
-        }
+        // cleanup happens when tmp is dropped at end of scope
     }
 }

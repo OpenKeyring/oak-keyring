@@ -87,7 +87,7 @@ fn build_database_key(
     password: Option<&SecureStr>,
 ) -> Result<keepass::DatabaseKey, ImportExportError> {
     match password {
-        Some(pw) => Ok(keepass::DatabaseKey::new().with_password(pw.get())),
+        Some(pw) => Ok(keepass::DatabaseKey::new().with_password(pw.expose())),
         None => Err(ImportExportError::PasswordRequired),
     }
 }

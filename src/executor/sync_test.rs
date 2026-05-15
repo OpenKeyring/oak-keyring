@@ -22,6 +22,7 @@ async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
 
     let mut executor = CommandExecutor {
         vault,
+        vault_db_file_backed: false,
         sync: None,
         health: HealthService::new(),
         clipboard: Arc::new(ClipboardService::with_backend(
@@ -29,9 +30,13 @@ async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
             30,
         )),
         import_export: ImportExportService::new(),
-        config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
+        config: crate::executor::config_impl::ConfigManagerImpl::new(
+            AppConfig::default(),
+            std::path::PathBuf::from(":memory:"),
+        ),
         config_notifier: ServiceNotificationImpl::new(),
         vault_dir: std::path::PathBuf::from(":memory:"),
+        config_dir: std::path::PathBuf::from(":memory:"),
         health_report: None,
         last_health_check_time: None,
         result_tx,
@@ -41,6 +46,7 @@ async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
         operation_cancel_token: CancellationToken::new(),
         timer_rebuild_pending: false,
         oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        verified_master_password: None,
     };
     executor.cancel_token().cancel();
 
@@ -68,6 +74,7 @@ async fn trigger_sync_returns_cancelled_when_shutdown_token_cancelled() {
 
     let mut executor = CommandExecutor {
         vault,
+        vault_db_file_backed: false,
         sync: None,
         health: HealthService::new(),
         clipboard: Arc::new(ClipboardService::with_backend(
@@ -75,9 +82,13 @@ async fn trigger_sync_returns_cancelled_when_shutdown_token_cancelled() {
             30,
         )),
         import_export: ImportExportService::new(),
-        config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
+        config: crate::executor::config_impl::ConfigManagerImpl::new(
+            AppConfig::default(),
+            std::path::PathBuf::from(":memory:"),
+        ),
         config_notifier: ServiceNotificationImpl::new(),
         vault_dir: std::path::PathBuf::from(":memory:"),
+        config_dir: std::path::PathBuf::from(":memory:"),
         health_report: None,
         last_health_check_time: None,
         result_tx,
@@ -87,6 +98,7 @@ async fn trigger_sync_returns_cancelled_when_shutdown_token_cancelled() {
         operation_cancel_token,
         timer_rebuild_pending: false,
         oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        verified_master_password: None,
     };
 
     // Simulate app shutdown: cancel the shutdown token.

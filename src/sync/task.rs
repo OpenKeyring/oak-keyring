@@ -905,7 +905,7 @@ mod tests {
                     ),
                     nonce: base64::Engine::encode(
                         &base64::engine::general_purpose::STANDARD,
-                        &[0u8; 24],
+                        [0u8; 24],
                     ),
                     dek_version: 1,
                     aad: AadFields {

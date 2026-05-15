@@ -1,12 +1,61 @@
-use std::path::PathBuf;
-
 use crate::commands::{CommandResult, InternalCommand};
 use crate::config::ConfigManager;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::errors::{ErrorCode, ErrorContext};
-use crate::types::SecureStr;
+use crate::types::{RecoveryWords, SecureStr};
 
 use super::CommandExecutor;
+
+fn artifact_existed_before(path: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
+fn remove_initialized_artifact(path: &std::path::Path, label: &str) {
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                artifact = label,
+                error = %e,
+                "failed to clean up partial vault initialization artifact"
+            );
+        }
+    }
+}
+
+fn cleanup_failed_new_vault_initialization(
+    vault_dir: &std::path::Path,
+    key_existed_before: bool,
+    vault_db_existed_before: bool,
+    wal_existed_before: bool,
+    shm_existed_before: bool,
+) {
+    if !key_existed_before {
+        remove_initialized_artifact(&vault_dir.join("wrapped_secret_key.json"), "key_file");
+    }
+
+    if !vault_db_existed_before {
+        for (path, existed_before, label) in [
+            (vault_dir.join("vault.db"), false, "database"),
+            (
+                vault_dir.join("vault.db-wal"),
+                wal_existed_before,
+                "database_wal",
+            ),
+            (
+                vault_dir.join("vault.db-shm"),
+                shm_existed_before,
+                "database_shm",
+            ),
+        ] {
+            if !existed_before {
+                remove_initialized_artifact(&path, label);
+            }
+        }
+    }
+}
 
 /// Schedule health check after a successful unlock.
 ///
@@ -73,24 +122,17 @@ pub async fn handle_unlock(
 #[tracing::instrument(skip(executor, words))]
 pub async fn handle_unlock_with_recovery_key(
     executor: &mut CommandExecutor,
-    words: Vec<String>,
+    words: RecoveryWords,
 ) -> CommandResult {
-    // Try English first (most common)
-    let passkey = match Passkey::from_words(&words, MnemonicLanguage::English) {
+    let passkey = match reconstruct_passkey(&words) {
         Ok(pk) => pk,
-        Err(_) => {
-            // Try Chinese
-            match Passkey::from_words(&words, MnemonicLanguage::ChineseSimplified) {
-                Ok(pk) => pk,
-                Err(e) => {
-                    return CommandResult::Error {
-                        code: ErrorCode::CryptoKeyDerivationFailed,
-                        context: ErrorContext::default(),
-                        message_key: "error.invalid_recovery_key",
-                        fallback: format!("Invalid recovery key: {}", e),
-                    };
-                }
-            }
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::CryptoKeyDerivationFailed,
+                context: ErrorContext::default(),
+                message_key: "error.invalid_recovery_key",
+                fallback: format!("Invalid recovery key: {}", e),
+            };
         }
     };
 
@@ -126,6 +168,7 @@ pub async fn handle_unlock_with_recovery_key(
 #[tracing::instrument(skip(executor))]
 pub fn handle_lock(executor: &mut CommandExecutor) -> CommandResult {
     executor.vault.lock();
+    executor.verified_master_password = None;
     CommandResult::VaultLocked
 }
 
@@ -136,7 +179,12 @@ pub fn handle_verify_master_password(
 ) -> CommandResult {
     // Verify by attempting to unlock the keystore file with the password
     match crate::crypto::keystore::KeyStore::unlock(&executor.vault_dir, &password) {
-        Ok(_) => CommandResult::MasterPasswordVerified,
+        Ok(_) => {
+            // Cache the verified password so the subsequent ChangeMasterPassword
+            // command can use it without asking the user again.
+            executor.verified_master_password = Some(password);
+            CommandResult::MasterPasswordVerified
+        }
         Err(_) => CommandResult::Error {
             code: ErrorCode::ExecutorMasterPasswordRequired,
             context: ErrorContext::default(),
@@ -149,9 +197,27 @@ pub fn handle_verify_master_password(
 #[tracing::instrument(skip(executor, current_password, new_password))]
 pub fn handle_change_master_password(
     executor: &mut CommandExecutor,
-    current_password: SecureStr,
+    current_password: Option<SecureStr>,
     new_password: SecureStr,
 ) -> CommandResult {
+    // Use the provided password, or fall back to the cached verified password.
+    let current_password = match current_password {
+        Some(pw) => pw,
+        None => match executor.verified_master_password.take() {
+            Some(pw) => pw,
+            None => {
+                return CommandResult::Error {
+                    code: ErrorCode::ExecutorMasterPasswordRequired,
+                    context: ErrorContext::default(),
+                    message_key: "error.password_verification_failed",
+                    fallback: String::from(
+                        "Current master password not available. Please verify first.",
+                    ),
+                };
+            }
+        },
+    };
+
     match crate::crypto::keystore::KeyStore::change_cmk(
         &executor.vault_dir,
         &current_password,
@@ -176,9 +242,8 @@ pub fn handle_change_master_password(
 #[tracing::instrument(skip(executor, master_password, recovery_words))]
 pub async fn handle_initialize_vault(
     executor: &mut CommandExecutor,
-    vault_path: PathBuf,
     master_password: SecureStr,
-    recovery_words: Option<Vec<String>>,
+    recovery_words: Option<RecoveryWords>,
 ) -> CommandResult {
     // Step 1: Obtain Passkey — either from pre-generated recovery words or
     // by generating a fresh mnemonic.
@@ -221,13 +286,22 @@ pub async fn handle_initialize_vault(
             };
         }
     };
-    let sk_bytes = seed.to_secret_key();
-    let recovery_words = passkey.to_words();
+    let mut sk_bytes = seed.to_secret_key();
+
+    let vault_path = executor.vault_dir.clone();
+    let key_path = vault_path.join("wrapped_secret_key.json");
+    let db_path = vault_path.join("vault.db");
+    let wal_path = vault_path.join("vault.db-wal");
+    let shm_path = vault_path.join("vault.db-shm");
+    let key_existed_before = artifact_existed_before(&key_path);
+    let vault_db_existed_before = artifact_existed_before(&db_path);
+    let wal_existed_before = artifact_existed_before(&wal_path);
+    let shm_existed_before = artifact_existed_before(&shm_path);
 
     // Step 3: Initialize keystore (creates wrapped_secret_key.json)
     match crate::crypto::keystore::KeyStore::initialize(
         &vault_path,
-        sk_bytes,
+        &mut sk_bytes,
         &master_password,
         &crate::crypto::argon2::Argon2Params::medium(),
         language,
@@ -243,24 +317,168 @@ pub async fn handle_initialize_vault(
         }
     }
 
-    // Step 4: Unlock the vault with the new password
-    match executor.vault.unlock(&vault_path, &master_password) {
-        Ok(()) => CommandResult::VaultInitialized { recovery_words },
-        Err(_) => {
-            // Keystore was created but vault unlock failed
-            // Still return initialized since keystore exists
-            tracing::warn!("Vault initialized but auto-unlock failed");
-            CommandResult::VaultInitialized { recovery_words }
+    // Step 4: Commit the database only after the keystore exists and the new
+    // password can unlock the file-backed vault.
+    let mut pending = match executor.begin_file_backed_vault_db() {
+        Ok(pending) => pending,
+        Err(e) => {
+            cleanup_failed_new_vault_initialization(
+                &vault_path,
+                key_existed_before,
+                vault_db_existed_before,
+                wal_existed_before,
+                shm_existed_before,
+            );
+            return CommandResult::Error {
+                code: ErrorCode::VaultDatabaseIoError,
+                context: ErrorContext::default(),
+                message_key: "error.db_reopen_failed",
+                fallback: format!("Failed to create vault database: {}", e),
+            };
+        }
+    };
+
+    match pending.unlock(&master_password) {
+        Ok(()) => {
+            pending.commit();
+            CommandResult::VaultInitialized
+        }
+        Err(e) => {
+            drop(pending);
+            cleanup_failed_new_vault_initialization(
+                &vault_path,
+                key_existed_before,
+                vault_db_existed_before,
+                wal_existed_before,
+                shm_existed_before,
+            );
+            CommandResult::Error {
+                code: ErrorCode::CryptoEncryptionFailed,
+                context: ErrorContext::default(),
+                message_key: "error.unlock_failed",
+                fallback: format!("Failed to unlock vault: {}", e),
+            }
         }
     }
 }
 
 /// Reconstruct a Passkey from pre-generated recovery words.
 /// Tries English first, then Chinese Simplified.
-fn reconstruct_passkey(words: &[String]) -> Result<Passkey, String> {
-    let english = Passkey::from_words(words, MnemonicLanguage::English);
+fn reconstruct_passkey(words: &RecoveryWords) -> Result<Passkey, String> {
+    let english = Passkey::from_recovery_words(words, MnemonicLanguage::English);
     if english.is_ok() {
         return english;
     }
-    Passkey::from_words(words, MnemonicLanguage::ChineseSimplified)
+    Passkey::from_recovery_words(words, MnemonicLanguage::ChineseSimplified)
+}
+
+/// Validate BIP39 recovery words (must be exactly 24).
+pub async fn handle_validate_recovery_words(words: RecoveryWords) -> CommandResult {
+    if words.len() != 24 {
+        return CommandResult::Error {
+            code: ErrorCode::CryptoKeyDerivationFailed,
+            context: ErrorContext::default(),
+            message_key: "error.invalid_recovery_key",
+            fallback: "Recovery key must contain 24 words.".to_string(),
+        };
+    }
+    match reconstruct_passkey(&words) {
+        Ok(_) => CommandResult::RecoveryWordsValidated,
+        Err(e) => CommandResult::Error {
+            code: ErrorCode::CryptoKeyDerivationFailed,
+            context: ErrorContext::default(),
+            message_key: "error.invalid_recovery_key",
+            fallback: format!("Invalid recovery key: {}", e),
+        },
+    }
+}
+
+/// Rebuild wrapped_secret_key.json from recovery words + new master password.
+pub async fn handle_rebuild_keyfile_from_recovery(
+    executor: &mut CommandExecutor,
+    master_password: crate::types::SecureStr,
+    recovery_words: RecoveryWords,
+) -> CommandResult {
+    let passkey = match reconstruct_passkey(&recovery_words) {
+        Ok(pk) => pk,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::CryptoKeyDerivationFailed,
+                context: ErrorContext::default(),
+                message_key: "error.invalid_recovery_key",
+                fallback: format!("Invalid recovery key: {}", e),
+            };
+        }
+    };
+
+    let seed = match passkey.to_seed(None) {
+        Ok(seed) => seed,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::CryptoKeyDerivationFailed,
+                context: ErrorContext::default(),
+                message_key: "error.seed_derivation_failed",
+                fallback: format!("Failed to derive seed: {}", e),
+            };
+        }
+    };
+
+    let mut sk_bytes = seed.to_secret_key();
+    let language = crate::crypto::bip39::MnemonicLanguage::English;
+    match crate::crypto::keystore::KeyStore::initialize(
+        &executor.vault_dir,
+        &mut sk_bytes,
+        &master_password,
+        &crate::crypto::argon2::Argon2Params::medium(),
+        language,
+    ) {
+        Ok(_) => {
+            // Cache the master password so subsequent restore handlers can
+            // unlock the vault after reopening the file-backed database.
+            executor.verified_master_password = Some(master_password);
+            CommandResult::KeyFileRebuilt
+        }
+        Err(e) => CommandResult::Error {
+            code: ErrorCode::CryptoEncryptionFailed,
+            context: ErrorContext::default(),
+            message_key: "error.keystore_init_failed",
+            fallback: format!("Failed to rebuild key file: {}", e),
+        },
+    }
+}
+
+/// Validate that the existing vault.db can be decrypted with the rebuilt key.
+///
+/// Attempts to unlock the vault with the cached master password (set during
+/// keyfile rebuild). Success proves the key matches the database.
+pub async fn handle_validate_restored_database(executor: &mut CommandExecutor) -> CommandResult {
+    if !executor.vault_dir.join("vault.db").exists() {
+        return CommandResult::DatabaseValidationFailed {
+            reason: "vault.db was not found.".to_string(),
+        };
+    }
+
+    let master_password = match executor.verified_master_password.take() {
+        Some(pw) => pw,
+        None => {
+            return CommandResult::DatabaseValidationFailed {
+                reason: "Master password not available for validation.".to_string(),
+            };
+        }
+    };
+
+    match executor.vault.unlock(&executor.vault_dir, &master_password) {
+        Ok(_) => {
+            drop(master_password);
+            CommandResult::DatabaseRestored {
+                source: crate::commands::types::DatabaseRecoverySource::Okb,
+            }
+        }
+        Err(e) => {
+            drop(master_password);
+            CommandResult::DatabaseValidationFailed {
+                reason: format!("Restored database does not match current key: {}", e),
+            }
+        }
+    }
 }

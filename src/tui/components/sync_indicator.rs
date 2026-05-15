@@ -130,13 +130,8 @@ fn format_relative_time(dt: chrono::DateTime<Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::i18n;
+    use crate::tui::i18n::LocaleGuard;
     use crate::tui::state::sync_ui_state::{SyncDisplayStatus, SyncProgress};
-
-    // Initialize locale for tests - call this at the start of each test that needs i18n
-    fn init_test_locale() {
-        i18n::init("zh-CN");
-    }
 
     #[test]
     fn indicator_status_color_synced_is_green() {
@@ -237,7 +232,7 @@ mod tests {
 
     #[test]
     fn indicator_detail_text_synced_without_last_sync() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         eprintln!("Current locale: {}", &*rust_i18n::locale());
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::Synced,
@@ -250,7 +245,7 @@ mod tests {
 
     #[test]
     fn indicator_detail_text_syncing_with_progress() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::Syncing,
             progress: Some(SyncProgress {
@@ -265,7 +260,7 @@ mod tests {
 
     #[test]
     fn indicator_detail_text_syncing_without_progress() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::Syncing,
             progress: None,
@@ -277,7 +272,7 @@ mod tests {
 
     #[test]
     fn indicator_detail_text_failed_with_error() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::Failed,
             error_message: Some("connection refused".to_string()),
@@ -289,7 +284,7 @@ mod tests {
 
     #[test]
     fn indicator_detail_text_failed_without_error() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::Failed,
             error_message: None,
@@ -301,7 +296,7 @@ mod tests {
 
     #[test]
     fn indicator_detail_text_offline() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::Offline,
             ..Default::default()
@@ -312,7 +307,7 @@ mod tests {
 
     #[test]
     fn indicator_detail_text_not_configured() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::NotConfigured,
             ..Default::default()
@@ -323,7 +318,7 @@ mod tests {
 
     #[test]
     fn indicator_detail_text_rotating_with_progress() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::Rotating,
             progress: Some(SyncProgress {
@@ -338,7 +333,7 @@ mod tests {
 
     #[test]
     fn indicator_detail_text_rotating_without_progress() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let state = SyncIndicatorState {
             status: SyncDisplayStatus::Rotating,
             progress: None,
@@ -350,7 +345,7 @@ mod tests {
 
     #[test]
     fn format_relative_time_just_now() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let now = Utc::now();
         let result = format_relative_time(now);
         assert_eq!(result, "刚刚");
@@ -358,7 +353,7 @@ mod tests {
 
     #[test]
     fn format_relative_time_minutes_ago() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let dt = Utc::now() - chrono::Duration::minutes(5);
         let result = format_relative_time(dt);
         assert_eq!(result, "5分钟前");
@@ -366,7 +361,7 @@ mod tests {
 
     #[test]
     fn format_relative_time_hours_ago() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let dt = Utc::now() - chrono::Duration::hours(3);
         let result = format_relative_time(dt);
         assert_eq!(result, "3小时前");
@@ -374,7 +369,7 @@ mod tests {
 
     #[test]
     fn format_relative_time_days_ago() {
-        init_test_locale();
+        let _guard = LocaleGuard::zh_cn();
         let dt = Utc::now() - chrono::Duration::days(7);
         let result = format_relative_time(dt);
         assert_eq!(result, "7天前");

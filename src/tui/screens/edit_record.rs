@@ -10,6 +10,8 @@ use crate::tui::state::form_state::{ExpiryOption, FormState};
 use crate::tui::state::generator_state::EmbeddedGeneratorState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::credential::CredentialType;
+use crate::types::sensitive::SensitiveInput;
+use crate::types::SecureStr;
 
 /// Edit record screen state.
 pub struct EditRecordScreen {
@@ -140,11 +142,9 @@ impl EditRecordScreen {
             }
             crate::tui::state::form_state::PasswordFieldFocus::Copy => {
                 if let Some(value) = self.form.current_secret_value() {
-                    if !value.is_empty() {
-                        use crate::types::sensitive::SecureStr;
-                        let val = value.to_string();
+                    if !value.expose().is_empty() {
                         return ScreenResult::Command(Box::new(Command::CopyRawToClipboard {
-                            value: SecureStr::new(val),
+                            value,
                         }));
                     }
                 }
@@ -241,23 +241,23 @@ impl EditRecordScreen {
                         self.form
                             .fields
                             .password
-                            .get_or_insert_with(String::new)
-                            .push(c);
+                            .get_or_insert_with(SensitiveInput::new)
+                            .push_char(c);
                         self.form.fields.update_strength();
                     }
                     CredentialType::Api => {
                         self.form
                             .fields
                             .secret_key
-                            .get_or_insert_with(String::new)
-                            .push(c);
+                            .get_or_insert_with(SensitiveInput::new)
+                            .push_char(c);
                     }
                     CredentialType::Ssh => {
                         self.form
                             .fields
                             .private_key
-                            .get_or_insert_with(String::new)
-                            .push(c);
+                            .get_or_insert_with(SensitiveInput::new)
+                            .push_char(c);
                     }
                 }
                 self.form.has_changes = true;
@@ -266,8 +266,8 @@ impl EditRecordScreen {
                 self.form
                     .fields
                     .passphrase
-                    .get_or_insert_with(String::new)
-                    .push(c);
+                    .get_or_insert_with(SensitiveInput::new)
+                    .push_char(c);
                 self.form.has_changes = true;
             }
             _ => {
@@ -322,18 +322,26 @@ impl EditRecordScreen {
             },
             4 => match ct {
                 CredentialType::Login => {
-                    self.form.fields.password.as_mut().and_then(|s| s.pop());
+                    if let Some(s) = self.form.fields.password.as_mut() {
+                        s.pop_char()
+                    };
                     self.form.fields.update_strength();
                 }
                 CredentialType::Api => {
-                    self.form.fields.secret_key.as_mut().and_then(|s| s.pop());
+                    if let Some(s) = self.form.fields.secret_key.as_mut() {
+                        s.pop_char()
+                    };
                 }
                 CredentialType::Ssh => {
-                    self.form.fields.private_key.as_mut().and_then(|s| s.pop());
+                    if let Some(s) = self.form.fields.private_key.as_mut() {
+                        s.pop_char()
+                    };
                 }
             },
             5 if ct == CredentialType::Ssh => {
-                self.form.fields.passphrase.as_mut().and_then(|s| s.pop());
+                if let Some(s) = self.form.fields.passphrase.as_mut() {
+                    s.pop_char()
+                };
             }
             _ => {
                 let tags_idx = match ct {
@@ -478,7 +486,7 @@ impl EditRecordScreen {
                     == crate::tui::state::generator_state::GeneratorFocus::ActionButton
                 {
                     let pw = self.generator.use_password();
-                    self.form.fields.password = Some(pw);
+                    self.form.fields.password = Some(SensitiveInput::from(pw));
                     self.form.fields.update_strength();
                     self.form.has_changes = true;
                     return ScreenResult::Continue;
@@ -526,24 +534,24 @@ impl EditRecordScreen {
         name: String,
         url: String,
         username: Option<String>,
-        password: Option<String>,
+        password: Option<SecureStr>,
         app_id: Option<String>,
-        secret_key: Option<String>,
+        secret_key: Option<SecureStr>,
         public_key: Option<String>,
-        private_key: Option<String>,
-        passphrase: Option<String>,
+        private_key: Option<SecureStr>,
+        passphrase: Option<SecureStr>,
         tags: Vec<String>,
         notes: String,
     ) {
         self.form.fields.name = name;
         self.form.fields.url = url;
         self.form.fields.username = username;
-        self.form.fields.password = password;
+        self.form.fields.password = password.map(SensitiveInput::from);
         self.form.fields.app_id = app_id;
-        self.form.fields.secret_key = secret_key;
+        self.form.fields.secret_key = secret_key.map(SensitiveInput::from);
         self.form.fields.public_key = public_key;
-        self.form.fields.private_key = private_key;
-        self.form.fields.passphrase = passphrase;
+        self.form.fields.private_key = private_key.map(SensitiveInput::from);
+        self.form.fields.passphrase = passphrase.map(SensitiveInput::from);
         self.form.fields.update_strength();
         self.form.fields.tags = tags;
         self.form.fields.notes = notes;
@@ -578,7 +586,7 @@ impl Screen for EditRecordScreen {
                                 name,
                                 url.unwrap_or_default(),
                                 Some(username),
-                                Some(password.get().to_string()),
+                                Some(password),
                                 None,
                                 None,
                                 None,
@@ -604,7 +612,7 @@ impl Screen for EditRecordScreen {
                                 None,
                                 None,
                                 Some(app_id),
-                                Some(secret_key.get().to_string()),
+                                Some(secret_key),
                                 None,
                                 None,
                                 None,
@@ -630,8 +638,8 @@ impl Screen for EditRecordScreen {
                                 None,
                                 None,
                                 Some(public_key),
-                                private_key.map(|k| k.get().to_string()),
-                                passphrase.map(|p| p.get().to_string()),
+                                private_key,
+                                passphrase,
                                 rec_tags,
                                 notes.unwrap_or_default(),
                             );
@@ -877,7 +885,9 @@ mod tests {
         screen.record_id = Some(uuid::Uuid::new_v4());
         screen.form.fields.name = "Test".into();
         screen.form.fields.username = Some("user".into());
-        screen.form.fields.password = Some("weak".into());
+        for c in "weak".chars() {
+            screen.form.fields.password.as_mut().unwrap().push_char(c);
+        }
         let result = screen.update(
             Message::KeyEvent(crossterm::event::KeyEvent::new(
                 crossterm::event::KeyCode::Enter,

@@ -5,6 +5,7 @@ pub mod hkdf;
 pub mod keystore;
 pub mod password;
 pub mod payload;
+pub mod self_test;
 pub mod strength;
 pub mod xchacha20;
 

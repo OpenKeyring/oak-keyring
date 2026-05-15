@@ -1,3 +1,4 @@
+#![allow(clippy::field_reassign_with_default)]
 use super::*;
 use crate::commands::types::{
     ConfirmButton, ConfirmDialogState, ConfirmVariant, FieldSelector, Overlay, RecordFilter,
@@ -549,8 +550,10 @@ fn tag_header_collapse_returns_focus_to_header() {
 
 #[test]
 fn tag_delete_auto_switches_to_all_when_viewing_deleted_tag() {
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::Tag("work".to_string());
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::Tag("work".to_string()),
+        ..Default::default()
+    };
     state.sidebar.select_category(SidebarCategory::All);
 
     // Simulate tag deletion: switch filter to All
@@ -706,6 +709,7 @@ fn p_key_opens_generator_overlay() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn sidebar_generator_opens_overlay() {
     let mut state = MainScreenState::default();
     // Find Generator item in sidebar and select it
@@ -765,12 +769,11 @@ fn copy_generated_password_maps_to_command() {
     assert!(state.overlay_manager.is_active());
 
     // Set a preview password in the generator state
-    if let Some(generator) = state.overlay_manager.get_mut() {
-        if let crate::tui::screens::main::overlay::ActiveOverlay::PasswordGenerator(gen_state) =
-            generator
-        {
-            gen_state.preview = "test-password-123".to_string();
-        }
+    if let Some(crate::tui::screens::main::overlay::ActiveOverlay::PasswordGenerator(gen_state)) =
+        state.overlay_manager.get_mut()
+    {
+        gen_state.preview =
+            crate::types::sensitive::SensitiveInput::from("test-password-123".to_string());
     }
 
     // Enter key triggers copy in generator overlay
@@ -868,8 +871,10 @@ fn confirm_empty_trash_maps_to_command() {
 
 #[test]
 fn sidebar_j_triggers_filter_change_and_reload() {
-    let mut state = MainScreenState::default();
-    state.focused_panel = PanelId::Sidebar;
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Sidebar,
+        ..Default::default()
+    };
     // Default starts at All (index 2), j moves to Favorites (index 3)
 
     let (tx, _rx) = mpsc::channel(16);
@@ -899,12 +904,14 @@ fn sidebar_j_triggers_filter_change_and_reload() {
 
 #[test]
 fn sidebar_k_triggers_filter_change_and_reload() {
-    let mut state = MainScreenState::default();
-    state.focused_panel = PanelId::Sidebar;
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Sidebar,
+        current_filter: RecordFilter::Favorites,
+        ..Default::default()
+    };
     // Start at Favorites, k moves up to All
     state.sidebar.select_category(SidebarCategory::Favorites);
-    assert_eq!(state.current_filter, RecordFilter::All); // initial default
-    state.current_filter = RecordFilter::Favorites;
+    assert_eq!(state.current_filter, RecordFilter::Favorites);
 
     let (tx, _rx) = mpsc::channel(16);
     let mut ctx = ScreenContext {
@@ -928,6 +935,7 @@ fn sidebar_k_triggers_filter_change_and_reload() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn sidebar_j_down_clears_detail() {
     use crate::tui::state::detail_state::ExpiryStatus;
 
@@ -968,8 +976,10 @@ fn sidebar_j_down_clears_detail() {
 
 #[test]
 fn sidebar_j_exits_visual_mode() {
-    let mut state = MainScreenState::default();
-    state.focused_panel = PanelId::Sidebar;
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Sidebar,
+        ..Default::default()
+    };
     state.list.enter_visual();
     assert!(state.list.is_visual());
 
@@ -988,9 +998,11 @@ fn sidebar_j_exits_visual_mode() {
 fn sidebar_j_no_filter_change_does_not_reload() {
     // Navigating between items with the same filter (e.g., Config -> All)
     // should not trigger a reload.
-    let mut state = MainScreenState::default();
-    state.focused_panel = PanelId::Sidebar;
-    state.current_filter = RecordFilter::All;
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Sidebar,
+        current_filter: RecordFilter::All,
+        ..Default::default()
+    };
 
     // Select Generator (which also returns RecordFilter::All)
     let gen_idx = state
@@ -1061,8 +1073,10 @@ fn record_list_loaded_auto_selects_first_when_flag_is_true() {
         },
     ];
 
-    let mut state = MainScreenState::default();
-    state.list_auto_select = true;
+    let mut state = MainScreenState {
+        list_auto_select: true,
+        ..Default::default()
+    };
 
     let (tx, mut rx) = mpsc::channel(16);
     let config = crate::config::AppConfig::default();
@@ -1096,6 +1110,7 @@ fn record_list_loaded_auto_selects_first_when_flag_is_true() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn record_list_loaded_auto_select_handles_empty_list() {
     use crate::commands::result::CommandResult;
 
@@ -1229,9 +1244,11 @@ fn search_mode_g_does_not_navigate_to_config() {
     }
 
     let records = vec![make_test_record("Test")];
-    let mut state = MainScreenState::default();
-    state.list = ListPanelState::with_records(records);
-    state.focused_panel = PanelId::List;
+    let mut state = MainScreenState {
+        list: ListPanelState::with_records(records),
+        focused_panel: PanelId::List,
+        ..Default::default()
+    };
     state.list.enter_search();
 
     let (tx, _rx) = mpsc::channel(16);
@@ -1286,9 +1303,11 @@ fn search_mode_typing_updates_query() {
     }
 
     let records = vec![make_test_record("Test")];
-    let mut state = MainScreenState::default();
-    state.list = ListPanelState::with_records(records);
-    state.focused_panel = PanelId::List;
+    let mut state = MainScreenState {
+        list: ListPanelState::with_records(records),
+        focused_panel: PanelId::List,
+        ..Default::default()
+    };
     state.list.enter_search();
 
     let (tx, _rx) = mpsc::channel(16);
@@ -1343,9 +1362,11 @@ fn search_mode_backspace_removes_last_char() {
     }
 
     let records = vec![make_test_record("Test")];
-    let mut state = MainScreenState::default();
-    state.list = ListPanelState::with_records(records);
-    state.focused_panel = PanelId::List;
+    let mut state = MainScreenState {
+        list: ListPanelState::with_records(records),
+        focused_panel: PanelId::List,
+        ..Default::default()
+    };
     state.list.enter_search();
 
     let (tx, _rx) = mpsc::channel(16);
@@ -1400,9 +1421,11 @@ fn search_mode_backspace_unicode() {
     }
 
     let records = vec![make_test_record("Test")];
-    let mut state = MainScreenState::default();
-    state.list = ListPanelState::with_records(records);
-    state.focused_panel = PanelId::List;
+    let mut state = MainScreenState {
+        list: ListPanelState::with_records(records),
+        focused_panel: PanelId::List,
+        ..Default::default()
+    };
     state.list.enter_search();
 
     let (tx, _rx) = mpsc::channel(16);
@@ -1458,9 +1481,11 @@ fn search_mode_esc_exits_search() {
     }
 
     let records = vec![make_test_record("Test")];
-    let mut state = MainScreenState::default();
-    state.list = ListPanelState::with_records(records);
-    state.focused_panel = PanelId::List;
+    let mut state = MainScreenState {
+        list: ListPanelState::with_records(records),
+        focused_panel: PanelId::List,
+        ..Default::default()
+    };
     state.list.enter_search();
 
     let (tx, _rx) = mpsc::channel(16);
@@ -1512,9 +1537,11 @@ fn e_from_list_navigates_to_edit() {
     }
 
     let records = vec![make_test_record("Test")];
-    let mut state = MainScreenState::default();
-    state.list = ListPanelState::with_records(records);
-    state.focused_panel = PanelId::List;
+    let mut state = MainScreenState {
+        list: ListPanelState::with_records(records),
+        focused_panel: PanelId::List,
+        ..Default::default()
+    };
 
     let (tx, _rx) = mpsc::channel(16);
     let mut ctx = ScreenContext {
@@ -1602,8 +1629,10 @@ fn record_created_triggers_list_refresh() {
     use crate::commands::result::CommandResult;
 
     let record_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::All;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::All,
+        ..Default::default()
+    };
     assert!(!state.list_auto_select);
 
     let (tx, mut rx) = mpsc::channel(16);
@@ -1639,8 +1668,10 @@ fn record_updated_triggers_list_refresh() {
     use crate::commands::result::CommandResult;
 
     let record_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::All;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::All,
+        ..Default::default()
+    };
 
     let (tx, mut rx) = mpsc::channel(16);
     let config = crate::config::AppConfig::default();
@@ -1673,8 +1704,10 @@ fn record_updated_refreshes_detail_when_showing() {
     use crate::commands::result::CommandResult;
 
     let record_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::All;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::All,
+        ..Default::default()
+    };
     state.list.records = vec![make_test_record(Some(record_id))];
     state.list.selected_index = Some(0);
     state.detail.record = Some(make_detail_view(record_id, false));
@@ -1760,8 +1793,10 @@ fn record_updated_does_not_refresh_detail_when_showing_different_record() {
 
     let updated_id = Uuid::new_v4();
     let detail_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::All;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::All,
+        ..Default::default()
+    };
     state.list.records = vec![
         make_test_record(Some(updated_id)),
         make_test_record(Some(detail_id)),
@@ -1807,8 +1842,10 @@ fn record_deleted_clears_detail_when_showing() {
     use crate::commands::result::CommandResult;
 
     let record_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::All;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::All,
+        ..Default::default()
+    };
     state.list.records = vec![make_test_record(Some(record_id))];
     state.list.selected_index = Some(0);
     state.detail.record = Some(make_detail_view(record_id, false));
@@ -1843,8 +1880,10 @@ fn record_deleted_does_not_clear_detail_when_not_showing() {
 
     let record_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::All;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::All,
+        ..Default::default()
+    };
     state.list.records = vec![make_test_record(Some(record_id))];
     state.list.selected_index = Some(0);
     state.detail.record = Some(make_detail_view(other_id, false));
@@ -1872,8 +1911,10 @@ fn record_restored_triggers_list_refresh() {
     use crate::commands::result::CommandResult;
 
     let record_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::Trash;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::Trash,
+        ..Default::default()
+    };
 
     let (tx, mut rx) = mpsc::channel(16);
     let config = crate::config::AppConfig::default();
@@ -1901,8 +1942,10 @@ fn record_restored_clears_detail_when_showing() {
     use crate::commands::result::CommandResult;
 
     let record_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::Trash;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::Trash,
+        ..Default::default()
+    };
     state.list.records = vec![make_test_record(Some(record_id))];
     state.list.selected_index = Some(0);
     state.detail.record = Some(make_detail_view(record_id, false));
@@ -1930,8 +1973,10 @@ fn record_destroyed_triggers_list_refresh() {
     use crate::commands::result::CommandResult;
 
     let record_id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.current_filter = RecordFilter::Trash;
+    let mut state = MainScreenState {
+        current_filter: RecordFilter::Trash,
+        ..Default::default()
+    };
 
     let (tx, mut rx) = mpsc::channel(16);
     let config = crate::config::AppConfig::default();
@@ -1957,6 +2002,7 @@ fn record_destroyed_triggers_list_refresh() {
 // ── Cursor recovery tests ────────────────────────────────────
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn record_list_loaded_cursor_recovery_keeps_selection() {
     use crate::commands::result::CommandResult;
 
@@ -1987,6 +2033,7 @@ fn record_list_loaded_cursor_recovery_keeps_selection() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn record_list_loaded_cursor_recovery_clamps_oob() {
     use crate::commands::result::CommandResult;
 
@@ -2024,10 +2071,12 @@ fn record_list_loaded_cursor_recovery_clamps_oob() {
 fn record_list_loaded_cursor_recovery_initial_load() {
     use crate::commands::result::CommandResult;
 
-    let mut state = MainScreenState::default();
+    let mut state = MainScreenState {
+        list_auto_select: false,
+        ..Default::default()
+    };
     // Initial state: selected_index = None, no records
     assert_eq!(state.list.selected_index, None);
-    state.list_auto_select = false;
 
     let (tx, _rx) = mpsc::channel(16);
     let config = crate::config::AppConfig::default();
@@ -2051,6 +2100,7 @@ fn record_list_loaded_cursor_recovery_initial_load() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn record_list_loaded_cursor_recovery_keeps_none_when_empty_list() {
     use crate::commands::result::CommandResult;
 
@@ -2081,6 +2131,7 @@ fn record_list_loaded_cursor_recovery_keeps_none_when_empty_list() {
 // ── FavoriteToggled tests ────────────────────────────────────
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn favorite_toggled_updates_detail_is_favorite() {
     use crate::commands::result::CommandResult;
 
@@ -2114,6 +2165,7 @@ fn favorite_toggled_updates_detail_is_favorite() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn favorite_toggled_does_not_update_detail_when_not_showing() {
     use crate::commands::result::CommandResult;
 
@@ -2152,6 +2204,7 @@ fn favorite_toggled_does_not_update_detail_when_not_showing() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn favorite_toggled_removes_from_list_when_viewing_favorites() {
     use crate::commands::result::CommandResult;
 
@@ -2326,9 +2379,11 @@ fn j_in_list_normal_mode_moves_down_and_loads_detail() {
     }
 
     let records: Vec<TuiRecord> = (0..3).map(|_| make_test_record()).collect();
-    let mut state = MainScreenState::default();
-    state.list = crate::tui::state::list_state::ListPanelState::with_records(records);
-    state.focused_panel = PanelId::List;
+    let mut state = MainScreenState {
+        list: crate::tui::state::list_state::ListPanelState::with_records(records),
+        focused_panel: PanelId::List,
+        ..Default::default()
+    };
 
     let (tx, _rx) = mpsc::channel(16);
     let config = crate::config::AppConfig::default();
@@ -2353,6 +2408,7 @@ fn j_in_list_normal_mode_moves_down_and_loads_detail() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn k_in_list_normal_mode_moves_up_and_loads_detail() {
     use crate::commands::types::PanelId;
     use crate::types::credential::CredentialType;
@@ -2419,8 +2475,10 @@ fn jk_in_list_normal_mode_handles_empty_list() {
         KeyEvent::new(code, KeyModifiers::NONE)
     }
 
-    let mut state = MainScreenState::default();
-    state.focused_panel = PanelId::List;
+    let mut state = MainScreenState {
+        focused_panel: PanelId::List,
+        ..Default::default()
+    };
 
     let (tx, _rx) = mpsc::channel(16);
     let config = crate::config::AppConfig::default();
@@ -2529,6 +2587,7 @@ fn ssh_passphrase_maps_to_passphrase_selector() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn field_decrypted_updates_correct_field() {
     use crate::commands::result::CommandResult;
     use crate::tui::state::detail_state::{DetailFieldKind, FieldValue};
@@ -2570,6 +2629,7 @@ fn field_decrypted_updates_correct_field() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn p_on_detail_sends_decrypt_field() {
     use crate::commands::types::PanelId;
 
@@ -2605,6 +2665,7 @@ fn p_on_detail_sends_decrypt_field() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn p_on_focused_passphrase_sends_decrypt_passphrase() {
     use crate::commands::types::PanelId;
 
@@ -2643,6 +2704,7 @@ fn p_on_focused_passphrase_sends_decrypt_passphrase() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn field_decrypted_passphrase_only_reveals_passphrase_not_private_key() {
     use crate::commands::result::CommandResult;
     use crate::tui::state::detail_state::{DetailFieldKind, FieldValue};
@@ -2744,6 +2806,7 @@ fn c_on_detail_copies_password() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn u_on_detail_copies_username() {
     use crate::commands::types::PanelId;
 
@@ -2779,6 +2842,7 @@ fn u_on_detail_copies_username() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn enter_on_detail_copies_current_field() {
     use crate::commands::types::PanelId;
 
@@ -2787,8 +2851,10 @@ fn enter_on_detail_copies_current_field() {
     }
 
     let id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.focused_panel = PanelId::Detail;
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Detail,
+        ..Default::default()
+    };
     state.detail.record = Some(make_detail_view_with_fields(id, false));
     state.detail.focused_field = 0; // Username
 
@@ -2815,6 +2881,7 @@ fn enter_on_detail_copies_current_field() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn f_on_detail_toggles_favorite() {
     use crate::commands::types::PanelId;
 
@@ -2852,6 +2919,7 @@ fn f_on_detail_toggles_favorite() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn d_on_detail_opens_delete_confirm() {
     use crate::commands::types::PanelId;
 
@@ -2884,6 +2952,7 @@ fn d_on_detail_opens_delete_confirm() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn h_on_detail_loads_password_history() {
     use crate::commands::types::PanelId;
 
@@ -2924,8 +2993,10 @@ fn j_on_detail_moves_field_down() {
     }
 
     let id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.focused_panel = PanelId::Detail;
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Detail,
+        ..Default::default()
+    };
     state.detail.record = Some(make_detail_view_with_fields(id, false));
     state.detail.focused_field = 0; // Username
 
@@ -2950,8 +3021,10 @@ fn k_on_detail_moves_field_up() {
     }
 
     let id = Uuid::new_v4();
-    let mut state = MainScreenState::default();
-    state.focused_panel = PanelId::Detail;
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Detail,
+        ..Default::default()
+    };
     state.detail.record = Some(make_detail_view_with_fields(id, false));
     state.detail.focused_field = 1; // Password
 
@@ -2968,6 +3041,7 @@ fn k_on_detail_moves_field_up() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn field_decrypted_updates_password_visibility() {
     use crate::commands::result::CommandResult;
     use crate::commands::types::FieldSelector;
@@ -3011,6 +3085,7 @@ fn field_decrypted_updates_password_visibility() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn password_history_loaded_opens_overlay() {
     use crate::commands::result::CommandResult;
     use crate::types::PasswordHistoryView;

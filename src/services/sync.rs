@@ -34,6 +34,7 @@ pub struct SyncResult {
     pub downloaded_health_states: Vec<RecordHealthState>,
     pub downloaded_health_deleted: Vec<Uuid>,
     pub downloaded_records: Vec<CloudRecord>,
+    pub remote_metadata: Option<CloudMetadata>,
 }
 
 /// Public interface to the sync subsystem.
@@ -63,7 +64,7 @@ pub struct SyncService {
     /// Event receiver from the background SyncTask.
     event_rx: mpsc::Receiver<SyncEvent>,
     /// Handle to the background task running SyncTask::run().
-    task_handle: JoinHandle<()>,
+    task_handle: Option<JoinHandle<()>>,
     /// CloudStorage clone for connectivity checks.
     storage: CloudStorage,
 }
@@ -89,7 +90,7 @@ impl SyncService {
         Self {
             cmd_tx,
             event_rx,
-            task_handle,
+            task_handle: Some(task_handle),
             storage: storage_for_connection_check,
         }
     }
@@ -143,6 +144,7 @@ impl SyncService {
                     downloaded_health_states: health_states,
                     downloaded_health_deleted: health_deleted,
                     downloaded_records: records,
+                    remote_metadata: None,
                 })
             }
             SyncEvent::Failed { error, state: _ } => Err(SyncError::ProviderError {
@@ -151,6 +153,91 @@ impl SyncService {
             }),
             _ => unreachable!(),
         }
+    }
+
+    /// Restores cloud state by pulling remote metadata and records only.
+    ///
+    /// This bypasses the SyncTask command loop so recovery never sends
+    /// `TriggerSync` and never uploads local empty state back to cloud storage.
+    pub async fn restore_pull_only(&mut self) -> Result<SyncResult, SyncError> {
+        self.storage.check_connectivity().await?;
+
+        let metadata =
+            self.storage
+                .download_metadata()
+                .await?
+                .ok_or_else(|| SyncError::RecordNotFound {
+                    record_id: crate::cloud::schema::METADATA_FILENAME.to_string(),
+                })?;
+        metadata.validate()?;
+
+        let mut ids: Vec<String> = Vec::with_capacity(metadata.records.len());
+        for id in metadata.records.keys() {
+            Uuid::parse_str(id).map_err(|_| SyncError::DeserializationFailed {
+                message: format!("metadata record key must be a UUID: {}", id),
+            })?;
+            ids.push(id.clone());
+        }
+        ids.sort();
+
+        let mut downloaded_records = Vec::new();
+        let mut downloaded_health_states = Vec::new();
+        let mut downloaded_health_deleted = Vec::new();
+
+        for (record_id, result) in self.storage.batch_download_records(&ids).await {
+            match result? {
+                Some(record) => {
+                    if record.id != record_id {
+                        return Err(SyncError::AadInconsistent {
+                            field: "record_id".to_string(),
+                            expected: record_id,
+                            actual: record.id,
+                        });
+                    }
+                    record.validate()?;
+                    if let Some(remote_info) = metadata.records.get(&record_id) {
+                        if record.version != remote_info.version {
+                            return Err(SyncError::MetadataVersionConflict {
+                                local: remote_info.version,
+                                remote: record.version,
+                            });
+                        }
+                        let computed = record.compute_checksum()?;
+                        if computed != remote_info.checksum {
+                            return Err(SyncError::ChecksumMismatch {
+                                expected: remote_info.checksum.clone(),
+                                actual: computed,
+                                record_id,
+                            });
+                        }
+                    }
+
+                    if let Some(health_state) = record.to_health_state() {
+                        downloaded_health_states.push(health_state);
+                    } else if let Ok(uuid) = Uuid::parse_str(&record_id) {
+                        downloaded_health_deleted.push(uuid);
+                    }
+                    downloaded_records.push(record);
+                }
+                None => {
+                    return Err(SyncError::RecordNotFound { record_id });
+                }
+            }
+        }
+
+        Ok(SyncResult {
+            report: SyncReport {
+                downloaded: downloaded_records.len() as u32,
+                uploaded: 0,
+                conflicts: 0,
+                failed: 0,
+                duration_ms: 0,
+            },
+            downloaded_health_states,
+            downloaded_health_deleted,
+            downloaded_records,
+            remote_metadata: Some(metadata),
+        })
     }
 
     /// Resolves a single conflict by record ID.
@@ -375,7 +462,7 @@ impl SyncService {
     /// Initiates graceful shutdown.
     ///
     /// Sends `Shutdown` command and waits for `ShutdownComplete` event.
-    /// Then aborts the background task handle.
+    /// Then awaits the background task handle.
     ///
     /// # Errors
     /// Returns `SyncError` if timeout (10s) expires before `ShutdownComplete` event.
@@ -394,7 +481,13 @@ impl SyncService {
             })
             .await?;
 
-        self.task_handle.abort();
+        if let Some(task_handle) = self.task_handle.take() {
+            task_handle.await.map_err(|e| SyncError::ProviderError {
+                provider: "sync".to_string(),
+                message: format!("sync task join failed: {e}"),
+            })?;
+        }
+
         Ok(())
     }
 
@@ -464,9 +557,10 @@ impl SyncService {
 
 impl Drop for SyncService {
     fn drop(&mut self) {
-        // Best-effort shutdown on drop
         let _ = self.cmd_tx.try_send(SyncCommand::Shutdown);
-        self.task_handle.abort();
+        if let Some(task_handle) = self.task_handle.take() {
+            task_handle.abort();
+        }
     }
 }
 
@@ -479,6 +573,32 @@ mod tests {
             .unwrap()
             .finish();
         CloudStorage::new(op, "memory".to_string())
+    }
+
+    fn restore_test_record(record_id: String, now: String) -> CloudRecord {
+        CloudRecord {
+            id: record_id.clone(),
+            version: 1,
+            encrypted_data: "ZW5jcnlwdGVk".to_string(),
+            nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
+            dek_version: 1,
+            aad: crate::cloud::record::AadFields {
+                record_id,
+                dek_version: 1,
+            },
+            metadata: crate::cloud::record::RecordMetadata {
+                name: "Restored Login".to_string(),
+                tags: Vec::new(),
+                updated_at: now,
+                credential_type: Some(crate::types::CredentialType::Login),
+                is_favorite: Some(false),
+                expires_at: None,
+                updated_by: Some("test-device".to_string()),
+                health: None,
+            },
+            deleted: Some(false),
+            deleted_at: None,
+        }
     }
 
     #[tokio::test]
@@ -605,5 +725,279 @@ mod tests {
 
         // Clean shutdown
         drop(svc);
+    }
+
+    #[tokio::test]
+    async fn restore_pull_only_downloads_remote_records_without_uploads() {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        let storage = CloudStorage::new(op.clone(), "memory".to_string());
+        let record_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let record = restore_test_record(record_id.clone(), now.clone());
+        let checksum = record.compute_checksum().unwrap();
+
+        let mut metadata = CloudMetadata::new("remote-token".to_string());
+        metadata.upsert_record(
+            record_id.clone(),
+            crate::cloud::metadata::RecordVersionInfo {
+                version: 1,
+                updated_at: now.clone(),
+                updated_by: "test-device".to_string(),
+                checksum,
+                deleted: false,
+            },
+        );
+
+        let metadata_json = crate::cloud::metadata::serialize_metadata(&metadata).unwrap();
+        op.write(crate::cloud::schema::METADATA_FILENAME, metadata_json)
+            .await
+            .unwrap();
+        op.write(
+            &format!("{}/{}.json", crate::cloud::schema::RECORDS_DIR, record_id),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let mut service = SyncService::new(storage);
+        let result = service.restore_pull_only().await.unwrap();
+
+        assert_eq!(result.report.uploaded, 0);
+        assert_eq!(result.report.downloaded, 1);
+        assert_eq!(result.report.conflicts, 0);
+        assert_eq!(result.report.failed, 0);
+        assert_eq!(result.downloaded_records.len(), 1);
+        assert_eq!(
+            result
+                .remote_metadata
+                .as_ref()
+                .unwrap()
+                .vault_identity_token,
+            "remote-token"
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_pull_only_rejects_checksum_mismatch() {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        let storage = CloudStorage::new(op.clone(), "memory".to_string());
+        let record_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let record = restore_test_record(record_id.clone(), now.clone());
+
+        let mut metadata = CloudMetadata::new("remote-token".to_string());
+        metadata.upsert_record(
+            record_id.clone(),
+            crate::cloud::metadata::RecordVersionInfo {
+                version: 1,
+                updated_at: now,
+                updated_by: "test-device".to_string(),
+                checksum: "wrong-checksum".to_string(),
+                deleted: false,
+            },
+        );
+
+        op.write(
+            crate::cloud::schema::METADATA_FILENAME,
+            crate::cloud::metadata::serialize_metadata(&metadata).unwrap(),
+        )
+        .await
+        .unwrap();
+        op.write(
+            &format!("{}/{}.json", crate::cloud::schema::RECORDS_DIR, record_id),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let mut service = SyncService::new(storage);
+        let result = service.restore_pull_only().await;
+
+        assert!(matches!(
+            result,
+            Err(SyncError::ChecksumMismatch {
+                record_id: id,
+                ..
+            }) if id == record_id
+        ));
+    }
+
+    #[tokio::test]
+    async fn restore_pull_only_rejects_record_version_mismatch() {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        let storage = CloudStorage::new(op.clone(), "memory".to_string());
+        let record_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let record = restore_test_record(record_id.clone(), now.clone());
+        let checksum = record.compute_checksum().unwrap();
+
+        let mut metadata = CloudMetadata::new("remote-token".to_string());
+        metadata.upsert_record(
+            record_id.clone(),
+            crate::cloud::metadata::RecordVersionInfo {
+                version: record.version + 1,
+                updated_at: now,
+                updated_by: "test-device".to_string(),
+                checksum,
+                deleted: false,
+            },
+        );
+
+        op.write(
+            crate::cloud::schema::METADATA_FILENAME,
+            crate::cloud::metadata::serialize_metadata(&metadata).unwrap(),
+        )
+        .await
+        .unwrap();
+        op.write(
+            &format!("{}/{}.json", crate::cloud::schema::RECORDS_DIR, record_id),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let mut service = SyncService::new(storage);
+        let result = service.restore_pull_only().await;
+
+        assert!(matches!(
+            result,
+            Err(SyncError::MetadataVersionConflict {
+                local: 2,
+                remote: 1
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn restore_pull_only_rejects_invalid_record() {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        let storage = CloudStorage::new(op.clone(), "memory".to_string());
+        let record_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut record = restore_test_record(record_id.clone(), now.clone());
+        record.aad.record_id = Uuid::new_v4().to_string();
+        let checksum = record.compute_checksum().unwrap();
+
+        let mut metadata = CloudMetadata::new("remote-token".to_string());
+        metadata.upsert_record(
+            record_id.clone(),
+            crate::cloud::metadata::RecordVersionInfo {
+                version: 1,
+                updated_at: now,
+                updated_by: "test-device".to_string(),
+                checksum,
+                deleted: false,
+            },
+        );
+
+        op.write(
+            crate::cloud::schema::METADATA_FILENAME,
+            crate::cloud::metadata::serialize_metadata(&metadata).unwrap(),
+        )
+        .await
+        .unwrap();
+        op.write(
+            &format!("{}/{}.json", crate::cloud::schema::RECORDS_DIR, record_id),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let mut service = SyncService::new(storage);
+        let result = service.restore_pull_only().await;
+
+        assert!(matches!(
+            result,
+            Err(SyncError::AadInconsistent { field, .. }) if field == "record_id"
+        ));
+    }
+
+    #[tokio::test]
+    async fn restore_pull_only_rejects_invalid_nonce_before_local_apply() {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        let storage = CloudStorage::new(op.clone(), "memory".to_string());
+        let record_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut record = restore_test_record(record_id.clone(), now.clone());
+        record.nonce = "bm9uY2U=".to_string();
+        let checksum = record.compute_checksum().unwrap();
+
+        let mut metadata = CloudMetadata::new("remote-token".to_string());
+        metadata.upsert_record(
+            record_id.clone(),
+            crate::cloud::metadata::RecordVersionInfo {
+                version: 1,
+                updated_at: now,
+                updated_by: "test-device".to_string(),
+                checksum,
+                deleted: false,
+            },
+        );
+
+        op.write(
+            crate::cloud::schema::METADATA_FILENAME,
+            crate::cloud::metadata::serialize_metadata(&metadata).unwrap(),
+        )
+        .await
+        .unwrap();
+        op.write(
+            &format!("{}/{}.json", crate::cloud::schema::RECORDS_DIR, record_id),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let mut service = SyncService::new(storage);
+        let result = service.restore_pull_only().await;
+
+        assert!(matches!(
+            result,
+            Err(SyncError::DeserializationFailed { message }) if message.contains("nonce")
+        ));
+    }
+
+    #[tokio::test]
+    async fn restore_pull_only_rejects_invalid_metadata_record_key() {
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        let storage = CloudStorage::new(op.clone(), "memory".to_string());
+        let mut metadata = CloudMetadata::new("remote-token".to_string());
+        metadata.upsert_record(
+            "not-a-uuid".to_string(),
+            crate::cloud::metadata::RecordVersionInfo {
+                version: 1,
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                updated_by: "test-device".to_string(),
+                checksum: "unused".to_string(),
+                deleted: false,
+            },
+        );
+
+        op.write(
+            crate::cloud::schema::METADATA_FILENAME,
+            crate::cloud::metadata::serialize_metadata(&metadata).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let mut service = SyncService::new(storage);
+        let result = service.restore_pull_only().await;
+
+        assert!(matches!(
+            result,
+            Err(SyncError::DeserializationFailed { message })
+                if message.contains("metadata record key") && message.contains("not-a-uuid")
+        ));
     }
 }

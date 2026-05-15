@@ -3,8 +3,6 @@
 //! UI-layer state that maps to/from [`crate::config::AppConfig`].
 //! Uses the real config types directly rather than String-based approximations.
 
-use std::path::PathBuf;
-
 use crate::config::*;
 
 /// Focusable buttons in the config footer bar.
@@ -252,7 +250,7 @@ impl ConfigTab {
     /// Returns the number of focusable items in this tab.
     pub fn item_count(self) -> usize {
         match self {
-            Self::General => 8, // language, vault_path, auto_lock, clipboard, trash, animation, import, export
+            Self::General => 7, // language, auto_lock, clipboard, trash, animation, import, export
             Self::Sync => 5,    // provider, sync_mode, interval, auth_button, test_button
             Self::Security => 5, // health_check, frequency, master_password, audit, retention
             Self::Password => 4, // length, digits, uppercase, special
@@ -275,7 +273,6 @@ impl ConfigTab {
 /// General config form state — mirrors [`GeneralConfig`] with UI-friendly fields.
 #[derive(Debug, Clone)]
 pub struct GeneralConfigForm {
-    pub vault_path: PathBuf,
     pub auto_lock_seconds: u64,
     pub clipboard_clear_seconds: u64,
     pub trash_retention_days: u32,
@@ -292,7 +289,6 @@ impl Default for GeneralConfigForm {
 impl From<GeneralConfig> for GeneralConfigForm {
     fn from(config: GeneralConfig) -> Self {
         Self {
-            vault_path: config.vault_path,
             auto_lock_seconds: config.auto_lock_seconds,
             clipboard_clear_seconds: config.clipboard_clear_seconds,
             trash_retention_days: config.trash_retention_days,
@@ -305,7 +301,6 @@ impl From<GeneralConfig> for GeneralConfigForm {
 impl From<&GeneralConfigForm> for GeneralConfig {
     fn from(form: &GeneralConfigForm) -> Self {
         Self {
-            vault_path: form.vault_path.clone(),
             auto_lock_seconds: form.auto_lock_seconds,
             clipboard_clear_seconds: form.clipboard_clear_seconds,
             trash_retention_days: form.trash_retention_days,
@@ -512,8 +507,6 @@ pub struct ConfigScreenState {
     pub editing_length: bool,
     /// Original password length before editing (for Esc cancel)
     pub editing_length_original: usize,
-    /// Active vault path dialog overlay
-    pub vault_path_dialog: Option<crate::tui::components::vault_path_dialog::VaultPathDialog>,
     /// One-shot marker set when navigation state was restored from a screen snapshot.
     pub restored_from_snapshot: bool,
     /// Instant when the scroll boundary flash started, None = no flash active.

@@ -24,11 +24,6 @@ impl ConfigScreen {
             return self.handle_overlay_key(key, ctx);
         }
 
-        // When vault path dialog is active, delegate to dialog handler
-        if self.state.vault_path_dialog.is_some() {
-            return self.handle_vault_path_dialog_key(key, ctx);
-        }
-
         // When editing password length, delegate to slider handler
         if self.state.editing_length {
             return self.handle_length_edit_key(key, ctx);
@@ -139,26 +134,16 @@ impl ConfigScreen {
         match tab {
             ConfigTab::General => match item {
                 0 => self.open_dropdown(DropdownField::Language),
-                1 => {
-                    let current = self.state.general.vault_path.to_string_lossy().to_string();
-                    self.state.vault_path_dialog = Some(
-                        crate::tui::components::vault_path_dialog::VaultPathDialog::new(
-                            current,
-                            String::new(),
-                        ),
-                    );
-                    ScreenResult::Continue
-                }
-                2 => self.open_dropdown(DropdownField::AutoLock),
-                3 => self.open_dropdown(DropdownField::ClipboardClear),
-                4 => self.open_dropdown(DropdownField::TrashRetention),
-                5 => self.open_dropdown(DropdownField::Animation),
-                6 => {
+                1 => self.open_dropdown(DropdownField::AutoLock),
+                2 => self.open_dropdown(DropdownField::ClipboardClear),
+                3 => self.open_dropdown(DropdownField::TrashRetention),
+                4 => self.open_dropdown(DropdownField::Animation),
+                5 => {
                     self.state.pending_import_export_mode =
                         Some(crate::tui::screens::import_export::ImportExportMode::Import);
                     ScreenResult::NavigateTo(ScreenEnum::ImportExport)
                 }
-                7 => {
+                6 => {
                     self.state.pending_import_export_mode =
                         Some(crate::tui::screens::import_export::ImportExportMode::Export);
                     ScreenResult::NavigateTo(ScreenEnum::ImportExport)

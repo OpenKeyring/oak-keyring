@@ -1,7 +1,6 @@
 //! Change master password screen — two-step flow: verify current, then set new.
 
 use crossterm::event::{KeyCode, KeyEvent};
-use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
@@ -11,7 +10,7 @@ use crate::tui::theme::{
     self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING,
 };
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
-use crate::types::SecureStr;
+use crate::types::sensitive::SensitiveInput;
 
 // ── Enums ───────────────────────────────────────────────────────────────────
 
@@ -31,9 +30,10 @@ pub enum PasswordField {
 #[derive(Debug)]
 pub struct ChangeMasterPasswordScreen {
     pub step: u8,
-    pub current_password: String,
-    pub new_password: String,
-    pub confirm_password: String,
+    pub current_password: SensitiveInput,
+    pub new_password: SensitiveInput,
+    pub confirm_password: SensitiveInput,
+    pending_verification: bool,
     pub focused: PasswordField,
     pub error_message: Option<String>,
     pub password_strength: Option<PasswordStrength>,
@@ -43,9 +43,10 @@ impl ChangeMasterPasswordScreen {
     pub fn new() -> Self {
         Self {
             step: 1,
-            current_password: String::new(),
-            new_password: String::new(),
-            confirm_password: String::new(),
+            current_password: SensitiveInput::new(),
+            new_password: SensitiveInput::new(),
+            confirm_password: SensitiveInput::new(),
+            pending_verification: false,
             focused: PasswordField::New,
             error_message: None,
             password_strength: None,
@@ -57,13 +58,15 @@ impl ChangeMasterPasswordScreen {
         if self.new_password.is_empty() {
             self.password_strength = None;
         } else {
-            self.password_strength = Some(evaluate_strength(&self.new_password));
+            self.new_password.expose(|s| {
+                self.password_strength = Some(evaluate_strength(s));
+            });
         }
     }
 
     /// Return masked display for a password string.
     fn display_password(password: &str) -> String {
-        theme::ICON_PASSWORD_MASK.repeat(password.len())
+        theme::ICON_PASSWORD_MASK.repeat(password.chars().count())
     }
 
     /// Map strength level to a theme color.
@@ -136,7 +139,7 @@ impl Screen for ChangeMasterPasswordScreen {
             let new_display = if self.new_password.is_empty() {
                 String::new()
             } else {
-                Self::display_password(&self.new_password)
+                self.new_password.expose(Self::display_password)
             };
             let new_placeholder = if self.new_password.is_empty() {
                 t!("tui.entry.new_password_placeholder")
@@ -147,7 +150,7 @@ impl Screen for ChangeMasterPasswordScreen {
             let new_input_block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(new_border_style)
-                .title(" New Password ");
+                .title(format!(" {} ", t!("tui.entry.new_password")));
 
             let new_input_text = if new_display.is_empty() {
                 Paragraph::new(new_placeholder)
@@ -205,7 +208,7 @@ impl Screen for ChangeMasterPasswordScreen {
             let confirm_display = if self.confirm_password.is_empty() {
                 String::new()
             } else {
-                Self::display_password(&self.confirm_password)
+                self.confirm_password.expose(Self::display_password)
             };
             let confirm_placeholder = if self.confirm_password.is_empty() {
                 t!("tui.entry.confirm_new_placeholder")
@@ -216,7 +219,7 @@ impl Screen for ChangeMasterPasswordScreen {
             let confirm_input_block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(confirm_border_style)
-                .title(" Confirm Password ");
+                .title(format!(" {} ", t!("tui.entry.confirm_password")));
 
             let confirm_input_text = if confirm_display.is_empty() {
                 Paragraph::new(confirm_placeholder)
@@ -227,7 +230,10 @@ impl Screen for ChangeMasterPasswordScreen {
 
             // -- Match indicator --
             let match_line = if !self.new_password.is_empty() && !self.confirm_password.is_empty() {
-                if self.new_password == self.confirm_password {
+                let passwords_match = self
+                    .new_password
+                    .expose(|a| self.confirm_password.expose(|b| a == b));
+                if passwords_match {
                     Some(
                         Paragraph::new(format!(
                             "{} {}",
@@ -306,21 +312,19 @@ impl Screen for ChangeMasterPasswordScreen {
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {
         self.step = 1;
-        self.current_password.zeroize();
         self.current_password.clear();
-        self.new_password.zeroize();
         self.new_password.clear();
-        self.confirm_password.zeroize();
         self.confirm_password.clear();
         self.focused = PasswordField::New;
         self.error_message = None;
         self.password_strength = None;
+        self.pending_verification = false;
     }
 
     fn on_unmount(&mut self) {
-        self.current_password.zeroize();
-        self.new_password.zeroize();
-        self.confirm_password.zeroize();
+        self.current_password.clear();
+        self.new_password.clear();
+        self.confirm_password.clear();
     }
 }
 
@@ -366,12 +370,15 @@ impl ChangeMasterPasswordScreen {
         let input_block = Block::default()
             .borders(Borders::ALL)
             .border_style(Styles::focused_border())
-            .title(" Current Password ");
+            .title(format!(
+                " {} ",
+                t!("tui.import_export.current_password_label")
+            ));
 
         let display = if self.current_password.is_empty() {
             String::new()
         } else {
-            Self::display_password(&self.current_password)
+            self.current_password.expose(Self::display_password)
         };
         let placeholder = if self.current_password.is_empty() {
             t!("tui.entry.verify_current_placeholder")
@@ -393,7 +400,7 @@ impl ChangeMasterPasswordScreen {
         });
 
         // Hint
-        let hint = Paragraph::new("Enter: verify | Esc: back")
+        let hint = Paragraph::new(t!("tui.misc.enter_verify_esc_back"))
             .style(ratatui::style::Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
 
@@ -433,21 +440,24 @@ impl ChangeMasterPasswordScreen {
 impl ChangeMasterPasswordScreen {
     fn handle_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
         match key.code {
-            KeyCode::Esc => ScreenResult::PopScreen,
+            KeyCode::Esc => {
+                // Clear cached verified password if user cancels the flow
+                let _ = ctx.command_tx.try_send(Command::ClearVerifiedPassword);
+                ScreenResult::PopScreen
+            }
 
             KeyCode::Enter if self.step == 1 => {
+                if self.pending_verification {
+                    return ScreenResult::Continue;
+                }
                 if self.current_password.is_empty() {
                     self.error_message = Some(t!("tui.entry.password_empty").to_string());
                     return ScreenResult::Continue;
                 }
                 self.error_message = None;
-                // Keep current_password in self — we need it again for ChangeMasterPassword.
-                // Clone here since SecureStr is not cloneable and we need the raw String later.
-                let password = self.current_password.clone();
-                let cmd = Command::VerifyMasterPassword {
-                    password: SecureStr::new(password),
-                };
-                let _ = ctx.command_tx.try_send(cmd);
+                let password = self.current_password.take_secure();
+                let cmd = Command::VerifyMasterPassword { password };
+                self.pending_verification = ctx.command_tx.try_send(cmd).is_ok();
                 ScreenResult::Continue
             }
 
@@ -456,18 +466,19 @@ impl ChangeMasterPasswordScreen {
                     self.error_message = Some(t!("tui.entry.password_too_short").to_string());
                     return ScreenResult::Continue;
                 }
-                if self.new_password != self.confirm_password {
+                let passwords_match = self
+                    .new_password
+                    .expose(|a| self.confirm_password.expose(|b| a == b));
+                if !passwords_match {
                     self.error_message = Some(t!("tui.entry.password_mismatch").to_string());
                     return ScreenResult::Continue;
                 }
                 self.error_message = None;
-                let current_pw = std::mem::take(&mut self.current_password);
-                let new_pw = std::mem::take(&mut self.new_password);
-                self.confirm_password.zeroize();
+                let new_pw = self.new_password.take_secure();
                 self.confirm_password.clear();
                 let cmd = Command::ChangeMasterPassword {
-                    current_password: SecureStr::new(current_pw),
-                    new_password: SecureStr::new(new_pw),
+                    current_password: None,
+                    new_password: new_pw,
                 };
                 let _ = ctx.command_tx.try_send(cmd);
                 ScreenResult::Continue
@@ -483,15 +494,15 @@ impl ChangeMasterPasswordScreen {
 
             KeyCode::Backspace => {
                 if self.step == 1 {
-                    self.current_password.pop();
+                    self.current_password.pop_char();
                 } else {
                     match self.focused {
                         PasswordField::New => {
-                            self.new_password.pop();
+                            self.new_password.pop_char();
                             self.update_strength();
                         }
                         PasswordField::Confirm => {
-                            self.confirm_password.pop();
+                            self.confirm_password.pop_char();
                         }
                     }
                 }
@@ -501,15 +512,15 @@ impl ChangeMasterPasswordScreen {
 
             KeyCode::Char(c) => {
                 if self.step == 1 {
-                    self.current_password.push(c);
+                    self.current_password.push_char(c);
                 } else {
                     match self.focused {
                         PasswordField::New => {
-                            self.new_password.push(c);
+                            self.new_password.push_char(c);
                             self.update_strength();
                         }
                         PasswordField::Confirm => {
-                            self.confirm_password.push(c);
+                            self.confirm_password.push_char(c);
                         }
                     }
                 }
@@ -524,12 +535,24 @@ impl ChangeMasterPasswordScreen {
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
             CommandResult::MasterPasswordVerified => {
+                // Verification succeeded — advance to new-password step.
                 self.step = 2;
+                self.pending_verification = false;
                 ScreenResult::Continue
             }
             CommandResult::MasterPasswordChanged => ScreenResult::PopScreen,
             CommandResult::Error { fallback, .. } => {
                 self.error_message = Some(fallback);
+                if self.pending_verification {
+                    // Verification failed — stay on step 1, user can retry.
+                    self.pending_verification = false;
+                } else {
+                    // Change failed — reset to step 1 for safety.
+                    self.step = 1;
+                    self.current_password.clear();
+                    self.new_password.clear();
+                    self.confirm_password.clear();
+                }
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -543,6 +566,14 @@ impl ChangeMasterPasswordScreen {
 mod tests {
     use super::*;
     use crate::tui::traits::screen::Screen as ScreenTrait;
+
+    fn sensitive(s: &str) -> SensitiveInput {
+        let mut input = SensitiveInput::new();
+        for c in s.chars() {
+            input.push_char(c);
+        }
+        input
+    }
 
     #[test]
     fn new_screen_starts_at_step1() {
@@ -559,10 +590,11 @@ mod tests {
     fn on_mount_resets_state() {
         let mut screen = ChangeMasterPasswordScreen::new();
         screen.step = 2;
-        screen.current_password = "old_pw".to_string();
-        screen.new_password = "new_pw".to_string();
-        screen.confirm_password = "new_pw".to_string();
+        screen.current_password = sensitive("old_pw");
+        screen.new_password = sensitive("new_pw");
+        screen.confirm_password = sensitive("new_pw");
         screen.error_message = Some("error".to_string());
+        screen.pending_verification = true;
 
         // Need a dummy context for on_mount
         let (tx, _rx) = tokio::sync::mpsc::channel(1);
@@ -579,14 +611,15 @@ mod tests {
         assert!(screen.confirm_password.is_empty());
         assert!(screen.error_message.is_none());
         assert!(screen.password_strength.is_none());
+        assert!(!screen.pending_verification);
     }
 
     #[test]
     fn on_unmount_clears_sensitive_data() {
         let mut screen = ChangeMasterPasswordScreen::new();
-        screen.current_password = "sensitive1".to_string();
-        screen.new_password = "sensitive2".to_string();
-        screen.confirm_password = "sensitive3".to_string();
+        screen.current_password = sensitive("sensitive1");
+        screen.new_password = sensitive("sensitive2");
+        screen.confirm_password = sensitive("sensitive3");
         ScreenTrait::on_unmount(&mut screen);
         assert!(screen.current_password.is_empty());
         assert!(screen.new_password.is_empty());
@@ -598,14 +631,14 @@ mod tests {
         let mut screen = ChangeMasterPasswordScreen::new();
         assert!(screen.password_strength.is_none());
 
-        screen.new_password = "a".to_string();
+        screen.new_password = sensitive("a");
         screen.update_strength();
         assert_eq!(
             screen.password_strength.as_ref().unwrap().level,
             StrengthLevel::VeryWeak
         );
 
-        screen.new_password = "abcd1234ABCD!@ab".to_string();
+        screen.new_password = sensitive("abcd1234ABCD!@ab");
         screen.update_strength();
         assert_eq!(
             screen.password_strength.as_ref().unwrap().level,

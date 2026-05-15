@@ -19,8 +19,10 @@ use crate::tui::screens::audit_log::AuditLogScreen;
 use crate::tui::screens::change_master_password::ChangeMasterPasswordScreen;
 use crate::tui::screens::config_screen::ConfigScreen;
 use crate::tui::screens::create_record::CreateRecordScreen;
+use crate::tui::screens::database_recovery::DatabaseRecoveryScreen;
 use crate::tui::screens::edit_record::EditRecordScreen;
 use crate::tui::screens::import_export::ImportExportScreen;
+use crate::tui::screens::key_recovery::KeyRecoveryScreen;
 use crate::tui::screens::onboarding::OnboardingScreen;
 use crate::tui::screens::password_generator::PasswordGeneratorScreen;
 use crate::tui::screens::set_password::SetPasswordScreen;
@@ -69,6 +71,8 @@ pub struct SharedState {
 pub struct ScreenStates {
     pub unlock: UnlockScreen,
     pub onboarding: OnboardingScreen,
+    pub key_recovery: KeyRecoveryScreen,
+    pub database_recovery: DatabaseRecoveryScreen,
     pub main: MainScreenState,
     pub config: ConfigScreen,
     pub change_master_password: ChangeMasterPasswordScreen,
@@ -99,20 +103,26 @@ impl Default for AppState {
 }
 
 impl AppState {
-    /// Create a new AppState with the initial screen determined by vault existence.
+    /// Create a new AppState with the initial screen determined by vault file state.
     ///
-    /// When `has_vault` is false (no vault file found), the user is routed to
-    /// `Screen::Onboarding` to create one. Otherwise, `Screen::Unlock` is shown.
-    pub fn new(has_vault: bool) -> Self {
+    /// Four states per spec:
+    /// - key + db → UnlockScreen
+    /// - no key, no db → OnboardingScreen
+    /// - no key, db → KeyRecoveryScreen
+    /// - key, no db → DatabaseRecoveryScreen
+    pub fn new(has_vault: bool, vault_has_key_only: bool, vault_has_db_only: bool) -> Self {
+        let initial_screen = match (has_vault, vault_has_key_only, vault_has_db_only) {
+            (true, false, false) => Screen::Unlock,
+            (false, true, false) => Screen::DatabaseRecovery,
+            (false, false, true) => Screen::KeyRecovery,
+            _ => Screen::Onboarding,
+        };
+
         Self {
             phase: AppPhase::Initializing,
             shared: SharedState::default(),
             screens: ScreenStates::default(),
-            current_screen: if has_vault {
-                Screen::Unlock
-            } else {
-                Screen::Onboarding
-            },
+            current_screen: initial_screen,
             screen_history: Vec::new(),
             terminal_size: (80, 24),
             too_small: false,

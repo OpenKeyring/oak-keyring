@@ -49,6 +49,11 @@ impl CommandExecutor {
                 | Command::UnlockWithRecoveryKey { .. }
                 | Command::InitializeVault { .. }
                 | Command::LoadConfig
+                | Command::ValidateRecoveryWords { .. }
+                | Command::RebuildKeyFileFromRecovery { .. }
+                | Command::RestoreDatabaseFromOkb { .. }
+                | Command::RestoreDatabaseFromCloud { .. }
+                | Command::ValidateRestoredDatabase
         );
 
         if needs_unlock && !self.vault.is_unlocked() {
@@ -107,14 +112,14 @@ impl CommandExecutor {
                 current_password,
                 new_password,
             } => vault::handle_change_master_password(self, current_password, new_password),
+            Command::ClearVerifiedPassword => {
+                self.verified_master_password = None;
+                CommandResult::Void
+            }
             Command::InitializeVault {
-                vault_path,
                 master_password,
                 recovery_words,
-            } => {
-                vault::handle_initialize_vault(self, vault_path, master_password, recovery_words)
-                    .await
-            }
+            } => vault::handle_initialize_vault(self, master_password, recovery_words).await,
 
             // ── Record CRUD ──────────────────────────────
             Command::CreateRecord {
@@ -238,6 +243,7 @@ impl CommandExecutor {
                 password,
             } => import_export::handle_validate_import_file(self, source, path, password),
             Command::ExecuteImport {
+                session_id,
                 source,
                 path,
                 password,
@@ -245,6 +251,7 @@ impl CommandExecutor {
                 import_as_notes,
             } => import_export::handle_execute_import(
                 self,
+                session_id,
                 source,
                 path,
                 password,
@@ -286,6 +293,37 @@ impl CommandExecutor {
             // ── DEK Rotation ─────────────────────────────
             Command::TriggerRotation => rotation::handle_trigger_rotation(self).await,
             Command::CheckRotationTrigger => rotation::handle_check_rotation_trigger(self),
+
+            // ── Partial Vault Recovery ─────────────────────
+            Command::ValidateRecoveryWords { words } => {
+                vault::handle_validate_recovery_words(words).await
+            }
+            Command::RebuildKeyFileFromRecovery {
+                master_password,
+                recovery_words,
+            } => {
+                vault::handle_rebuild_keyfile_from_recovery(self, master_password, recovery_words)
+                    .await
+            }
+            Command::RestoreDatabaseFromOkb {
+                path,
+                password,
+                master_password,
+            } => {
+                import_export::handle_restore_database_from_okb(
+                    self,
+                    path,
+                    password,
+                    master_password,
+                )
+                .await
+            }
+            Command::RestoreDatabaseFromCloud { master_password } => {
+                sync::handle_restore_database_from_cloud(self, master_password).await
+            }
+            Command::ValidateRestoredDatabase => {
+                vault::handle_validate_restored_database(self).await
+            }
         }
     }
 }

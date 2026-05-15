@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use serde::Deserialize;
+use zeroize::Zeroize;
 
 use crate::commands::types::ImportSource;
 use crate::crypto;
@@ -122,14 +123,15 @@ impl FormatParser for OkbParser {
         let password = password.ok_or(ImportExportError::PasswordRequired)?;
 
         // 6. Derive DEK via Argon2id.
-        let dek_vec = crypto::argon2::derive_key(password.get(), &salt)
-            .map_err(ImportExportError::DecryptionFailed)?;
-        let dek: [u8; 32] = dek_vec
-            .try_into()
-            .map_err(|_| ImportExportError::InternalError("derived key is not 32 bytes".into()))?;
+        let dek = crypto::argon2::derive_key_locked(
+            password,
+            &salt,
+            &crypto::argon2::Argon2Params::medium(),
+        )
+        .map_err(ImportExportError::DecryptionFailed)?;
 
         // 7. Decrypt with XChaCha20-Poly1305.
-        let plaintext = crypto::xchacha20::decrypt(ciphertext, &nonce, &dek)
+        let mut plaintext = crypto::xchacha20::decrypt(ciphertext, &nonce, dek.expose())
             .map_err(ImportExportError::DecryptionFailed)?;
 
         // 8. Deserialize JSON payload.
@@ -138,6 +140,7 @@ impl FormatParser for OkbParser {
                 format: "okb".into(),
                 reason: e.to_string(),
             })?;
+        plaintext.zeroize();
 
         // 9. Convert records to ParsedItems.
         let items = payload

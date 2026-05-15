@@ -28,7 +28,7 @@ pub fn parse_opvault(
     let profile = read_profile(&default_dir)?;
 
     // 2. Derive keys from password.
-    let keys = crypto::decrypt_keys_from_profile(&profile, password.get().as_bytes())?;
+    let keys = crypto::decrypt_keys_from_profile(&profile, password.expose().as_bytes())?;
 
     // 3. Read and decrypt all band files.
     let mut items = Vec::new();

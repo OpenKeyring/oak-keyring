@@ -41,6 +41,37 @@ impl From<RotationError> for crate::errors::ServiceErrorBox {
         Box::new(err)
     }
 }
+impl ServiceError for RotationError {
+    fn to_error_code(&self) -> ErrorCode {
+        match self {
+            RotationError::Offline => ErrorCode::DekRotationFailed,
+            RotationError::SyncBusy => ErrorCode::DekRotationFailed,
+            RotationError::RecordMigrationFailed { .. } => ErrorCode::DekRotationFailed,
+            RotationError::PushFailed(_) => ErrorCode::DekRotationFailed,
+            RotationError::CheckpointCorrupted(_) => ErrorCode::DekRotationFailed,
+            RotationError::MaxVersionExceeded { .. } => ErrorCode::DekRotationFailed,
+            RotationError::Internal(_) => ErrorCode::DekRotationFailed,
+            RotationError::ConflictDetected { .. } => ErrorCode::RotationConflictDetected,
+            RotationError::VaultNotUnlocked => ErrorCode::ExecutorVaultLocked,
+        }
+    }
+
+    fn to_error_context(&self) -> ErrorContext {
+        match self {
+            RotationError::ConflictDetected {
+                cloud_version,
+                local_version,
+            } => ErrorContext::new()
+                .expected_version(*cloud_version as u64)
+                .actual_version(*local_version as u64),
+            _ => ErrorContext::new(),
+        }
+    }
+
+    fn to_fallback_message(&self) -> String {
+        self.to_string()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -85,36 +116,5 @@ mod tests {
     fn rotation_error_code_is_dek_rotation_failed() {
         let err = RotationError::Internal("test".into());
         assert_eq!(err.to_error_code(), ErrorCode::DekRotationFailed);
-    }
-}
-impl ServiceError for RotationError {
-    fn to_error_code(&self) -> ErrorCode {
-        match self {
-            RotationError::Offline => ErrorCode::DekRotationFailed,
-            RotationError::SyncBusy => ErrorCode::DekRotationFailed,
-            RotationError::RecordMigrationFailed { .. } => ErrorCode::DekRotationFailed,
-            RotationError::PushFailed(_) => ErrorCode::DekRotationFailed,
-            RotationError::CheckpointCorrupted(_) => ErrorCode::DekRotationFailed,
-            RotationError::MaxVersionExceeded { .. } => ErrorCode::DekRotationFailed,
-            RotationError::Internal(_) => ErrorCode::DekRotationFailed,
-            RotationError::ConflictDetected { .. } => ErrorCode::RotationConflictDetected,
-            RotationError::VaultNotUnlocked => ErrorCode::ExecutorVaultLocked,
-        }
-    }
-
-    fn to_error_context(&self) -> ErrorContext {
-        match self {
-            RotationError::ConflictDetected {
-                cloud_version,
-                local_version,
-            } => ErrorContext::new()
-                .expected_version(*cloud_version as u64)
-                .actual_version(*local_version as u64),
-            _ => ErrorContext::new(),
-        }
-    }
-
-    fn to_fallback_message(&self) -> String {
-        self.to_string()
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "oak-keyring"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2021"
 description = "A terminal TUI password manager with TEA architecture and end-to-end encryption"
 license = "MIT"
@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Database
-rusqlite = { version = "0.34", features = ["bundled"] }
+rusqlite = { version = "0.34", features = ["bundled", "backup"] }
 
 # Crypto
 argon2 = "0.5"
@@ -24,6 +24,7 @@ hex = "0.4"
 bip39 = { version = "2.0", features = ["rand", "chinese-simplified"] }
 rand = "0.9"
 zeroize = { version = "1.8", features = ["derive"] }
+secrecy = "0.10"
 subtle = "2.5"
 
 # OpVault (1Password .opvault) crypto
@@ -63,15 +64,15 @@ zip = "2"
 # Error handling
 thiserror = "2"
 
+# File locking (single instance detection)
+fs4 = "0.13"
+
 # Internationalization
 rust-i18n = "3"
 sys-locale = "0.3"
 
 # Clipboard
 arboard = "3"
-
-# Directories
-dirs = "6"
 
 # Logging
 tracing = "0.1"
@@ -96,16 +97,23 @@ notify = "7"
 # String obfuscation
 obfstr = "0.4"
 
+# XDG Base Directory specification
+home = "0.5"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Memory", "Win32_System_SystemInformation"] }
+
 [dev-dependencies]
 insta = "1"
 mockall = "0.13"
 tempfile = "3"
 anyhow = "1"
-oak-keyring = { path = ".", features = ["test-helpers"] }
 
 [features]
 default = []
-test-helpers = []
 
 [build-dependencies]
 

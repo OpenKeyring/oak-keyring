@@ -17,6 +17,7 @@ use crate::app::view;
 use crate::app::App;
 use crate::commands::types::{AppPhase, Screen};
 use crate::commands::Message;
+use crate::tui::screens::set_password::{RestoreNext, SetPasswordContext, SetPasswordScreen};
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
 
 /// Tick rate: how often we check for terminal events. Also drives timers/animations.
@@ -27,6 +28,65 @@ fn start_screen_in_transition(state: &mut crate::tui::state::AppState) {
         &mut state.shared.animation,
         crate::tui::state::animation::EffectKind::ScreenIn,
     );
+}
+
+fn prepare_set_password_context_for_navigation(
+    state: &mut crate::tui::state::AppState,
+    screen: Screen,
+) -> bool {
+    if screen != Screen::SetNewMasterPassword {
+        return true;
+    }
+
+    if let Some(context) = build_set_password_context_before_unmount(state) {
+        state.screens.set_new_master_password = SetPasswordScreen::new(context);
+        true
+    } else {
+        state
+            .shared
+            .notification
+            .enqueue(crate::tui::state::notification::StatusMessage::error(
+                "Recovery context unavailable; staying on current screen".to_string(),
+            ));
+        false
+    }
+}
+
+fn build_set_password_context_before_unmount(
+    state: &mut crate::tui::state::AppState,
+) -> Option<SetPasswordContext> {
+    match state.current_screen {
+        Screen::Unlock => Some(SetPasswordContext::PostRecovery),
+        Screen::KeyRecovery => {
+            let next = if matches!(
+                state.screens.key_recovery.origin,
+                crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore
+            ) {
+                RestoreNext::RestoreDatabase
+            } else {
+                RestoreNext::ValidateExistingDatabase
+            };
+            match state.screens.key_recovery.words.take_recovery_words() {
+                Ok(recovery_words) => Some(SetPasswordContext::RestoreExistingVault {
+                    recovery_words,
+                    next,
+                }),
+                Err(_) => None,
+            }
+        }
+        Screen::Onboarding => match state.screens.onboarding.selected_path {
+            Some(crate::tui::screens::onboarding::OnboardingPath::Restore) => {
+                Some(SetPasswordContext::OnboardingRestore)
+            }
+            _ => state
+                .screens
+                .onboarding
+                .recovery_words
+                .take()
+                .map(|recovery_words| SetPasswordContext::OnboardingCreate { recovery_words }),
+        },
+        _ => None,
+    }
 }
 
 pub fn run(
@@ -65,11 +125,11 @@ pub fn run(
                         return Ok(());
                     }
                 }
-                CrosstermEvent::Resize(width, height) => {
-                    if handle_message(app, Message::Resize { width, height })? == LoopControl::Exit
-                    {
-                        return Ok(());
-                    }
+                CrosstermEvent::Resize(width, height)
+                    if handle_message(app, Message::Resize { width, height })?
+                        == LoopControl::Exit =>
+                {
+                    return Ok(());
                 }
                 // Ignore mouse events and other crossterm events for now.
                 _ => {}
@@ -120,6 +180,9 @@ fn handle_message(
                 config: &app.config,
             };
             // Keep screen lifecycle ordering explicit: unmount old screen, switch route, mount new screen.
+            if !prepare_set_password_context_for_navigation(&mut app.state, screen) {
+                return Ok(LoopControl::Continue);
+            }
             route_on_unmount_from_state(&mut app.state);
             app.state.navigate_to(screen);
             route_on_mount_from_state(&mut app.state, &mut ctx);
@@ -287,6 +350,9 @@ fn handle_message(
             match result {
                 ScreenResult::Continue => {}
                 ScreenResult::NavigateTo(screen) => {
+                    if !prepare_set_password_context_for_navigation(&mut app.state, screen) {
+                        return Ok(LoopControl::Continue);
+                    }
                     route_on_unmount_from_state(&mut app.state);
                     app.state.navigate_to(screen);
                     let mut ctx = ScreenContext {
@@ -329,6 +395,9 @@ fn handle_message(
             match result {
                 ScreenResult::Continue => {}
                 ScreenResult::NavigateTo(screen) => {
+                    if !prepare_set_password_context_for_navigation(&mut app.state, screen) {
+                        return Ok(LoopControl::Continue);
+                    }
                     route_on_unmount_from_state(&mut app.state);
                     app.state.navigate_to(screen);
                     let mut ctx = ScreenContext {
@@ -397,6 +466,8 @@ fn route_to_screen(
         }
         Screen::Unlock => state.screens.unlock.update(msg, ctx),
         Screen::Onboarding => state.screens.onboarding.update(msg, ctx),
+        Screen::KeyRecovery => state.screens.key_recovery.update(msg, ctx),
+        Screen::DatabaseRecovery => state.screens.database_recovery.update(msg, ctx),
         Screen::Config => {
             state.screens.config.state.terminal_height = state.terminal_size.1;
             state.screens.config.update(msg, ctx)
@@ -424,36 +495,39 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
         }
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
         Screen::Onboarding => state.screens.onboarding.on_mount(ctx),
+        Screen::KeyRecovery => {
+            let origin = state
+                .screen_history
+                .last()
+                .map(|s| s.screen)
+                .and_then(|s| match s {
+                    Screen::Onboarding => Some(
+                        crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore,
+                    ),
+                    _ => None,
+                })
+                .unwrap_or(crate::tui::screens::key_recovery::KeyRecoveryOrigin::StartupDbOnly);
+            state.screens.key_recovery =
+                crate::tui::screens::key_recovery::KeyRecoveryScreen::new(origin);
+            state.screens.key_recovery.on_mount(ctx)
+        }
+        Screen::DatabaseRecovery => {
+            let origin = state
+                .screen_history
+                .last()
+                .map(|s| s.screen)
+                .and_then(|s| match s {
+                    Screen::KeyRecovery => Some(crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore),
+                    _ => None,
+                })
+                .unwrap_or(crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly);
+            state.screens.database_recovery =
+                crate::tui::screens::database_recovery::DatabaseRecoveryScreen::new(origin);
+            state.screens.database_recovery.on_mount(ctx)
+        }
         Screen::Config => state.screens.config.on_mount(ctx),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_mount(ctx),
-        Screen::SetNewMasterPassword => {
-            let context = match state.screen_history.last().map(|s| s.screen) {
-                Some(Screen::Unlock) => {
-                    crate::tui::screens::set_password::SetPasswordContext::PostRecovery
-                }
-                _ => match state.screens.onboarding.selected_path {
-                    Some(crate::tui::screens::onboarding::OnboardingPath::Restore) => {
-                        crate::tui::screens::set_password::SetPasswordContext::OnboardingRestore
-                    }
-                    _ => crate::tui::screens::set_password::SetPasswordContext::OnboardingCreate {
-                        recovery_words: state.screens.onboarding.recovery_words.clone(),
-                    },
-                },
-            };
-            let vault_path = if !state.screens.onboarding.path_input.is_empty() {
-                Some(std::path::PathBuf::from(
-                    &state.screens.onboarding.path_input,
-                ))
-            } else {
-                None
-            };
-            let screen = crate::tui::screens::set_password::SetPasswordScreen::new(context);
-            state.screens.set_new_master_password = match vault_path {
-                Some(p) => screen.with_vault_path(p),
-                None => screen,
-            };
-            state.screens.set_new_master_password.on_mount(ctx)
-        }
+        Screen::SetNewMasterPassword => state.screens.set_new_master_password.on_mount(ctx),
         Screen::ImportExport => {
             // Consume pending mode from config screen if set
             if let Some(mode) = state.screens.config.state.pending_import_export_mode.take() {
@@ -490,6 +564,8 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
         Screen::Main => state.screens.main.on_unmount(),
         Screen::Unlock => state.screens.unlock.on_unmount(),
         Screen::Onboarding => state.screens.onboarding.on_unmount(),
+        Screen::KeyRecovery => state.screens.key_recovery.on_unmount(),
+        Screen::DatabaseRecovery => state.screens.database_recovery.on_unmount(),
         Screen::Config => state.screens.config.on_unmount(),
         Screen::ChangeMasterPassword => state.screens.change_master_password.on_unmount(),
         Screen::SetNewMasterPassword => {
@@ -521,13 +597,26 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
 mod tests {
     use super::*;
     use crate::commands::types::{AppPhase, PanelId};
+    use crate::instance_lock::InstanceLock;
+    use crate::tui::screens::key_recovery::KeyRecoveryOrigin;
+    use crate::tui::screens::set_password::{RestoreNext, SetPasswordContext};
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
     fn test_app() -> App {
+        let vault_dir = tempfile::tempdir().unwrap();
+        let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+        let vault_dir_path = vault_dir.path().to_path_buf();
+        let config_dir_path = vault_dir.path().to_path_buf();
         let mut app = App::new(
             crate::config::AppConfig::default(),
-            std::path::PathBuf::from(":memory:"),
-            true,
+            crate::app::VaultInitState {
+                has_vault: true,
+                vault_has_key_only: false,
+                vault_has_db_only: false,
+            },
+            instance_lock,
+            vault_dir_path,
+            config_dir_path,
         )
         .expect("app");
         app.phase = AppPhase::Running;
@@ -559,5 +648,94 @@ mod tests {
             .shared
             .animation
             .has_active_kind(crate::tui::state::animation::EffectKind::ScreenIn));
+    }
+
+    #[test]
+    fn set_password_context_from_key_recovery_is_captured_before_unmount() {
+        let mut state = crate::tui::state::AppState::default();
+        state.current_screen = Screen::KeyRecovery;
+        state.screens.key_recovery.origin = KeyRecoveryOrigin::StartupDbOnly;
+        for word in &mut state.screens.key_recovery.words.words {
+            word.push_str("abandon");
+        }
+
+        assert!(prepare_set_password_context_for_navigation(
+            &mut state,
+            Screen::SetNewMasterPassword
+        ));
+        route_on_unmount_from_state(&mut state);
+        state.navigate_to(Screen::SetNewMasterPassword);
+
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+        route_on_mount_from_state(&mut state, &mut ctx);
+
+        match &state.screens.set_new_master_password.context {
+            SetPasswordContext::RestoreExistingVault {
+                recovery_words,
+                next,
+            } => {
+                assert_eq!(*next, RestoreNext::ValidateExistingDatabase);
+                assert_eq!(recovery_words.len(), 24);
+                assert!(recovery_words.iter().all(|word| word == "abandon"));
+            }
+            other => panic!("expected RestoreExistingVault context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn set_password_context_from_onboarding_create_captures_recovery_words() {
+        let mut state = crate::tui::state::AppState::default();
+        state.current_screen = Screen::Onboarding;
+        state.screens.onboarding.selected_path =
+            Some(crate::tui::screens::onboarding::OnboardingPath::CreateNew);
+        state.screens.onboarding.recovery_words = Some(
+            crate::types::RecoveryWords::new((0..24).map(|i| format!("word{i}")).collect())
+                .unwrap(),
+        );
+
+        assert!(prepare_set_password_context_for_navigation(
+            &mut state,
+            Screen::SetNewMasterPassword
+        ));
+
+        match &state.screens.set_new_master_password.context {
+            SetPasswordContext::OnboardingCreate { recovery_words } => {
+                assert_eq!(recovery_words.len(), 24);
+                assert_eq!(recovery_words.word(0), Some("word0"));
+                assert_eq!(recovery_words.word(23), Some("word23"));
+            }
+            other => panic!("expected OnboardingCreate context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn set_password_navigation_without_valid_context_fails_closed() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::Onboarding;
+        app.state.screens.onboarding.selected_path =
+            Some(crate::tui::screens::onboarding::OnboardingPath::CreateNew);
+        app.state.screens.onboarding.recovery_words = None;
+
+        let result = handle_message(&mut app, Message::NavigateTo(Screen::SetNewMasterPassword))
+            .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Onboarding);
+        assert!(matches!(
+            app.state.screens.set_new_master_password.context,
+            SetPasswordContext::PostRecovery
+        ));
+        assert!(app
+            .state
+            .shared
+            .notification
+            .current_message
+            .as_ref()
+            .is_some_and(|message| message.is_error()));
     }
 }

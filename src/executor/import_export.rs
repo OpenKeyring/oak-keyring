@@ -9,6 +9,7 @@ use crate::commands::{CommandResult, Message};
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::services::import_export::duplicate::ExistingRecordKey;
 use crate::services::import_export::export::ExportRecord;
+use crate::services::import_export::parser::FormatParser;
 use crate::services::import_export::types::ImportResult;
 use crate::types::record::{CreateRecordParams, DecryptedRecord};
 use crate::types::{CredentialType, EncryptedPayload, SecureStr};
@@ -49,7 +50,10 @@ pub fn handle_validate_import_file(
 
     // Step 2: Validate the import file.
     match executor.import_export.validate_import_file(session_id) {
-        Ok(preview) => CommandResult::ImportValidated { preview },
+        Ok(preview) => CommandResult::ImportValidated {
+            session_id,
+            preview,
+        },
         Err(e) => {
             let err: &dyn ServiceError = &e;
             CommandResult::Error {
@@ -65,6 +69,7 @@ pub fn handle_validate_import_file(
 #[tracing::instrument(skip_all)]
 pub fn handle_execute_import(
     executor: &mut CommandExecutor,
+    session_id: Option<uuid::Uuid>,
     source: ImportSource,
     path: PathBuf,
     password: Option<SecureStr>,
@@ -75,36 +80,42 @@ pub fn handle_execute_import(
         return CommandResult::cancelled("import_execute");
     }
 
-    // Step 1: Create import session.
-    let session_id = match executor.import_export.create_import_session(
-        source,
-        path,
-        password,
-        column_mapping,
-        import_as_notes,
-    ) {
-        Ok(id) => id,
-        Err(e) => {
+    let session_id = if let Some(id) = session_id {
+        if let Some(session) = executor.import_export.import_sessions.get_mut(&id) {
+            session.import_as_notes = import_as_notes;
+        }
+        id
+    } else {
+        let id = match executor.import_export.create_import_session(
+            source,
+            path,
+            password,
+            column_mapping,
+            import_as_notes,
+        ) {
+            Ok(id) => id,
+            Err(e) => {
+                let err: &dyn ServiceError = &e;
+                return CommandResult::Error {
+                    code: err.to_error_code(),
+                    context: err.to_error_context(),
+                    message_key: "error.import_session_create_failed",
+                    fallback: format!("Failed to create import session: {}", e),
+                };
+            }
+        };
+
+        if let Err(e) = executor.import_export.validate_import_file(id) {
             let err: &dyn ServiceError = &e;
             return CommandResult::Error {
                 code: err.to_error_code(),
                 context: err.to_error_context(),
-                message_key: "error.import_session_create_failed",
-                fallback: format!("Failed to create import session: {}", e),
+                message_key: "error.import_validate_failed",
+                fallback: format!("Failed to validate import file: {}", e),
             };
         }
+        id
     };
-
-    // Step 2: Validate the file first (session must be Validated before import).
-    if let Err(e) = executor.import_export.validate_import_file(session_id) {
-        let err: &dyn ServiceError = &e;
-        return CommandResult::Error {
-            code: err.to_error_code(),
-            context: err.to_error_context(),
-            message_key: "error.import_validate_failed",
-            fallback: format!("Failed to validate import file: {}", e),
-        };
-    }
 
     // Step 3: Execute import with a closure that creates vault records.
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
@@ -347,7 +358,7 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             credential_type: CredentialType::Login.to_db_str().to_string(),
             name: name.clone(),
             username: Some(username.clone()),
-            password: Some(password.get().clone()),
+            password: Some(password.expose().to_string()),
             url: url.clone(),
             notes: notes.clone(),
             tags: Some(tags.clone()),
@@ -385,7 +396,7 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             private_key: None,
             passphrase: None,
             app_id: Some(app_id.clone()),
-            secret_key: Some(secret_key.get().clone()),
+            secret_key: Some(secret_key.expose().to_string()),
         },
         DecryptedRecord::Ssh {
             id,
@@ -410,8 +421,8 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
             public_key: Some(public_key.clone()),
-            private_key: private_key.as_ref().map(|pk| pk.get().clone()),
-            passphrase: passphrase.as_ref().map(|p| p.get().clone()),
+            private_key: private_key.as_ref().map(|pk| pk.expose().to_string()),
+            passphrase: passphrase.as_ref().map(|p| p.expose().to_string()),
             app_id: None,
             secret_key: None,
         },
@@ -463,6 +474,147 @@ fn build_skip_breakdown(result: &ImportResult) -> HashMap<SkipReason, usize> {
     breakdown
 }
 
+/// Restore vault.db from a local .okb backup file.
+///
+/// Parses the encrypted OKB file using the export password, imports all records
+/// into the vault, then reopens the vault as file-backed.
+pub async fn handle_restore_database_from_okb(
+    executor: &mut CommandExecutor,
+    path: PathBuf,
+    password: SecureStr,
+    master_password: Option<SecureStr>,
+) -> CommandResult {
+    // Path guards
+    if path.as_os_str().is_empty() {
+        return CommandResult::Error {
+            code: ErrorCode::DataEmptyField,
+            context: ErrorContext::default(),
+            message_key: "error.okb_path_empty",
+            fallback: "Enter a .okb path.".to_string(),
+        };
+    }
+    if path.extension().and_then(|e| e.to_str()) != Some("okb") {
+        return CommandResult::Error {
+            code: ErrorCode::ImportFileFormatInvalid,
+            context: ErrorContext::default(),
+            message_key: "error.okb_invalid_extension",
+            fallback: "Path must end with .okb.".to_string(),
+        };
+    }
+    if !path.exists() {
+        return CommandResult::Error {
+            code: ErrorCode::ImportFileUnreadable,
+            context: ErrorContext::default(),
+            message_key: "error.okb_missing",
+            fallback: format!("Backup file does not exist: {}", path.display()),
+        };
+    }
+
+    // Parse the OKB file with the export password.
+    let parser = crate::services::import_export::parsers::okb::OkbParser;
+    let items = match parser.parse(&path, Some(&password), None) {
+        Ok(items) => items,
+        Err(e) => {
+            drop(password);
+            return CommandResult::Error {
+                code: ErrorCode::ImportFileUnreadable,
+                context: ErrorContext::default(),
+                message_key: "error.okb_decrypt_failed",
+                fallback: format!("Failed to decrypt .okb backup: {}", e),
+            };
+        }
+    };
+    // Export password no longer needed — drop immediately.
+    drop(password);
+
+    if items.is_empty() {
+        return CommandResult::Error {
+            code: ErrorCode::ImportFileFormatInvalid,
+            context: ErrorContext::default(),
+            message_key: "error.okb_empty",
+            fallback: "No records found in .okb backup.".to_string(),
+        };
+    }
+
+    // Unlock with the provided startup password or the cached onboarding password.
+    let master_password = match master_password.or_else(|| executor.verified_master_password.take())
+    {
+        Some(pw) => pw,
+        None => {
+            return CommandResult::Error {
+                code: ErrorCode::ExecutorMasterPasswordRequired,
+                context: ErrorContext::default(),
+                message_key: "error.password_required",
+                fallback: "Master password is required to unlock the recovered vault.".to_string(),
+            };
+        }
+    };
+
+    // Create a pending file-backed vault.db. If any later step fails, dropping
+    // the guard restores the executor to an in-memory vault and removes the
+    // uncommitted database files.
+    let mut pending = match executor.begin_file_backed_vault_db() {
+        Ok(pending) => pending,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::VaultDatabaseIoError,
+                context: ErrorContext::default(),
+                message_key: "error.db_reopen_failed",
+                fallback: format!("Failed to create vault database: {}", e),
+            };
+        }
+    };
+
+    if let Err(e) = pending.unlock(&master_password) {
+        return CommandResult::Error {
+            code: ErrorCode::CryptoEncryptionFailed,
+            context: ErrorContext::default(),
+            message_key: "error.unlock_failed",
+            fallback: format!("Failed to unlock vault: {}", e),
+        };
+    }
+    drop(master_password);
+
+    // Import all parsed records into the vault.
+    let mut imported = 0usize;
+    let mut errors = 0usize;
+    for item in items {
+        let cred_type =
+            crate::services::import_export::mapping::infer_credential_type(&item.fields);
+        let payload = fields_to_payload(cred_type, &item.fields);
+        let params = CreateRecordParams {
+            credential_type: cred_type,
+            payload,
+            tags: item.tags.clone(),
+            is_favorite: false,
+            expires_at: None,
+        };
+        match pending.create_record(params) {
+            Ok(_) => imported += 1,
+            Err(_) => errors += 1,
+        }
+    }
+
+    if errors > 0 || imported == 0 {
+        return CommandResult::Error {
+            code: ErrorCode::ImportPartialFailure,
+            context: ErrorContext::default(),
+            message_key: "error.okb_restore_import_failed",
+            fallback: format!(
+                "Failed to restore .okb backup: imported {}, failed {}.",
+                imported, errors
+            ),
+        };
+    }
+
+    pending.commit();
+    tracing::info!(imported, errors, "OKB restore complete");
+
+    CommandResult::DatabaseRestored {
+        source: crate::commands::types::DatabaseRecoverySource::Okb,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -488,6 +640,7 @@ mod tests {
 
         CommandExecutor {
             vault,
+            vault_db_file_backed: false,
             sync: None,
             health: HealthService::new(),
             clipboard: Arc::new(ClipboardService::with_backend(
@@ -495,9 +648,13 @@ mod tests {
                 30,
             )),
             import_export: ImportExportService::new(),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(
+                AppConfig::default(),
+                std::path::PathBuf::from(":memory:"),
+            ),
             config_notifier: ServiceNotificationImpl::new(),
             vault_dir: std::path::PathBuf::from(":memory:"),
+            config_dir: std::path::PathBuf::from(":memory:"),
             health_report: None,
             last_health_check_time: None,
             result_tx,
@@ -507,6 +664,7 @@ mod tests {
             operation_cancel_token: CancellationToken::new(),
             timer_rebuild_pending: false,
             oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+            verified_master_password: None,
         }
     }
 
@@ -535,6 +693,7 @@ mod tests {
 
         let result = handle_execute_import(
             &mut executor,
+            None,
             ImportSource::Csv,
             std::path::PathBuf::from("sample.csv"),
             None,
@@ -768,11 +927,11 @@ mod tests {
                 assert_eq!(public_key, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...");
                 assert!(private_key.is_some());
                 assert_eq!(
-                    private_key.unwrap().get(),
+                    private_key.unwrap().expose(),
                     "-----BEGIN OPENSSH PRIVATE KEY-----\n..."
                 );
                 assert!(passphrase.is_some());
-                assert_eq!(passphrase.unwrap().get(), "my-passphrase");
+                assert_eq!(passphrase.unwrap().expose(), "my-passphrase");
                 assert_eq!(notes, Some("production key".to_string()));
             }
             _ => panic!("expected Ssh payload"),
@@ -847,7 +1006,10 @@ mod tests {
             } => {
                 assert_eq!(name, "AWS Production");
                 assert_eq!(app_id, "AKIAIOSFODNN7EXAMPLE");
-                assert_eq!(secret_key.get(), "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+                assert_eq!(
+                    secret_key.expose(),
+                    "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                );
                 assert_eq!(url, Some("https://aws.amazon.com".to_string()));
                 assert_eq!(notes, Some("production account".to_string()));
             }
@@ -922,7 +1084,7 @@ mod tests {
                 assert_eq!(public_key, "ssh-rsa AAAAB3NzaC1yc2E...");
                 assert!(private_key.is_some());
                 assert_eq!(
-                    private_key.unwrap().get(),
+                    private_key.unwrap().expose(),
                     "-----BEGIN RSA PRIVATE KEY-----\n..."
                 );
                 assert!(passphrase.is_none()); // Verify passphrase remains None

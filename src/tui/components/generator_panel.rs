@@ -79,7 +79,10 @@ pub fn render_generator_panel(
     // Preview
     lines.push(Line::from(vec![
         Span::styled("  ", Style::default()),
-        Span::styled(state.preview.clone(), Style::default().fg(theme::TEXT)),
+        Span::styled(
+            state.preview_expose(|s| s.to_owned()),
+            Style::default().fg(theme::TEXT),
+        ),
     ]));
 
     // Strength bar
@@ -276,9 +279,10 @@ mod tests {
     fn render_panel_has_preview() {
         let state = GeneratorState::new();
         let lines = render_generator_panel(&state, false, 56, true);
+        let preview = state.preview_expose(|s| s.to_owned());
         let has_preview = lines
             .iter()
-            .any(|l| l.spans.iter().any(|s| s.content.contains(&state.preview)));
+            .any(|l| l.spans.iter().any(|s| s.content.contains(&preview)));
         assert!(has_preview);
     }
 }

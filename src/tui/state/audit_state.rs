@@ -278,10 +278,12 @@ mod tests {
 
     #[test]
     fn audit_log_restore_state_restores_focus_filter_selection_and_scroll() {
-        let mut state = AuditLogScreenState::default();
-        state.focused_area = AuditFocus::SearchInput;
-        state.selected_index = 7;
-        state.scroll_offset = 4;
+        let mut state = AuditLogScreenState {
+            focused_area: AuditFocus::SearchInput,
+            selected_index: 7,
+            scroll_offset: 4,
+            ..Default::default()
+        };
         state.filter.search = "vault".to_string();
 
         let restore = state.to_restore_state();

@@ -62,6 +62,8 @@ pub enum AppPhase {
 pub enum Screen {
     Unlock,
     Onboarding,
+    KeyRecovery,
+    DatabaseRecovery,
     Main,
     CreateRecord,
     EditRecord { id: Uuid },
@@ -214,6 +216,13 @@ pub enum SkipReason {
     VaultWriteError,
 }
 
+/// Database recovery source selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatabaseRecoverySource {
+    Cloud,
+    Okb,
+}
+
 /// Confirm dialog action variants
 #[derive(Debug, Clone)]
 pub enum ConfirmVariant {
@@ -347,6 +356,9 @@ impl HealthReport {
     }
 }
 
+// Re-export rotation progress for TUI consumption
+pub use crate::types::rotation::RotationProgress;
+
 #[cfg(test)]
 mod health_report_tests {
     use super::*;
@@ -425,6 +437,3 @@ mod health_report_tests {
         assert_eq!(report.get_issue_for(Uuid::new_v4()), None);
     }
 }
-
-// Re-export rotation progress for TUI consumption
-pub use crate::types::rotation::RotationProgress;

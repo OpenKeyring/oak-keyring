@@ -59,6 +59,7 @@ fn make_executor_with_one_login() -> CommandExecutor {
 
     CommandExecutor {
         vault,
+        vault_db_file_backed: false,
         sync: None,
         health: HealthService::new(),
         clipboard: Arc::new(ClipboardService::with_backend(
@@ -66,9 +67,13 @@ fn make_executor_with_one_login() -> CommandExecutor {
             30,
         )),
         import_export: ImportExportService::new(),
-        config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
+        config: crate::executor::config_impl::ConfigManagerImpl::new(
+            AppConfig::default(),
+            std::path::PathBuf::from(":memory:"),
+        ),
         config_notifier: ServiceNotificationImpl::new(),
         vault_dir: std::path::PathBuf::from(":memory:"),
+        config_dir: std::path::PathBuf::from(":memory:"),
         health_report: None,
         last_health_check_time: None,
         result_tx,
@@ -78,6 +83,7 @@ fn make_executor_with_one_login() -> CommandExecutor {
         operation_cancel_token: CancellationToken::new(),
         timer_rebuild_pending: false,
         oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        verified_master_password: None,
     }
 }
 
@@ -95,6 +101,7 @@ fn make_executor_no_records() -> CommandExecutor {
 
     CommandExecutor {
         vault,
+        vault_db_file_backed: false,
         sync: None,
         health: HealthService::new(),
         clipboard: Arc::new(ClipboardService::with_backend(
@@ -102,9 +109,13 @@ fn make_executor_no_records() -> CommandExecutor {
             30,
         )),
         import_export: ImportExportService::new(),
-        config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
+        config: crate::executor::config_impl::ConfigManagerImpl::new(
+            AppConfig::default(),
+            std::path::PathBuf::from(":memory:"),
+        ),
         config_notifier: ServiceNotificationImpl::new(),
         vault_dir: std::path::PathBuf::from(":memory:"),
+        config_dir: std::path::PathBuf::from(":memory:"),
         health_report: None,
         last_health_check_time: None,
         result_tx,
@@ -114,6 +125,7 @@ fn make_executor_no_records() -> CommandExecutor {
         operation_cancel_token: CancellationToken::new(),
         timer_rebuild_pending: false,
         oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+        verified_master_password: None,
     }
 }
 

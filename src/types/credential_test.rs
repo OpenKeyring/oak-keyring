@@ -32,39 +32,16 @@ mod tests {
     }
 
     #[test]
-    fn secure_string_clone_panics() {
-        let s = SecureStr::new("secret".to_string());
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = s.clone();
-        }));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn secure_string_debug_redacted() {
+    fn secure_str_debug_redacted() {
         let s = SecureStr::new("secret".to_string());
         let debug = format!("{:?}", s);
         assert_eq!(debug, "***REDACTED***");
     }
 
     #[test]
-    fn secure_string_display_redacted() {
-        let s = SecureStr::new("secret".to_string());
-        let display = format!("{}", s);
-        assert_eq!(display, "***REDACTED***");
-    }
-
-    #[test]
-    fn secure_string_get_returns_value() {
+    fn secure_str_expose_returns_value() {
         let s = SecureStr::new("hello".to_string());
-        assert_eq!(s.get(), "hello");
-    }
-
-    #[test]
-    fn secure_string_into_inner_returns_value() {
-        let s = SecureStr::new("hello".to_string());
-        let inner = s.into_inner();
-        assert_eq!(inner, "hello");
+        assert_eq!(s.expose(), "hello");
     }
 
     #[test]

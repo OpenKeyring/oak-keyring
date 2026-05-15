@@ -310,10 +310,12 @@ impl MainScreen {
                             }));
                         }
                     }
-                    KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        if !state.list.is_searching() && !state.list.is_visual() {
-                            state.list.enter_search();
-                        }
+                    KeyCode::Char('k')
+                        if key.modifiers.contains(KeyModifiers::CONTROL)
+                            && !state.list.is_searching()
+                            && !state.list.is_visual() =>
+                    {
+                        state.list.enter_search();
                     }
                     KeyCode::Enter if !state.list.is_visual() && !state.list.is_searching() => {
                         state.focused_panel = PanelId::Detail;
@@ -613,7 +615,66 @@ fn sort_sidebar_tags(sidebar: &mut crate::tui::state::main_state::SidebarState) 
     sidebar.sort_tags_by_current_order();
 }
 
+/// Render the horizontal separator line between content panels and the status bar.
+fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let sep_char = if unicode { HORIZONTAL_SEPARATOR } else { "-" };
+    let line: String =
+        std::iter::repeat_n(sep_char.chars().next().unwrap_or('-'), area.width as usize).collect();
+
+    let paragraph = Paragraph::new(Line::from(Span::styled(
+        line,
+        Style::default().fg(theme::BORDER),
+    )));
+    frame.render_widget(paragraph, area);
+}
+
+/// Render vertical separator characters ("│") between the three panels.
+///
+/// Draws separator lines at the boundaries between sidebar|list and list|detail.
+fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas) {
+    let sep_style = Style::default().fg(theme::BORDER);
+
+    // Separator between sidebar and list
+    if areas.sidebar.width > 0 && areas.list.width > 0 {
+        let x = areas.sidebar.x + areas.sidebar.width;
+        // Only render if there is no overlap (the separator column was not
+        // allocated to any panel — it visually sits on the border).
+        // We render into a 1-column-wide strip at the panel boundary.
+        let sep_rect = Rect::new(
+            x.saturating_sub(1),
+            areas.sidebar.y,
+            1,
+            areas.sidebar.height,
+        );
+        let line: String = std::iter::repeat_n(
+            PANEL_SEPARATOR.chars().next().unwrap(),
+            sep_rect.height as usize,
+        )
+        .collect();
+        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
+        frame.render_widget(paragraph, sep_rect);
+    }
+
+    // Separator between list and detail
+    if areas.list.width > 0 && areas.detail.width > 0 {
+        let x = areas.list.x + areas.list.width;
+        let sep_rect = Rect::new(x.saturating_sub(1), areas.list.y, 1, areas.list.height);
+        let line: String = std::iter::repeat_n(
+            PANEL_SEPARATOR.chars().next().unwrap(),
+            sep_rect.height as usize,
+        )
+        .collect();
+        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
+        frame.render_widget(paragraph, sep_rect);
+    }
+}
+
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::tui::state::tag_management::TagSortOrder;
@@ -1210,63 +1271,5 @@ mod tests {
 
         let names: Vec<&str> = sidebar.tags.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, vec!["alpha", "Beta", "Zebra"]); // case-insensitive
-    }
-}
-
-/// Render the horizontal separator line between content panels and the status bar.
-fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-
-    let sep_char = if unicode { HORIZONTAL_SEPARATOR } else { "-" };
-    let line: String =
-        std::iter::repeat_n(sep_char.chars().next().unwrap_or('-'), area.width as usize).collect();
-
-    let paragraph = Paragraph::new(Line::from(Span::styled(
-        line,
-        Style::default().fg(theme::BORDER),
-    )));
-    frame.render_widget(paragraph, area);
-}
-
-/// Render vertical separator characters ("│") between the three panels.
-///
-/// Draws separator lines at the boundaries between sidebar|list and list|detail.
-fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas) {
-    let sep_style = Style::default().fg(theme::BORDER);
-
-    // Separator between sidebar and list
-    if areas.sidebar.width > 0 && areas.list.width > 0 {
-        let x = areas.sidebar.x + areas.sidebar.width;
-        // Only render if there is no overlap (the separator column was not
-        // allocated to any panel — it visually sits on the border).
-        // We render into a 1-column-wide strip at the panel boundary.
-        let sep_rect = Rect::new(
-            x.saturating_sub(1),
-            areas.sidebar.y,
-            1,
-            areas.sidebar.height,
-        );
-        let line: String = std::iter::repeat_n(
-            PANEL_SEPARATOR.chars().next().unwrap(),
-            sep_rect.height as usize,
-        )
-        .collect();
-        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
-        frame.render_widget(paragraph, sep_rect);
-    }
-
-    // Separator between list and detail
-    if areas.list.width > 0 && areas.detail.width > 0 {
-        let x = areas.list.x + areas.list.width;
-        let sep_rect = Rect::new(x.saturating_sub(1), areas.list.y, 1, areas.list.height);
-        let line: String = std::iter::repeat_n(
-            PANEL_SEPARATOR.chars().next().unwrap(),
-            sep_rect.height as usize,
-        )
-        .collect();
-        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
-        frame.render_widget(paragraph, sep_rect);
     }
 }

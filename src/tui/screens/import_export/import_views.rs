@@ -58,7 +58,8 @@ impl ImportExportScreen {
             .style(ratatui::style::Style::default().fg(TEXT));
 
         // Source items
-        let source_items: Vec<ratatui::text::Line> = IMPORT_SOURCES
+        let sources = import_sources();
+        let source_items: Vec<ratatui::text::Line> = sources
             .iter()
             .enumerate()
             .map(|(i, (_, name, needs_pw, (hint_text, hint_style)))| {
@@ -92,7 +93,7 @@ impl ImportExportScreen {
                     ScopeHintStyle::Limited => ERROR,
                 };
                 let hint_span = ratatui::text::Span::styled(
-                    *hint_text,
+                    hint_text.as_str(),
                     ratatui::style::Style::default().fg(hint_color),
                 );
                 ratatui::text::Line::from(vec![name_span, pw_hint, sep, hint_span])
@@ -142,10 +143,10 @@ impl ImportExportScreen {
                         .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER)),
                 )
             } else {
-                Some(
-                    Paragraph::new(Self::display_password(&self.decrypt_password))
-                        .style(ratatui::style::Style::default().fg(TEXT)),
-                )
+                let masked = self
+                    .decrypt_password
+                    .expose(|pw| crate::tui::theme::ICON_PASSWORD_MASK.repeat(pw.chars().count()));
+                Some(Paragraph::new(masked).style(ratatui::style::Style::default().fg(TEXT)))
             }
         } else {
             None
@@ -250,6 +251,7 @@ impl ImportExportScreen {
             row_idx += 1;
 
             // CSV fields
+            let none_label = t!("tui.import_export.none").to_string();
             let csv_fields: Vec<(String, &str, ImportFocus)> = vec![
                 (
                     t!("tui.import_export.column_name").to_string(),
@@ -278,7 +280,10 @@ impl ImportExportScreen {
                 ),
                 (
                     t!("tui.import_export.column_tags").to_string(),
-                    self.csv_mapping.tags_column.as_deref().unwrap_or("(none)"),
+                    self.csv_mapping
+                        .tags_column
+                        .as_deref()
+                        .unwrap_or(&none_label),
                     ImportFocus::CsvTags,
                 ),
             ];
@@ -701,19 +706,29 @@ impl ImportExportScreen {
             // Breakdown by reason
             for reason in &breakdown_keys {
                 let count = self.skip_breakdown.get(reason).copied().unwrap_or(0);
-                let (label, style) = match reason {
-                    SkipReason::Duplicate => (
-                        "Duplicates",
-                        ratatui::style::Style::default().fg(TEXT_SECONDARY),
-                    ),
-                    SkipReason::ValidationFailed => (
-                        "Validation failed",
-                        ratatui::style::Style::default().fg(WARNING),
-                    ),
+                let label = match reason {
+                    SkipReason::Duplicate => {
+                        t!("tui.import_export.skip_reason_duplicates").to_string()
+                    }
+                    SkipReason::ValidationFailed => {
+                        t!("tui.import_export.skip_reason_validation_failed").to_string()
+                    }
                     _ => continue,
                 };
-                let detail =
-                    Paragraph::new(format!("    {}: {} records", label, count)).style(style);
+                let style = match reason {
+                    SkipReason::Duplicate => ratatui::style::Style::default().fg(TEXT_SECONDARY),
+                    SkipReason::ValidationFailed => ratatui::style::Style::default().fg(WARNING),
+                    _ => continue,
+                };
+                let detail = Paragraph::new(
+                    t!(
+                        "tui.import_export.skip_records_count",
+                        label = label,
+                        count = count
+                    )
+                    .to_string(),
+                )
+                .style(style);
                 frame.render_widget(detail, rows[row_idx]);
                 row_idx += 1;
             }

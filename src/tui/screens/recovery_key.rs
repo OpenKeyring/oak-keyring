@@ -8,6 +8,7 @@ use ratatui::layout::Constraint;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Row, Table};
+use std::borrow::Cow;
 use zeroize::Zeroize;
 
 use crate::tui::theme::{BORDER, ERROR, PRIMARY, TEXT, TEXT_MUTED, TEXT_SECONDARY};
@@ -24,7 +25,7 @@ pub enum WordGridMode {
 }
 
 /// State for the 24-word BIP39 recovery key grid.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct WordGridState {
     pub words: [String; 24],
     pub errors: [bool; 24],
@@ -43,6 +44,12 @@ impl Zeroize for WordGridState {
         self.errors = [false; 24];
         self.focused_index = 0;
         self.mode = WordGridMode::FullInput;
+    }
+}
+
+impl Drop for WordGridState {
+    fn drop(&mut self) {
+        self.zeroize();
     }
 }
 
@@ -107,14 +114,25 @@ impl WordGridState {
             .all(|&i| !self.words[i].is_empty())
     }
 
-    /// Returns all 24 words as a `Vec<String>`.
-    pub fn collect_words(&self) -> Vec<String> {
-        self.words.to_vec()
+    pub fn collect_recovery_words(
+        &self,
+    ) -> Result<crate::types::RecoveryWords, crate::types::RecoveryWordsError> {
+        crate::types::RecoveryWords::new(self.words.to_vec())
     }
 
-    /// Handle a key event. Returns `Some(words)` when Enter is pressed and all
+    pub fn take_recovery_words(
+        &mut self,
+    ) -> Result<crate::types::RecoveryWords, crate::types::RecoveryWordsError> {
+        let taken = std::mem::replace(&mut self.words, std::array::from_fn(|_| String::new()));
+        crate::types::RecoveryWords::new(Vec::from(taken))
+    }
+
+    /// Handle a key event. Returns recovery words when Enter is pressed and all
     /// editable words are filled.
-    pub fn handle_key(&mut self, key: KeyEvent) -> Option<Vec<String>> {
+    pub fn handle_key(
+        &mut self,
+        key: KeyEvent,
+    ) -> Option<Result<crate::types::RecoveryWords, crate::types::RecoveryWordsError>> {
         match key.code {
             KeyCode::Tab => {
                 self.next_word();
@@ -126,7 +144,7 @@ impl WordGridState {
             }
             KeyCode::Enter => {
                 if self.all_filled() {
-                    Some(self.collect_words())
+                    Some(self.collect_recovery_words())
                 } else {
                     self.next_word();
                     None
@@ -189,7 +207,7 @@ impl WordGridState {
     }
 
     /// Build the styled `Line` for a single cell at `index`.
-    fn render_cell(&self, index: usize) -> Line<'static> {
+    fn render_cell<'a>(&'a self, index: usize) -> Line<'a> {
         let is_focused = index == self.focused_index;
         let is_error = self.errors[index];
         let is_editable = self.is_editable(index);
@@ -197,21 +215,27 @@ impl WordGridState {
         // Number prefix: right-aligned 2-digit
         let num_str = format!("{:>2}.", index + 1);
 
-        let (word_text, base_style) = if !is_editable {
+        let (word_text, base_style): (Cow<'a, str>, Style) = if !is_editable {
             // Non-editable in PartialVerify: dimmed dots
             (
-                "\u{00b7}\u{00b7}\u{00b7}\u{00b7}".to_string(),
+                Cow::Borrowed("\u{00b7}\u{00b7}\u{00b7}\u{00b7}"),
                 Style::default().fg(TEXT_MUTED),
             )
         } else if self.words[index].is_empty() {
             // Empty editable: placeholder
-            ("____".to_string(), Style::default().fg(TEXT_MUTED))
+            (Cow::Borrowed("____"), Style::default().fg(TEXT_MUTED))
         } else if is_error {
             // Error word
-            (self.words[index].clone(), Style::default().fg(ERROR))
+            (
+                Cow::Borrowed(self.words[index].as_str()),
+                Style::default().fg(ERROR),
+            )
         } else {
             // Normal filled word
-            (self.words[index].clone(), Style::default().fg(TEXT))
+            (
+                Cow::Borrowed(self.words[index].as_str()),
+                Style::default().fg(TEXT),
+            )
         };
 
         // Build spans for the cell
@@ -280,11 +304,9 @@ mod tests {
 
     #[test]
     fn recovery_key_partial_verify_only_editable() {
-        let state = WordGridState {
-            mode: WordGridMode::PartialVerify {
-                positions: [3, 7, 11, 19],
-            },
-            ..Default::default()
+        let mut state = WordGridState::default();
+        state.mode = WordGridMode::PartialVerify {
+            positions: [3, 7, 11, 19],
         };
 
         let editable = state.editable_indices();
@@ -302,12 +324,10 @@ mod tests {
 
     #[test]
     fn recovery_key_partial_verify_navigation() {
-        let mut state = WordGridState {
-            focused_index: 0,
-            mode: WordGridMode::PartialVerify {
-                positions: [3, 7, 11, 19],
-            },
-            ..Default::default()
+        let mut state = WordGridState::default();
+        state.focused_index = 0;
+        state.mode = WordGridMode::PartialVerify {
+            positions: [3, 7, 11, 19],
         };
 
         // Starting at 0 (not in positions), next should go to first editable (3)
@@ -349,11 +369,9 @@ mod tests {
 
     #[test]
     fn recovery_key_all_filled_partial() {
-        let mut state = WordGridState {
-            mode: WordGridMode::PartialVerify {
-                positions: [0, 8, 16, 23],
-            },
-            ..Default::default()
+        let mut state = WordGridState::default();
+        state.mode = WordGridMode::PartialVerify {
+            positions: [0, 8, 16, 23],
         };
 
         assert!(!state.all_filled());
@@ -449,22 +467,43 @@ mod tests {
             crossterm::event::KeyModifiers::NONE,
         ));
         assert!(result.is_some());
-        let words = result.unwrap();
+        let words = result.unwrap().unwrap();
         assert_eq!(words.len(), 24);
-        assert!(words.iter().all(|w| w == "abandon"));
+        assert!(words.iter().all(|word| word == "abandon"));
     }
 
     #[test]
-    fn recovery_key_collect_words() {
+    fn recovery_key_collect_recovery_words_rejects_empty_slots() {
         let mut state = WordGridState::default();
         state.words[0] = "abandon".to_string();
         state.words[23] = "zoo".to_string();
 
-        let words = state.collect_words();
+        assert!(matches!(
+            state.collect_recovery_words(),
+            Err(crate::types::RecoveryWordsError::EmptyWord { index: 1 })
+        ));
+    }
+
+    #[test]
+    fn recovery_key_collects_recovery_words_owner() {
+        let mut state = WordGridState::default();
+        for word in &mut state.words {
+            word.push_str("abandon");
+        }
+        let words = state.collect_recovery_words().unwrap();
         assert_eq!(words.len(), 24);
-        assert_eq!(words[0], "abandon");
-        assert_eq!(words[23], "zoo");
-        assert!(words[1..23].iter().all(|w| w.is_empty()));
+        assert!(words.iter().all(|word| word == "abandon"));
+    }
+
+    #[test]
+    fn recovery_key_take_words_clears_grid() {
+        let mut state = WordGridState::default();
+        for word in &mut state.words {
+            word.push_str("abandon");
+        }
+        let words = state.take_recovery_words().unwrap();
+        assert_eq!(words.len(), 24);
+        assert!(state.words.iter().all(String::is_empty));
     }
 
     #[test]
@@ -513,12 +552,10 @@ mod tests {
 
     #[test]
     fn recovery_key_partial_verify_non_editable_ignores_input() {
-        let mut state = WordGridState {
-            focused_index: 0,
-            mode: WordGridMode::PartialVerify {
-                positions: [3, 7, 11, 19],
-            },
-            ..Default::default()
+        let mut state = WordGridState::default();
+        state.focused_index = 0;
+        state.mode = WordGridMode::PartialVerify {
+            positions: [3, 7, 11, 19],
         };
 
         // Index 0 is not editable, typing should be ignored

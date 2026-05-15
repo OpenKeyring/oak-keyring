@@ -12,6 +12,7 @@ pub mod vault;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -23,11 +24,12 @@ use crate::commands::types::HealthReport;
 use crate::commands::{Command, InternalCommand, Message};
 use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::{AppConfig, ConfigManager};
-use crate::db::schema::init_db;
+use crate::db::schema::{init_db, init_db_in_memory};
 use crate::services::clipboard::ClipboardService;
 use crate::services::health::HealthService;
 use crate::services::import_export::ImportExportService;
 use crate::services::vault::VaultService;
+use crate::types::SecureStr;
 
 use crate::config::notification::ServiceNotification;
 use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
@@ -44,26 +46,79 @@ mod vault_test;
 #[cfg(test)]
 mod sync_test;
 
+const SYNC_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DbStartupMode {
+    FileBacked,
+    DeferredInMemory,
+}
+
+impl DbStartupMode {
+    pub fn from_vault_state(state: crate::app::VaultInitState) -> Self {
+        if state.has_vault || state.vault_has_db_only {
+            Self::FileBacked
+        } else {
+            Self::DeferredInMemory
+        }
+    }
+}
+
 /// Load OAuth2 tokens from TokenStore into the in-memory GoogleDriveConfig.
 /// TokenStore is the single source of truth — config.toml never stores tokens.
-fn load_oauth2_tokens_into_config(config: &mut AppConfig) {
+fn load_oauth2_tokens_into_config(config: &mut AppConfig, config_dir: &std::path::Path) {
     if config.sync.provider != SyncProvider::GoogleDrive {
         return;
     }
-    let base_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("open-keyring")
-        .join("tokens");
+    let base_path = config_dir.join("tokens");
     let store = TokenStore::new(base_path);
     let tokens = match store.load("google_drive") {
         Ok(Some(t)) => t,
-        _ => return,
+        Ok(None) => {
+            tracing::warn!(
+                "Google Drive tokens not found at new path — re-authorization may be required"
+            );
+            return;
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to load Google Drive tokens");
+            return;
+        }
     };
     if let Some(ProviderConfig::GoogleDrive(ref mut cfg)) = config.sync.provider_config {
         cfg.access_token = tokens.access_token;
         if let Some(rt) = tokens.refresh_token {
             cfg.refresh_token = rt;
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShutdownReport {
+    pub sync_shutdown: ShutdownStepStatus,
+    pub wal_checkpoint: ShutdownStepStatus,
+}
+
+impl Default for ShutdownReport {
+    fn default() -> Self {
+        Self {
+            sync_shutdown: ShutdownStepStatus::NotApplicable,
+            wal_checkpoint: ShutdownStepStatus::NotApplicable,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ShutdownStepStatus {
+    NotApplicable,
+    Completed,
+    Failed(String),
+    TimedOut,
+}
+
+impl ShutdownStepStatus {
+    fn has_failure(&self) -> bool {
+        matches!(self, Self::Failed(_) | Self::TimedOut)
     }
 }
 
@@ -75,6 +130,8 @@ fn load_oauth2_tokens_into_config(config: &mut AppConfig) {
 pub struct CommandExecutor {
     /// S1: Vault service — SQLite CRUD + encryption.
     vault: VaultService,
+    /// True when `vault` wraps an on-disk vault.db rather than recovery-only memory state.
+    vault_db_file_backed: bool,
     /// S2: Sync service — cloud sync (None when no provider configured).
     sync: Option<crate::services::sync::SyncService>,
     /// S3: Health service — password security analysis.
@@ -91,10 +148,15 @@ pub struct CommandExecutor {
     config_notifier: ServiceNotificationImpl,
     /// Path to the vault directory (contains vault.db, config.toml, etc.).
     pub(super) vault_dir: PathBuf,
+    /// Path to the config directory (contains config.toml).
+    config_dir: PathBuf,
     /// Cached health report, updated after health check runs.
     pub(super) health_report: Option<HealthReport>,
     /// Timestamp of the most recent health check completion.
     pub(super) last_health_check_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// Cached verified master password for the change-password flow.
+    /// Set after successful `VerifyMasterPassword`, consumed by `ChangeMasterPassword`.
+    pub(super) verified_master_password: Option<SecureStr>,
     /// Channel for sending messages (results) back to the UI layer.
     pub(super) result_tx: mpsc::Sender<Message>,
     /// Internal channel for background tasks to send system-level signals.
@@ -115,12 +177,12 @@ pub struct CommandExecutor {
 impl CommandExecutor {
     /// Create a new CommandExecutor, initializing all services.
     ///
-    /// Opens the SQLite database at `vault_dir/vault.db`, creates service
-    /// instances, and returns a fully-constructed executor ready to run.
+    /// Opens the SQLite database at the data directory, or uses an in-memory
+    /// database for deferred startup modes, creates service instances, and
+    /// returns a fully-constructed executor ready to run.
     ///
     /// # Arguments
     /// * `config` — Application configuration
-    /// * `vault_dir` — Path to the vault directory
     /// * `result_tx` — Channel sender for dispatching messages to the UI
     /// * `shutdown_token` — Token for graceful executor shutdown
     ///
@@ -133,14 +195,21 @@ impl CommandExecutor {
     #[tracing::instrument(skip(result_tx, shutdown_token))]
     pub fn new(
         mut config: AppConfig,
-        vault_dir: PathBuf,
         result_tx: mpsc::Sender<Message>,
         shutdown_token: CancellationToken,
+        vault_dir: std::path::PathBuf,
+        config_dir: std::path::PathBuf,
+        db_startup_mode: DbStartupMode,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        info!(vault_dir = %vault_dir.display(), "initializing CommandExecutor");
+        info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), ?db_startup_mode, "initializing CommandExecutor");
 
-        // Open and initialize the SQLite database.
-        let conn = init_db(&vault_dir);
+        let conn = match db_startup_mode {
+            DbStartupMode::FileBacked => init_db(&vault_dir)?,
+            DbStartupMode::DeferredInMemory => {
+                info!("using in-memory database until vault database is explicitly initialized");
+                init_db_in_memory()
+            }
+        };
 
         // Create service instances.
         let vault = VaultService::new(conn);
@@ -158,7 +227,7 @@ impl CommandExecutor {
         ))));
 
         // Load OAuth2 tokens from TokenStore (runtime-only, not in config.toml).
-        load_oauth2_tokens_into_config(&mut config);
+        load_oauth2_tokens_into_config(&mut config, &config_dir);
 
         let sync = match create_cloud_storage(&config.sync) {
             Ok(storage) => {
@@ -178,17 +247,22 @@ impl CommandExecutor {
 
         let operation_cancel_token = shutdown_token.child_token();
 
+        let vault_db_file_backed = matches!(db_startup_mode, DbStartupMode::FileBacked);
+
         Ok(Self {
             vault,
+            vault_db_file_backed,
             sync,
             health,
             clipboard,
             import_export,
-            config: config_impl::ConfigManagerImpl::new(config),
+            config: config_impl::ConfigManagerImpl::new(config, config_dir.clone()),
             config_notifier,
             vault_dir,
+            config_dir,
             health_report: None,
             last_health_check_time: None,
+            verified_master_password: None,
             result_tx,
             internal_tx,
             internal_rx: Some(internal_rx),
@@ -287,7 +361,12 @@ impl CommandExecutor {
             }
         }
 
-        info!("CommandExecutor stopped");
+        let report = self.shutdown_gracefully().await;
+        if report.sync_shutdown.has_failure() || report.wal_checkpoint.has_failure() {
+            tracing::error!(?report, "CommandExecutor stopped with shutdown failures");
+        } else {
+            info!("CommandExecutor stopped");
+        }
     }
 
     /// Execute an internal command from a background task.
@@ -313,15 +392,182 @@ impl CommandExecutor {
 
     // execute(), pre_check(), post_hook(), and dispatch() are defined in execute.rs
 
-    /// Replace the sync service with a pre-built instance (test-only).
-    #[cfg(feature = "test-helpers")]
+    /// Replace the sync service with a pre-built instance.
+    ///
+    /// # Note
+    ///
+    /// This method is intended for testing purposes only, allowing injection of
+    /// mock sync services. In production, the sync service is configured during
+    /// executor construction.
     pub fn set_sync_service(&mut self, sync: Option<crate::services::sync::SyncService>) {
         self.sync = sync;
     }
+
+    pub(crate) async fn shutdown_gracefully(&mut self) -> ShutdownReport {
+        self.operation_cancel_token.cancel();
+
+        let mut report = ShutdownReport::default();
+
+        if let Some(sync) = self.sync.take() {
+            report.sync_shutdown =
+                match tokio::time::timeout(SYNC_SHUTDOWN_TIMEOUT, sync.shutdown()).await {
+                    Ok(Ok(())) => ShutdownStepStatus::Completed,
+                    Ok(Err(e)) => ShutdownStepStatus::Failed(e.to_string()),
+                    Err(_) => ShutdownStepStatus::TimedOut,
+                };
+        }
+
+        if self.vault_db_file_backed {
+            report.wal_checkpoint = match self.vault.checkpoint_wal() {
+                Ok(()) => ShutdownStepStatus::Completed,
+                Err(e) => ShutdownStepStatus::Failed(e.to_string()),
+            };
+        }
+
+        tracing::info!(?report, "executor graceful shutdown completed");
+        report
+    }
+
+    /// Open a speculative file-backed vault database.
+    ///
+    /// The returned guard must be committed after the restore/init flow has
+    /// fully validated and applied data. Dropping it rolls back newly created
+    /// database artifacts while preserving artifacts that existed beforehand.
+    pub(super) fn begin_file_backed_vault_db(
+        &mut self,
+    ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
+        let existed_before = vault_db_paths(&self.vault_dir).map(|path| artifact_exists(&path));
+        let conn = init_db(&self.vault_dir)?;
+        self.vault = crate::services::vault::VaultService::new(conn);
+        info!("opened pending file-backed vault database");
+        Ok(PendingFileBackedVaultDb {
+            executor: self,
+            committed: false,
+            existed_before,
+        })
+    }
+}
+
+pub(super) struct PendingFileBackedVaultDb<'a> {
+    executor: &'a mut CommandExecutor,
+    committed: bool,
+    existed_before: [bool; 4],
+}
+
+impl PendingFileBackedVaultDb<'_> {
+    pub(super) fn unlock(
+        &mut self,
+        master_password: &crate::types::SecureStr,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        self.executor
+            .vault
+            .unlock(&self.executor.vault_dir, master_password)
+    }
+
+    pub(super) fn create_record(
+        &mut self,
+        params: crate::types::record::CreateRecordParams,
+    ) -> Result<uuid::Uuid, crate::errors::mapping::vault::VaultError> {
+        self.executor.vault.create_record(params)
+    }
+
+    pub(super) fn apply_downloaded_cloud_record(
+        &mut self,
+        record: &crate::cloud::CloudRecord,
+    ) -> Result<bool, crate::errors::mapping::vault::VaultError> {
+        self.executor.vault.apply_downloaded_cloud_record(record)
+    }
+
+    pub(super) fn upsert_record_health_state(
+        &mut self,
+        state: &crate::types::health::RecordHealthState,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        self.executor.vault.upsert_record_health_state(state)
+    }
+
+    pub(super) fn delete_record_health_states(
+        &mut self,
+        record_ids: &[uuid::Uuid],
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        self.executor.vault.delete_record_health_states(record_ids)
+    }
+
+    pub(super) async fn restore_pull_only(
+        &mut self,
+    ) -> Result<crate::services::sync::SyncResult, crate::errors::mapping::sync::SyncError> {
+        let sync = self.executor.sync.as_mut().ok_or_else(|| {
+            crate::errors::mapping::sync::SyncError::ProviderError {
+                provider: "none".to_string(),
+                message: "Sync service not configured".to_string(),
+            }
+        })?;
+        sync.restore_pull_only().await
+    }
+
+    pub(super) fn set_metadata(
+        &mut self,
+        key: &str,
+        value: &str,
+    ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        self.executor.vault.set_metadata(key, value)
+    }
+
+    pub(super) fn commit(mut self) {
+        self.committed = true;
+        self.executor.vault_db_file_backed = true;
+        info!("committed file-backed vault database");
+    }
+}
+
+impl Drop for PendingFileBackedVaultDb<'_> {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+
+        // Pending file-backed databases are speculative recovery outputs. If a
+        // restore/init path returns before commit(), leaving those files on disk
+        // would make the next startup treat an empty or partial database as a
+        // real vault. Roll back to the in-memory placeholder first so the
+        // executor cannot keep using a connection to files we are about to
+        // remove.
+        self.executor.vault = crate::services::vault::VaultService::new(init_db_in_memory());
+        self.executor.vault_db_file_backed = false;
+
+        for (path, existed_before) in vault_db_paths(&self.executor.vault_dir)
+            .into_iter()
+            .zip(self.existed_before)
+        {
+            if existed_before {
+                continue;
+            }
+            if let Err(e) = std::fs::remove_file(&path) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(path = %path.display(), error = %e, "failed to remove uncommitted vault database file");
+                }
+            }
+        }
+        info!("rolled back uncommitted file-backed vault database");
+    }
+}
+
+fn artifact_exists(path: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
+fn vault_db_paths(vault_dir: &std::path::Path) -> [std::path::PathBuf; 4] {
+    [
+        vault_dir.join("vault.db"),
+        vault_dir.join("vault.db-wal"),
+        vault_dir.join("vault.db-shm"),
+        vault_dir.join("vault.db.migration.bak"),
+    ]
 }
 
 #[cfg(test)]
 mod shutdown_tests {
+    use super::{CommandExecutor, DbStartupMode, ShutdownStepStatus};
+    use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
     #[tokio::test]
@@ -332,5 +578,72 @@ mod shutdown_tests {
         assert!(!operation.is_cancelled());
         shutdown.cancel();
         assert!(operation.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn shutdown_report_marks_sync_and_wal_not_applicable_for_in_memory_vault() {
+        let shutdown = CancellationToken::new();
+        let dir = tempfile::tempdir().unwrap();
+        let executor = CommandExecutor::new(
+            crate::config::AppConfig::default_config(),
+            mpsc::channel(8).0,
+            shutdown,
+            dir.path().to_path_buf(),
+            dir.path().to_path_buf(),
+            DbStartupMode::DeferredInMemory,
+        )
+        .expect("executor should construct with in-memory vault");
+
+        let mut executor = executor;
+        let report = executor.shutdown_gracefully().await;
+
+        assert_eq!(report.sync_shutdown, ShutdownStepStatus::NotApplicable);
+        assert_eq!(report.wal_checkpoint, ShutdownStepStatus::NotApplicable);
+    }
+}
+
+#[cfg(test)]
+mod db_startup_mode_tests {
+    use super::*;
+    use crate::app::VaultInitState;
+
+    #[test]
+    fn db_startup_mode_uses_file_backed_when_db_exists() {
+        assert_eq!(
+            DbStartupMode::from_vault_state(VaultInitState {
+                has_vault: true,
+                vault_has_key_only: false,
+                vault_has_db_only: false,
+            }),
+            DbStartupMode::FileBacked
+        );
+        assert_eq!(
+            DbStartupMode::from_vault_state(VaultInitState {
+                has_vault: false,
+                vault_has_key_only: false,
+                vault_has_db_only: true,
+            }),
+            DbStartupMode::FileBacked
+        );
+    }
+
+    #[test]
+    fn db_startup_mode_defers_when_db_is_missing() {
+        assert_eq!(
+            DbStartupMode::from_vault_state(VaultInitState {
+                has_vault: false,
+                vault_has_key_only: false,
+                vault_has_db_only: false,
+            }),
+            DbStartupMode::DeferredInMemory
+        );
+        assert_eq!(
+            DbStartupMode::from_vault_state(VaultInitState {
+                has_vault: false,
+                vault_has_key_only: true,
+                vault_has_db_only: false,
+            }),
+            DbStartupMode::DeferredInMemory
+        );
     }
 }

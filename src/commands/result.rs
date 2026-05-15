@@ -16,6 +16,9 @@ use crate::types::{DecryptedRecord, PasswordHistoryView, SecureStr, SyncStats, T
 /// Cancelled variant for long operation interruption (tea-command-pattern-arch §6.6.3).
 #[derive(Debug)]
 pub enum CommandResult {
+    /// No-op result for commands that need no UI feedback.
+    Void,
+
     // ── Record CRUD Results ────────────────────
     RecordCreated {
         id: Uuid,
@@ -129,6 +132,7 @@ pub enum CommandResult {
 
     // ── Import/Export Results ─────────────────
     ImportValidated {
+        session_id: Uuid,
         preview: ImportPreview,
     },
     ImportCompleted {
@@ -153,9 +157,7 @@ pub enum CommandResult {
     VaultLocked,
     MasterPasswordVerified,
     MasterPasswordChanged,
-    VaultInitialized {
-        recovery_words: Vec<String>,
-    },
+    VaultInitialized,
 
     // ── Audit Results ────────────────────────
     AuditLogLoaded {
@@ -228,6 +230,38 @@ pub enum CommandResult {
     Cancelled {
         operation: String,
         partial_progress: Option<String>,
+    },
+
+    // ── Partial Vault Recovery ───────────────
+    /// Recovery words are valid BIP39 and can reconstruct a Passkey.
+    RecoveryWordsValidated,
+
+    /// wrapped_secret_key.json has been rebuilt from recovery words.
+    KeyFileRebuilt,
+
+    /// Database recovery started from the given source.
+    DatabaseRecoveryStarted {
+        source: DatabaseRecoverySource,
+    },
+
+    /// Cloud restore requires OAuth2 authorization before proceeding.
+    DatabaseRestoreNeedsOAuth,
+
+    /// Database restore progress update.
+    DatabaseRestoreProgress {
+        current: usize,
+        total: usize,
+        label: String,
+    },
+
+    /// Database has been successfully restored from the given source.
+    DatabaseRestored {
+        source: DatabaseRecoverySource,
+    },
+
+    /// Restored database could not be decrypted with current key.
+    DatabaseValidationFailed {
+        reason: String,
     },
 }
 
@@ -316,7 +350,7 @@ mod exhaustive_tests {
                 CommandResult::VaultLocked => {}
                 CommandResult::MasterPasswordVerified => {}
                 CommandResult::MasterPasswordChanged => {}
-                CommandResult::VaultInitialized { .. } => {}
+                CommandResult::VaultInitialized => {}
                 // Audit Results
                 CommandResult::AuditLogLoaded { .. } => {}
                 // DEK Rotation Results
@@ -331,8 +365,18 @@ mod exhaustive_tests {
                 // Errors
                 CommandResult::Error { .. } => {}
                 CommandResult::FatalError { .. } => {}
+                // Void
+                CommandResult::Void => {}
                 // Cancellation
                 CommandResult::Cancelled { .. } => {}
+                // Partial Vault Recovery
+                CommandResult::RecoveryWordsValidated => {}
+                CommandResult::KeyFileRebuilt => {}
+                CommandResult::DatabaseRecoveryStarted { .. } => {}
+                CommandResult::DatabaseRestoreNeedsOAuth => {}
+                CommandResult::DatabaseRestoreProgress { .. } => {}
+                CommandResult::DatabaseRestored { .. } => {}
+                CommandResult::DatabaseValidationFailed { .. } => {}
             }
         }
     }

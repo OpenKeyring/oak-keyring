@@ -45,6 +45,8 @@ pub enum TargetField {
     Tags,
     /// Expiration date.
     ExpiresAt,
+    /// Credential type (login, api, ssh).
+    CredentialType,
 }
 
 /// Optional transformation applied to a source value before it is stored.
@@ -408,6 +410,13 @@ pub fn okb_mapping() -> FormatMapping {
             FieldMapping {
                 source_field: "tags".into(),
                 target_field: TargetField::Tags,
+                required: false,
+                default_value: None,
+                transform: None,
+            },
+            FieldMapping {
+                source_field: "credential_type".into(),
+                target_field: TargetField::CredentialType,
                 required: false,
                 default_value: None,
                 transform: None,

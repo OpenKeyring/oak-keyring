@@ -246,7 +246,7 @@ mod tests {
             id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             version: 5,
             encrypted_data: "dGVzdCBkYXRh".to_string(),
-            nonce: "bm9uY2U".to_string(),
+            nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
             dek_version: 1,
             aad: crate::cloud::record::AadFields {
                 record_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
@@ -506,7 +506,7 @@ mod tests {
 
     #[test]
     fn conflict_manager_default() {
-        let manager = ConflictManager::default();
+        let manager = ConflictManager;
         // Should work the same as new()
         let result = manager.detect_conflicts(SyncStatus::Synced, 1, 2);
         assert!(matches!(result, ConflictAction::DownloadOnly));

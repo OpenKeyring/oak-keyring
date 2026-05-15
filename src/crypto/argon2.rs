@@ -1,6 +1,7 @@
 use argon2::{Argon2, Params, Version};
 use subtle::ConstantTimeEq;
 
+use crate::security::LockedKey32;
 use crate::types::sensitive::SecureStr;
 
 #[derive(Debug, Clone, Copy)]
@@ -53,7 +54,7 @@ pub fn derive_key(password: &str, salt: &[u8; 16]) -> Result<Vec<u8>, String> {
 }
 
 pub fn derive_key_sensitive(password: &SecureStr, salt: &[u8; 16]) -> Result<Vec<u8>, String> {
-    derive_key_with_params(password.get(), salt, &Argon2Params::medium())
+    derive_key_with_params(password.expose(), salt, &Argon2Params::medium())
 }
 
 pub fn derive_key_with_params(
@@ -74,6 +75,61 @@ pub fn derive_key_with_params(
         .map_err(|e| e.to_string())?;
 
     Ok(key)
+}
+
+/// Derives a 32-byte key using Argon2id, outputting directly into locked memory.
+///
+/// This function is the secure version of [`derive_key_with_params`] for
+/// sensitive key derivation (e.g., master keys, wrapping keys). It ensures
+/// the derived key material is never written to swap or core dumps.
+///
+/// # Arguments
+///
+/// * `password` - The password as a SecureStr (zeroized on drop)
+/// * `salt` - 16-byte salt for key derivation
+/// * `params` - Argon2 parameters (memory cost, time cost, parallelism)
+///
+/// # Returns
+///
+/// A [`LockedKey32`] containing the derived key in locked memory.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Argon2 parameter construction fails
+/// - Memory locking fails (OS resource limits)
+/// - Key derivation fails
+///
+/// # Examples
+///
+/// ```no_run
+/// use oak_keyring::crypto::argon2::{self, Argon2Params};
+/// use oak_keyring::types::SecureStr;
+///
+/// let password = SecureStr::new("master-password".to_string());
+/// let salt = [1u8; 16];
+/// let key = argon2::derive_key_locked(&password, &salt, &Argon2Params::medium())
+///     .expect("key derivation should succeed");
+/// // The key is now in locked memory and will be zeroized on drop
+/// ```
+pub fn derive_key_locked(
+    password: &SecureStr,
+    salt: &[u8; 16],
+    params: &Argon2Params,
+) -> Result<LockedKey32, String> {
+    let argon2 = Argon2::new(
+        argon2::Algorithm::Argon2id,
+        Version::V0x13,
+        Params::new(params.m_cost, params.t_cost, params.p_cost, Some(32))
+            .map_err(|e| e.to_string())?,
+    );
+
+    LockedKey32::generate_from(|out| {
+        argon2
+            .hash_password_into(password.expose().as_bytes(), salt, out)
+            .map_err(|e| e.to_string())
+    })
+    .map_err(|e| e.to_string())
 }
 
 pub fn hash_password(password: &str) -> Result<PasswordHash, String> {
@@ -247,19 +303,26 @@ mod tests {
             .expect("Derivation should succeed");
 
         let ct_result = derived.ct_eq(&hash.key);
-        assert_eq!(
+        assert!(
             bool::from(ct_result),
-            true,
             "Constant-time comparison should match for correct password"
         );
 
         let wrong_derived = derive_key_with_params("wrong", &hash.salt, &hash.params)
             .expect("Derivation should succeed");
         let ct_wrong = wrong_derived.ct_eq(&hash.key);
-        assert_eq!(
-            bool::from(ct_wrong),
-            false,
+        assert!(
+            !bool::from(ct_wrong),
             "Constant-time comparison should not match for wrong password"
         );
+    }
+
+    #[test]
+    fn derive_key_locked_returns_32_byte_key() {
+        let password = SecureStr::new("test_password".to_string());
+        let salt = [1u8; 16];
+        let key = derive_key_locked(&password, &salt, &Argon2Params::medium())
+            .expect("locked derivation should succeed");
+        assert_eq!(key.expose().len(), 32);
     }
 }

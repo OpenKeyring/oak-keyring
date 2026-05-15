@@ -144,7 +144,7 @@ mod tests {
     fn test_random_password_length() {
         for len in [4, 8, 16, 64, 128] {
             let pw = generate_random_password(len).unwrap();
-            assert_eq!(pw.get().len(), len);
+            assert_eq!(pw.expose().len(), len);
         }
     }
 
@@ -159,11 +159,11 @@ mod tests {
     #[test]
     fn test_random_password_chars_from_safe_charset() {
         let pw = generate_random_password(128).unwrap();
-        for c in pw.get().chars() {
+        for c in pw.expose().chars() {
             assert!(SAFE_CHARSET.contains(c), "char '{c}' not in safe charset");
         }
         let ambiguous = ['I', 'O', 'l', '0', '1'];
-        for c in pw.get().chars() {
+        for c in pw.expose().chars() {
             assert!(!ambiguous.contains(&c), "ambiguous char '{c}' found");
         }
     }
@@ -172,13 +172,13 @@ mod tests {
     fn test_random_password_different_each_time() {
         let a = generate_random_password(64).unwrap();
         let b = generate_random_password(64).unwrap();
-        assert_ne!(a.get(), b.get(), "two random passwords should differ");
+        assert_ne!(a.expose(), b.expose(), "two random passwords should differ");
     }
 
     #[test]
     fn test_policy_password_meets_requirements() {
         let pw = generate_random_password_with_policy(20, 2, 2, 2, 2).unwrap();
-        let s = pw.get();
+        let s = pw.expose();
         assert_eq!(s.len(), 20);
 
         let digit_count = s.chars().filter(|c| c.is_ascii_digit()).count();
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn test_memorable_password_word_count() {
         let pw = generate_memorable_password(4).unwrap();
-        let words: Vec<&str> = pw.get().split('-').collect();
+        let words: Vec<&str> = pw.expose().split('-').collect();
         assert_eq!(words.len(), 4);
     }
 
@@ -216,11 +216,11 @@ mod tests {
     #[test]
     fn test_pin_digits_only() {
         let pin = generate_pin(8).unwrap();
-        for c in pin.get().chars() {
+        for c in pin.expose().chars() {
             assert!(c.is_ascii_digit(), "PIN char '{c}' is not a digit");
         }
         let valid_digits: Vec<char> = "23456789".chars().collect();
-        for c in pin.get().chars() {
+        for c in pin.expose().chars() {
             assert!(valid_digits.contains(&c), "digit '{c}' not in 2-9 range");
         }
     }
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn test_memorable_password_capitalize_false() {
         let pw = generate_memorable_password_with_options(4, "-", false).unwrap();
-        let words: Vec<&str> = pw.get().split('-').collect();
+        let words: Vec<&str> = pw.expose().split('-').collect();
         assert_eq!(words.len(), 4);
         // All words should be lowercase
         for word in words {
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn test_memorable_password_capitalize_true() {
         let pw = generate_memorable_password_with_options(4, "-", true).unwrap();
-        let words: Vec<&str> = pw.get().split('-').collect();
+        let words: Vec<&str> = pw.expose().split('-').collect();
         assert_eq!(words.len(), 4);
         // Each word should start with uppercase
         for word in words {
@@ -274,7 +274,7 @@ mod tests {
     fn test_memorable_password_backward_compatible() {
         // Original function should still work (default capitalize=false)
         let pw = generate_memorable_password(4).unwrap();
-        let words: Vec<&str> = pw.get().split('-').collect();
+        let words: Vec<&str> = pw.expose().split('-').collect();
         assert_eq!(words.len(), 4);
         // All words should be lowercase (backward compatible)
         for word in words {
@@ -289,11 +289,11 @@ mod tests {
     #[test]
     fn test_memorable_password_separator_with_capitalize() {
         let pw = generate_memorable_password_with_options(3, "_", true).unwrap();
-        let words: Vec<&str> = pw.get().split('_').collect();
+        let words: Vec<&str> = pw.expose().split('_').collect();
         assert_eq!(words.len(), 3);
         // Check that separator is used correctly with capitalization
-        assert!(pw.get().contains('_'));
-        assert!(!pw.get().contains('-'));
+        assert!(pw.expose().contains('_'));
+        assert!(!pw.expose().contains('-'));
         // Each word should be capitalized
         for word in words {
             let first_char = word.chars().next().unwrap();

@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use super::schema::{apply_pragmas, init_db_in_memory, initialize_metadata, initialize_schema};
+use super::schema::init_db_in_memory;
 
 /// Helper: create a fully-initialized in-memory database.
 fn fresh_db() -> Connection {
@@ -170,17 +170,17 @@ fn initial_metadata_keys_exist() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 5: Schema version is "2"
+// Test 5: Schema version is "1"
 // ---------------------------------------------------------------------------
 
 #[test]
-fn schema_version_is_two() {
+fn schema_version_is_one() {
     let db = fresh_db();
 
     let version = metadata_value(&db, "schema_version").unwrap();
     assert_eq!(
-        version, "2",
-        "schema_version should be \"2\", got \"{version}\""
+        version, "1",
+        "schema_version should be \"1\", got \"{version}\""
     );
 }
 
@@ -190,27 +190,17 @@ fn schema_version_is_two() {
 
 #[test]
 fn initialization_is_idempotent() {
-    let conn = Connection::open_in_memory().unwrap();
-    apply_pragmas(&conn);
-
-    // First initialization.
-    initialize_schema(&conn);
-    initialize_metadata(&conn);
+    let conn = init_db_in_memory();
 
     let tables_after_first = table_names(&conn);
     let vault_id_first = metadata_value(&conn, "vault_id").unwrap();
 
-    // Second initialization — should not panic or change state.
-    initialize_schema(&conn);
-    initialize_metadata(&conn);
+    crate::db::migrations::run_migrations(&conn).unwrap();
 
     let tables_after_second = table_names(&conn);
     let vault_id_second = metadata_value(&conn, "vault_id").unwrap();
 
-    // Tables unchanged.
     assert_eq!(tables_after_first, tables_after_second);
-
-    // Metadata preserved (INSERT OR IGNORE keeps original values).
     assert_eq!(vault_id_first, vault_id_second);
 }
 

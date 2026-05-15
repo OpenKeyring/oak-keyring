@@ -314,7 +314,7 @@ mod tests {
     use crate::config::notification::ServiceNotification;
     use crate::config::AppConfig;
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-    use crate::db::schema::{initialize_metadata, initialize_schema};
+    use crate::db::schema::init_db_in_memory;
     use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
     use crate::services::clipboard::{ClipboardService, MockBackend};
     use crate::services::health::HealthService;
@@ -322,7 +322,6 @@ mod tests {
     use crate::services::rotation::save_checkpoint;
     use crate::services::sync::SyncService;
     use crate::types::rotation::{RotationCheckpoint, RotationTrigger};
-    use rusqlite::Connection;
     use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -330,9 +329,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     fn setup_vault_unlocked() -> VaultService {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_schema(&conn);
-        initialize_metadata(&conn);
+        let conn = init_db_in_memory();
         let mut vault = VaultService::new(conn);
         let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
         vault.unlock_with_mnemonic(&mnemonic).unwrap();
@@ -358,13 +355,18 @@ mod tests {
 
         CommandExecutor {
             vault,
+            vault_db_file_backed: false,
             sync,
             health: HealthService::new(),
             clipboard,
             import_export: ImportExportService::new(),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(AppConfig::default()),
+            config: crate::executor::config_impl::ConfigManagerImpl::new(
+                AppConfig::default(),
+                std::path::PathBuf::from(":memory:"),
+            ),
             config_notifier,
             vault_dir: PathBuf::from(":memory:"),
+            config_dir: PathBuf::from(":memory:"),
             health_report: None,
             last_health_check_time: None,
             result_tx,
@@ -374,6 +376,7 @@ mod tests {
             operation_cancel_token: CancellationToken::new(),
             timer_rebuild_pending: false,
             oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
+            verified_master_password: None,
         }
     }
 

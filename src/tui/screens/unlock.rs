@@ -3,7 +3,6 @@
 use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent};
-use zeroize::Zeroize;
 
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
@@ -13,7 +12,7 @@ use crate::tui::theme::{
     self, Styles, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY, WARNING,
 };
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
-use crate::types::SecureStr;
+use crate::types::sensitive::SensitiveInput;
 
 // ── State Machine ──────────────────────────────────────────────────────────
 
@@ -56,7 +55,7 @@ pub fn lockout_duration(attempts: u32) -> u64 {
 pub struct UnlockScreen {
     pub state: UnlockPhase,
     pub mode: UnlockMode,
-    pub password_input: String,
+    pub password_input: SensitiveInput,
     pub failed_attempts: u32,
     pub error_message: Option<String>,
 }
@@ -371,7 +370,6 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
     }
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {
-        self.password_input.zeroize();
         self.password_input.clear();
         self.state = UnlockPhase::Idle;
         self.error_message = None;
@@ -380,7 +378,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
     }
 
     fn on_unmount(&mut self) {
-        self.password_input.zeroize();
+        self.password_input.clear();
         self.error_message = None;
     }
 }
@@ -407,23 +405,34 @@ impl UnlockScreen {
                     self.error_message = None;
                     let cmd = match self.mode {
                         UnlockMode::Password => {
-                            let password = std::mem::take(&mut self.password_input);
+                            let password = self.password_input.take_secure();
                             Command::UnlockVault {
-                                master_password: SecureStr::new(password),
+                                master_password: password,
                             }
                         }
                         UnlockMode::RecoveryKey => {
-                            let words: Vec<String> = self
-                                .password_input
-                                .split_whitespace()
-                                .map(String::from)
-                                .collect();
-                            self.password_input.zeroize();
+                            let words_result = self.password_input.expose(|s| {
+                                crate::types::RecoveryWords::new(
+                                    s.split_whitespace().map(String::from).collect(),
+                                )
+                            });
                             self.password_input.clear();
-                            Command::UnlockWithRecoveryKey { words }
+                            match words_result {
+                                Ok(words) => Command::UnlockWithRecoveryKey { words },
+                                Err(_) => {
+                                    self.state = UnlockPhase::Failed;
+                                    self.error_message =
+                                        Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                                    return ScreenResult::Continue;
+                                }
+                            }
                         }
                     };
-                    let _ = ctx.command_tx.try_send(cmd);
+                    if ctx.command_tx.try_send(cmd).is_err() {
+                        self.state = UnlockPhase::Failed;
+                        self.error_message =
+                            Some(t!("tui.error.command_dispatch_failed").to_string());
+                    }
                 }
                 ScreenResult::Continue
             }
@@ -436,11 +445,11 @@ impl UnlockScreen {
                 ScreenResult::Continue
             }
             KeyCode::Backspace => {
-                self.password_input.pop();
+                self.password_input.pop_char();
                 ScreenResult::Continue
             }
             KeyCode::Char(c) => {
-                self.password_input.push(c);
+                self.password_input.push_char(c);
                 // Clear error on new input
                 if self.state == UnlockPhase::Failed {
                     self.state = UnlockPhase::Idle;
@@ -497,9 +506,18 @@ impl UnlockScreen {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::tui::traits::screen::Screen as ScreenTrait;
+
+    fn sensitive(s: &str) -> SensitiveInput {
+        let mut input = SensitiveInput::new();
+        for c in s.chars() {
+            input.push_char(c);
+        }
+        input
+    }
 
     #[test]
     fn unlock_state_starts_idle() {
@@ -538,8 +556,10 @@ mod tests {
 
     #[test]
     fn masked_input_hides_password() {
-        let mut screen = UnlockScreen::default();
-        screen.password_input = "hello".to_string();
+        let screen = UnlockScreen {
+            password_input: sensitive("hello"),
+            ..Default::default()
+        };
         let masked = screen.masked_input();
         assert_eq!(masked, "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}");
         assert!(!masked.contains('h'));
@@ -592,12 +612,41 @@ mod tests {
     }
 
     #[test]
+    fn recovery_key_mode_builds_recovery_words_command() {
+        let mut screen = UnlockScreen {
+            mode: UnlockMode::RecoveryKey,
+            password_input: sensitive("abandon ".repeat(24).trim()),
+            ..Default::default()
+        };
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(1);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+
+        let result = screen.handle_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        match rx.try_recv().expect("command should be sent") {
+            Command::UnlockWithRecoveryKey { words } => assert_eq!(words.len(), 24),
+            other => panic!("expected recovery command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn command_result_failed_increments_attempts() {
         // Ensure i18n is initialized for consistent test results
         crate::tui::i18n::init("en");
 
-        let mut screen = UnlockScreen::default();
-        screen.state = UnlockPhase::Verifying;
+        let mut screen = UnlockScreen {
+            state: UnlockPhase::Verifying,
+            ..Default::default()
+        };
         let result = screen.handle_command_result(CommandResult::VaultUnlockFailed {
             attempts_remaining: Some(3),
         });
@@ -633,7 +682,7 @@ mod tests {
     #[test]
     fn on_unmount_zeroizes_password() {
         let mut screen = UnlockScreen {
-            password_input: "sensitive123".to_string(),
+            password_input: sensitive("sensitive123"),
             error_message: Some("error".to_string()),
             ..Default::default()
         };
@@ -647,7 +696,7 @@ mod tests {
         let mut screen = UnlockScreen {
             state: UnlockPhase::Failed,
             mode: UnlockMode::RecoveryKey,
-            password_input: "old".to_string(),
+            password_input: sensitive("old"),
             failed_attempts: 10,
             error_message: Some("err".to_string()),
         };
@@ -655,7 +704,6 @@ mod tests {
         // We cannot easily construct ScreenContext in unit tests,
         // but on_mount doesn't actually use ctx, so we can't call it directly.
         // Instead verify the reset logic manually:
-        screen.password_input.zeroize();
         screen.password_input.clear();
         screen.state = UnlockPhase::Idle;
         screen.error_message = None;

@@ -16,16 +16,22 @@ fn render_config(screen: &ConfigScreen) -> TestBackend {
     terminal.backend().clone()
 }
 
+/// Deterministic test vault path isolated from real data directories.
+/// Pure rendering test — no I/O, no files created, no cleanup needed.
+fn make_test_screen() -> ConfigScreen {
+    ConfigScreen::new()
+}
+
 #[test]
 fn config_footer_no_focus() {
-    let screen = ConfigScreen::new();
+    let screen = make_test_screen();
     let backend = render_config(&screen);
     insta::assert_snapshot!("config_footer_no_focus", backend);
 }
 
 #[test]
 fn config_footer_exit_program_focused() {
-    let mut screen = ConfigScreen::new();
+    let mut screen = make_test_screen();
     screen.state.footer_focus = Some(FooterButton::ExitProgram);
     let backend = render_config(&screen);
     insta::assert_snapshot!("config_footer_exit_program_focused", backend);
@@ -33,7 +39,7 @@ fn config_footer_exit_program_focused() {
 
 #[test]
 fn config_footer_close_focused() {
-    let mut screen = ConfigScreen::new();
+    let mut screen = make_test_screen();
     screen.state.footer_focus = Some(FooterButton::Close);
     let backend = render_config(&screen);
     insta::assert_snapshot!("config_footer_close_focused", backend);

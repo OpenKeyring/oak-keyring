@@ -106,6 +106,15 @@ services/import_export/ → parsers/ (bitwarden, keepass, csv, onepassword, okb)
 - 同步测试: `tests/sync_*_test.rs` (checkpoint/conflict/e2e/pipeline/retry)
 - E2E 测试: `tests/e2e/`
 
+## Version Management
+
+- When preparing a user-visible feature merge, user-visible fix, build snapshot, or
+  release candidate, use the project skill at
+  `../.claude/skills/oak-keyring-version-management/SKILL.md`.
+- Keep `Cargo.toml` `[package].version` as the only application version source.
+- Do not use the application version for `schema_version`, `record.version`,
+  `dek_version`, cloud schema, or import/export format compatibility.
+
 ## WorkTree
 
 Git worktree directory: `./.worktrees`

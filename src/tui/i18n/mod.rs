@@ -71,6 +71,45 @@ pub fn switch_locale(locale: &str) {
 }
 
 #[cfg(test)]
+static LOCALE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// RAII guard that serializes locale-dependent tests and restores locale on drop.
+/// Uses a process-wide mutex so no two locale-sensitive tests run concurrently.
+#[cfg(test)]
+pub struct LocaleGuard {
+    original: String,
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl LocaleGuard {
+    pub fn new(locale: &str) -> Self {
+        let lock = LOCALE_LOCK.lock().unwrap();
+        let original = rust_i18n::locale().to_string();
+        init(locale);
+        Self {
+            original,
+            _lock: lock,
+        }
+    }
+
+    pub fn en() -> Self {
+        Self::new("en")
+    }
+
+    pub fn zh_cn() -> Self {
+        Self::new("zh-CN")
+    }
+}
+
+#[cfg(test)]
+impl Drop for LocaleGuard {
+    fn drop(&mut self) {
+        rust_i18n::set_locale(&self.original);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -143,10 +182,12 @@ mod tests {
         }
     }
 
-    // --- init and switch_locale tests (serialized due to global locale state) ---
+    // --- init and switch_locale tests (use guard to restore locale) ---
 
     #[test]
     fn init_and_switch_locale() {
+        let _guard = LocaleGuard::en();
+
         // init("auto") should resolve to a supported locale
         init("auto");
         let current = &*rust_i18n::locale();

@@ -1035,7 +1035,7 @@ mod tests {
 
         // Archived item NOT included
         assert!(
-            by_id.get("kbdznu56agh3tucxbswi72hpzq").is_none(),
+            !by_id.contains_key("kbdznu56agh3tucxbswi72hpzq"),
             "archived item should be skipped"
         );
     }

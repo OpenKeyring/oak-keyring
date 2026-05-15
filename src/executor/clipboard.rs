@@ -27,7 +27,7 @@ pub async fn handle_copy_to_clipboard(
     };
 
     // Step 2: Copy plaintext to clipboard
-    let clear_after = match executor.clipboard.copy(plaintext.get()) {
+    let clear_after = match executor.clipboard.copy(plaintext.expose()) {
         Ok(secs) => secs,
         Err(e) => {
             let err: &dyn ServiceError = &e;
@@ -52,7 +52,7 @@ pub async fn handle_copy_raw_to_clipboard(
     executor: &mut CommandExecutor,
     value: SecureStr,
 ) -> CommandResult {
-    let clear_after = match executor.clipboard.copy(value.get()) {
+    let clear_after = match executor.clipboard.copy(value.expose()) {
         Ok(secs) => secs,
         Err(e) => {
             let err: &dyn ServiceError = &e;
@@ -89,7 +89,7 @@ pub async fn handle_copy_history_password(
         }
     };
 
-    let clear_after = match executor.clipboard.copy(plaintext.get()) {
+    let clear_after = match executor.clipboard.copy(plaintext.expose()) {
         Ok(secs) => secs,
         Err(e) => {
             let err: &dyn ServiceError = &e;

@@ -16,13 +16,12 @@
 
 use oak_keyring::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
-use oak_keyring::db::schema::{initialize_metadata, initialize_schema};
+use oak_keyring::db::schema::init_db_in_memory;
 use oak_keyring::errors::mapping::vault::VaultError;
 use oak_keyring::services::vault::VaultService;
 use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
 use oak_keyring::types::record::{CreateRecordParams, DecryptedRecord, UpdateRecordParams};
 use oak_keyring::types::sensitive::SecureStr;
-use rusqlite::Connection;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -31,9 +30,7 @@ use uuid::Uuid;
 
 /// Create an in-memory VaultService with schema initialized and crypto unlocked.
 fn setup_vault() -> VaultService {
-    let conn = Connection::open_in_memory().unwrap();
-    initialize_schema(&conn);
-    initialize_metadata(&conn);
+    let conn = init_db_in_memory();
     let mut svc = VaultService::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
     svc.unlock_with_mnemonic(&mnemonic)
@@ -137,7 +134,7 @@ fn test_ac1_create_read_roundtrip() {
         } => {
             assert_eq!(name, "GitHub");
             assert_eq!(username, "alice");
-            assert_eq!(password.get(), "s3cret!");
+            assert_eq!(password.expose(), "s3cret!");
             assert!(is_favorite);
             let mut sorted_record_tags = record_tags.clone();
             sorted_record_tags.sort();
@@ -189,7 +186,7 @@ fn test_ac2_update_saves_history() {
         .decrypt_history_password(history[0].id)
         .expect("decrypt_history_password must succeed");
     assert_eq!(
-        decrypted.get(),
+        decrypted.expose(),
         "oldPassword!",
         "history must contain old password"
     );
@@ -198,7 +195,7 @@ fn test_ac2_update_saves_history() {
     let decrypted_record = svc.get_decrypted_record(id).unwrap();
     match decrypted_record {
         DecryptedRecord::Login { password, .. } => {
-            assert_eq!(password.get(), "newPassword!");
+            assert_eq!(password.expose(), "newPassword!");
         }
         other => panic!("expected Login, got {:?}", other),
     }
@@ -533,7 +530,7 @@ fn test_ac10_transaction_rollback() {
     let decrypted = svc.get_decrypted_record(id).unwrap();
     match decrypted {
         DecryptedRecord::Login { password, name, .. } => {
-            assert_eq!(password.get(), "pass123", "password must be unchanged");
+            assert_eq!(password.expose(), "pass123", "password must be unchanged");
             assert_eq!(name, "TransactionTest", "name must be unchanged");
         }
         other => panic!("expected Login, got {:?}", other),

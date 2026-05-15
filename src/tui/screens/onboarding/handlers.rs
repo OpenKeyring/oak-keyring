@@ -3,8 +3,8 @@ use crossterm::event::{KeyCode, KeyEvent};
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::Command;
+use crate::t;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
-use crate::types::SecureStr;
 
 use super::screen::OnboardingScreen;
 use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
@@ -14,8 +14,7 @@ impl OnboardingScreen {
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
         match &self.current_step {
-            OnboardingStep::Welcome => self.handle_welcome_key(key),
-            OnboardingStep::VaultPath => self.handle_vault_path_key(key, ctx),
+            OnboardingStep::Welcome => self.handle_welcome_key(key, ctx),
             OnboardingStep::RecoveryDisplay => self.handle_recovery_display_key(key, ctx),
             OnboardingStep::RecoveryVerify { .. } => self.handle_recovery_verify_key(key),
             OnboardingStep::RecoveryInput => self.handle_recovery_input_key(key, ctx),
@@ -26,8 +25,14 @@ impl OnboardingScreen {
         }
     }
 
-    pub(crate) fn handle_welcome_key(&mut self, key: KeyEvent) -> ScreenResult {
+    pub(crate) fn handle_welcome_key(
+        &mut self,
+        key: KeyEvent,
+        _ctx: &mut ScreenContext,
+    ) -> ScreenResult {
         const PATH_COUNT: usize = 3;
+        const LANGUAGE_COUNT: usize = 3;
+        const LANGUAGES: [&str; LANGUAGE_COUNT] = ["auto", "en", "zh-CN"];
 
         match key.code {
             KeyCode::Down | KeyCode::Tab => {
@@ -38,15 +43,23 @@ impl OnboardingScreen {
                 self.welcome_selected = (self.welcome_selected + PATH_COUNT - 1) % PATH_COUNT;
                 ScreenResult::Continue
             }
+            KeyCode::Char('l') | KeyCode::Char('L') => {
+                self.language_index = (self.language_index + 1) % LANGUAGE_COUNT;
+                let lang = LANGUAGES[self.language_index];
+                crate::tui::i18n::init(lang);
+                ScreenResult::Continue
+            }
             KeyCode::Enter => {
+                let lang = LANGUAGES[self.language_index];
                 match self.welcome_selected {
                     0 => {
                         self.selected_path = Some(OnboardingPath::CreateNew);
-                        self.current_step = OnboardingStep::VaultPath;
+                        self.generate_recovery_words(lang);
+                        self.current_step = OnboardingStep::RecoveryDisplay;
                     }
                     1 => {
                         self.selected_path = Some(OnboardingPath::Restore);
-                        self.current_step = OnboardingStep::RecoveryInput;
+                        return ScreenResult::NavigateTo(Screen::KeyRecovery);
                     }
                     2 => {
                         self.selected_path = Some(OnboardingPath::Import);
@@ -58,106 +71,6 @@ impl OnboardingScreen {
             }
             KeyCode::Esc => ScreenResult::ExitApp,
             _ => ScreenResult::Continue,
-        }
-    }
-
-    pub(crate) fn handle_vault_path_key(
-        &mut self,
-        key: KeyEvent,
-        ctx: &mut ScreenContext,
-    ) -> ScreenResult {
-        if self.vault_path_editable {
-            self.handle_vault_path_editable_key(key, ctx)
-        } else {
-            self.handle_vault_path_button_key(key, ctx)
-        }
-    }
-
-    /// Handle key events when VaultPath is in non-editable (button) mode.
-    pub(crate) fn handle_vault_path_button_key(
-        &mut self,
-        key: KeyEvent,
-        ctx: &mut ScreenContext,
-    ) -> ScreenResult {
-        match key.code {
-            KeyCode::Tab | KeyCode::Right => {
-                self.vault_path_focus = (self.vault_path_focus + 1) % 2;
-                ScreenResult::Continue
-            }
-            KeyCode::BackTab | KeyCode::Left => {
-                self.vault_path_focus = (self.vault_path_focus + 1) % 2;
-                ScreenResult::Continue
-            }
-            KeyCode::Enter => match self.vault_path_focus {
-                0 => {
-                    // "Use default path" — use the default and advance
-                    self.path_input.clear();
-                    self.advance_from_vault_path(ctx);
-                    ScreenResult::Continue
-                }
-                1 => {
-                    // "Custom path..." — switch to editable mode
-                    self.vault_path_editable = true;
-                    self.vault_path_focus = 2;
-                    self.path_input.clear();
-                    ScreenResult::Continue
-                }
-                _ => ScreenResult::Continue,
-            },
-            KeyCode::Esc => {
-                self.current_step = OnboardingStep::Welcome;
-                ScreenResult::Continue
-            }
-            _ => ScreenResult::Continue,
-        }
-    }
-
-    /// Handle key events when VaultPath is in editable (custom path input) mode.
-    pub(crate) fn handle_vault_path_editable_key(
-        &mut self,
-        key: KeyEvent,
-        ctx: &mut ScreenContext,
-    ) -> ScreenResult {
-        match key.code {
-            KeyCode::Enter => {
-                // Only advance if path validation passes (no blocking errors)
-                let can_advance = self
-                    .validate_vault_path()
-                    .map(|(_, is_error)| !is_error)
-                    .unwrap_or(false);
-                if can_advance && !self.path_input.is_empty() {
-                    self.advance_from_vault_path(ctx);
-                }
-                ScreenResult::Continue
-            }
-            KeyCode::Esc => {
-                // Return to non-editable button mode
-                self.vault_path_editable = false;
-                self.vault_path_focus = 1;
-                ScreenResult::Continue
-            }
-            KeyCode::Backspace => {
-                self.path_input.pop();
-                ScreenResult::Continue
-            }
-            KeyCode::Char(c) => {
-                self.path_input.push(c);
-                ScreenResult::Continue
-            }
-            _ => ScreenResult::Continue,
-        }
-    }
-
-    fn advance_from_vault_path(&mut self, ctx: &mut ScreenContext) {
-        match self.selected_path {
-            Some(OnboardingPath::CreateNew) | Some(OnboardingPath::Import) => {
-                self.generate_recovery_words(&ctx.config.general.language);
-                self.current_step = OnboardingStep::RecoveryDisplay;
-            }
-            Some(OnboardingPath::Restore) => {
-                self.current_step = OnboardingStep::SecurityAdvisory;
-            }
-            None => {}
         }
     }
 
@@ -185,10 +98,9 @@ impl OnboardingScreen {
             }
             KeyCode::Enter => match self.recovery_focus {
                 RecoveryFocus::CopyButton => {
-                    if !self.recovery_words.is_empty() {
-                        let words_str = self.recovery_words.join(" ");
+                    if let Some(words) = &self.recovery_words {
                         let cmd = Command::CopyRawToClipboard {
-                            value: SecureStr::new(words_str),
+                            value: words.to_phrase_secure(),
                         };
                         let _ = ctx.command_tx.try_send(cmd);
                         self.clipboard_copied = true;
@@ -197,7 +109,9 @@ impl OnboardingScreen {
                     ScreenResult::Continue
                 }
                 RecoveryFocus::RegenerateButton => {
-                    self.generate_recovery_words(&ctx.config.general.language);
+                    const LANGUAGES: [&str; 3] = ["auto", "en", "zh-CN"];
+                    let lang = LANGUAGES[self.language_index];
+                    self.generate_recovery_words(lang);
                     self.recovery_confirmed = false;
                     self.clipboard_copied = false;
                     ScreenResult::Continue
@@ -220,7 +134,7 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::VaultPath;
+                self.current_step = OnboardingStep::Welcome;
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -256,14 +170,14 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Backspace => {
-                self.verify_inputs[focused].pop();
+                self.verify_inputs[focused].pop_char();
                 self.verify_errors[focused] = false;
                 ScreenResult::Continue
             }
             KeyCode::Char(c) if c.is_alphabetic() => {
                 let input = &mut self.verify_inputs[focused];
                 if input.len() < 12 {
-                    input.push(c);
+                    input.push_char(c);
                 }
                 self.verify_errors[focused] = false;
                 ScreenResult::Continue
@@ -276,8 +190,10 @@ impl OnboardingScreen {
     /// On success, advance to SetPassword. On failure, mark errors.
     fn submit_recovery_verify(&mut self) -> ScreenResult {
         let all_correct = self.verify_positions.iter().enumerate().all(|(i, &pos)| {
-            pos < self.recovery_words.len()
-                && self.verify_inputs[i].eq_ignore_ascii_case(&self.recovery_words[pos])
+            self.recovery_words
+                .as_ref()
+                .and_then(|words| words.word(pos))
+                .is_some_and(|word| self.verify_inputs[i].expose(|s| s.eq_ignore_ascii_case(word)))
         });
         if all_correct {
             self.verify_errors = [false; 4];
@@ -285,8 +201,13 @@ impl OnboardingScreen {
         } else {
             // Mark mismatches
             for (i, &pos) in self.verify_positions.iter().enumerate() {
-                self.verify_errors[i] = pos >= self.recovery_words.len()
-                    || !self.verify_inputs[i].eq_ignore_ascii_case(&self.recovery_words[pos]);
+                self.verify_errors[i] = !self
+                    .recovery_words
+                    .as_ref()
+                    .and_then(|words| words.word(pos))
+                    .is_some_and(|word| {
+                        self.verify_inputs[i].expose(|s| s.eq_ignore_ascii_case(word))
+                    });
             }
         }
         ScreenResult::Continue
@@ -305,11 +226,23 @@ impl OnboardingScreen {
             _ => {
                 let result = self.recovery_grid.handle_key(key);
                 match result {
-                    Some(words) => {
-                        let cmd = Command::UnlockWithRecoveryKey { words };
-                        let _ = ctx.command_tx.try_send(cmd);
-                        // Advance to VaultPath
-                        self.current_step = OnboardingStep::VaultPath;
+                    Some(result) => {
+                        match result {
+                            Ok(words) => {
+                                let cmd = Command::UnlockWithRecoveryKey { words };
+                                if ctx.command_tx.try_send(cmd).is_err() {
+                                    self.error =
+                                        Some(t!("tui.error.command_dispatch_failed").to_string());
+                                    return ScreenResult::Continue;
+                                }
+                                // Advance to SecurityAdvisory
+                                self.current_step = OnboardingStep::SecurityAdvisory;
+                            }
+                            Err(_) => {
+                                self.error =
+                                    Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                            }
+                        }
                         ScreenResult::Continue
                     }
                     None => ScreenResult::Continue,
@@ -325,7 +258,7 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::VaultPath;
+                self.current_step = OnboardingStep::RecoveryInput;
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -338,7 +271,7 @@ impl OnboardingScreen {
         ctx: &mut ScreenContext,
     ) -> ScreenResult {
         use crate::tui::screens::import_export::{
-            source_needs_password, ImportFocus, IMPORT_SOURCES,
+            import_sources, source_needs_password, ImportFocus,
         };
 
         match key.code {
@@ -349,13 +282,13 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Down => {
-                if self.selected_source_idx < IMPORT_SOURCES.len() - 1 {
+                if self.selected_source_idx < import_sources().len() - 1 {
                     self.selected_source_idx += 1;
                 }
                 ScreenResult::Continue
             }
             KeyCode::Tab => {
-                let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let source = import_sources()[self.selected_source_idx].0;
                 let needs_pw = source_needs_password(source);
                 self.import_focus = match self.import_focus {
                     ImportFocus::SourceList => ImportFocus::FilePath,
@@ -365,7 +298,7 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::BackTab => {
-                let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let source = import_sources()[self.selected_source_idx].0;
                 let needs_pw = source_needs_password(source);
                 self.import_focus = match self.import_focus {
                     ImportFocus::Password => ImportFocus::FilePath,
@@ -381,7 +314,7 @@ impl OnboardingScreen {
                     ScreenResult::Continue
                 }
                 ImportFocus::Password => {
-                    self.import_password.push(c);
+                    self.import_password.push_char(c);
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
@@ -392,21 +325,21 @@ impl OnboardingScreen {
                     ScreenResult::Continue
                 }
                 ImportFocus::Password => {
-                    self.import_password.pop();
+                    self.import_password.pop_char();
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
             },
             KeyCode::Enter => {
                 if self.import_file_path.is_empty() {
-                    self.error = Some("File path is required".to_string());
+                    self.error = Some(t!("tui.entry.file_path_required").to_string());
                     return ScreenResult::Continue;
                 }
-                let source = IMPORT_SOURCES[self.selected_source_idx].0;
+                let source = import_sources()[self.selected_source_idx].0;
                 let password = if self.import_password.is_empty() {
                     None
                 } else {
-                    Some(SecureStr::new(self.import_password.clone()))
+                    Some(self.import_password.take_secure())
                 };
                 let cmd = Command::ValidateImportFile {
                     source,
@@ -429,7 +362,7 @@ impl OnboardingScreen {
         key: KeyEvent,
         ctx: &mut ScreenContext,
     ) -> ScreenResult {
-        use crate::tui::screens::import_export::IMPORT_SOURCES;
+        use crate::tui::screens::import_export::import_sources;
 
         match key.code {
             KeyCode::Tab => {
@@ -445,16 +378,12 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Enter => {
-                let source = IMPORT_SOURCES[self.selected_source_idx].0;
-                let password = if self.import_password.is_empty() {
-                    None
-                } else {
-                    Some(SecureStr::new(self.import_password.clone()))
-                };
+                let source = import_sources()[self.selected_source_idx].0;
                 let cmd = Command::ExecuteImport {
+                    session_id: self.import_session_id,
                     source,
                     path: std::path::PathBuf::from(&self.import_file_path),
-                    password,
+                    password: None,
                     column_mapping: None,
                     import_as_notes: self.import_as_notes,
                 };
@@ -505,11 +434,16 @@ impl OnboardingScreen {
     pub(crate) fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
         match result {
             CommandResult::RecoveryKeyUnlocked => {
-                // Recovery key was accepted — already moved to VaultPath
+                // Recovery key was accepted — advance to SecurityAdvisory
+                self.current_step = OnboardingStep::SecurityAdvisory;
                 ScreenResult::Continue
             }
-            CommandResult::ImportValidated { preview } => {
+            CommandResult::ImportValidated {
+                session_id,
+                preview,
+            } => {
                 if matches!(self.current_step, OnboardingStep::ImportSource) {
+                    self.import_session_id = Some(session_id);
                     self.import_preview = Some(preview);
                     self.error = None;
                     self.current_step = OnboardingStep::ImportPreview;
@@ -518,7 +452,11 @@ impl OnboardingScreen {
             }
             CommandResult::ImportCompleted { .. } => {
                 if matches!(self.current_step, OnboardingStep::ImportPreview) {
-                    self.current_step = OnboardingStep::VaultPath;
+                    // After import, generate recovery words using the language selected on Welcome.
+                    const LANGUAGES: [&str; 3] = ["auto", "en", "zh-CN"];
+                    let lang = LANGUAGES[self.language_index];
+                    self.generate_recovery_words(lang);
+                    self.current_step = OnboardingStep::RecoveryDisplay;
                 }
                 ScreenResult::Continue
             }

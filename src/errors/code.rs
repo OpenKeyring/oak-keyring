@@ -698,7 +698,7 @@ mod tests {
     #[test]
     fn error_code_is_clone() {
         let code = ErrorCode::CryptoDecryptionFailed;
-        let cloned = code.clone();
+        let cloned = code;
         assert_eq!(code, cloned);
     }
 

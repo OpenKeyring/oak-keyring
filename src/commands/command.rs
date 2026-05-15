@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::commands::types::*;
-use crate::types::{CredentialType, EncryptedPayload, SecureStr};
+use crate::types::{CredentialType, EncryptedPayload, RecoveryWords, SecureStr};
 
 /// UI → Executor business command.
 ///
@@ -17,7 +17,7 @@ pub enum Command {
     },
 
     UnlockWithRecoveryKey {
-        words: Vec<String>,
+        words: RecoveryWords,
     },
 
     LockVault,
@@ -27,18 +27,21 @@ pub enum Command {
     },
 
     ChangeMasterPassword {
-        current_password: SecureStr,
+        current_password: Option<SecureStr>,
         new_password: SecureStr,
     },
 
+    /// Clear the cached verified master password from executor state.
+    /// Sent when the user cancels/leaves the change-password flow without completing it.
+    ClearVerifiedPassword,
+
     InitializeVault {
-        vault_path: PathBuf,
         master_password: SecureStr,
         /// Pre-generated BIP39 recovery words. When provided, the executor
         /// reconstructs the Passkey from these words instead of generating
         /// a new mnemonic. This ensures the words shown to the user match
         /// the key material stored on disk.
-        recovery_words: Option<Vec<String>>,
+        recovery_words: Option<RecoveryWords>,
     },
 
     // ── Record CRUD ──────────────────────────────
@@ -188,6 +191,7 @@ pub enum Command {
     },
 
     ExecuteImport {
+        session_id: Option<Uuid>,
         source: ImportSource,
         path: PathBuf,
         password: Option<SecureStr>,
@@ -231,6 +235,33 @@ pub enum Command {
     TriggerRotation,
     /// Check if rotation should be triggered
     CheckRotationTrigger,
+
+    // ── Partial Vault Recovery ─────────────────────
+    /// Validate BIP39 recovery words (must be exactly 24).
+    ValidateRecoveryWords {
+        words: RecoveryWords,
+    },
+
+    /// Rebuild wrapped_secret_key.json from recovery words + new master password.
+    RebuildKeyFileFromRecovery {
+        master_password: SecureStr,
+        recovery_words: RecoveryWords,
+    },
+
+    /// Restore vault.db from a local .okb backup file.
+    RestoreDatabaseFromOkb {
+        path: PathBuf,
+        password: crate::types::SecureStr,
+        master_password: Option<crate::types::SecureStr>,
+    },
+
+    /// Restore vault.db from cloud sync (pull-only, no push).
+    RestoreDatabaseFromCloud {
+        master_password: Option<crate::types::SecureStr>,
+    },
+
+    /// Validate that the restored vault.db can be decrypted with the current key.
+    ValidateRestoredDatabase,
 }
 
 #[cfg(test)]
@@ -249,6 +280,7 @@ mod exhaustive_tests {
                 Command::LockVault => {}
                 Command::VerifyMasterPassword { .. } => {}
                 Command::ChangeMasterPassword { .. } => {}
+                Command::ClearVerifiedPassword => {}
                 Command::InitializeVault { .. } => {}
                 // Record CRUD
                 Command::CreateRecord { .. } => {}
@@ -303,6 +335,12 @@ mod exhaustive_tests {
                 // DEK Rotation
                 Command::TriggerRotation => {}
                 Command::CheckRotationTrigger => {}
+                // Partial Vault Recovery
+                Command::ValidateRecoveryWords { .. } => {}
+                Command::RebuildKeyFileFromRecovery { .. } => {}
+                Command::RestoreDatabaseFromOkb { .. } => {}
+                Command::RestoreDatabaseFromCloud { .. } => {}
+                Command::ValidateRestoredDatabase => {}
             }
         }
     }

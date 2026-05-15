@@ -82,7 +82,7 @@ pub struct ExportPayload {
 ///
 /// Returns `Ok(())` if password is at least 8 characters.
 pub fn validate_export_password(password: &SecureStr) -> Result<(), ImportExportError> {
-    if password.get().len() < 8 {
+    if password.expose().len() < 8 {
         return Err(ImportExportError::InvalidPassword);
     }
     Ok(())
@@ -149,24 +149,16 @@ pub fn encrypt_and_write_okb(
     let salt = argon2::generate_salt();
 
     // 3. Derive DEK via Argon2id.
-    let dek = argon2::derive_key(password.get(), &salt)
+    let dek = argon2::derive_key_locked(password, &salt, &argon2::Argon2Params::medium())
         .map_err(ImportExportError::KeyDerivationFailed)?;
 
-    // Convert DEK to fixed-size array for xchacha20.
-    let dek_arr: [u8; 32] = dek
-        .as_slice()
-        .try_into()
-        .map_err(|_| ImportExportError::InternalError("DEK is not 32 bytes".to_string()))?;
-
     // 4. Encrypt JSON with XChaCha20-Poly1305.
-    let (ciphertext, nonce) =
-        xchacha20::encrypt(&json_bytes, &dek_arr).map_err(ImportExportError::EncryptionFailed)?;
+    let (ciphertext, nonce) = xchacha20::encrypt(&json_bytes, dek.expose())
+        .map_err(ImportExportError::EncryptionFailed)?;
 
     // Zeroize plaintext JSON bytes now that encryption is complete.
     let mut json_bytes = json_bytes;
     json_bytes.zeroize();
-    let mut dek_arr = dek_arr;
-    dek_arr.zeroize();
 
     // 5. Build binary buffer: version (LE) + salt + nonce + ciphertext.
     let mut buf = Vec::with_capacity(4 + SALT_LEN + NONCE_LEN + ciphertext.len());
@@ -469,7 +461,7 @@ mod tests {
         let ciphertext = &data[44..];
 
         // Derive the same DEK.
-        let dek = argon2::derive_key(valid_password().get(), &salt).expect("derive key");
+        let dek = argon2::derive_key(valid_password().expose(), &salt).expect("derive key");
         let dek_arr: [u8; 32] = dek.as_slice().try_into().unwrap();
 
         // Decrypt.

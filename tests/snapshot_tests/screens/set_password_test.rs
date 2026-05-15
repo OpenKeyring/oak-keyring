@@ -49,18 +49,14 @@ fn type_into_field(screen: &mut SetPasswordScreen, text: &str, ctx: &mut ScreenC
 
 #[test]
 fn set_password_empty_state() {
-    let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-        recovery_words: Vec::new(),
-    });
+    let screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
     let backend = render_screen(&screen, 60, 16);
     insta::assert_snapshot!("set_password_empty", backend);
 }
 
 #[test]
 fn set_password_with_input_masked() {
-    let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-        recovery_words: Vec::new(),
-    });
+    let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
     let mut ctx = dummy_ctx();
     type_into_field(&mut screen, "mysecretpassword", &mut ctx);
     let backend = render_screen(&screen, 60, 16);
@@ -69,9 +65,7 @@ fn set_password_with_input_masked() {
 
 #[test]
 fn set_password_with_input_visible() {
-    let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-        recovery_words: Vec::new(),
-    });
+    let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
     screen.password_visible = true;
     let mut ctx = dummy_ctx();
     type_into_field(&mut screen, "mysecretpassword", &mut ctx);
@@ -96,9 +90,7 @@ fn set_password_confirm_focused_with_match() {
 
 #[test]
 fn set_password_with_error() {
-    let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-        recovery_words: Vec::new(),
-    });
+    let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
     let mut ctx = dummy_ctx();
     // Type a short password then submit to trigger error
     type_into_field(&mut screen, "short", &mut ctx);

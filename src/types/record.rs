@@ -165,7 +165,7 @@ impl PartialEq for TuiRecord {
 }
 
 /// Parameters for creating a new vault record.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CreateRecordParams {
     pub credential_type: CredentialType,
     pub payload: EncryptedPayload,
@@ -175,7 +175,7 @@ pub struct CreateRecordParams {
 }
 
 /// Parameters for updating an existing vault record.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct UpdateRecordParams {
     pub id: Uuid,
     pub payload: EncryptedPayload,

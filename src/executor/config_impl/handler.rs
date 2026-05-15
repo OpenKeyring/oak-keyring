@@ -2,7 +2,7 @@
 //!
 //! These structs implement the D3 config traits for use by the S5 executor layer.
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
@@ -21,7 +21,7 @@ pub struct ConfigManagerImpl {
 }
 
 impl ConfigManagerImpl {
-    pub fn new(config: AppConfig) -> Self {
+    pub fn new(config: AppConfig, _config_dir: PathBuf) -> Self {
         Self {
             config: RwLock::new(config),
         }
@@ -40,22 +40,22 @@ impl ConfigManagerImpl {
 }
 
 impl ConfigManager for ConfigManagerImpl {
-    fn load(&self, vault_dir: &Path) -> Result<AppConfig, ConfigError> {
-        let config = AppConfig::load(vault_dir)?;
+    fn load(&self, config_dir: &std::path::Path) -> Result<AppConfig, ConfigError> {
+        let config = AppConfig::load(config_dir)?;
         let mut current = self.config.write().unwrap_or_else(|e| e.into_inner());
         *current = config.clone();
         Ok(config)
     }
 
-    fn save(&self, config: &AppConfig, vault_dir: &Path) -> Result<(), ConfigError> {
-        config.save(vault_dir)?;
+    fn save(&self, config: &AppConfig, config_dir: &std::path::Path) -> Result<(), ConfigError> {
+        config.save(config_dir)?;
         let mut current = self.config.write().unwrap_or_else(|e| e.into_inner());
         *current = config.clone();
         Ok(())
     }
 
-    fn reload(&self, vault_dir: &Path) -> Result<AppConfig, ConfigError> {
-        self.load(vault_dir)
+    fn reload(&self, config_dir: &std::path::Path) -> Result<AppConfig, ConfigError> {
+        self.load(config_dir)
     }
 
     fn get_config(&self) -> AppConfig {
@@ -72,29 +72,26 @@ impl ConfigManager for ConfigManagerImpl {
 
 /// Polling-based config file change detector using mtime comparison.
 pub struct ConfigWatcherImpl {
+    config_path: PathBuf,
     pub(crate) last_mtime: Option<SystemTime>,
 }
 
 impl ConfigWatcherImpl {
-    pub fn new() -> Self {
-        Self { last_mtime: None }
+    pub fn new(config_path: PathBuf) -> Self {
+        Self {
+            config_path,
+            last_mtime: None,
+        }
     }
 
-    pub(crate) fn current_mtime(vault_dir: &Path) -> Option<SystemTime> {
-        let config_path = vault_dir.join("config.toml");
-        std::fs::metadata(&config_path).ok()?.modified().ok()
-    }
-}
-
-impl Default for ConfigWatcherImpl {
-    fn default() -> Self {
-        Self::new()
+    pub(crate) fn current_mtime(&self) -> Option<SystemTime> {
+        std::fs::metadata(&self.config_path).ok()?.modified().ok()
     }
 }
 
 impl ConfigWatcher for ConfigWatcherImpl {
-    fn needs_reload(&self, vault_dir: &Path) -> bool {
-        let current = Self::current_mtime(vault_dir);
+    fn needs_reload(&self) -> bool {
+        let current = self.current_mtime();
         match (current, self.last_mtime) {
             (Some(now), Some(last)) => now > last,
             (Some(_), None) => true,
@@ -102,8 +99,8 @@ impl ConfigWatcher for ConfigWatcherImpl {
         }
     }
 
-    fn last_modified(&self, vault_dir: &Path) -> Option<SystemTime> {
-        Self::current_mtime(vault_dir)
+    fn last_modified(&self) -> Option<SystemTime> {
+        self.current_mtime()
     }
 }
 
@@ -114,8 +111,8 @@ impl ConfigWatcher for ConfigWatcherImpl {
 impl ConfigWatcherImpl {
     /// Update the stored mtime snapshot to the current file mtime.
     /// Call this after a successful reload to avoid repeated reload triggers.
-    pub fn update_mtime(&mut self, vault_dir: &Path) {
-        self.last_mtime = Self::current_mtime(vault_dir);
+    pub fn update_mtime(&mut self) {
+        self.last_mtime = self.current_mtime();
     }
 }
 

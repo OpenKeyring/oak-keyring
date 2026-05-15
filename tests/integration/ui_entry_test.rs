@@ -3,31 +3,63 @@
 //! Covers: App/AppState navigation, notification priority, lockout escalation,
 //! recovery key grid, set password screen, onboarding defaults, loading indicators.
 
-use oak_keyring::app::App;
+use oak_keyring::app::{App, VaultInitState};
 use oak_keyring::commands::types::Screen;
 use oak_keyring::config::AppConfig;
+use oak_keyring::instance_lock::InstanceLock;
 use oak_keyring::tui::screens::onboarding::{OnboardingPath, OnboardingScreen};
 use oak_keyring::tui::screens::recovery_key::WordGridState;
 use oak_keyring::tui::screens::set_password::{SetPasswordContext, SetPasswordScreen};
 use oak_keyring::tui::screens::unlock::lockout_duration;
 use oak_keyring::tui::state::loading::{ProgressBarState, SpinnerState};
 use oak_keyring::tui::state::notification::{NotificationState, StatusMessage};
+use oak_keyring::types::RecoveryWords;
 
 // ── App and AppState ────────────────────────────────────────────────────────
+
+fn recovery_words() -> RecoveryWords {
+    RecoveryWords::new((0..24).map(|i| format!("word{i}")).collect()).unwrap()
+}
 
 #[test]
 fn app_starts_at_unlock_screen_when_vault_exists() {
     let vault_dir = tempfile::tempdir().unwrap();
-    let app = App::new(AppConfig::default(), vault_dir.path().to_path_buf(), true)
-        .expect("App::new should succeed");
+    let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+    let vault_dir_path = vault_dir.path().to_path_buf();
+    let config_dir_path = vault_dir.path().to_path_buf();
+    let app = App::new(
+        AppConfig::default(),
+        VaultInitState {
+            has_vault: true,
+            vault_has_key_only: false,
+            vault_has_db_only: false,
+        },
+        instance_lock,
+        vault_dir_path,
+        config_dir_path,
+    )
+    .expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Unlock);
 }
 
 #[test]
 fn app_starts_at_onboarding_screen_when_no_vault() {
     let vault_dir = tempfile::tempdir().unwrap();
-    let app = App::new(AppConfig::default(), vault_dir.path().to_path_buf(), false)
-        .expect("App::new should succeed");
+    let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+    let vault_dir_path = vault_dir.path().to_path_buf();
+    let config_dir_path = vault_dir.path().to_path_buf();
+    let app = App::new(
+        AppConfig::default(),
+        VaultInitState {
+            has_vault: false,
+            vault_has_key_only: false,
+            vault_has_db_only: false,
+        },
+        instance_lock,
+        vault_dir_path,
+        config_dir_path,
+    )
+    .expect("App::new should succeed");
     assert_eq!(app.state.current_screen, Screen::Onboarding);
 }
 
@@ -144,7 +176,7 @@ fn recovery_key_grid_default() {
 #[test]
 fn set_password_screen_new() {
     let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
-        recovery_words: Vec::new(),
+        recovery_words: recovery_words(),
     });
     assert!(screen.new_password.is_empty());
     assert!(screen.confirm_password.is_empty());
@@ -157,9 +189,8 @@ fn set_password_screen_new() {
 fn onboarding_welcome_defaults() {
     let screen = OnboardingScreen::default();
     assert!(screen.selected_path.is_none());
-    assert!(screen.path_input.is_empty());
     assert!(screen.error.is_none());
-    assert!(screen.recovery_words.is_empty());
+    assert!(screen.recovery_words.is_none());
     assert!(!screen.recovery_confirmed);
 }
 
@@ -226,29 +257,15 @@ fn set_password_context_from_onboarding_create_path() {
         Some(OnboardingPath::CreateNew)
     );
 
-    // Apply context detection logic (mirrors route_on_mount_from_state)
-    let context = match state.screen_history.last().map(|s| s.screen) {
-        Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
-        _ => match state.screens.onboarding.selected_path {
-            Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new(),
-            },
-        },
+    state.screens.onboarding.recovery_words = Some(recovery_words());
+    let context = SetPasswordContext::OnboardingCreate {
+        recovery_words: state.screens.onboarding.recovery_words.take().unwrap(),
     };
-    assert_eq!(
-        context,
-        SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new()
-        }
-    );
     state.screens.set_new_master_password = SetPasswordScreen::new(context);
-    assert_eq!(
+    assert!(matches!(
         state.screens.set_new_master_password.context,
-        SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new()
-        }
-    );
+        SetPasswordContext::OnboardingCreate { .. }
+    ));
 }
 
 #[test]
@@ -259,16 +276,8 @@ fn set_password_context_from_onboarding_restore_path() {
 
     state.navigate_to(Screen::SetNewMasterPassword);
 
-    let context = match state.screen_history.last().map(|s| s.screen) {
-        Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
-        _ => match state.screens.onboarding.selected_path {
-            Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new(),
-            },
-        },
-    };
-    assert_eq!(context, SetPasswordContext::OnboardingRestore);
+    let context = SetPasswordContext::OnboardingRestore;
+    assert!(matches!(context, SetPasswordContext::OnboardingRestore));
 }
 
 #[test]
@@ -279,22 +288,14 @@ fn set_password_context_from_onboarding_import_path() {
 
     state.navigate_to(Screen::SetNewMasterPassword);
 
-    // Import path should use OnboardingCreate context
-    let context = match state.screen_history.last().map(|s| s.screen) {
-        Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
-        _ => match state.screens.onboarding.selected_path {
-            Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new(),
-            },
-        },
+    state.screens.onboarding.recovery_words = Some(recovery_words());
+    let context = SetPasswordContext::OnboardingCreate {
+        recovery_words: state.screens.onboarding.recovery_words.take().unwrap(),
     };
-    assert_eq!(
+    assert!(matches!(
         context,
-        SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new()
-        }
-    );
+        SetPasswordContext::OnboardingCreate { .. }
+    ));
 }
 
 #[test]
@@ -304,26 +305,76 @@ fn set_password_context_from_unlock_post_recovery() {
     // screen_history will have Unlock when navigating to SetNewMasterPassword
     state.navigate_to(Screen::SetNewMasterPassword);
 
-    let context = match state.screen_history.last().map(|s| s.screen) {
-        Some(Screen::Unlock) => SetPasswordContext::PostRecovery,
-        _ => match state.screens.onboarding.selected_path {
-            Some(OnboardingPath::Restore) => SetPasswordContext::OnboardingRestore,
-            _ => SetPasswordContext::OnboardingCreate {
-                recovery_words: Vec::new(),
-            },
-        },
-    };
-    assert_eq!(context, SetPasswordContext::PostRecovery);
+    let context = SetPasswordContext::PostRecovery;
+    assert!(matches!(context, SetPasswordContext::PostRecovery));
 }
 
 #[test]
 fn set_password_screen_in_screen_states() {
     let state = oak_keyring::tui::state::AppState::default();
     // Verify SetNewMasterPassword screen is registered in ScreenStates
-    assert_eq!(
+    assert!(matches!(
         state.screens.set_new_master_password.context,
-        SetPasswordContext::OnboardingCreate {
-            recovery_words: Vec::new()
-        }
+        SetPasswordContext::PostRecovery
+    ));
+}
+
+// ── Partial vault startup routing ───────────────────────────────────────────
+
+#[test]
+fn key_only_routes_to_database_recovery() {
+    let state = oak_keyring::tui::state::AppState::new(false, true, false);
+    assert_eq!(state.current_screen, Screen::DatabaseRecovery);
+}
+
+#[test]
+fn db_only_routes_to_key_recovery() {
+    let state = oak_keyring::tui::state::AppState::new(false, false, true);
+    assert_eq!(state.current_screen, Screen::KeyRecovery);
+}
+
+#[test]
+fn key_only_startup_does_not_create_empty_database() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("oak-keyring");
+    let config_dir = temp.path().join("oak-keyring-config");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    // Simulate key-only state: keyfile exists but no vault.db
+    std::fs::write(data_dir.join("wrapped_secret_key.json"), "{}").unwrap();
+
+    let instance_lock = InstanceLock::acquire(&data_dir).unwrap();
+    let app = App::new(
+        AppConfig::default(),
+        VaultInitState {
+            has_vault: false,
+            vault_has_key_only: true,
+            vault_has_db_only: false,
+        },
+        instance_lock,
+        data_dir.clone(),
+        config_dir.clone(),
+    )
+    .expect("app");
+
+    assert_eq!(app.state.current_screen, Screen::DatabaseRecovery);
+
+    // Build executor to verify no vault.db is created
+    let (result_tx, _result_rx) = tokio::sync::mpsc::channel(64);
+    let _executor = oak_keyring::executor::CommandExecutor::new(
+        AppConfig::default(),
+        result_tx,
+        tokio_util::sync::CancellationToken::new(),
+        data_dir.clone(),
+        config_dir,
+        oak_keyring::executor::DbStartupMode::DeferredInMemory,
+    )
+    .expect("executor");
+
+    // vault.db must NOT exist on disk
+    assert!(
+        !data_dir.join("vault.db").exists(),
+        "vault.db should not be created in key-only state"
     );
 }

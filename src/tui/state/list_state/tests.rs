@@ -4,14 +4,9 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::commands::types::{SortDirection, SortField};
-use crate::tui::i18n;
+use crate::tui::i18n::LocaleGuard;
 use crate::types::credential::CredentialType;
 use crate::types::record::TuiRecord;
-
-// Initialize locale for tests - call this at the start of each test that needs i18n
-fn init_test_locale() {
-    i18n::init("zh-CN");
-}
 
 /// Helper to build a TuiRecord with minimal fields for testing.
 fn make_record(id: Uuid, name: &str, subtitle: &str) -> TuiRecord {
@@ -282,7 +277,7 @@ fn format_relative_time_today() {
 
 #[test]
 fn format_relative_time_yesterday() {
-    init_test_locale();
+    let _guard = LocaleGuard::zh_cn();
     let yesterday = Utc::now() - chrono::Duration::try_days(1).unwrap();
     let result = format_relative_time(&yesterday);
     assert_eq!(result, "昨天");
@@ -290,7 +285,7 @@ fn format_relative_time_yesterday() {
 
 #[test]
 fn format_relative_time_days_ago() {
-    init_test_locale();
+    let _guard = LocaleGuard::zh_cn();
     let dt = Utc::now() - chrono::Duration::try_days(3).unwrap();
     let result = format_relative_time(&dt);
     assert!(result.contains("天前"));
@@ -298,6 +293,7 @@ fn format_relative_time_days_ago() {
 
 #[test]
 fn format_relative_time_weeks_ago() {
+    let _guard = LocaleGuard::zh_cn();
     let dt = Utc::now() - chrono::Duration::try_days(14).unwrap();
     let result = format_relative_time(&dt);
     assert!(result.contains("周前"));
@@ -341,7 +337,7 @@ fn adjust_scroll_keeps_selected_visible() {
 
 #[test]
 fn format_days_since_deletion_today() {
-    init_test_locale();
+    let _guard = LocaleGuard::zh_cn();
     let now = Utc::now();
     let result = format_days_since_deletion(&now);
     assert_eq!(result, "0 天前删除");
@@ -349,7 +345,7 @@ fn format_days_since_deletion_today() {
 
 #[test]
 fn format_days_since_deletion_yesterday() {
-    init_test_locale();
+    let _guard = LocaleGuard::zh_cn();
     let yesterday = Utc::now() - chrono::Duration::try_days(1).unwrap();
     let result = format_days_since_deletion(&yesterday);
     assert_eq!(result, "1 天前删除");
@@ -357,7 +353,7 @@ fn format_days_since_deletion_yesterday() {
 
 #[test]
 fn format_days_since_deletion_week() {
-    init_test_locale();
+    let _guard = LocaleGuard::zh_cn();
     let dt = Utc::now() - chrono::Duration::try_days(7).unwrap();
     let result = format_days_since_deletion(&dt);
     assert_eq!(result, "7 天前删除");
@@ -365,7 +361,7 @@ fn format_days_since_deletion_week() {
 
 #[test]
 fn format_remaining_days_normal() {
-    init_test_locale();
+    let _guard = LocaleGuard::zh_cn();
     let deleted_at = Utc::now() - chrono::Duration::try_days(10).unwrap();
     let retention_days = 30;
     let result = format_remaining_days(&deleted_at, retention_days);
@@ -375,7 +371,7 @@ fn format_remaining_days_normal() {
 
 #[test]
 fn format_remaining_days_never_delete() {
-    init_test_locale();
+    let _guard = LocaleGuard::zh_cn();
     let deleted_at = Utc::now() - chrono::Duration::try_days(10).unwrap();
     let result = format_remaining_days(&deleted_at, 0);
     assert_eq!(result, "不会自动删除");
@@ -383,7 +379,7 @@ fn format_remaining_days_never_delete() {
 
 #[test]
 fn format_remaining_days_expired() {
-    init_test_locale();
+    let _guard = LocaleGuard::zh_cn();
     let deleted_at = Utc::now() - chrono::Duration::try_days(31).unwrap();
     let retention_days = 30;
     let result = format_remaining_days(&deleted_at, retention_days);

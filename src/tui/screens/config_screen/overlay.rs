@@ -15,55 +15,6 @@ use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use super::screen::ConfigScreen;
 
 impl ConfigScreen {
-    pub(super) fn handle_vault_path_dialog_key(
-        &mut self,
-        key: crossterm::event::KeyEvent,
-        ctx: &mut ScreenContext,
-    ) -> ScreenResult {
-        // Text input for new_path field
-        match key.code {
-            KeyCode::Char(c) => {
-                if let Some(ref mut dialog) = self.state.vault_path_dialog {
-                    dialog.new_path.push(c);
-                }
-                return ScreenResult::Continue;
-            }
-            KeyCode::Backspace => {
-                if let Some(ref mut dialog) = self.state.vault_path_dialog {
-                    dialog.new_path.pop();
-                }
-                return ScreenResult::Continue;
-            }
-            _ => {}
-        }
-
-        // Delegate to dialog's own button handling (Tab/Left/Right toggle, Enter/Esc)
-        if let Some(ref mut dialog) = self.state.vault_path_dialog {
-            match dialog.handle_key(key.code) {
-                Some(true) => {
-                    // Confirmed
-                    if let Some(dialog) = self.state.vault_path_dialog.take() {
-                        if !dialog.new_path.is_empty() {
-                            self.state.general.vault_path =
-                                std::path::PathBuf::from(&dialog.new_path);
-                            self.state.mark_changed();
-                            let config = self.state.to_app_config();
-                            let _ = ctx.command_tx.try_send(Command::SaveConfig { config });
-                        }
-                    }
-                }
-                Some(false) => {
-                    // Cancelled
-                    self.state.vault_path_dialog = None;
-                }
-                None => {
-                    // Focus toggle within dialog (no action needed)
-                }
-            }
-        }
-        ScreenResult::Continue
-    }
-
     pub(super) fn handle_overlay_key(
         &mut self,
         key: crossterm::event::KeyEvent,

@@ -2,4 +2,4 @@
 source: tests/snapshot_tests/screens/status_bar_test.rs
 expression: backend
 ---
-"  ⌘K搜索 n新建 e编辑 d删除 F1帮助 │ v0.1.0 │ ✓ All passwords secure │ ⟳ Syncing │ ✓ 30s until cleared                   " Hidden by multi-width symbols: [(5, " "), (7, " "), (11, " "), (13, " "), (17, " "), (19, " "), (23, " "), (25, " "), (30, " "), (32, " ")]
+"  ⌘K Search  N New  E Edit  D Delete  F1 Help │ v0.5.0 │ ✓ All passwords secure │ ⟳ Syncing │ ✓ 30s until cleared       "
