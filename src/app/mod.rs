@@ -157,7 +157,10 @@ impl App {
         crossterm::execute!(stdout, LeaveAlternateScreen, DisableMouseCapture)?;
 
         if let Some(handle) = executor_handle {
-            rt.block_on(wait_for_executor_shutdown(handle));
+            let ok = rt.block_on(wait_for_executor_shutdown(handle));
+            if !ok {
+                tracing::error!("executor did not shut down cleanly");
+            }
         }
 
         result

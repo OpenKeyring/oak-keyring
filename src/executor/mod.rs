@@ -116,6 +116,12 @@ pub(crate) enum ShutdownStepStatus {
     TimedOut,
 }
 
+impl ShutdownStepStatus {
+    fn has_failure(&self) -> bool {
+        matches!(self, Self::Failed(_) | Self::TimedOut)
+    }
+}
+
 /// Command executor that bridges the UI layer to service layer.
 ///
 /// Holds references to all services and dispatches incoming commands
@@ -355,8 +361,12 @@ impl CommandExecutor {
             }
         }
 
-        let _shutdown_report = self.shutdown_gracefully().await;
-        info!("CommandExecutor stopped");
+        let report = self.shutdown_gracefully().await;
+        if report.sync_shutdown.has_failure() || report.wal_checkpoint.has_failure() {
+            tracing::error!(?report, "CommandExecutor stopped with shutdown failures");
+        } else {
+            info!("CommandExecutor stopped");
+        }
     }
 
     /// Execute an internal command from a background task.
