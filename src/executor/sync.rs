@@ -762,6 +762,7 @@ mod restore_password_tests {
 
         let mut executor = CommandExecutor {
             vault,
+            vault_db_file_backed: false,
             sync: Some(create_test_sync_service()),
             health: HealthService::new(),
             clipboard: Arc::new(ClipboardService::with_backend(
@@ -813,6 +814,7 @@ mod restore_password_tests {
 
         let mut executor = CommandExecutor {
             vault,
+            vault_db_file_backed: false,
             sync: Some(create_test_sync_service()),
             health: HealthService::new(),
             clipboard: Arc::new(ClipboardService::with_backend(

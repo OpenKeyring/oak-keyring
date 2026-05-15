@@ -15,35 +15,69 @@ pub fn apply_pragmas(conn: &Connection) -> Result<(), rusqlite::Error> {
     )
 }
 
+fn run_quick_check(conn: &Connection) -> Result<(), InitDbError> {
+    let result: String = conn.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
+    if result.eq_ignore_ascii_case("ok") {
+        Ok(())
+    } else {
+        Err(InitDbError::IntegrityCheckFailed(result))
+    }
+}
+
+fn run_foreign_key_check(conn: &Connection) -> Result<(), InitDbError> {
+    let mut stmt = conn.prepare("PRAGMA foreign_key_check")?;
+    let mut rows = stmt.query([])?;
+    if let Some(row) = rows.next()? {
+        let table: String = row.get(0)?;
+        let rowid: i64 = row.get(1)?;
+        let parent: String = row.get(2)?;
+        let fk_index: i64 = row.get(3)?;
+        Err(InitDbError::ForeignKeyCheckFailed(format!(
+            "table={table} rowid={rowid} parent={parent} fk_index={fk_index}"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn checkpoint_wal(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);")
+}
+
 pub fn init_db(path: &Path) -> Result<Connection, InitDbError> {
     let db_path = path.join("vault.db");
+    let existed_before_open = db_path.exists();
     let conn = Connection::open(&db_path)?;
     apply_pragmas(&conn)?;
+
+    if existed_before_open {
+        run_quick_check(&conn)?;
+    }
 
     let current = migrations::read_current_version(&conn);
     let needs_migration = current < migrations::SCHEMA_VERSION;
 
     if current > migrations::SCHEMA_VERSION {
-        tracing::warn!(
+        return Err(InitDbError::UnsupportedSchemaVersion {
             current,
-            expected = migrations::SCHEMA_VERSION,
-            "database schema version is newer than expected"
-        );
+            supported: migrations::SCHEMA_VERSION,
+        });
     }
 
-    // Forward-looking scaffolding: this backup branch will activate when SCHEMA_VERSION >= 2.
-    // The orchestration logic itself is exercised end-to-end by `run_with_backup` tests.
-    if needs_migration && current > 0 {
+    let conn = if needs_migration && current > 0 {
         let backup_path = path.join("vault.db.migration.bak");
         run_with_backup(conn, &db_path, &backup_path, |c| {
             migrations::run_migrations(c)
-        })
+        })?
     } else {
         if needs_migration {
             migrations::run_migrations(&conn)?;
         }
-        Ok(conn)
-    }
+        conn
+    };
+
+    run_foreign_key_check(&conn)?;
+    Ok(conn)
 }
 
 pub fn init_db_in_memory() -> Connection {
@@ -140,4 +174,10 @@ pub enum InitDbError {
     Sqlite(#[from] rusqlite::Error),
     #[error("migration error: {0}")]
     Migration(#[from] MigrationError),
+    #[error("database integrity check failed: {0}")]
+    IntegrityCheckFailed(String),
+    #[error("database foreign key check failed: {0}")]
+    ForeignKeyCheckFailed(String),
+    #[error("database schema version {current} is newer than this build supports ({supported})")]
+    UnsupportedSchemaVersion { current: u32, supported: u32 },
 }

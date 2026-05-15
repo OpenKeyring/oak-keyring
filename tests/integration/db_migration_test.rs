@@ -87,7 +87,59 @@ fn init_db_creates_fresh_db_from_empty_file() {
 }
 
 #[test]
-fn init_db_warns_and_continues_on_downgrade() {
+fn init_db_rejects_existing_corrupt_database() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("vault.db"), b"not a sqlite database").unwrap();
+
+    let err = oak_keyring::db::schema::init_db(dir.path()).unwrap_err();
+    match err {
+        oak_keyring::db::schema::InitDbError::Sqlite(source) => {
+            let message = source.to_string();
+            assert!(
+                message.contains("file is not a database")
+                    || message.contains("database disk image is malformed"),
+                "unexpected sqlite error: {message}"
+            );
+        }
+        other => panic!("expected sqlite error for corrupt database, got {other:?}"),
+    }
+}
+
+#[test]
+fn init_db_rejects_current_schema_database_with_foreign_key_violation() {
+    let (_dir, path) = setup_fresh_db();
+    {
+        let conn = rusqlite::Connection::open(path.join("vault.db")).unwrap();
+        oak_keyring::db::schema::apply_pragmas(&conn).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             INSERT INTO record_health_state
+                (record_id, record_version, evaluated_at, weak_password, duplicate_group_size, compromised, expired)
+             VALUES
+                ('missing-record', 1, NULL, NULL, NULL, NULL, NULL);",
+        )
+        .unwrap();
+        conn.close().unwrap();
+    }
+
+    let err = oak_keyring::db::schema::init_db(&path).unwrap_err();
+    match err {
+        oak_keyring::db::schema::InitDbError::ForeignKeyCheckFailed(message) => {
+            assert!(
+                message.contains("table=record_health_state"),
+                "unexpected foreign key check message: {message}"
+            );
+            assert!(
+                message.contains("parent=records"),
+                "unexpected foreign key check message: {message}"
+            );
+        }
+        other => panic!("expected foreign key check error, got {other:?}"),
+    }
+}
+
+#[test]
+fn init_db_rejects_newer_schema_version() {
     let dir = tempfile::tempdir().unwrap();
 
     // Create a database at version 99 — newer than current SCHEMA_VERSION.
@@ -102,16 +154,23 @@ fn init_db_warns_and_continues_on_downgrade() {
         conn.close().unwrap();
     }
 
-    // init_db should succeed — downgrade is warn + continue.
+    let err = oak_keyring::db::schema::init_db(dir.path()).unwrap_err();
+    let message = err.to_string();
+    assert!(
+        message.contains("newer than this build supports"),
+        "unexpected error: {message}"
+    );
+}
+
+#[test]
+fn checkpoint_wal_succeeds_for_file_backed_database() {
+    let dir = tempfile::tempdir().unwrap();
     let conn = oak_keyring::db::schema::init_db(dir.path()).unwrap();
-    let version: String = conn
-        .query_row(
-            "SELECT value FROM metadata WHERE key = 'schema_version'",
-            [],
-            |row| row.get(0),
-        )
+
+    conn.execute("INSERT INTO tags (name) VALUES ('shutdown-test')", [])
         .unwrap();
-    assert_eq!(version, "99");
+
+    oak_keyring::db::schema::checkpoint_wal(&conn).unwrap();
     conn.close().unwrap();
 }
 

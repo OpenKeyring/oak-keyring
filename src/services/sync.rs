@@ -64,7 +64,7 @@ pub struct SyncService {
     /// Event receiver from the background SyncTask.
     event_rx: mpsc::Receiver<SyncEvent>,
     /// Handle to the background task running SyncTask::run().
-    task_handle: JoinHandle<()>,
+    task_handle: Option<JoinHandle<()>>,
     /// CloudStorage clone for connectivity checks.
     storage: CloudStorage,
 }
@@ -90,7 +90,7 @@ impl SyncService {
         Self {
             cmd_tx,
             event_rx,
-            task_handle,
+            task_handle: Some(task_handle),
             storage: storage_for_connection_check,
         }
     }
@@ -462,7 +462,7 @@ impl SyncService {
     /// Initiates graceful shutdown.
     ///
     /// Sends `Shutdown` command and waits for `ShutdownComplete` event.
-    /// Then aborts the background task handle.
+    /// Then awaits the background task handle.
     ///
     /// # Errors
     /// Returns `SyncError` if timeout (10s) expires before `ShutdownComplete` event.
@@ -481,7 +481,13 @@ impl SyncService {
             })
             .await?;
 
-        self.task_handle.abort();
+        if let Some(task_handle) = self.task_handle.take() {
+            task_handle.await.map_err(|e| SyncError::ProviderError {
+                provider: "sync".to_string(),
+                message: format!("sync task join failed: {e}"),
+            })?;
+        }
+
         Ok(())
     }
 
@@ -551,9 +557,10 @@ impl SyncService {
 
 impl Drop for SyncService {
     fn drop(&mut self) {
-        // Best-effort shutdown on drop
         let _ = self.cmd_tx.try_send(SyncCommand::Shutdown);
-        self.task_handle.abort();
+        if let Some(task_handle) = self.task_handle.take() {
+            task_handle.abort();
+        }
     }
 }
 

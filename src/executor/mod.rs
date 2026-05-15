@@ -12,6 +12,7 @@ pub mod vault;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -44,6 +45,8 @@ mod vault_test;
 
 #[cfg(test)]
 mod sync_test;
+
+const SYNC_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbStartupMode {
@@ -90,6 +93,35 @@ fn load_oauth2_tokens_into_config(config: &mut AppConfig, config_dir: &std::path
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShutdownReport {
+    pub sync_shutdown: ShutdownStepStatus,
+    pub wal_checkpoint: ShutdownStepStatus,
+}
+
+impl Default for ShutdownReport {
+    fn default() -> Self {
+        Self {
+            sync_shutdown: ShutdownStepStatus::NotApplicable,
+            wal_checkpoint: ShutdownStepStatus::NotApplicable,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ShutdownStepStatus {
+    NotApplicable,
+    Completed,
+    Failed(String),
+    TimedOut,
+}
+
+impl ShutdownStepStatus {
+    fn has_failure(&self) -> bool {
+        matches!(self, Self::Failed(_) | Self::TimedOut)
+    }
+}
+
 /// Command executor that bridges the UI layer to service layer.
 ///
 /// Holds references to all services and dispatches incoming commands
@@ -98,6 +130,8 @@ fn load_oauth2_tokens_into_config(config: &mut AppConfig, config_dir: &std::path
 pub struct CommandExecutor {
     /// S1: Vault service — SQLite CRUD + encryption.
     vault: VaultService,
+    /// True when `vault` wraps an on-disk vault.db rather than recovery-only memory state.
+    vault_db_file_backed: bool,
     /// S2: Sync service — cloud sync (None when no provider configured).
     sync: Option<crate::services::sync::SyncService>,
     /// S3: Health service — password security analysis.
@@ -213,8 +247,11 @@ impl CommandExecutor {
 
         let operation_cancel_token = shutdown_token.child_token();
 
+        let vault_db_file_backed = matches!(db_startup_mode, DbStartupMode::FileBacked);
+
         Ok(Self {
             vault,
+            vault_db_file_backed,
             sync,
             health,
             clipboard,
@@ -324,7 +361,12 @@ impl CommandExecutor {
             }
         }
 
-        info!("CommandExecutor stopped");
+        let report = self.shutdown_gracefully().await;
+        if report.sync_shutdown.has_failure() || report.wal_checkpoint.has_failure() {
+            tracing::error!(?report, "CommandExecutor stopped with shutdown failures");
+        } else {
+            info!("CommandExecutor stopped");
+        }
     }
 
     /// Execute an internal command from a background task.
@@ -359,6 +401,31 @@ impl CommandExecutor {
     /// executor construction.
     pub fn set_sync_service(&mut self, sync: Option<crate::services::sync::SyncService>) {
         self.sync = sync;
+    }
+
+    pub(crate) async fn shutdown_gracefully(&mut self) -> ShutdownReport {
+        self.operation_cancel_token.cancel();
+
+        let mut report = ShutdownReport::default();
+
+        if let Some(sync) = self.sync.take() {
+            report.sync_shutdown =
+                match tokio::time::timeout(SYNC_SHUTDOWN_TIMEOUT, sync.shutdown()).await {
+                    Ok(Ok(())) => ShutdownStepStatus::Completed,
+                    Ok(Err(e)) => ShutdownStepStatus::Failed(e.to_string()),
+                    Err(_) => ShutdownStepStatus::TimedOut,
+                };
+        }
+
+        if self.vault_db_file_backed {
+            report.wal_checkpoint = match self.vault.checkpoint_wal() {
+                Ok(()) => ShutdownStepStatus::Completed,
+                Err(e) => ShutdownStepStatus::Failed(e.to_string()),
+            };
+        }
+
+        tracing::info!(?report, "executor graceful shutdown completed");
+        report
     }
 
     /// Open a speculative file-backed vault database.
@@ -447,6 +514,7 @@ impl PendingFileBackedVaultDb<'_> {
 
     pub(super) fn commit(mut self) {
         self.committed = true;
+        self.executor.vault_db_file_backed = true;
         info!("committed file-backed vault database");
     }
 }
@@ -464,6 +532,7 @@ impl Drop for PendingFileBackedVaultDb<'_> {
         // executor cannot keep using a connection to files we are about to
         // remove.
         self.executor.vault = crate::services::vault::VaultService::new(init_db_in_memory());
+        self.executor.vault_db_file_backed = false;
 
         for (path, existed_before) in vault_db_paths(&self.executor.vault_dir)
             .into_iter()
@@ -497,6 +566,8 @@ fn vault_db_paths(vault_dir: &std::path::Path) -> [std::path::PathBuf; 4] {
 
 #[cfg(test)]
 mod shutdown_tests {
+    use super::{CommandExecutor, DbStartupMode, ShutdownStepStatus};
+    use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
     #[tokio::test]
@@ -507,6 +578,27 @@ mod shutdown_tests {
         assert!(!operation.is_cancelled());
         shutdown.cancel();
         assert!(operation.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn shutdown_report_marks_sync_and_wal_not_applicable_for_in_memory_vault() {
+        let shutdown = CancellationToken::new();
+        let dir = tempfile::tempdir().unwrap();
+        let executor = CommandExecutor::new(
+            crate::config::AppConfig::default_config(),
+            mpsc::channel(8).0,
+            shutdown,
+            dir.path().to_path_buf(),
+            dir.path().to_path_buf(),
+            DbStartupMode::DeferredInMemory,
+        )
+        .expect("executor should construct with in-memory vault");
+
+        let mut executor = executor;
+        let report = executor.shutdown_gracefully().await;
+
+        assert_eq!(report.sync_shutdown, ShutdownStepStatus::NotApplicable);
+        assert_eq!(report.wal_checkpoint, ShutdownStepStatus::NotApplicable);
     }
 }
 

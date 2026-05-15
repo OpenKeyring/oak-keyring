@@ -1,4 +1,5 @@
 use std::io;
+use std::time::Duration;
 
 use crate::instance_lock::InstanceLock;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
@@ -8,6 +9,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::commands::types::AppPhase;
@@ -41,6 +43,7 @@ pub struct VaultInitState {
 /// Channel buffer sizes.
 const COMMAND_CHANNEL_SIZE: usize = 256;
 const RESULT_CHANNEL_SIZE: usize = 256;
+const EXECUTOR_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The top-level application struct. Owns all state and communication channels.
 pub struct App {
@@ -103,6 +106,7 @@ impl App {
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
         let _guard = rt.enter();
+        let mut executor_handle = None;
 
         // Instantiate and spawn the CommandExecutor.
         // It consumes command_rx and sends results back via result_tx.
@@ -116,9 +120,9 @@ impl App {
                 crate::executor::DbStartupMode::from_vault_state(self.vault_state),
             )?;
 
-            tokio::spawn(async move {
+            executor_handle = Some(tokio::spawn(async move {
                 executor.run(command_rx).await;
-            });
+            }));
         }
 
         // Terminal setup.
@@ -144,6 +148,7 @@ impl App {
 
         // Run the TEA event loop.
         let result = update::run(self, &mut terminal);
+        self.cancel_token.cancel();
 
         // Terminal cleanup (always attempt even if loop errored).
         terminal::clear_terminal_title();
@@ -151,6 +156,48 @@ impl App {
         let stdout = terminal.backend_mut();
         crossterm::execute!(stdout, LeaveAlternateScreen, DisableMouseCapture)?;
 
+        if let Some(handle) = executor_handle {
+            let ok = rt.block_on(wait_for_executor_shutdown(handle));
+            if !ok {
+                tracing::error!("executor did not shut down cleanly");
+            }
+        }
+
         result
+    }
+}
+
+async fn wait_for_executor_shutdown(handle: JoinHandle<()>) -> bool {
+    match tokio::time::timeout(EXECUTOR_SHUTDOWN_TIMEOUT, handle).await {
+        Ok(Ok(())) => true,
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "executor task failed during shutdown");
+            false
+        }
+        Err(_) => {
+            tracing::warn!("executor shutdown timed out");
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::wait_for_executor_shutdown;
+
+    #[tokio::test]
+    async fn wait_for_executor_shutdown_returns_true_when_task_finishes() {
+        let handle = tokio::spawn(async {});
+
+        assert!(wait_for_executor_shutdown(handle).await);
+    }
+
+    #[tokio::test]
+    async fn wait_for_executor_shutdown_returns_false_when_task_times_out() {
+        let handle = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        });
+
+        assert!(!wait_for_executor_shutdown(handle).await);
     }
 }

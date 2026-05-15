@@ -3,12 +3,17 @@
 //! Spawns a tokio task that listens for SIGINT/SIGTERM:
 //! - First SIGINT  -> graceful shutdown (Message::ShutdownRequested { force: false })
 //! - Second SIGINT -> forced quit (exit code 1)
-//! - SIGTERM       -> forced shutdown (Message::ShutdownRequested { force: true })
+//! - SIGTERM       -> graceful shutdown (Message::ShutdownRequested { force: false })
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::commands::Message;
+
+#[cfg(unix)]
+fn sigterm_shutdown_message() -> Message {
+    Message::ShutdownRequested { force: false }
+}
 
 /// Handle to the signal-handler tokio task. Dropping cancels the task.
 pub struct SignalHandler {
@@ -58,22 +63,21 @@ impl SignalHandler {
         {
             let cancel_term = cancel.clone();
             let tx_term = result_tx.clone();
-            tokio::spawn(async move {
-                let mut stream =
-                    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                    {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::error!("failed to install SIGTERM handler: {}", e);
-                            return;
-                        }
-                    };
+            let mut stream =
+                match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!("failed to install SIGTERM handler: {}", e);
+                        return Self { cancel };
+                    }
+                };
 
+            tokio::spawn(async move {
                 tokio::select! {
                     _ = cancel_term.cancelled() => {}
                     _ = stream.recv() => {
-                        tracing::warn!("SIGTERM received, requesting forced shutdown");
-                        let _ = tx_term.send(Message::ShutdownRequested { force: true }).await;
+                        tracing::warn!("SIGTERM received, requesting graceful shutdown");
+                        let _ = tx_term.send(sigterm_shutdown_message()).await;
                     }
                 }
             });
@@ -86,5 +90,18 @@ impl SignalHandler {
 impl Drop for SignalHandler {
     fn drop(&mut self) {
         self.cancel.cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(unix)]
+    fn sigterm_requests_graceful_shutdown() {
+        let msg = super::sigterm_shutdown_message();
+        assert!(matches!(
+            msg,
+            crate::commands::Message::ShutdownRequested { force: false }
+        ));
     }
 }
