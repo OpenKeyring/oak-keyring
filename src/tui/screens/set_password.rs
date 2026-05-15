@@ -50,18 +50,8 @@ pub enum RestoreNext {
 
 impl Drop for SetPasswordContext {
     fn drop(&mut self) {
-        match self {
-            Self::OnboardingCreate { recovery_words }
-            | Self::RestoreExistingVault { recovery_words, .. } => {
-                use zeroize::Zeroize;
-                for w in recovery_words.iter_mut() {
-                    w.zeroize();
-                    w.clear();
-                }
-                recovery_words.clear();
-            }
-            Self::PostRecovery | Self::OnboardingRestore => {}
-        }
+        // RecoveryWords has its own Drop impl that zeroizes contents.
+        // No manual cleanup needed here.
     }
 }
 

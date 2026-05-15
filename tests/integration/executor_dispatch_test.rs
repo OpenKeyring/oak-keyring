@@ -74,7 +74,7 @@ async fn test_executor() -> ExecutorHarness {
         CancellationToken::new(),
         data_dir,
         config_dir,
-        false,
+        DbStartupMode::FileBacked,
     )
     .unwrap();
 
@@ -528,7 +528,7 @@ async fn restore_database_from_okb_with_valid_records_creates_vault_db() {
     command_tx
         .send(Command::RebuildKeyFileFromRecovery {
             master_password: SecureStr::new("test_password_123".to_string()),
-            recovery_words: passkey.to_words(),
+            recovery_words: passkey.to_recovery_words().expect("recovery words"),
         })
         .await
         .unwrap();
