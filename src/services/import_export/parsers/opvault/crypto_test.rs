@@ -119,13 +119,13 @@ impl OpVaultFixture {
 
         // Add front random padding: make total size a multiple of 16 bytes
         // Minimum padding is 16 bytes to ensure there's at least some random data
-        let padded_len = ((plaintext.len() + 16 + 15) / 16) * 16; // Round up to next 16-byte block
+        let padded_len = (plaintext.len() + 16).div_ceil(16) * 16; // Round up to next 16-byte block
         let padding_len = padded_len - plaintext.len();
 
         let mut padded_plaintext = vec![0u8; padded_len];
         // Fill padding with random data using rand::random
-        for i in 0..padding_len {
-            padded_plaintext[i] = rand::random::<u8>();
+        for byte in padded_plaintext.iter_mut().take(padding_len) {
+            *byte = rand::random::<u8>();
         }
         padded_plaintext[padding_len..].copy_from_slice(plaintext);
 

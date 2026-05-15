@@ -177,7 +177,7 @@ mod tests {
         ];
 
         for (source, _label) in cases {
-            let m = get_default_mapping(source.clone());
+            let m = get_default_mapping(source);
             assert_eq!(m.source_type, source);
             assert!(
                 !m.field_mappings.is_empty(),
@@ -469,7 +469,7 @@ mod tests {
         let fields = HashMap::new();
         let result = apply_field_mapping(&fields, &mapping);
         assert!(
-            result.get(&TargetField::Name).is_none(),
+            !result.contains_key(&TargetField::Name),
             "missing required field without default should be skipped"
         );
     }

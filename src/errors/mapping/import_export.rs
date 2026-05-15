@@ -106,6 +106,83 @@ impl From<ImportExportError> for crate::errors::ServiceErrorBox {
         Box::new(err)
     }
 }
+impl ServiceError for ImportExportError {
+    fn to_error_code(&self) -> ErrorCode {
+        match self {
+            // File read errors → ImportFileUnreadable
+            ImportExportError::FileNotFound(_) => ErrorCode::ImportFileUnreadable,
+            ImportExportError::FileTooLarge { .. } => ErrorCode::ImportFileUnreadable,
+            ImportExportError::FileReadError { .. } => ErrorCode::ImportFileUnreadable,
+
+            // Parse/format errors → ImportFileFormatInvalid
+            ImportExportError::ParseError { .. } => ErrorCode::ImportFileFormatInvalid,
+            ImportExportError::InvalidFormat(_) => ErrorCode::ImportFileFormatInvalid,
+            ImportExportError::UnsupportedFormat(_) => ErrorCode::ImportFileFormatInvalid,
+
+            // Password errors
+            ImportExportError::PasswordRequired => ErrorCode::ImportPasswordRequired,
+            ImportExportError::InvalidPassword => ErrorCode::ImportPasswordIncorrect,
+            ImportExportError::DecryptionFailed(_) => ErrorCode::ImportPasswordIncorrect,
+
+            // Column mapping errors → ImportColumnMappingInvalid
+            ImportExportError::MissingRequiredField(_) => ErrorCode::ImportColumnMappingInvalid,
+            ImportExportError::InvalidFieldType { .. } => ErrorCode::ImportColumnMappingInvalid,
+            ImportExportError::ValidationError { .. } => ErrorCode::ImportColumnMappingInvalid,
+            ImportExportError::MappingError { .. } => ErrorCode::ImportColumnMappingInvalid,
+
+            // Partial failures → ImportPartialFailure
+            ImportExportError::DuplicateRecord { .. } => ErrorCode::ImportPartialFailure,
+            ImportExportError::SessionNotFound(_) => ErrorCode::ImportPartialFailure,
+            ImportExportError::InvalidSessionStatus { .. } => ErrorCode::ImportPartialFailure,
+            ImportExportError::SessionCancelled => ErrorCode::ImportPartialFailure,
+
+            // Export errors
+            ImportExportError::FileWriteError { .. } => ErrorCode::ExportWriteFailed,
+            ImportExportError::EncryptionFailed(_) => ErrorCode::ExportWriteFailed,
+            ImportExportError::KeyDerivationFailed(_) => ErrorCode::ExportWriteFailed,
+
+            // Other errors → ExportPathInvalid (general export failure)
+            ImportExportError::InternalError(_) => ErrorCode::ExportPathInvalid,
+            ImportExportError::Timeout => ErrorCode::ExportPathInvalid,
+            ImportExportError::VaultError(_) => ErrorCode::ExportPathInvalid,
+        }
+    }
+
+    fn to_error_context(&self) -> ErrorContext {
+        match self {
+            ImportExportError::FileNotFound(path) => ErrorContext::new().file_path(path.clone()),
+            ImportExportError::FileTooLarge { path, .. } => {
+                ErrorContext::new().file_path(path.clone())
+            }
+            ImportExportError::FileReadError { path, .. } => {
+                ErrorContext::new().file_path(path.clone())
+            }
+            ImportExportError::FileWriteError { path, .. } => {
+                ErrorContext::new().file_path(path.clone())
+            }
+            ImportExportError::MissingRequiredField(field) => {
+                ErrorContext::new().field_name(field.clone())
+            }
+            ImportExportError::InvalidFieldType { field, .. } => {
+                ErrorContext::new().field_name(field.clone())
+            }
+            ImportExportError::ValidationError { field, .. } => {
+                ErrorContext::new().field_name(field.clone())
+            }
+            ImportExportError::MappingError { source_field, .. } => {
+                ErrorContext::new().field_name(source_field.clone())
+            }
+            ImportExportError::DuplicateRecord { name, .. } => {
+                ErrorContext::new().record_name(name.clone())
+            }
+            _ => ErrorContext::new(),
+        }
+    }
+
+    fn to_fallback_message(&self) -> String {
+        self.to_string()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -560,82 +637,5 @@ mod tests {
         let err = ImportExportError::SessionCancelled;
         let boxed: crate::errors::ServiceErrorBox = err.into();
         assert_eq!(boxed.to_error_code().level(), ErrorLevel::Operation);
-    }
-}
-impl ServiceError for ImportExportError {
-    fn to_error_code(&self) -> ErrorCode {
-        match self {
-            // File read errors → ImportFileUnreadable
-            ImportExportError::FileNotFound(_) => ErrorCode::ImportFileUnreadable,
-            ImportExportError::FileTooLarge { .. } => ErrorCode::ImportFileUnreadable,
-            ImportExportError::FileReadError { .. } => ErrorCode::ImportFileUnreadable,
-
-            // Parse/format errors → ImportFileFormatInvalid
-            ImportExportError::ParseError { .. } => ErrorCode::ImportFileFormatInvalid,
-            ImportExportError::InvalidFormat(_) => ErrorCode::ImportFileFormatInvalid,
-            ImportExportError::UnsupportedFormat(_) => ErrorCode::ImportFileFormatInvalid,
-
-            // Password errors
-            ImportExportError::PasswordRequired => ErrorCode::ImportPasswordRequired,
-            ImportExportError::InvalidPassword => ErrorCode::ImportPasswordIncorrect,
-            ImportExportError::DecryptionFailed(_) => ErrorCode::ImportPasswordIncorrect,
-
-            // Column mapping errors → ImportColumnMappingInvalid
-            ImportExportError::MissingRequiredField(_) => ErrorCode::ImportColumnMappingInvalid,
-            ImportExportError::InvalidFieldType { .. } => ErrorCode::ImportColumnMappingInvalid,
-            ImportExportError::ValidationError { .. } => ErrorCode::ImportColumnMappingInvalid,
-            ImportExportError::MappingError { .. } => ErrorCode::ImportColumnMappingInvalid,
-
-            // Partial failures → ImportPartialFailure
-            ImportExportError::DuplicateRecord { .. } => ErrorCode::ImportPartialFailure,
-            ImportExportError::SessionNotFound(_) => ErrorCode::ImportPartialFailure,
-            ImportExportError::InvalidSessionStatus { .. } => ErrorCode::ImportPartialFailure,
-            ImportExportError::SessionCancelled => ErrorCode::ImportPartialFailure,
-
-            // Export errors
-            ImportExportError::FileWriteError { .. } => ErrorCode::ExportWriteFailed,
-            ImportExportError::EncryptionFailed(_) => ErrorCode::ExportWriteFailed,
-            ImportExportError::KeyDerivationFailed(_) => ErrorCode::ExportWriteFailed,
-
-            // Other errors → ExportPathInvalid (general export failure)
-            ImportExportError::InternalError(_) => ErrorCode::ExportPathInvalid,
-            ImportExportError::Timeout => ErrorCode::ExportPathInvalid,
-            ImportExportError::VaultError(_) => ErrorCode::ExportPathInvalid,
-        }
-    }
-
-    fn to_error_context(&self) -> ErrorContext {
-        match self {
-            ImportExportError::FileNotFound(path) => ErrorContext::new().file_path(path.clone()),
-            ImportExportError::FileTooLarge { path, .. } => {
-                ErrorContext::new().file_path(path.clone())
-            }
-            ImportExportError::FileReadError { path, .. } => {
-                ErrorContext::new().file_path(path.clone())
-            }
-            ImportExportError::FileWriteError { path, .. } => {
-                ErrorContext::new().file_path(path.clone())
-            }
-            ImportExportError::MissingRequiredField(field) => {
-                ErrorContext::new().field_name(field.clone())
-            }
-            ImportExportError::InvalidFieldType { field, .. } => {
-                ErrorContext::new().field_name(field.clone())
-            }
-            ImportExportError::ValidationError { field, .. } => {
-                ErrorContext::new().field_name(field.clone())
-            }
-            ImportExportError::MappingError { source_field, .. } => {
-                ErrorContext::new().field_name(source_field.clone())
-            }
-            ImportExportError::DuplicateRecord { name, .. } => {
-                ErrorContext::new().record_name(name.clone())
-            }
-            _ => ErrorContext::new(),
-        }
-    }
-
-    fn to_fallback_message(&self) -> String {
-        self.to_string()
     }
 }

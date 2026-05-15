@@ -506,7 +506,7 @@ mod tests {
 
     #[test]
     fn conflict_manager_default() {
-        let manager = ConflictManager::default();
+        let manager = ConflictManager;
         // Should work the same as new()
         let result = manager.detect_conflicts(SyncStatus::Synced, 1, 2);
         assert!(matches!(result, ConflictAction::DownloadOnly));

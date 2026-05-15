@@ -506,6 +506,7 @@ impl UnlockScreen {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::tui::traits::screen::Screen as ScreenTrait;
@@ -555,8 +556,10 @@ mod tests {
 
     #[test]
     fn masked_input_hides_password() {
-        let mut screen = UnlockScreen::default();
-        screen.password_input = sensitive("hello");
+        let screen = UnlockScreen {
+            password_input: sensitive("hello"),
+            ..Default::default()
+        };
         let masked = screen.masked_input();
         assert_eq!(masked, "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}");
         assert!(!masked.contains('h'));
@@ -610,9 +613,11 @@ mod tests {
 
     #[test]
     fn recovery_key_mode_builds_recovery_words_command() {
-        let mut screen = UnlockScreen::default();
-        screen.mode = UnlockMode::RecoveryKey;
-        screen.password_input = sensitive("abandon ".repeat(24).trim());
+        let mut screen = UnlockScreen {
+            mode: UnlockMode::RecoveryKey,
+            password_input: sensitive("abandon ".repeat(24).trim()),
+            ..Default::default()
+        };
 
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(1);
         let config = crate::config::AppConfig::default();
@@ -638,8 +643,10 @@ mod tests {
         // Ensure i18n is initialized for consistent test results
         crate::tui::i18n::init("en");
 
-        let mut screen = UnlockScreen::default();
-        screen.state = UnlockPhase::Verifying;
+        let mut screen = UnlockScreen {
+            state: UnlockPhase::Verifying,
+            ..Default::default()
+        };
         let result = screen.handle_command_result(CommandResult::VaultUnlockFailed {
             attempts_remaining: Some(3),
         });

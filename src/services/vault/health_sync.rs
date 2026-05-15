@@ -164,7 +164,7 @@ mod tests {
             deleted_at: None,
             tags: vec![],
         };
-        queries::insert_record(&vault.conn_ref(), &record).unwrap();
+        queries::insert_record(vault.conn_ref(), &record).unwrap();
     }
 
     #[test]
@@ -216,7 +216,7 @@ mod tests {
         };
 
         let adapter = VaultHealthSyncAdapter::new(&vault);
-        adapter.persist_health_states(&[state.clone()]);
+        adapter.persist_health_states(std::slice::from_ref(&state));
         assert_eq!(adapter.pending_upsert_count(), 1);
 
         // Not yet in the DB

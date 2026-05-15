@@ -656,7 +656,7 @@ async fn initialize_vault_creates_file_backed_database_after_empty_startup() {
 
     let msg = result_rx.recv().await.expect("result");
     match msg {
-        Message::CommandCompleted(CommandResult::VaultInitialized { .. }) => {}
+        Message::CommandCompleted(CommandResult::VaultInitialized) => {}
         other => panic!("expected VaultInitialized, got {other:?}"),
     }
 

@@ -342,18 +342,18 @@ mod tests {
         let import_status = SessionStatus::Import(ImportSessionStatus::Completed);
         let export_status = SessionStatus::Export(ExportSessionStatus::Failed);
 
-        let is_done = match import_status {
-            SessionStatus::Import(ImportSessionStatus::Completed) => true,
-            SessionStatus::Export(ExportSessionStatus::Completed) => true,
-            _ => false,
-        };
+        let is_done = matches!(
+            import_status,
+            SessionStatus::Import(ImportSessionStatus::Completed)
+                | SessionStatus::Export(ExportSessionStatus::Completed)
+        );
         assert!(is_done);
 
-        let is_done = match export_status {
-            SessionStatus::Import(ImportSessionStatus::Completed) => true,
-            SessionStatus::Export(ExportSessionStatus::Completed) => true,
-            _ => false,
-        };
+        let is_done = matches!(
+            export_status,
+            SessionStatus::Import(ImportSessionStatus::Completed)
+                | SessionStatus::Export(ExportSessionStatus::Completed)
+        );
         assert!(!is_done);
     }
 

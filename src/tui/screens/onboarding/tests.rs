@@ -217,8 +217,10 @@ fn onboarding_welcome_tab_moves_down() {
 
 #[test]
 fn onboarding_welcome_backtab_moves_up() {
-    let mut screen = OnboardingScreen::default();
-    screen.welcome_selected = 2;
+    let mut screen = OnboardingScreen {
+        welcome_selected: 2,
+        ..Default::default()
+    };
     screen.handle_welcome_key(
         KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),
         &mut dummy_ctx(),
@@ -569,6 +571,7 @@ fn onboarding_recovery_display_defaults() {
 
 #[test]
 fn onboarding_step_number_create_path() {
+    #[allow(clippy::field_reassign_with_default)]
     let mut screen = OnboardingScreen {
         selected_path: Some(OnboardingPath::CreateNew),
         ..Default::default()
@@ -591,6 +594,7 @@ fn onboarding_step_number_create_path() {
 
 #[test]
 fn onboarding_step_number_restore_path() {
+    #[allow(clippy::field_reassign_with_default)]
     let mut screen = OnboardingScreen {
         selected_path: Some(OnboardingPath::Restore),
         ..Default::default()
@@ -608,6 +612,7 @@ fn onboarding_step_number_restore_path() {
 
 #[test]
 fn onboarding_step_number_import_path() {
+    #[allow(clippy::field_reassign_with_default)]
     let mut screen = OnboardingScreen {
         selected_path: Some(OnboardingPath::Import),
         ..Default::default()
@@ -636,6 +641,7 @@ fn onboarding_step_number_import_path() {
 
 #[test]
 fn onboarding_set_password_navigates() {
+    #[allow(clippy::field_reassign_with_default)]
     let mut screen = OnboardingScreen {
         selected_path: Some(OnboardingPath::CreateNew),
         current_step: OnboardingStep::SetPassword,
@@ -654,6 +660,7 @@ fn onboarding_set_password_navigates() {
 
 #[test]
 fn onboarding_security_advisory_enter() {
+    #[allow(clippy::field_reassign_with_default)]
     let mut screen = OnboardingScreen {
         selected_path: Some(OnboardingPath::Restore),
         current_step: OnboardingStep::SecurityAdvisory,
@@ -670,6 +677,7 @@ fn onboarding_security_advisory_enter() {
 
 #[test]
 fn onboarding_import_source_enter() {
+    #[allow(clippy::field_reassign_with_default)]
     let mut screen = OnboardingScreen {
         selected_path: Some(OnboardingPath::Import),
         current_step: OnboardingStep::ImportSource,
@@ -688,6 +696,7 @@ fn onboarding_import_source_enter() {
 
 #[test]
 fn onboarding_import_preview_enter() {
+    #[allow(clippy::field_reassign_with_default)]
     let mut screen = OnboardingScreen {
         selected_path: Some(OnboardingPath::Import),
         current_step: OnboardingStep::ImportPreview,
@@ -1108,6 +1117,7 @@ fn onboarding_verify_esc_goes_back_to_recovery_display() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn on_unmount_zeroizes_sensitive_data() {
     use crate::tui::traits::screen::Screen;
 

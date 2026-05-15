@@ -162,11 +162,13 @@ fn render_empty_state_trash() {
 
 #[test]
 fn render_empty_state_search_no_results() {
-    let mut state = ListPanelState::default();
-    state.mode = ListMode::Search(SearchState {
-        query: "nonexistent".to_string(),
-        cursor: 11,
-    });
+    let state = ListPanelState {
+        mode: ListMode::Search(SearchState {
+            query: "nonexistent".to_string(),
+            cursor: 11,
+        }),
+        ..Default::default()
+    };
     let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::All);
     assert!(!result.is_empty());
 }
@@ -216,11 +218,13 @@ fn render_visual_mode() {
 
 #[test]
 fn render_search_mode_bar() {
-    let mut state = ListPanelState::default();
-    state.mode = ListMode::Search(SearchState {
-        query: "git".to_string(),
-        cursor: 3,
-    });
+    let state = ListPanelState {
+        mode: ListMode::Search(SearchState {
+            query: "git".to_string(),
+            cursor: 3,
+        }),
+        ..Default::default()
+    };
     let result = render_snapshot(&state, 40, 10, true, true, RecordFilter::All);
     assert!(!result.is_empty());
 }
@@ -333,7 +337,7 @@ fn render_visual_mode_bar() {
         "label span should contain 'VISUAL'"
     );
     assert!(
-        label_span.style.fg == Some(theme::TEXT.into()),
+        label_span.style.fg == Some(theme::TEXT),
         "label should use TEXT color (white bold on BG_BAR)"
     );
     assert!(
@@ -341,7 +345,7 @@ fn render_visual_mode_bar() {
         "label should be BOLD"
     );
     assert!(
-        label_span.style.bg == Some(theme::BG_BAR.into()),
+        label_span.style.bg == Some(theme::BG_BAR),
         "label should have BG_BAR background"
     );
 
@@ -351,7 +355,7 @@ fn render_visual_mode_bar() {
         "count span should contain the number 5"
     );
     assert!(
-        count_span.style.bg == Some(theme::BG_BAR.into()),
+        count_span.style.bg == Some(theme::BG_BAR),
         "count should have BG_BAR background"
     );
 }
@@ -485,10 +489,10 @@ fn highlight_match_basic() {
     assert_eq!(spans[0].content.as_ref(), "Git");
     assert_eq!(spans[1].content.as_ref(), "Hub");
     // Verify the highlighted span has WARNING color + BOLD
-    assert!(spans[0].style.fg == Some(theme::WARNING.into()));
+    assert!(spans[0].style.fg == Some(theme::WARNING));
     assert!(spans[0].style.add_modifier.contains(Modifier::BOLD));
     // Non-matching span should be plain text color
-    assert!(spans[1].style.fg == Some(theme::TEXT.into()));
+    assert!(spans[1].style.fg == Some(theme::TEXT));
 }
 
 #[test]
@@ -503,7 +507,7 @@ fn highlight_match_multi_occurrence() {
     assert_eq!(spans[4].content.as_ref(), "test"); // highlighted
                                                    // Highlighted spans should have WARNING + BOLD
     for i in [0, 2, 4] {
-        assert!(spans[i].style.fg == Some(theme::WARNING.into()));
+        assert!(spans[i].style.fg == Some(theme::WARNING));
         assert!(spans[i].style.add_modifier.contains(Modifier::BOLD));
     }
 }
@@ -513,7 +517,7 @@ fn highlight_match_empty_query() {
     let spans = ListPanel::highlight_match("GitHub", "");
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].content.as_ref(), "GitHub");
-    assert!(spans[0].style.fg == Some(theme::TEXT.into()));
+    assert!(spans[0].style.fg == Some(theme::TEXT));
 }
 
 #[test]
@@ -523,7 +527,7 @@ fn highlight_match_case_insensitive() {
     assert_eq!(spans[0].content.as_ref(), "My");
     assert_eq!(spans[1].content.as_ref(), "Git"); // highlighted
     assert_eq!(spans[2].content.as_ref(), "Repo");
-    assert!(spans[1].style.fg == Some(theme::WARNING.into()));
+    assert!(spans[1].style.fg == Some(theme::WARNING));
 }
 
 #[test]
@@ -531,7 +535,7 @@ fn highlight_match_no_match() {
     let spans = ListPanel::highlight_match("GitHub", "xyz");
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].content.as_ref(), "GitHub");
-    assert!(spans[0].style.fg == Some(theme::TEXT.into()));
+    assert!(spans[0].style.fg == Some(theme::TEXT));
 }
 
 #[test]
@@ -641,11 +645,13 @@ fn build_empty_state_variant_search_filter() {
 fn build_empty_state_variant_search_mode_overrides_filter() {
     // When in search mode with a non-empty query, it should use NoSearchResults
     // from the list mode search state, regardless of the filter
-    let mut state = ListPanelState::default();
-    state.mode = ListMode::Search(SearchState {
-        query: "mysearch".to_string(),
-        cursor: 8,
-    });
+    let state = ListPanelState {
+        mode: ListMode::Search(SearchState {
+            query: "mysearch".to_string(),
+            cursor: 8,
+        }),
+        ..Default::default()
+    };
     let variant = build_empty_state_variant(&state, &RecordFilter::All);
     match variant {
         EmptyStateVariant::NoSearchResults { query } => {
@@ -663,7 +669,7 @@ fn health_badge_compromised() {
     let text = span.content.as_ref();
     assert!(text.contains('\u{1F534}')); // 🔴
     assert!(text.contains("Leaked") || text.contains("leaked"));
-    assert!(span.style.fg == Some(theme::ERROR.into()));
+    assert!(span.style.fg == Some(theme::ERROR));
 }
 
 #[test]
@@ -671,7 +677,7 @@ fn health_badge_compromised_ascii() {
     let span = health_badge(Some(&HealthIssue::Compromised), false).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('!'));
-    assert!(span.style.fg == Some(theme::ERROR.into()));
+    assert!(span.style.fg == Some(theme::ERROR));
 }
 
 #[test]
@@ -680,7 +686,7 @@ fn health_badge_weak() {
     let text = span.content.as_ref();
     assert!(text.contains('\u{26A0}')); // ⚠
     assert!(text.contains("Weak") || text.contains("weak"));
-    assert!(span.style.fg == Some(theme::WARNING.into()));
+    assert!(span.style.fg == Some(theme::WARNING));
 }
 
 #[test]
@@ -688,7 +694,7 @@ fn health_badge_weak_ascii() {
     let span = health_badge(Some(&HealthIssue::Weak), false).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('!'));
-    assert!(span.style.fg == Some(theme::WARNING.into()));
+    assert!(span.style.fg == Some(theme::WARNING));
 }
 
 #[test]
@@ -698,7 +704,7 @@ fn health_badge_duplicate() {
     assert!(text.contains('\u{26A0}')); // ⚠
     assert!(text.contains('3'));
     assert!(text.contains("Duplicate") || text.contains("duplicate"));
-    assert!(span.style.fg == Some(theme::WARNING.into()));
+    assert!(span.style.fg == Some(theme::WARNING));
 }
 
 #[test]
@@ -706,7 +712,7 @@ fn health_badge_duplicate_ascii() {
     let span = health_badge(Some(&HealthIssue::Duplicate { group_size: 5 }), false).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('5'));
-    assert!(span.style.fg == Some(theme::WARNING.into()));
+    assert!(span.style.fg == Some(theme::WARNING));
 }
 
 #[test]

@@ -582,7 +582,7 @@ mod tests {
     #[test]
     fn memorable_default_config_has_capitalize_true() {
         let state = GeneratorState::new();
-        assert_eq!(state.memorable_config.capitalize, true);
+        assert!(state.memorable_config.capitalize);
     }
 
     #[test]

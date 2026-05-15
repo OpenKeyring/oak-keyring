@@ -187,7 +187,7 @@ fn test_okb_edge_cases_parse() {
         .fields
         .get("password")
         .unwrap()
-        .contains::<&str>(&"<>&\"'"));
+        .contains::<&str>("<>&\"'"));
     assert!(special_name.fields.get("notes").unwrap().contains("line1"));
 
     // Record with long notes
