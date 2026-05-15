@@ -47,6 +47,23 @@ pub enum RestoreNext {
     RestoreDatabase,
 }
 
+impl Drop for SetPasswordContext {
+    fn drop(&mut self) {
+        match self {
+            Self::OnboardingCreate { recovery_words }
+            | Self::RestoreExistingVault { recovery_words, .. } => {
+                use zeroize::Zeroize;
+                for w in recovery_words.iter_mut() {
+                    w.zeroize();
+                    w.clear();
+                }
+                recovery_words.clear();
+            }
+            Self::PostRecovery | Self::OnboardingRestore => {}
+        }
+    }
+}
+
 // ── SetPasswordScreen ────────────────────────────────────────────────────────
 
 /// Password setting screen with strength indicator and confirmation field.

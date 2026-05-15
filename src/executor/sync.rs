@@ -528,11 +528,10 @@ pub async fn handle_restore_database_from_cloud(
     executor: &mut CommandExecutor,
     master_password: Option<SecureStr>,
 ) -> CommandResult {
-    if executor.sync.is_none() {
-        return CommandResult::DatabaseRestoreNeedsOAuth;
-    }
-
-    let sync = executor.sync.as_mut().unwrap();
+    let sync = match executor.sync.as_mut() {
+        Some(s) => s,
+        None => return CommandResult::DatabaseRestoreNeedsOAuth,
+    };
     if let Err(result) = ensure_cloud_restore_has_records(sync).await {
         return result;
     }

@@ -532,3 +532,96 @@ async fn resolve_conflict_without_sync_returns_error() {
         other => panic!("Expected Error, got {:?}", other),
     }
 }
+
+// ==================== Test 9: Cloud Restore Happy Path ====================
+
+#[tokio::test]
+async fn restore_database_from_cloud_with_valid_records_creates_vault_db() {
+    use oak_keyring::cloud::metadata::serialize_metadata;
+    use oak_keyring::cloud::{CloudRecord, RecordVersionInfo};
+
+    let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
+    let data_dir = vault_dir.path().join("oak-keyring");
+
+    // Set up a key-only executor with a FS-backed cloud storage.
+    let mut ctx = setup_key_only_sync_executor(&vault_dir).await;
+    rebuild_keyfile_from_recovery(&mut ctx).await;
+
+    // Write valid cloud metadata + a valid record directly to cloud storage.
+    let record_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let nonce_b64 = {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode([0u8; 24])
+    };
+    let encrypted_data_b64 = {
+        use base64::Engine;
+        // 32 bytes of dummy ciphertext (passes base64 decode, not real encryption)
+        base64::engine::general_purpose::STANDARD.encode([0xABu8; 48])
+    };
+    let record = CloudRecord {
+        id: record_id.clone(),
+        version: 1,
+        encrypted_data: encrypted_data_b64.clone(),
+        nonce: nonce_b64,
+        dek_version: 1,
+        aad: oak_keyring::cloud::AadFields {
+            record_id: record_id.clone(),
+            dek_version: 1,
+        },
+        metadata: oak_keyring::cloud::RecordMetadata {
+            name: "Test Record".to_string(),
+            tags: vec!["test".to_string()],
+            updated_at: now.clone(),
+            health: None,
+            ..Default::default()
+        },
+        deleted: None,
+        deleted_at: None,
+    };
+    let checksum = record.compute_checksum().expect("checksum");
+
+    let mut metadata = CloudMetadata::new("test-vault-token".to_string());
+    metadata.upsert_record(
+        record_id.clone(),
+        RecordVersionInfo {
+            version: 1,
+            updated_at: now,
+            updated_by: "test-device".to_string(),
+            checksum,
+            deleted: false,
+        },
+    );
+
+    // Write metadata and record to cloud storage.
+    let metadata_json = serialize_metadata(&metadata).expect("serialize metadata");
+    std::fs::write(ctx.cloud_dir.path().join(METADATA_FILENAME), metadata_json).unwrap();
+    let records_dir = ctx.cloud_dir.path().join("records");
+    std::fs::create_dir_all(&records_dir).unwrap();
+    let record_json = serde_json::to_string_pretty(&record).expect("serialize record");
+    std::fs::write(records_dir.join(format!("{record_id}.json")), record_json).unwrap();
+
+    // Trigger restore from cloud.
+    ctx.command_tx
+        .send(Command::RestoreDatabaseFromCloud {
+            master_password: None,
+        })
+        .await
+        .expect("send should succeed");
+
+    let result = recv_command_result(&mut ctx.result_rx).await;
+    assert!(
+        matches!(
+            &result,
+            CommandResult::DatabaseRestored {
+                source: oak_keyring::commands::types::DatabaseRecoverySource::Cloud
+            }
+        ),
+        "expected successful cloud restore, got: {:?}",
+        result
+    );
+    assert!(
+        data_dir.join("vault.db").exists(),
+        "vault.db must exist after successful cloud restore"
+    );
+}

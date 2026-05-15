@@ -428,12 +428,13 @@ impl PendingFileBackedVaultDb<'_> {
     pub(super) async fn restore_pull_only(
         &mut self,
     ) -> Result<crate::services::sync::SyncResult, crate::errors::mapping::sync::SyncError> {
-        self.executor
-            .sync
-            .as_mut()
-            .unwrap()
-            .restore_pull_only()
-            .await
+        let sync = self.executor.sync.as_mut().ok_or_else(|| {
+            crate::errors::mapping::sync::SyncError::ProviderError {
+                provider: "none".to_string(),
+                message: "Sync service not configured".to_string(),
+            }
+        })?;
+        sync.restore_pull_only().await
     }
 
     pub(super) fn set_metadata(
