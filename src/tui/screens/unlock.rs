@@ -428,7 +428,11 @@ impl UnlockScreen {
                             }
                         }
                     };
-                    let _ = ctx.command_tx.try_send(cmd);
+                    if ctx.command_tx.try_send(cmd).is_err() {
+                        self.state = UnlockPhase::Failed;
+                        self.error_message =
+                            Some(t!("tui.error.command_dispatch_failed").to_string());
+                    }
                 }
                 ScreenResult::Continue
             }

@@ -70,9 +70,15 @@ impl KeyRecoveryScreen {
                     self.validating = true;
                     match self.words.collect_recovery_words() {
                         Ok(words) => {
-                            let _ = ctx
+                            if ctx
                                 .command_tx
-                                .try_send(Command::ValidateRecoveryWords { words });
+                                .try_send(Command::ValidateRecoveryWords { words })
+                                .is_err()
+                            {
+                                self.validating = false;
+                                self.error =
+                                    Some(t!("tui.error.command_dispatch_failed").to_string());
+                            }
                         }
                         Err(_) => {
                             self.validating = false;

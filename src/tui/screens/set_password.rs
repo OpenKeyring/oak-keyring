@@ -421,7 +421,9 @@ impl SetPasswordScreen {
                         recovery_words: None,
                     },
                 };
-                let _ = ctx.command_tx.try_send(cmd);
+                if ctx.command_tx.try_send(cmd).is_err() {
+                    self.error = Some(t!("tui.error.command_dispatch_failed").to_string());
+                }
                 ScreenResult::Continue
             }
             KeyCode::Esc => ScreenResult::PopScreen,

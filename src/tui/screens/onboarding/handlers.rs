@@ -230,7 +230,11 @@ impl OnboardingScreen {
                         match result {
                             Ok(words) => {
                                 let cmd = Command::UnlockWithRecoveryKey { words };
-                                let _ = ctx.command_tx.try_send(cmd);
+                                if ctx.command_tx.try_send(cmd).is_err() {
+                                    self.error =
+                                        Some(t!("tui.error.command_dispatch_failed").to_string());
+                                    return ScreenResult::Continue;
+                                }
                                 // Advance to SecurityAdvisory
                                 self.current_step = OnboardingStep::SecurityAdvisory;
                             }
