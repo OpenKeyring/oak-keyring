@@ -291,7 +291,7 @@ fn get_rules_for_format_returns_non_empty_for_all_variants() {
     ];
 
     for source in sources {
-        let rules = get_rules_for_format(source.clone());
+        let rules = get_rules_for_format(source);
         assert!(
             !rules.is_empty(),
             "rules for {source:?} should not be empty"

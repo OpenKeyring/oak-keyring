@@ -303,18 +303,16 @@ mod tests {
             .expect("Derivation should succeed");
 
         let ct_result = derived.ct_eq(&hash.key);
-        assert_eq!(
+        assert!(
             bool::from(ct_result),
-            true,
             "Constant-time comparison should match for correct password"
         );
 
         let wrong_derived = derive_key_with_params("wrong", &hash.salt, &hash.params)
             .expect("Derivation should succeed");
         let ct_wrong = wrong_derived.ct_eq(&hash.key);
-        assert_eq!(
-            bool::from(ct_wrong),
-            false,
+        assert!(
+            !bool::from(ct_wrong),
             "Constant-time comparison should not match for wrong password"
         );
     }

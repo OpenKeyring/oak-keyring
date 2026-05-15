@@ -1,3 +1,4 @@
+#![allow(clippy::field_reassign_with_default)]
 use super::*;
 use crate::config::sync::SyncProvider;
 use crate::config::{AnimationMode, AppConfig, HealthCheckFrequency};
@@ -31,10 +32,12 @@ fn load_from_config_populates_forms() {
 
 #[test]
 fn load_from_config_resets_scroll_and_focus() {
-    let mut state = ConfigScreenState::default();
-    state.scroll_offset = 10;
-    state.focused_item = 5;
-    state.has_changes = true;
+    let mut state = ConfigScreenState {
+        scroll_offset: 10,
+        focused_item: 5,
+        has_changes: true,
+        ..Default::default()
+    };
 
     state.load_from_config(&AppConfig::default());
 
@@ -72,9 +75,11 @@ fn to_app_config_uses_default_rotation() {
 
 #[test]
 fn switch_tab_resets_scroll_and_focus() {
-    let mut state = ConfigScreenState::default();
-    state.scroll_offset = 5;
-    state.focused_item = 3;
+    let mut state = ConfigScreenState {
+        scroll_offset: 5,
+        focused_item: 3,
+        ..Default::default()
+    };
 
     state.switch_tab(ConfigTab::Sync);
 
@@ -85,9 +90,11 @@ fn switch_tab_resets_scroll_and_focus() {
 
 #[test]
 fn switch_tab_same_tab_is_noop() {
-    let mut state = ConfigScreenState::default();
-    state.scroll_offset = 5;
-    state.focused_item = 3;
+    let mut state = ConfigScreenState {
+        scroll_offset: 5,
+        focused_item: 3,
+        ..Default::default()
+    };
 
     state.switch_tab(ConfigTab::General);
 
@@ -97,8 +104,10 @@ fn switch_tab_same_tab_is_noop() {
 
 #[test]
 fn focus_next_cycles() {
-    let mut state = ConfigScreenState::default();
-    state.focused_item = 4;
+    let mut state = ConfigScreenState {
+        focused_item: 4,
+        ..Default::default()
+    };
     let at_boundary = state.focus_next(5);
     assert_eq!(state.focused_item, 0);
     assert!(at_boundary);
@@ -106,8 +115,10 @@ fn focus_next_cycles() {
 
 #[test]
 fn focus_prev_cycles() {
-    let mut state = ConfigScreenState::default();
-    state.focused_item = 0;
+    let mut state = ConfigScreenState {
+        focused_item: 0,
+        ..Default::default()
+    };
     let at_boundary = state.focus_prev(5);
     assert_eq!(state.focused_item, 4);
     assert!(at_boundary);
@@ -115,8 +126,10 @@ fn focus_prev_cycles() {
 
 #[test]
 fn focus_next_not_at_boundary() {
-    let mut state = ConfigScreenState::default();
-    state.focused_item = 2;
+    let mut state = ConfigScreenState {
+        focused_item: 2,
+        ..Default::default()
+    };
     let at_boundary = state.focus_next(5);
     assert_eq!(state.focused_item, 3);
     assert!(!at_boundary);
@@ -124,8 +137,10 @@ fn focus_next_not_at_boundary() {
 
 #[test]
 fn focus_prev_not_at_boundary() {
-    let mut state = ConfigScreenState::default();
-    state.focused_item = 3;
+    let mut state = ConfigScreenState {
+        focused_item: 3,
+        ..Default::default()
+    };
     let at_boundary = state.focus_prev(5);
     assert_eq!(state.focused_item, 2);
     assert!(!at_boundary);
@@ -141,18 +156,22 @@ fn focus_next_empty_is_noop() {
 
 #[test]
 fn boundary_flash_active_within_duration() {
-    let mut state = ConfigScreenState::default();
-    state.boundary_flash_at = Some(std::time::Instant::now());
+    let state = ConfigScreenState {
+        boundary_flash_at: Some(std::time::Instant::now()),
+        ..Default::default()
+    };
     assert!(state.is_boundary_flash_active());
 }
 
 #[test]
 fn boundary_flash_inactive_after_duration() {
-    let mut state = ConfigScreenState::default();
-    state.boundary_flash_at = Some(
-        std::time::Instant::now()
-            - std::time::Duration::from_millis(BOUNDARY_FLASH_DURATION_MS + 1),
-    );
+    let state = ConfigScreenState {
+        boundary_flash_at: Some(
+            std::time::Instant::now()
+                - std::time::Duration::from_millis(BOUNDARY_FLASH_DURATION_MS + 1),
+        ),
+        ..Default::default()
+    };
     assert!(!state.is_boundary_flash_active());
 }
 
@@ -266,8 +285,10 @@ fn password_form_default_values() {
 
 #[test]
 fn scroll_page_up_clamps_to_zero() {
-    let mut state = ConfigScreenState::default();
-    state.scroll_offset = 3;
+    let mut state = ConfigScreenState {
+        scroll_offset: 3,
+        ..Default::default()
+    };
     state.scroll_page_up(10);
     assert_eq!(state.scroll_offset, 0);
 }
@@ -291,8 +312,10 @@ fn scroll_page_down_advances() {
 
 #[test]
 fn ensure_focused_visible_adjusts_up() {
-    let mut state = ConfigScreenState::default();
-    state.scroll_offset = 10;
+    let mut state = ConfigScreenState {
+        scroll_offset: 10,
+        ..Default::default()
+    };
     // focused=5 => item_row=6, which is < scroll_offset(10)
     state.ensure_focused_visible(5, 10);
     assert_eq!(state.scroll_offset, 6);
@@ -300,8 +323,10 @@ fn ensure_focused_visible_adjusts_up() {
 
 #[test]
 fn ensure_focused_visible_adjusts_down() {
-    let mut state = ConfigScreenState::default();
-    state.scroll_offset = 5;
+    let mut state = ConfigScreenState {
+        scroll_offset: 5,
+        ..Default::default()
+    };
     // focused=14 => item_row=15, visible window is [5..15), 15 >= 5+10
     state.ensure_focused_visible(14, 10);
     assert_eq!(state.scroll_offset, 6);
@@ -309,8 +334,10 @@ fn ensure_focused_visible_adjusts_down() {
 
 #[test]
 fn ensure_focused_visible_no_adjust_needed() {
-    let mut state = ConfigScreenState::default();
-    state.scroll_offset = 5;
+    let mut state = ConfigScreenState {
+        scroll_offset: 5,
+        ..Default::default()
+    };
     // focused=7 => item_row=8, visible window is [5..15), 8 is inside
     state.ensure_focused_visible(7, 10);
     assert_eq!(state.scroll_offset, 5);
@@ -333,11 +360,13 @@ fn sync_provider_display_labels_matches_options_count() {
 
 #[test]
 fn config_restore_state_restores_tab_row_sub_item_and_scroll() {
-    let mut state = ConfigScreenState::default();
-    state.active_tab = ConfigTab::General;
-    state.focused_item = 0;
-    state.sub_item_focus = None;
-    state.scroll_offset = 0;
+    let mut state = ConfigScreenState {
+        active_tab: ConfigTab::General,
+        focused_item: 0,
+        sub_item_focus: None,
+        scroll_offset: 0,
+        ..Default::default()
+    };
 
     state.restore_from(crate::tui::state::ConfigRestoreState {
         active_tab: ConfigTab::Security,

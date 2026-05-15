@@ -361,7 +361,7 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            matches!(err, ImportExportError::FileNotFound(ref p) if p == &path),
+            matches!(err, ImportExportError::FileNotFound(ref p) if p == path),
             "expected FileNotFound, got: {err:?}"
         );
     }

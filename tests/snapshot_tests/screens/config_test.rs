@@ -19,8 +19,7 @@ fn render_config(screen: &ConfigScreen) -> TestBackend {
 /// Deterministic test vault path isolated from real data directories.
 /// Pure rendering test — no I/O, no files created, no cleanup needed.
 fn make_test_screen() -> ConfigScreen {
-    let screen = ConfigScreen::new();
-    screen
+    ConfigScreen::new()
 }
 
 #[test]

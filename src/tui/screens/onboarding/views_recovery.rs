@@ -48,7 +48,7 @@ impl OnboardingScreen {
         frame.render_widget(title, rows[0]);
 
         // Word grid (read-only)
-        if self.recovery_words.is_empty() {
+        if self.recovery_words.is_none() {
             let placeholder = Paragraph::new(t!("tui.entry.generating_recovery_key"))
                 .style(Style::default().fg(TEXT_MUTED))
                 .alignment(Alignment::Center);
@@ -181,15 +181,15 @@ impl OnboardingScreen {
                     .map(|col| {
                         let idx = row * 4 + col;
                         let num_str = format!("{:>2}.", idx + 1);
-                        let word = if idx < self.recovery_words.len() {
-                            self.recovery_words[idx].as_str()
-                        } else {
-                            "..."
-                        };
+                        let word = self
+                            .recovery_words
+                            .as_ref()
+                            .and_then(|words| words.word(idx))
+                            .unwrap_or("");
                         Line::from(vec![
                             Span::styled(num_str, Style::default().fg(TEXT_SECONDARY)),
                             Span::raw(" "),
-                            Span::styled(word.to_string(), Style::default().fg(TEXT)),
+                            Span::styled(word, Style::default().fg(TEXT)),
                         ])
                     })
                     .collect();

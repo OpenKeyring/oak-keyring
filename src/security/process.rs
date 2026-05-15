@@ -221,8 +221,10 @@ mod tests {
 
     #[test]
     fn process_protections_display_with_core_dump_disabled() {
-        let mut protections = ProcessProtections::default();
-        protections.core_dump_disabled = true;
+        let protections = ProcessProtections {
+            core_dump_disabled: true,
+            ..Default::default()
+        };
 
         let display = format!("{}", protections);
         assert!(display.contains("core dump disabled"));
@@ -231,9 +233,11 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn process_protections_display_with_all_linux() {
-        let mut protections = ProcessProtections::default();
-        protections.core_dump_disabled = true;
-        protections.dumpable_disabled = true;
+        let protections = ProcessProtections {
+            core_dump_disabled: true,
+            dumpable_disabled: true,
+            ..Default::default()
+        };
 
         let display = format!("{}", protections);
         assert!(display.contains("core dump disabled"));
@@ -243,9 +247,10 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn process_protections_display_with_all_macos() {
-        let mut protections = ProcessProtections::default();
-        protections.core_dump_disabled = true;
-        protections.debugger_attach_disabled = true;
+        let protections = ProcessProtections {
+            core_dump_disabled: true,
+            debugger_attach_disabled: true,
+        };
 
         let display = format!("{}", protections);
         assert!(display.contains("core dump disabled"));

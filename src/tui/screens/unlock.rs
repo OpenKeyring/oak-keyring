@@ -411,14 +411,28 @@ impl UnlockScreen {
                             }
                         }
                         UnlockMode::RecoveryKey => {
-                            let words = self
-                                .password_input
-                                .expose(|s| s.split_whitespace().map(String::from).collect());
+                            let words_result = self.password_input.expose(|s| {
+                                crate::types::RecoveryWords::new(
+                                    s.split_whitespace().map(String::from).collect(),
+                                )
+                            });
                             self.password_input.clear();
-                            Command::UnlockWithRecoveryKey { words }
+                            match words_result {
+                                Ok(words) => Command::UnlockWithRecoveryKey { words },
+                                Err(_) => {
+                                    self.state = UnlockPhase::Failed;
+                                    self.error_message =
+                                        Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                                    return ScreenResult::Continue;
+                                }
+                            }
                         }
                     };
-                    let _ = ctx.command_tx.try_send(cmd);
+                    if ctx.command_tx.try_send(cmd).is_err() {
+                        self.state = UnlockPhase::Failed;
+                        self.error_message =
+                            Some(t!("tui.error.command_dispatch_failed").to_string());
+                    }
                 }
                 ScreenResult::Continue
             }
@@ -492,6 +506,7 @@ impl UnlockScreen {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::tui::traits::screen::Screen as ScreenTrait;
@@ -541,8 +556,10 @@ mod tests {
 
     #[test]
     fn masked_input_hides_password() {
-        let mut screen = UnlockScreen::default();
-        screen.password_input = sensitive("hello");
+        let screen = UnlockScreen {
+            password_input: sensitive("hello"),
+            ..Default::default()
+        };
         let masked = screen.masked_input();
         assert_eq!(masked, "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}");
         assert!(!masked.contains('h'));
@@ -595,12 +612,41 @@ mod tests {
     }
 
     #[test]
+    fn recovery_key_mode_builds_recovery_words_command() {
+        let mut screen = UnlockScreen {
+            mode: UnlockMode::RecoveryKey,
+            password_input: sensitive("abandon ".repeat(24).trim()),
+            ..Default::default()
+        };
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(1);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+
+        let result = screen.handle_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        match rx.try_recv().expect("command should be sent") {
+            Command::UnlockWithRecoveryKey { words } => assert_eq!(words.len(), 24),
+            other => panic!("expected recovery command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn command_result_failed_increments_attempts() {
         // Ensure i18n is initialized for consistent test results
         crate::tui::i18n::init("en");
 
-        let mut screen = UnlockScreen::default();
-        screen.state = UnlockPhase::Verifying;
+        let mut screen = UnlockScreen {
+            state: UnlockPhase::Verifying,
+            ..Default::default()
+        };
         let result = screen.handle_command_result(CommandResult::VaultUnlockFailed {
             attempts_remaining: Some(3),
         });

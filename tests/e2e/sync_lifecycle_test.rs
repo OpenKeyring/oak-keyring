@@ -164,7 +164,7 @@ async fn init_and_unlock_vault(
 
     let result = recv_command_result(result_rx).await;
     match result {
-        CommandResult::VaultInitialized { .. } => {}
+        CommandResult::VaultInitialized => {}
         other => panic!("Expected VaultInitialized, got {:?}", other),
     }
 }
@@ -205,7 +205,7 @@ async fn rebuild_keyfile_from_recovery(ctx: &mut SyncTestContext) {
     ctx.command_tx
         .send(Command::RebuildKeyFileFromRecovery {
             master_password: SecureStr::new("test_password_123".to_string()),
-            recovery_words: passkey.to_words(),
+            recovery_words: passkey.to_recovery_words().expect("recovery words"),
         })
         .await
         .expect("send should succeed");

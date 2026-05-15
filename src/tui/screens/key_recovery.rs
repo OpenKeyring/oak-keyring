@@ -68,10 +68,23 @@ impl KeyRecoveryScreen {
                 if self.words.all_filled() {
                     self.error = None;
                     self.validating = true;
-                    let words = self.words.collect_words();
-                    let _ = ctx
-                        .command_tx
-                        .try_send(Command::ValidateRecoveryWords { words });
+                    match self.words.collect_recovery_words() {
+                        Ok(words) => {
+                            if ctx
+                                .command_tx
+                                .try_send(Command::ValidateRecoveryWords { words })
+                                .is_err()
+                            {
+                                self.validating = false;
+                                self.error =
+                                    Some(t!("tui.error.command_dispatch_failed").to_string());
+                            }
+                        }
+                        Err(_) => {
+                            self.validating = false;
+                            self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                        }
+                    }
                 } else {
                     self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
                 }

@@ -2,7 +2,7 @@ use crate::commands::{CommandResult, InternalCommand};
 use crate::config::ConfigManager;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::errors::{ErrorCode, ErrorContext};
-use crate::types::SecureStr;
+use crate::types::{RecoveryWords, SecureStr};
 
 use super::CommandExecutor;
 
@@ -122,24 +122,17 @@ pub async fn handle_unlock(
 #[tracing::instrument(skip(executor, words))]
 pub async fn handle_unlock_with_recovery_key(
     executor: &mut CommandExecutor,
-    words: Vec<String>,
+    words: RecoveryWords,
 ) -> CommandResult {
-    // Try English first (most common)
-    let passkey = match Passkey::from_words(&words, MnemonicLanguage::English) {
+    let passkey = match reconstruct_passkey(&words) {
         Ok(pk) => pk,
-        Err(_) => {
-            // Try Chinese
-            match Passkey::from_words(&words, MnemonicLanguage::ChineseSimplified) {
-                Ok(pk) => pk,
-                Err(e) => {
-                    return CommandResult::Error {
-                        code: ErrorCode::CryptoKeyDerivationFailed,
-                        context: ErrorContext::default(),
-                        message_key: "error.invalid_recovery_key",
-                        fallback: format!("Invalid recovery key: {}", e),
-                    };
-                }
-            }
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::CryptoKeyDerivationFailed,
+                context: ErrorContext::default(),
+                message_key: "error.invalid_recovery_key",
+                fallback: format!("Invalid recovery key: {}", e),
+            };
         }
     };
 
@@ -250,7 +243,7 @@ pub fn handle_change_master_password(
 pub async fn handle_initialize_vault(
     executor: &mut CommandExecutor,
     master_password: SecureStr,
-    recovery_words: Option<Vec<String>>,
+    recovery_words: Option<RecoveryWords>,
 ) -> CommandResult {
     // Step 1: Obtain Passkey — either from pre-generated recovery words or
     // by generating a fresh mnemonic.
@@ -294,7 +287,6 @@ pub async fn handle_initialize_vault(
         }
     };
     let mut sk_bytes = seed.to_secret_key();
-    let recovery_words = passkey.to_words();
 
     let vault_path = executor.vault_dir.clone();
     let key_path = vault_path.join("wrapped_secret_key.json");
@@ -349,7 +341,7 @@ pub async fn handle_initialize_vault(
     match pending.unlock(&master_password) {
         Ok(()) => {
             pending.commit();
-            CommandResult::VaultInitialized { recovery_words }
+            CommandResult::VaultInitialized
         }
         Err(e) => {
             drop(pending);
@@ -372,24 +364,16 @@ pub async fn handle_initialize_vault(
 
 /// Reconstruct a Passkey from pre-generated recovery words.
 /// Tries English first, then Chinese Simplified.
-fn zeroize_recovery_words(words: &mut [String]) {
-    use zeroize::Zeroize;
-    for w in words.iter_mut() {
-        w.zeroize();
-        w.clear();
-    }
-}
-
-fn reconstruct_passkey(words: &[String]) -> Result<Passkey, String> {
-    let english = Passkey::from_words(words, MnemonicLanguage::English);
+fn reconstruct_passkey(words: &RecoveryWords) -> Result<Passkey, String> {
+    let english = Passkey::from_recovery_words(words, MnemonicLanguage::English);
     if english.is_ok() {
         return english;
     }
-    Passkey::from_words(words, MnemonicLanguage::ChineseSimplified)
+    Passkey::from_recovery_words(words, MnemonicLanguage::ChineseSimplified)
 }
 
 /// Validate BIP39 recovery words (must be exactly 24).
-pub async fn handle_validate_recovery_words(words: Vec<String>) -> CommandResult {
+pub async fn handle_validate_recovery_words(words: RecoveryWords) -> CommandResult {
     if words.len() != 24 {
         return CommandResult::Error {
             code: ErrorCode::CryptoKeyDerivationFailed,
@@ -413,12 +397,11 @@ pub async fn handle_validate_recovery_words(words: Vec<String>) -> CommandResult
 pub async fn handle_rebuild_keyfile_from_recovery(
     executor: &mut CommandExecutor,
     master_password: crate::types::SecureStr,
-    mut recovery_words: Vec<String>,
+    recovery_words: RecoveryWords,
 ) -> CommandResult {
     let passkey = match reconstruct_passkey(&recovery_words) {
         Ok(pk) => pk,
         Err(e) => {
-            zeroize_recovery_words(&mut recovery_words);
             return CommandResult::Error {
                 code: ErrorCode::CryptoKeyDerivationFailed,
                 context: ErrorContext::default(),
@@ -427,7 +410,6 @@ pub async fn handle_rebuild_keyfile_from_recovery(
             };
         }
     };
-    zeroize_recovery_words(&mut recovery_words);
 
     let seed = match passkey.to_seed(None) {
         Ok(seed) => seed,

@@ -474,6 +474,147 @@ fn build_skip_breakdown(result: &ImportResult) -> HashMap<SkipReason, usize> {
     breakdown
 }
 
+/// Restore vault.db from a local .okb backup file.
+///
+/// Parses the encrypted OKB file using the export password, imports all records
+/// into the vault, then reopens the vault as file-backed.
+pub async fn handle_restore_database_from_okb(
+    executor: &mut CommandExecutor,
+    path: PathBuf,
+    password: SecureStr,
+    master_password: Option<SecureStr>,
+) -> CommandResult {
+    // Path guards
+    if path.as_os_str().is_empty() {
+        return CommandResult::Error {
+            code: ErrorCode::DataEmptyField,
+            context: ErrorContext::default(),
+            message_key: "error.okb_path_empty",
+            fallback: "Enter a .okb path.".to_string(),
+        };
+    }
+    if path.extension().and_then(|e| e.to_str()) != Some("okb") {
+        return CommandResult::Error {
+            code: ErrorCode::ImportFileFormatInvalid,
+            context: ErrorContext::default(),
+            message_key: "error.okb_invalid_extension",
+            fallback: "Path must end with .okb.".to_string(),
+        };
+    }
+    if !path.exists() {
+        return CommandResult::Error {
+            code: ErrorCode::ImportFileUnreadable,
+            context: ErrorContext::default(),
+            message_key: "error.okb_missing",
+            fallback: format!("Backup file does not exist: {}", path.display()),
+        };
+    }
+
+    // Parse the OKB file with the export password.
+    let parser = crate::services::import_export::parsers::okb::OkbParser;
+    let items = match parser.parse(&path, Some(&password), None) {
+        Ok(items) => items,
+        Err(e) => {
+            drop(password);
+            return CommandResult::Error {
+                code: ErrorCode::ImportFileUnreadable,
+                context: ErrorContext::default(),
+                message_key: "error.okb_decrypt_failed",
+                fallback: format!("Failed to decrypt .okb backup: {}", e),
+            };
+        }
+    };
+    // Export password no longer needed — drop immediately.
+    drop(password);
+
+    if items.is_empty() {
+        return CommandResult::Error {
+            code: ErrorCode::ImportFileFormatInvalid,
+            context: ErrorContext::default(),
+            message_key: "error.okb_empty",
+            fallback: "No records found in .okb backup.".to_string(),
+        };
+    }
+
+    // Unlock with the provided startup password or the cached onboarding password.
+    let master_password = match master_password.or_else(|| executor.verified_master_password.take())
+    {
+        Some(pw) => pw,
+        None => {
+            return CommandResult::Error {
+                code: ErrorCode::ExecutorMasterPasswordRequired,
+                context: ErrorContext::default(),
+                message_key: "error.password_required",
+                fallback: "Master password is required to unlock the recovered vault.".to_string(),
+            };
+        }
+    };
+
+    // Create a pending file-backed vault.db. If any later step fails, dropping
+    // the guard restores the executor to an in-memory vault and removes the
+    // uncommitted database files.
+    let mut pending = match executor.begin_file_backed_vault_db() {
+        Ok(pending) => pending,
+        Err(e) => {
+            return CommandResult::Error {
+                code: ErrorCode::VaultDatabaseIoError,
+                context: ErrorContext::default(),
+                message_key: "error.db_reopen_failed",
+                fallback: format!("Failed to create vault database: {}", e),
+            };
+        }
+    };
+
+    if let Err(e) = pending.unlock(&master_password) {
+        return CommandResult::Error {
+            code: ErrorCode::CryptoEncryptionFailed,
+            context: ErrorContext::default(),
+            message_key: "error.unlock_failed",
+            fallback: format!("Failed to unlock vault: {}", e),
+        };
+    }
+    drop(master_password);
+
+    // Import all parsed records into the vault.
+    let mut imported = 0usize;
+    let mut errors = 0usize;
+    for item in items {
+        let cred_type =
+            crate::services::import_export::mapping::infer_credential_type(&item.fields);
+        let payload = fields_to_payload(cred_type, &item.fields);
+        let params = CreateRecordParams {
+            credential_type: cred_type,
+            payload,
+            tags: item.tags.clone(),
+            is_favorite: false,
+            expires_at: None,
+        };
+        match pending.create_record(params) {
+            Ok(_) => imported += 1,
+            Err(_) => errors += 1,
+        }
+    }
+
+    if errors > 0 || imported == 0 {
+        return CommandResult::Error {
+            code: ErrorCode::ImportPartialFailure,
+            context: ErrorContext::default(),
+            message_key: "error.okb_restore_import_failed",
+            fallback: format!(
+                "Failed to restore .okb backup: imported {}, failed {}.",
+                imported, errors
+            ),
+        };
+    }
+
+    pending.commit();
+    tracing::info!(imported, errors, "OKB restore complete");
+
+    CommandResult::DatabaseRestored {
+        source: crate::commands::types::DatabaseRecoverySource::Okb,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -969,146 +1110,5 @@ mod tests {
         assert_eq!(breakdown.get(&SkipReason::Duplicate), Some(&3));
         assert_eq!(breakdown.get(&SkipReason::ValidationFailed), Some(&1));
         assert_eq!(breakdown.get(&SkipReason::VaultWriteError), None);
-    }
-}
-
-/// Restore vault.db from a local .okb backup file.
-///
-/// Parses the encrypted OKB file using the export password, imports all records
-/// into the vault, then reopens the vault as file-backed.
-pub async fn handle_restore_database_from_okb(
-    executor: &mut CommandExecutor,
-    path: PathBuf,
-    password: SecureStr,
-    master_password: Option<SecureStr>,
-) -> CommandResult {
-    // Path guards
-    if path.as_os_str().is_empty() {
-        return CommandResult::Error {
-            code: ErrorCode::DataEmptyField,
-            context: ErrorContext::default(),
-            message_key: "error.okb_path_empty",
-            fallback: "Enter a .okb path.".to_string(),
-        };
-    }
-    if path.extension().and_then(|e| e.to_str()) != Some("okb") {
-        return CommandResult::Error {
-            code: ErrorCode::ImportFileFormatInvalid,
-            context: ErrorContext::default(),
-            message_key: "error.okb_invalid_extension",
-            fallback: "Path must end with .okb.".to_string(),
-        };
-    }
-    if !path.exists() {
-        return CommandResult::Error {
-            code: ErrorCode::ImportFileUnreadable,
-            context: ErrorContext::default(),
-            message_key: "error.okb_missing",
-            fallback: format!("Backup file does not exist: {}", path.display()),
-        };
-    }
-
-    // Parse the OKB file with the export password.
-    let parser = crate::services::import_export::parsers::okb::OkbParser;
-    let items = match parser.parse(&path, Some(&password), None) {
-        Ok(items) => items,
-        Err(e) => {
-            drop(password);
-            return CommandResult::Error {
-                code: ErrorCode::ImportFileUnreadable,
-                context: ErrorContext::default(),
-                message_key: "error.okb_decrypt_failed",
-                fallback: format!("Failed to decrypt .okb backup: {}", e),
-            };
-        }
-    };
-    // Export password no longer needed — drop immediately.
-    drop(password);
-
-    if items.is_empty() {
-        return CommandResult::Error {
-            code: ErrorCode::ImportFileFormatInvalid,
-            context: ErrorContext::default(),
-            message_key: "error.okb_empty",
-            fallback: "No records found in .okb backup.".to_string(),
-        };
-    }
-
-    // Unlock with the provided startup password or the cached onboarding password.
-    let master_password = match master_password.or_else(|| executor.verified_master_password.take())
-    {
-        Some(pw) => pw,
-        None => {
-            return CommandResult::Error {
-                code: ErrorCode::ExecutorMasterPasswordRequired,
-                context: ErrorContext::default(),
-                message_key: "error.password_required",
-                fallback: "Master password is required to unlock the recovered vault.".to_string(),
-            };
-        }
-    };
-
-    // Create a pending file-backed vault.db. If any later step fails, dropping
-    // the guard restores the executor to an in-memory vault and removes the
-    // uncommitted database files.
-    let mut pending = match executor.begin_file_backed_vault_db() {
-        Ok(pending) => pending,
-        Err(e) => {
-            return CommandResult::Error {
-                code: ErrorCode::VaultDatabaseIoError,
-                context: ErrorContext::default(),
-                message_key: "error.db_reopen_failed",
-                fallback: format!("Failed to create vault database: {}", e),
-            };
-        }
-    };
-
-    if let Err(e) = pending.unlock(&master_password) {
-        return CommandResult::Error {
-            code: ErrorCode::CryptoEncryptionFailed,
-            context: ErrorContext::default(),
-            message_key: "error.unlock_failed",
-            fallback: format!("Failed to unlock vault: {}", e),
-        };
-    }
-    drop(master_password);
-
-    // Import all parsed records into the vault.
-    let mut imported = 0usize;
-    let mut errors = 0usize;
-    for item in items {
-        let cred_type =
-            crate::services::import_export::mapping::infer_credential_type(&item.fields);
-        let payload = fields_to_payload(cred_type, &item.fields);
-        let params = CreateRecordParams {
-            credential_type: cred_type,
-            payload,
-            tags: item.tags.clone(),
-            is_favorite: false,
-            expires_at: None,
-        };
-        match pending.create_record(params) {
-            Ok(_) => imported += 1,
-            Err(_) => errors += 1,
-        }
-    }
-
-    if errors > 0 || imported == 0 {
-        return CommandResult::Error {
-            code: ErrorCode::ImportPartialFailure,
-            context: ErrorContext::default(),
-            message_key: "error.okb_restore_import_failed",
-            fallback: format!(
-                "Failed to restore .okb backup: imported {}, failed {}.",
-                imported, errors
-            ),
-        };
-    }
-
-    pending.commit();
-    tracing::info!(imported, errors, "OKB restore complete");
-
-    CommandResult::DatabaseRestored {
-        source: crate::commands::types::DatabaseRecoverySource::Okb,
     }
 }

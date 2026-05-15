@@ -3,6 +3,7 @@ pub mod credential;
 pub mod health;
 pub mod history;
 pub mod record;
+pub mod recovery_words;
 pub mod rotation;
 pub mod sensitive;
 pub mod sync;
@@ -15,6 +16,7 @@ pub use history::{PasswordHistory, PasswordHistoryView};
 pub use record::{
     CreateRecordParams, DecryptedRecord, StoredRecord, TuiRecord, UpdateRecordParams,
 };
+pub use recovery_words::{RecoveryWords, RecoveryWordsError};
 pub use rotation::{RotationConfig, RotationConstants, RotationState, RotationTrigger};
 pub use sensitive::{SecureBytes, SecureStr};
 pub use sync::{SyncState, SyncStats, SyncStatus};
