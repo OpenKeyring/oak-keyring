@@ -2,4 +2,4 @@
 source: tests/snapshot_tests/screens/status_bar_test.rs
 expression: backend
 ---
-"  ⌘K Search  N New  E Edit  D Delete  F1 Help │ v0.5.0 │ ✓ All passwords secure │ ✓ Synced                              "
+"  ⌘K Search  N New  E Edit  D Delete  F1 Help │ v0.5.1 │ ✓ All passwords secure │ ✓ Synced                              "
