@@ -322,7 +322,6 @@ mod tests {
     use crate::services::rotation::save_checkpoint;
     use crate::services::sync::SyncServiceImpl;
     use crate::types::rotation::{RotationCheckpoint, RotationTrigger};
-    use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;
     use tokio::sync::mpsc;

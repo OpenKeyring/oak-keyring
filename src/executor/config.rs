@@ -267,8 +267,6 @@ pub fn handle_load_audit_log(executor: &mut CommandExecutor, filter: AuditFilter
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::notification::ServiceNotification;
-    use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
     use crate::services::clipboard::{Clipboard, ClipboardService, MockBackend};
     use std::sync::Arc;
 
@@ -277,7 +275,6 @@ mod tests {
         config_dir: std::path::PathBuf,
     ) -> super::super::CommandExecutor {
         use crate::config::AppConfig;
-        use crate::db::schema::init_db_in_memory;
         use crate::services::vault::VaultServiceImpl;
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
@@ -302,7 +299,6 @@ mod tests {
 
     fn make_executor_with_clipboard(timeout: u64) -> super::super::CommandExecutor {
         use crate::config::AppConfig;
-        use crate::db::schema::init_db_in_memory;
         use crate::services::vault::VaultServiceImpl;
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;

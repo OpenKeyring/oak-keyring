@@ -464,7 +464,7 @@ async fn sync_cancellation_returns_cancelled() {
 
     let (sync, _cloud_dir) = create_fs_sync_service();
 
-    let mut executor = CommandExecutor::new(
+    let executor = CommandExecutor::new(
         config,
         result_tx,
         cancel_token,
