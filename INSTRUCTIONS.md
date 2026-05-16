@@ -45,7 +45,7 @@ Key rules:
 - `health: Arc<dyn Health>` – cloned into background work
 - `clipboard: Arc<dyn Clipboard>` – shared with config reload adapter
 - `import_export: Box<dyn ImportExport>` – stateful sessions, executor-owned
-- `sync: Option<Box<dyn Sync>>` – optional runtime, consumed during shutdown
+- `sync: Option<Box<dyn SyncService>>` – optional runtime, consumed during shutdown
 
 **Async trait compatibility:** Service traits use `BoxFuture<'_, Result<T, E>>` return types for async methods. Native `async fn` in traits is NOT dyn-compatible in Rust 1.93. The BoxFuture pattern enables both trait objects AND mockall automock:
 ```rust
@@ -56,7 +56,7 @@ type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 **Callback parameter structs:** Generic callbacks become boxed callback parameter structs where needed for trait object compatibility.
 
-**Sync shutdown:** Sync shutdown uses a trait-object-compatible method such as `shutdown_box` to enable dynamic dispatch through `dyn Sync`.
+**Sync shutdown:** Sync shutdown uses a trait-object-compatible method such as `shutdown_box` to enable dynamic dispatch through `dyn SyncService`.
 
 **Concrete infrastructure stays concrete:** Config manager, service notifier, OAuth token store, channels, cancellation tokens, paths, and timer flags remain concrete types.
 
