@@ -159,23 +159,47 @@ pub fn should_run(config: &SecurityConfig, last_check: Option<DateTime<Utc>>) ->
     }
 }
 
+/// Executor-facing health check capability.
+///
+/// Contains only methods called through `dyn Health` by the executor.
+/// `run_full_check` remains an inherent method on `HealthServiceImpl`
+/// because the executor does not call it through the trait (it orchestrates
+/// the check by calling vault + `check_hibp_single` directly).
+#[cfg_attr(test, mockall::automock)]
+pub trait Health: Send + Sync {
+    fn check_hibp_single(&self, password: &SecureStr) -> Result<bool, HealthError>;
+}
+
 /// Health check service for password security analysis.
 ///
 /// Provides full health checks (weak + duplicate + HIBP + expired),
 /// single-record HIBP checks, and execution timing control.
 #[derive(Clone)]
-pub struct HealthService {
+pub struct HealthServiceImpl {
     /// HTTP agent for HIBP API calls. None = offline mode.
     http_agent: Option<Arc<ureq::Agent>>,
 }
 
-impl Default for HealthService {
+/// Temporary alias during trait migration.
+pub type HealthService = HealthServiceImpl;
+
+impl Default for HealthServiceImpl {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl HealthService {
+impl Health for HealthServiceImpl {
+    fn check_hibp_single(&self, password: &SecureStr) -> Result<bool, HealthError> {
+        let agent = self
+            .http_agent
+            .as_ref()
+            .ok_or_else(|| HealthError::HibpApiError("offline mode".into()))?;
+        check_hibp_single_password(password.expose(), agent)
+    }
+}
+
+impl HealthServiceImpl {
     /// Create a new HealthService.
     /// Attempts to initialize an HTTP agent for HIBP checks.
     /// If agent creation fails, operates in offline mode (local checks only).
@@ -206,10 +230,11 @@ impl HealthService {
     ///
     /// # Returns
     /// HealthReport with all detected issues.
-    pub fn run_full_check<F>(&self, records: &[StoredRecord], decrypt_fn: F) -> HealthReport
-    where
-        F: Fn(Uuid) -> Result<SecureStr, String>,
-    {
+    pub fn run_full_check(
+        &self,
+        records: &[StoredRecord],
+        decrypt_fn: Box<dyn Fn(Uuid) -> Result<SecureStr, String> + Send + Sync>,
+    ) -> HealthReport {
         // 1. Filter to non-deleted Login records
         let login_records: Vec<&StoredRecord> = records
             .iter()
@@ -258,17 +283,6 @@ impl HealthService {
             expired,
             total_checked,
         }
-    }
-
-    /// Check a single password against HIBP.
-    /// Returns Ok(true) if the password has been compromised.
-    /// Returns Err if HIBP API is unavailable (offline mode or network failure).
-    pub fn check_hibp_single(&self, password: &SecureStr) -> Result<bool, HealthError> {
-        let agent = self
-            .http_agent
-            .as_ref()
-            .ok_or_else(|| HealthError::HibpApiError("offline mode".into()))?;
-        check_hibp_single_password(password.expose(), agent)
     }
 }
 
@@ -494,7 +508,7 @@ mod tests {
 
     #[test]
     fn full_check_with_mock_decrypt() {
-        let service = HealthService::new_offline();
+        let service = HealthServiceImpl::new_offline();
 
         let rec1 = make_stored_record(None);
         let rec2 = make_stored_record(None);
@@ -504,7 +518,7 @@ mod tests {
 
         let records = vec![rec1, rec2];
 
-        let decrypt_fn = |id: Uuid| -> Result<SecureStr, String> {
+        let decrypt_fn = move |id: Uuid| -> Result<SecureStr, String> {
             if id == id1 {
                 Ok(SecureStr::new("123".to_string())) // VeryWeak
             } else if id == id2 {
@@ -514,7 +528,7 @@ mod tests {
             }
         };
 
-        let report = service.run_full_check(&records, decrypt_fn);
+        let report = service.run_full_check(&records, Box::new(decrypt_fn));
 
         assert_eq!(report.total_checked, 2);
         assert_eq!(report.weak_passwords.len(), 1);
@@ -525,8 +539,8 @@ mod tests {
 
     #[test]
     fn full_check_empty_vault() {
-        let service = HealthService::new_offline();
-        let report = service.run_full_check(&[], |_id| Err("none".into()));
+        let service = HealthServiceImpl::new_offline();
+        let report = service.run_full_check(&[], Box::new(|_id| Err("none".into())));
         assert_eq!(report.issue_count(), 0);
         assert_eq!(report.total_checked, 0);
     }
@@ -536,17 +550,20 @@ mod tests {
         let mut deleted = make_stored_record(None);
         deleted.deleted = true;
 
-        let service = HealthService::new_offline();
-        let report = service.run_full_check(&[deleted], |_id| Ok(SecureStr::new("weak".into())));
+        let service = HealthServiceImpl::new_offline();
+        let report = service.run_full_check(
+            &[deleted],
+            Box::new(|_id| Ok(SecureStr::new("weak".into()))),
+        );
         assert_eq!(report.total_checked, 0);
     }
 
     #[test]
     fn full_check_handles_decryption_failure_gracefully() {
         let rec = make_stored_record(None);
-        let service = HealthService::new_offline();
+        let service = HealthServiceImpl::new_offline();
 
-        let report = service.run_full_check(&[rec], |_id| Err("decrypt error".into()));
+        let report = service.run_full_check(&[rec], Box::new(|_id| Err("decrypt error".into())));
         assert_eq!(report.total_checked, 1);
         assert_eq!(report.weak_passwords.len(), 0); // skipped due to decryption failure
     }
