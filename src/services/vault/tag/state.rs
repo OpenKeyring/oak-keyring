@@ -1,16 +1,16 @@
 // Tag management (list_tags, rename_tag, delete_tag, batch_add, batch_remove)
 
+use crate::services::vault::VaultServiceImpl;
 use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
-use crate::services::vault::VaultService;
 use crate::types::tag::{Tag, TagSortMeta};
 
 use crate::services::vault::record::db_error_to_vault;
 
-impl VaultService {
+impl VaultServiceImpl {
     /// List all tags with their usage count.
     ///
     /// The usage count reflects the number of **non-deleted** records

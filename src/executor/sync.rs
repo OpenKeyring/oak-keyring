@@ -8,7 +8,7 @@ use crate::commands::types::ConflictResolution;
 use crate::commands::CommandResult;
 use crate::errors::mapping::sync::SyncError;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
-use crate::services::vault::VaultService;
+use crate::services::vault::{Vault, VaultServiceImpl};
 use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::task::SyncVaultData;
 use crate::types::{SecureStr, SyncStats};
@@ -215,26 +215,26 @@ trait CloudRestoreLocalTarget {
     ) -> Result<(), crate::errors::mapping::vault::VaultError>;
 }
 
-impl CloudRestoreLocalTarget for VaultService {
+impl CloudRestoreLocalTarget for VaultServiceImpl {
     fn apply_downloaded_cloud_record(
         &mut self,
         record: &crate::cloud::CloudRecord,
     ) -> Result<bool, crate::errors::mapping::vault::VaultError> {
-        VaultService::apply_downloaded_cloud_record(self, record)
+        VaultServiceImpl::apply_downloaded_cloud_record(self, record)
     }
 
     fn upsert_record_health_state(
         &mut self,
         state: &crate::types::health::RecordHealthState,
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        VaultService::upsert_record_health_state(self, state)
+        VaultServiceImpl::upsert_record_health_state(self, state)
     }
 
     fn delete_record_health_states(
         &mut self,
         record_ids: &[uuid::Uuid],
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        VaultService::delete_record_health_states(self, record_ids)
+        VaultServiceImpl::delete_record_health_states(self, record_ids)
     }
 
     fn set_metadata(
@@ -242,7 +242,7 @@ impl CloudRestoreLocalTarget for VaultService {
         key: &str,
         value: &str,
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        VaultService::set_metadata(self, key, value)
+        VaultServiceImpl::set_metadata(self, key, value)
     }
 }
 
@@ -625,7 +625,7 @@ mod restore_password_tests {
     use crate::services::import_export::ImportExportServiceImpl;
     use crate::services::sync::SyncResult;
     use crate::services::sync::SyncService;
-    use crate::services::vault::VaultService;
+    use crate::services::vault::{Vault, VaultServiceImpl};
     use crate::sync::task::SyncReport;
     use crate::types::SecureStr;
     use std::sync::Arc;
@@ -720,7 +720,7 @@ mod restore_password_tests {
     #[test]
     fn restored_cloud_data_fails_closed_before_metadata_persist_on_record_apply_error() {
         let conn = init_db_in_memory();
-        let mut vault = VaultService::new(conn);
+        let mut vault = VaultServiceImpl::new(conn);
         let result = restore_test_result_with_invalid_record();
 
         let err = persist_restored_cloud_data(&mut vault, &result).unwrap_err();
@@ -736,7 +736,7 @@ mod restore_password_tests {
         let selected = take_restore_master_password(None, &mut cached)
             .expect("cached password should be selected");
         let conn = init_db_in_memory();
-        let mut vault = VaultService::new(conn);
+        let mut vault = VaultServiceImpl::new(conn);
         let result = restore_test_result_with_invalid_record();
 
         let local_apply_result = persist_restored_cloud_data(&mut vault, &result);
@@ -756,12 +756,12 @@ mod restore_password_tests {
         std::fs::create_dir_all(&vault_dir).unwrap();
         std::fs::write(vault_dir.join("wrapped_secret_key.json"), "{not-json").unwrap();
         let conn = init_db_in_memory();
-        let vault = VaultService::new(conn);
+        let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
         let (internal_tx, internal_rx) = mpsc::channel(64);
 
         let mut executor = CommandExecutor {
-            vault,
+            vault: Box::new(vault) as Box<dyn Vault>,
             vault_db_file_backed: false,
             sync: Some(create_test_sync_service()),
             health: Arc::new(HealthServiceImpl::new()),
@@ -808,12 +808,12 @@ mod restore_password_tests {
         std::fs::create_dir_all(&vault_dir).unwrap();
         std::fs::write(vault_dir.join("wrapped_secret_key.json"), "{not-json").unwrap();
         let conn = init_db_in_memory();
-        let vault = VaultService::new(conn);
+        let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
         let (internal_tx, internal_rx) = mpsc::channel(64);
 
         let mut executor = CommandExecutor {
-            vault,
+            vault: Box::new(vault) as Box<dyn Vault>,
             vault_db_file_backed: false,
             sync: Some(create_test_sync_service()),
             health: Arc::new(HealthServiceImpl::new()),

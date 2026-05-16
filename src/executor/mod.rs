@@ -27,7 +27,7 @@ use crate::config::{AppConfig, ConfigManager};
 use crate::db::schema::{init_db, init_db_in_memory};
 use crate::services::clipboard::{Clipboard, ClipboardService};
 use crate::services::health::{Health, HealthServiceImpl};
-use crate::services::vault::VaultService;
+use crate::services::vault::{Vault, VaultServiceImpl};
 use crate::types::SecureStr;
 
 use crate::config::notification::ServiceNotification;
@@ -128,7 +128,7 @@ impl ShutdownStepStatus {
 /// an mpsc channel and sends results back through a separate channel.
 pub struct CommandExecutor {
     /// S1: Vault service — SQLite CRUD + encryption.
-    vault: VaultService,
+    vault: Box<dyn Vault>,
     /// True when `vault` wraps an on-disk vault.db rather than recovery-only memory state.
     vault_db_file_backed: bool,
     /// S2: Sync service — cloud sync (None when no provider configured).
@@ -211,7 +211,7 @@ impl CommandExecutor {
         };
 
         // Create service instances.
-        let vault = VaultService::new(conn);
+        let vault = Box::new(VaultServiceImpl::new(conn)) as Box<dyn Vault>;
         let health: Arc<dyn Health> = Arc::new(HealthServiceImpl::new());
         let import_export =
             Box::new(crate::services::import_export::ImportExportServiceImpl::new());
@@ -251,7 +251,7 @@ impl CommandExecutor {
         let vault_db_file_backed = matches!(db_startup_mode, DbStartupMode::FileBacked);
 
         Ok(Self {
-            vault,
+            vault: Box::new(vault) as Box<dyn Vault>,
             vault_db_file_backed,
             sync,
             health,
@@ -439,7 +439,8 @@ impl CommandExecutor {
     ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
         let existed_before = vault_db_paths(&self.vault_dir).map(|path| artifact_exists(&path));
         let conn = init_db(&self.vault_dir)?;
-        self.vault = crate::services::vault::VaultService::new(conn);
+        self.vault =
+            Box::new(crate::services::vault::VaultServiceImpl::new(conn)) as Box<dyn Vault>;
         info!("opened pending file-backed vault database");
         Ok(PendingFileBackedVaultDb {
             executor: self,
@@ -532,7 +533,9 @@ impl Drop for PendingFileBackedVaultDb<'_> {
         // real vault. Roll back to the in-memory placeholder first so the
         // executor cannot keep using a connection to files we are about to
         // remove.
-        self.executor.vault = crate::services::vault::VaultService::new(init_db_in_memory());
+        self.executor.vault = Box::new(crate::services::vault::VaultServiceImpl::new(
+            init_db_in_memory(),
+        )) as Box<dyn Vault>;
         self.executor.vault_db_file_backed = false;
 
         for (path, existed_before) in vault_db_paths(&self.executor.vault_dir)

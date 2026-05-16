@@ -709,18 +709,18 @@ mod tests {
         use crate::services::clipboard::{ClipboardService, MockBackend};
         use crate::services::health::HealthServiceImpl;
         use crate::services::import_export::ImportExportServiceImpl;
-        use crate::services::vault::VaultService;
+        use crate::services::vault::{Vault, VaultServiceImpl};
         use std::sync::Arc;
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
 
         let conn = crate::db::schema::init_db_in_memory();
-        let vault = VaultService::new(conn);
+        let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
         let (internal_tx, internal_rx) = mpsc::channel(64);
 
         CommandExecutor {
-            vault,
+            vault: Box::new(vault) as Box<dyn Vault>,
             vault_db_file_backed: false,
             sync: None,
             health: Arc::new(HealthServiceImpl::new()),

@@ -1,16 +1,16 @@
 // DEK migration (list_records_for_migration, re_encrypt_record)
 
+use crate::services::vault::VaultServiceImpl;
 use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
-use crate::services::vault::VaultService;
 use crate::types::record::StoredRecord;
 
 use super::helpers::db_error_to_vault;
 
-impl VaultService {
+impl VaultServiceImpl {
     /// List all records that need DEK migration (dek_version < target).
     pub fn list_records_for_migration(
         &self,

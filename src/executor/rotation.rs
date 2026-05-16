@@ -3,13 +3,13 @@ use crate::errors::mapping::rotation::RotationError;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::services::rotation::RotationService;
 use crate::services::sync::SyncService;
-use crate::services::vault::VaultService;
+use crate::services::vault::Vault;
 use crate::types::rotation::{RotationConfig, RotationResult};
 
 use super::CommandExecutor;
 
 /// Load rotation config from vault metadata.
-fn load_rotation_config(vault: &VaultService) -> Result<RotationConfig, String> {
+fn load_rotation_config(vault: &dyn Vault) -> Result<RotationConfig, String> {
     match vault.get_metadata("rotation_config") {
         Ok(Some(json)) if !json.is_empty() => {
             serde_json::from_str(&json).map_err(|e| e.to_string())
@@ -123,7 +123,9 @@ where
     // 3. Execute rotation
     let placeholder_conn =
         rusqlite::Connection::open_in_memory().expect("in-memory SQLite should never fail");
-    let placeholder = VaultService::new(placeholder_conn);
+    let placeholder = Box::new(crate::services::vault::VaultServiceImpl::new(
+        placeholder_conn,
+    )) as Box<dyn Vault>;
     let vault = std::mem::replace(&mut executor.vault, placeholder);
     let mut rotation_svc = RotationService::new(vault);
     let rotation_result = rotation_fn(&mut rotation_svc, expected_version);
@@ -241,7 +243,9 @@ pub async fn handle_resume_rotation(executor: &mut CommandExecutor) -> CommandRe
     {
         let placeholder_conn =
             rusqlite::Connection::open_in_memory().expect("in-memory SQLite should never fail");
-        let placeholder = VaultService::new(placeholder_conn);
+        let placeholder = Box::new(crate::services::vault::VaultServiceImpl::new(
+            placeholder_conn,
+        )) as Box<dyn Vault>;
         let vault = std::mem::replace(&mut executor.vault, placeholder);
 
         let rotation_svc = RotationService::new(vault);
@@ -328,9 +332,10 @@ mod tests {
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
-    fn setup_vault_unlocked() -> VaultService {
+    fn setup_vault_unlocked() -> Box<dyn Vault> {
         let conn = init_db_in_memory();
-        let mut vault = VaultService::new(conn);
+        let mut vault =
+            Box::new(crate::services::vault::VaultServiceImpl::new(conn)) as Box<dyn Vault>;
         let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
         vault.unlock_with_mnemonic(&mnemonic).unwrap();
         vault
@@ -354,7 +359,7 @@ mod tests {
         ))));
 
         CommandExecutor {
-            vault,
+            vault: Box::new(vault) as Box<dyn Vault>,
             vault_db_file_backed: false,
             sync,
             health: Arc::new(HealthServiceImpl::new()),

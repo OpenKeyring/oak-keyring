@@ -45,7 +45,7 @@ fn schedule_health_scan(executor: &CommandExecutor) {
 /// older than the current DEK version, we re-encrypt it with the current key.
 /// Failures are logged but do not block the read — the record is still
 /// readable with the old DEK version.
-fn attempt_lazy_migration(vault: &mut crate::services::vault::VaultService, id: Uuid) {
+fn attempt_lazy_migration(vault: &mut dyn crate::services::vault::Vault, id: Uuid) {
     // Get the stored record to check its DEK version.
     let dek_version = match vault.get_stored_record(id) {
         Ok(stored) => stored.dek_version,
@@ -497,7 +497,7 @@ mod tests {
     use crate::services::clipboard::{ClipboardService, MockBackend};
     use crate::services::health::HealthServiceImpl;
     use crate::services::import_export::ImportExportServiceImpl;
-    use crate::services::vault::VaultService;
+    use crate::services::vault::{Vault, VaultServiceImpl};
     use crate::types::{CredentialType, EncryptedPayload, SecureStr};
 
     use super::*;
@@ -505,7 +505,7 @@ mod tests {
     /// Create a basic unlocked executor with no records.
     fn make_unlocked_executor() -> CommandExecutor {
         let conn = crate::db::schema::init_db_in_memory();
-        let mut vault = VaultService::new(conn);
+        let mut vault = VaultServiceImpl::new(conn);
         let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
         vault
             .unlock_with_mnemonic(&mnemonic)
@@ -515,7 +515,7 @@ mod tests {
         let (internal_tx, internal_rx) = mpsc::channel(64);
 
         CommandExecutor {
-            vault,
+            vault: Box::new(vault) as Box<dyn Vault>,
             vault_db_file_backed: false,
             sync: None,
             health: Arc::new(HealthServiceImpl::new()),

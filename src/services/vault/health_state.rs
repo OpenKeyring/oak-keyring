@@ -1,15 +1,15 @@
 // Health state query wrappers for VaultService.
 
+use crate::services::vault::VaultServiceImpl;
 use uuid::Uuid;
 
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
-use crate::services::vault::VaultService;
 use crate::types::health::RecordHealthState;
 
 use super::record::db_error_to_vault;
 
-impl VaultService {
+impl VaultServiceImpl {
     /// Get the health state for a single record.
     ///
     /// Returns `None` when no health state row exists for the given record.

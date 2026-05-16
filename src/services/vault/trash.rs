@@ -1,17 +1,19 @@
 // Trash bin operations (list_trash, empty_trash, cleanup_expired_trash, batch_soft_delete)
 
+#[cfg(test)]
+use crate::services::vault::VaultService;
+use crate::services::vault::VaultServiceImpl;
 use chrono::Utc;
 use uuid::Uuid;
 
 use super::record::db_error_to_vault;
-use super::VaultService;
 use crate::crypto::payload;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 use crate::types::audit::AuditOperation;
 use crate::types::record::TuiRecord;
 
-impl VaultService {
+impl VaultServiceImpl {
     /// List all soft-deleted records, decrypting name and subtitle for TUI display.
     ///
     /// Returns `VaultError::NotUnlocked` if the vault is locked.

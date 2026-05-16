@@ -18,7 +18,7 @@ use oak_keyring::db::schema::init_db_in_memory;
 use oak_keyring::services::rotation::{
     check_trigger, is_past_grace_period, should_skip_rotation_due_to_cloud_version, RotationService,
 };
-use oak_keyring::services::vault::VaultService;
+use oak_keyring::services::vault::{Vault, VaultService};
 use oak_keyring::types::rotation::{
     RotationConfig, RotationConstants, RotationState, RotationTrigger,
 };
@@ -193,7 +193,7 @@ fn acceptance_grace_period_boundary() {
 #[test]
 fn acceptance_rotation_service_starts_idle() {
     let vault = setup_vault();
-    let service = RotationService::new(vault);
+    let service = RotationService::new(Box::new(vault) as Box<dyn Vault>);
     assert!(
         matches!(service.state(), RotationState::Idle),
         "new RotationService should start in Idle state"
@@ -207,7 +207,7 @@ fn acceptance_rotation_service_starts_idle() {
 #[test]
 fn acceptance_rotation_config_defaults() {
     let vault = setup_vault();
-    let service = RotationService::new(vault);
+    let service = RotationService::new(Box::new(vault) as Box<dyn Vault>);
     let config = service.get_config().unwrap();
     assert!(config.auto_rotate, "auto_rotate should default to true");
     assert_eq!(

@@ -12,14 +12,14 @@ use crate::executor::CommandExecutor;
 use crate::services::clipboard::{ClipboardService, MockBackend};
 use crate::services::health::HealthServiceImpl;
 use crate::services::import_export::ImportExportServiceImpl;
-use crate::services::vault::VaultService;
+use crate::services::vault::{Vault, VaultServiceImpl};
 use crate::types::health::RecordHealthState;
 use crate::types::{CredentialType, EncryptedPayload, SecureStr};
 
 /// Create a basic unlocked executor with no records.
 fn make_unlocked_executor() -> CommandExecutor {
     let conn = crate::db::schema::init_db_in_memory();
-    let mut vault = VaultService::new(conn);
+    let mut vault = VaultServiceImpl::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
     vault
         .unlock_with_mnemonic(&mnemonic)
@@ -29,7 +29,7 @@ fn make_unlocked_executor() -> CommandExecutor {
     let (internal_tx, internal_rx) = mpsc::channel(64);
 
     CommandExecutor {
-        vault,
+        vault: Box::new(vault) as Box<dyn Vault>,
         vault_db_file_backed: false,
         sync: None,
         health: Arc::new(HealthServiceImpl::new()),
