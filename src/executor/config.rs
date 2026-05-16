@@ -108,7 +108,7 @@ fn apply_config_changes(
                 use crate::cloud::provider::create_cloud_storage;
                 match create_cloud_storage(&new_config.sync) {
                     Ok(storage) => {
-                        executor.sync = Some(crate::services::sync::SyncService::new(storage));
+                        executor.sync = Some(Box::new(crate::services::sync::SyncServiceImpl::new(storage)) as Box<dyn crate::services::sync::SyncService>);
                         tracing::info!("SyncService rebuilt with updated config");
                     }
                     Err(e) => {
@@ -151,7 +151,7 @@ pub async fn handle_test_sync_connection(
 
         return match create_cloud_storage(&test_sync) {
             Ok(storage) => {
-                let svc = crate::services::sync::SyncService::new(storage);
+                let svc = crate::services::sync::SyncServiceImpl::new(storage);
                 connection_test_result_with_cancel(cancel, svc.test_connection()).await
             }
             Err(e) => CommandResult::SyncConnectionTested {

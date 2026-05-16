@@ -3,6 +3,8 @@
 //! A thin wrapper around SyncTask's channel-based command interface.
 //! Provides async methods that send commands and wait for corresponding events.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -16,6 +18,68 @@ use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::state_machine::SyncStateMachine;
 use crate::sync::task::{SyncCommand, SyncEvent, SyncReport, SyncTask, SyncVaultData};
 use crate::types::health::RecordHealthState;
+
+/// Type alias for async trait methods returning futures.
+/// This pattern enables trait object compatibility (dyn SyncService)
+/// while still supporting mockall::automock.
+pub type SyncFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// SyncService trait for executor-facing sync operations.
+///
+/// This trait defines the complete interface used by the executor layer
+/// for sync operations including full sync cycles, conflict resolution,
+/// metadata management, connectivity testing, pause/resume, and shutdown.
+#[cfg_attr(test, mockall::automock)]
+pub trait SyncService: Send + Sync {
+    /// Triggers a full sync cycle and returns promptly if `cancel` is triggered.
+    fn sync_with_cancel<'a>(
+        &'a mut self,
+        cancel: CancellationToken,
+        vault_data: Option<Box<SyncVaultData>>,
+    ) -> SyncFuture<'a, Result<SyncResult, SyncError>>;
+
+    /// Resolves a single conflict by record ID.
+    fn resolve_conflict<'a>(
+        &'a mut self,
+        record_id: String,
+        strategy: ResolutionStrategy,
+    ) -> SyncFuture<'a, Result<(), SyncError>>;
+
+    /// Resolves all pending conflicts with the same strategy.
+    fn resolve_all_conflicts<'a>(
+        &'a mut self,
+        strategy: ResolutionStrategy,
+    ) -> SyncFuture<'a, Result<usize, SyncError>>;
+
+    /// Downloads and deserializes cloud metadata.
+    fn download_metadata<'a>(
+        &'a mut self,
+    ) -> SyncFuture<'a, Result<Option<CloudMetadata>, SyncError>>;
+
+    /// Atomically pushes metadata using CAS.
+    fn push_metadata_atomic<'a>(
+        &'a mut self,
+        metadata: CloudMetadata,
+        expected_version: u64,
+    ) -> SyncFuture<'a, Result<(), SyncError>>;
+
+    /// Checks cloud storage connectivity.
+    fn test_connection(&self) -> SyncFuture<'_, Result<(bool, String), SyncError>>;
+
+    /// Pauses sync processing, waiting up to 30s for any in-progress Push to complete.
+    fn pause<'a>(&'a mut self) -> SyncFuture<'a, Result<(), SyncError>>;
+
+    /// Resumes sync processing.
+    fn resume<'a>(&'a mut self) -> SyncFuture<'a, Result<(), SyncError>>;
+
+    /// Restores cloud state by pulling remote metadata and records only.
+    fn restore_pull_only<'a>(
+        &'a mut self,
+    ) -> SyncFuture<'a, Result<SyncResult, SyncError>>;
+
+    /// Initiates graceful shutdown (trait-object-compatible).
+    fn shutdown_box(self: Box<Self>) -> SyncFuture<'static, Result<(), SyncError>>;
+}
 
 /// Channel capacity for command and event queues.
 const CHANNEL_CAPACITY: usize = 16;
@@ -39,12 +103,12 @@ pub struct SyncResult {
 
 /// Public interface to the sync subsystem.
 ///
-/// SyncService wraps a SyncTask running in a background tokio task and
+/// SyncServiceImpl wraps a SyncTask running in a background tokio task and
 /// exposes a request/response API via channels.
 ///
 /// ```ignore
 /// let storage = CloudStorage::new(operator, "memory".to_string());
-/// let mut svc = SyncService::new(storage);
+/// let mut svc = SyncServiceImpl::new(storage);
 ///
 /// // Trigger a sync and wait for completion
 /// let report = svc.sync().await.unwrap();
@@ -58,7 +122,7 @@ pub struct SyncResult {
 /// // Shutdown the service
 /// svc.shutdown().await.unwrap();
 /// ```
-pub struct SyncService {
+pub struct SyncServiceImpl {
     /// Command sender to the background SyncTask.
     cmd_tx: mpsc::Sender<SyncCommand>,
     /// Event receiver from the background SyncTask.
@@ -69,7 +133,13 @@ pub struct SyncService {
     storage: CloudStorage,
 }
 
-impl SyncService {
+// SAFETY: SyncServiceImpl is used exclusively from a single thread (the main
+// executor task). `mpsc::Receiver` is not `Sync`, but the executor never shares
+// a sync service reference across threads — it owns `Box<dyn SyncService>` and
+// only accesses it from one task at a time.
+unsafe impl Sync for SyncServiceImpl {}
+
+impl SyncServiceImpl {
     /// Creates a new SyncService, spawning a SyncTask in a background tokio task.
     ///
     /// The returned SyncService holds the send half of the command channel,
@@ -555,7 +625,7 @@ impl SyncService {
     }
 }
 
-impl Drop for SyncService {
+impl Drop for SyncServiceImpl {
     fn drop(&mut self) {
         let _ = self.cmd_tx.try_send(SyncCommand::Shutdown);
         if let Some(task_handle) = self.task_handle.take() {
@@ -563,6 +633,92 @@ impl Drop for SyncService {
         }
     }
 }
+
+impl SyncService for SyncServiceImpl {
+    fn sync_with_cancel<'a>(
+        &'a mut self,
+        cancel: CancellationToken,
+        vault_data: Option<Box<SyncVaultData>>,
+    ) -> SyncFuture<'a, Result<SyncResult, SyncError>> {
+        Box::pin(async move {
+            SyncServiceImpl::sync_with_cancel(self, cancel, vault_data).await
+        })
+    }
+
+    fn resolve_conflict<'a>(
+        &'a mut self,
+        record_id: String,
+        strategy: ResolutionStrategy,
+    ) -> SyncFuture<'a, Result<(), SyncError>> {
+        Box::pin(async move {
+            SyncServiceImpl::resolve_conflict(self, record_id, strategy).await
+        })
+    }
+
+    fn resolve_all_conflicts<'a>(
+        &'a mut self,
+        strategy: ResolutionStrategy,
+    ) -> SyncFuture<'a, Result<usize, SyncError>> {
+        Box::pin(async move {
+            SyncServiceImpl::resolve_all_conflicts(self, strategy).await
+        })
+    }
+
+    fn download_metadata<'a>(
+        &'a mut self,
+    ) -> SyncFuture<'a, Result<Option<CloudMetadata>, SyncError>> {
+        Box::pin(async move {
+            SyncServiceImpl::download_metadata(self).await
+        })
+    }
+
+    fn push_metadata_atomic<'a>(
+        &'a mut self,
+        metadata: CloudMetadata,
+        expected_version: u64,
+    ) -> SyncFuture<'a, Result<(), SyncError>> {
+        Box::pin(async move {
+            SyncServiceImpl::push_metadata_atomic(self, metadata, expected_version).await
+        })
+    }
+
+    fn test_connection(&self) -> SyncFuture<'_, Result<(bool, String), SyncError>> {
+        Box::pin(async move {
+            SyncServiceImpl::test_connection(self).await
+        })
+    }
+
+    fn pause<'a>(&'a mut self) -> SyncFuture<'a, Result<(), SyncError>> {
+        Box::pin(async move {
+            SyncServiceImpl::pause(self).await
+        })
+    }
+
+    fn resume<'a>(&'a mut self) -> SyncFuture<'a, Result<(), SyncError>> {
+        Box::pin(async move {
+            SyncServiceImpl::resume(self).await
+        })
+    }
+
+    fn restore_pull_only<'a>(
+        &'a mut self,
+    ) -> SyncFuture<'a, Result<SyncResult, SyncError>> {
+        Box::pin(async move {
+            SyncServiceImpl::restore_pull_only(self).await
+        })
+    }
+
+    fn shutdown_box(self: Box<Self>) -> SyncFuture<'static, Result<(), SyncError>> {
+        Box::pin(async move {
+            SyncServiceImpl::shutdown(*self).await
+        })
+    }
+}
+
+// Note: We do NOT implement SyncService for Box<dyn SyncService> because
+// shutdown_box consumes self, and we cannot provide a working implementation
+// for trait objects. Instead, dynamic dispatch works automatically when
+// calling methods on Box<dyn SyncService>.
 
 #[cfg(test)]
 mod tests {
@@ -604,14 +760,14 @@ mod tests {
     #[tokio::test]
     async fn new_creates_service() {
         let storage = create_test_storage();
-        let svc = SyncService::new(storage);
+        let svc = SyncServiceImpl::new(storage);
         drop(svc);
     }
 
     #[tokio::test]
     async fn sync_returns_report() {
         let storage = create_test_storage();
-        let mut svc = SyncService::new(storage);
+        let mut svc = SyncServiceImpl::new(storage);
 
         // sync() may return Completed or Failed depending on whether
         // the pipeline has data to work with. Both are acceptable.
@@ -629,7 +785,7 @@ mod tests {
     #[tokio::test]
     async fn sync_with_cancel_returns_cancelled_when_token_is_cancelled() {
         let storage = create_test_storage();
-        let mut svc = SyncService::new(storage);
+        let mut svc = SyncServiceImpl::new(storage);
         let cancel = tokio_util::sync::CancellationToken::new();
         cancel.cancel();
 
@@ -641,7 +797,7 @@ mod tests {
     #[tokio::test]
     async fn resolve_conflict_sends_command() {
         let storage = create_test_storage();
-        let mut svc = SyncService::new(storage);
+        let mut svc = SyncServiceImpl::new(storage);
 
         let result = svc
             .resolve_conflict("test-record-id".to_string(), ResolutionStrategy::KeepLocal)
@@ -661,7 +817,7 @@ mod tests {
     #[tokio::test]
     async fn resolve_all_sends_command() {
         let storage = create_test_storage();
-        let mut svc = SyncService::new(storage);
+        let mut svc = SyncServiceImpl::new(storage);
 
         let result = svc
             .resolve_all_conflicts(ResolutionStrategy::KeepRemote)
@@ -681,7 +837,7 @@ mod tests {
     #[tokio::test]
     async fn pause_resume_cycle() {
         let storage = create_test_storage();
-        let mut svc = SyncService::new(storage);
+        let mut svc = SyncServiceImpl::new(storage);
 
         let pause_result = svc.pause().await;
         assert!(
@@ -704,7 +860,7 @@ mod tests {
     #[tokio::test]
     async fn shutdown_clean() {
         let storage = create_test_storage();
-        let svc = SyncService::new(storage);
+        let svc = SyncServiceImpl::new(storage);
 
         let result = svc.shutdown().await;
         assert!(
@@ -717,7 +873,7 @@ mod tests {
     #[tokio::test]
     async fn test_connection_success() {
         let storage = create_test_storage();
-        let svc = SyncService::new(storage);
+        let svc = SyncServiceImpl::new(storage);
 
         let (ok, message) = svc.test_connection().await.unwrap();
         assert!(ok, "test_connection should succeed for Memory backend");
@@ -761,7 +917,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mut service = SyncService::new(storage);
+        let mut service = SyncServiceImpl::new(storage);
         let result = service.restore_pull_only().await.unwrap();
 
         assert_eq!(result.report.uploaded, 0);
@@ -814,7 +970,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mut service = SyncService::new(storage);
+        let mut service = SyncServiceImpl::new(storage);
         let result = service.restore_pull_only().await;
 
         assert!(matches!(
@@ -862,7 +1018,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mut service = SyncService::new(storage);
+        let mut service = SyncServiceImpl::new(storage);
         let result = service.restore_pull_only().await;
 
         assert!(matches!(
@@ -911,7 +1067,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mut service = SyncService::new(storage);
+        let mut service = SyncServiceImpl::new(storage);
         let result = service.restore_pull_only().await;
 
         assert!(matches!(
@@ -957,7 +1113,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mut service = SyncService::new(storage);
+        let mut service = SyncServiceImpl::new(storage);
         let result = service.restore_pull_only().await;
 
         assert!(matches!(
@@ -991,7 +1147,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mut service = SyncService::new(storage);
+        let mut service = SyncServiceImpl::new(storage);
         let result = service.restore_pull_only().await;
 
         assert!(matches!(

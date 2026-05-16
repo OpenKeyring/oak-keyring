@@ -132,7 +132,7 @@ pub struct CommandExecutor {
     /// True when `vault` wraps an on-disk vault.db rather than recovery-only memory state.
     vault_db_file_backed: bool,
     /// S2: Sync service — cloud sync (None when no provider configured).
-    sync: Option<crate::services::sync::SyncService>,
+    sync: Option<Box<dyn crate::services::sync::SyncService>>,
     /// S3: Health service — password security analysis.
     health: Arc<dyn Health>,
     /// S4: Clipboard service — system clipboard with auto-clear.
@@ -233,7 +233,7 @@ impl CommandExecutor {
         let sync = match create_cloud_storage(&config.sync) {
             Ok(storage) => {
                 info!("SyncService initialized for {:?}", config.sync.provider);
-                Some(crate::services::sync::SyncService::new(storage))
+                Some(Box::new(crate::services::sync::SyncServiceImpl::new(storage)) as Box<dyn crate::services::sync::SyncService>)
             }
             Err(e) => {
                 info!(error = %e, "SyncService not initialized — sync features disabled");
@@ -400,7 +400,7 @@ impl CommandExecutor {
     /// This method is intended for testing purposes only, allowing injection of
     /// mock sync services. In production, the sync service is configured during
     /// executor construction.
-    pub fn set_sync_service(&mut self, sync: Option<crate::services::sync::SyncService>) {
+    pub fn set_sync_service(&mut self, sync: Option<Box<dyn crate::services::sync::SyncService>>) {
         self.sync = sync;
     }
 
@@ -411,7 +411,7 @@ impl CommandExecutor {
 
         if let Some(sync) = self.sync.take() {
             report.sync_shutdown =
-                match tokio::time::timeout(SYNC_SHUTDOWN_TIMEOUT, sync.shutdown()).await {
+                match tokio::time::timeout(SYNC_SHUTDOWN_TIMEOUT, sync.shutdown_box()).await {
                     Ok(Ok(())) => ShutdownStepStatus::Completed,
                     Ok(Err(e)) => ShutdownStepStatus::Failed(e.to_string()),
                     Err(_) => ShutdownStepStatus::TimedOut,

@@ -15,7 +15,7 @@ use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
 use oak_keyring::errors::ErrorCode;
 use oak_keyring::executor::{CommandExecutor, DbStartupMode};
-use oak_keyring::services::sync::SyncService;
+use oak_keyring::services::sync::SyncServiceImpl;
 use oak_keyring::types::credential::EncryptedPayload;
 use oak_keyring::types::sensitive::SecureStr;
 use std::time::Duration;
@@ -34,7 +34,7 @@ struct SyncTestContext {
     result_rx: mpsc::Receiver<Message>,
 }
 
-fn create_fs_sync_service() -> (SyncService, TempDir) {
+fn create_fs_sync_service() -> (SyncServiceImpl, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let op = opendal::Operator::new(
         opendal::services::Fs::default().root(temp_dir.path().to_str().unwrap()),
@@ -42,7 +42,7 @@ fn create_fs_sync_service() -> (SyncService, TempDir) {
     .unwrap()
     .finish();
     let storage = oak_keyring::cloud::CloudStorage::new(op, "fs".to_string());
-    (SyncService::new(storage), temp_dir)
+    (SyncServiceImpl::new(storage), temp_dir)
 }
 
 async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
@@ -95,7 +95,7 @@ async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     .expect("executor construction should succeed");
 
     let (sync, cloud_dir) = create_fs_sync_service();
-    executor.set_sync_service(Some(sync));
+    executor.set_sync_service(Some(Box::new(sync) as Box<dyn oak_keyring::services::sync::SyncService>));
 
     tokio::spawn(async move {
         executor.run(command_rx).await;
@@ -135,7 +135,7 @@ async fn setup_key_only_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     .expect("executor construction should succeed");
 
     let (sync, cloud_dir) = create_fs_sync_service();
-    executor.set_sync_service(Some(sync));
+    executor.set_sync_service(Some(Box::new(sync) as Box<dyn oak_keyring::services::sync::SyncService>));
 
     tokio::spawn(async move {
         executor.run(command_rx).await;
@@ -473,7 +473,7 @@ async fn sync_cancellation_returns_cancelled() {
     .expect("executor construction should succeed");
 
     let (sync, _cloud_dir) = create_fs_sync_service();
-    executor.set_sync_service(Some(sync));
+    executor.set_sync_service(Some(Box::new(sync) as Box<dyn oak_keyring::services::sync::SyncService>));
 
     let op_cancel = executor.cancel_token().clone();
 

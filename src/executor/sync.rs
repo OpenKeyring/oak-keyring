@@ -1,12 +1,7 @@
-use std::future::Future;
-use std::pin::Pin;
-
 use uuid::Uuid;
 
-use crate::cloud::CloudMetadata;
 use crate::commands::types::ConflictResolution;
 use crate::commands::CommandResult;
-use crate::errors::mapping::sync::SyncError;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::services::vault::{Vault, VaultServiceImpl};
 use crate::sync::conflict::ResolutionStrategy;
@@ -154,25 +149,8 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
     }))
 }
 
-type SyncFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-#[cfg_attr(test, mockall::automock)]
-trait CloudRestoreMetadataSource: Send {
-    fn download_metadata<'a>(
-        &'a mut self,
-    ) -> SyncFuture<'a, Result<Option<CloudMetadata>, SyncError>>;
-}
-
-impl CloudRestoreMetadataSource for crate::services::sync::SyncService {
-    fn download_metadata<'a>(
-        &'a mut self,
-    ) -> SyncFuture<'a, Result<Option<CloudMetadata>, SyncError>> {
-        Box::pin(async move { crate::services::sync::SyncService::download_metadata(self).await })
-    }
-}
-
 async fn ensure_cloud_restore_has_records(
-    metadata_source: &mut dyn CloudRestoreMetadataSource,
+    metadata_source: &mut dyn crate::services::sync::SyncService,
 ) -> Result<(), CommandResult> {
     match metadata_source.download_metadata().await {
         Ok(Some(metadata)) if !metadata.records.is_empty() => Ok(()),
@@ -529,7 +507,7 @@ pub async fn handle_restore_database_from_cloud(
     master_password: Option<SecureStr>,
 ) -> CommandResult {
     let sync = match executor.sync.as_mut() {
-        Some(s) => s,
+        Some(s) => s.as_mut(),
         None => return CommandResult::DatabaseRestoreNeedsOAuth,
     };
     if let Err(result) = ensure_cloud_restore_has_records(sync).await {
@@ -623,8 +601,7 @@ mod restore_password_tests {
     use crate::services::clipboard::{ClipboardService, MockBackend};
     use crate::services::health::HealthServiceImpl;
     use crate::services::import_export::ImportExportServiceImpl;
-    use crate::services::sync::SyncResult;
-    use crate::services::sync::SyncService;
+    use crate::services::sync::{SyncResult, SyncServiceImpl};
     use crate::services::vault::{Vault, VaultServiceImpl};
     use crate::sync::task::SyncReport;
     use crate::types::SecureStr;
@@ -632,11 +609,11 @@ mod restore_password_tests {
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
-    fn create_test_sync_service() -> SyncService {
+    fn create_test_sync_service() -> Box<dyn crate::services::sync::SyncService> {
         let op = opendal::Operator::new(opendal::services::Memory::default())
             .unwrap()
             .finish();
-        SyncService::new(crate::cloud::CloudStorage::new(op, "memory".to_string()))
+        Box::new(SyncServiceImpl::new(crate::cloud::CloudStorage::new(op, "memory".to_string()))) as Box<dyn crate::services::sync::SyncService>
     }
 
     #[test]
@@ -855,7 +832,9 @@ mod restore_password_tests {
 #[cfg(test)]
 mod cloud_restore_metadata_tests {
     use super::*;
+    use crate::cloud::CloudMetadata;
     use crate::cloud::RecordVersionInfo;
+    use crate::errors::mapping::sync::SyncError;
 
     fn metadata_with_record() -> CloudMetadata {
         let mut metadata = CloudMetadata::new("test-vault-token".to_string());
@@ -874,7 +853,7 @@ mod cloud_restore_metadata_tests {
 
     #[tokio::test]
     async fn cloud_restore_preflight_rejects_missing_metadata() {
-        let mut mock = MockCloudRestoreMetadataSource::new();
+        let mut mock = crate::services::sync::MockSyncService::new();
         mock.expect_download_metadata()
             .once()
             .returning(|| Box::pin(async { Ok(None) }));
@@ -893,7 +872,7 @@ mod cloud_restore_metadata_tests {
 
     #[tokio::test]
     async fn cloud_restore_preflight_rejects_metadata_without_records() {
-        let mut mock = MockCloudRestoreMetadataSource::new();
+        let mut mock = crate::services::sync::MockSyncService::new();
         mock.expect_download_metadata().once().returning(|| {
             Box::pin(async { Ok(Some(CloudMetadata::new("test-vault-token".to_string()))) })
         });
@@ -912,7 +891,7 @@ mod cloud_restore_metadata_tests {
 
     #[tokio::test]
     async fn cloud_restore_preflight_rejects_metadata_download_failure() {
-        let mut mock = MockCloudRestoreMetadataSource::new();
+        let mut mock = crate::services::sync::MockSyncService::new();
         mock.expect_download_metadata().once().returning(|| {
             Box::pin(async {
                 Err(SyncError::ProviderError {
@@ -936,7 +915,7 @@ mod cloud_restore_metadata_tests {
 
     #[tokio::test]
     async fn cloud_restore_preflight_accepts_metadata_with_records() {
-        let mut mock = MockCloudRestoreMetadataSource::new();
+        let mut mock = crate::services::sync::MockSyncService::new();
         mock.expect_download_metadata()
             .once()
             .returning(|| Box::pin(async { Ok(Some(metadata_with_record())) }));

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(apollo-skills:rust-best-practices)",
+      "Bash(git *)",
+      "Bash(cat)",
+      "Bash(chmod +x /tmp/fix_all_bad_casts.sh)",
+      "Bash(/tmp/fix_all_bad_casts.sh)",
+      "Bash(python3 *)",
+      "Bash(cargo check *)",
+      "Bash(cargo test *)"
+    ]
+  }
+}
