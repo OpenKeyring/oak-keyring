@@ -159,15 +159,37 @@ pub fn should_run(config: &SecurityConfig, last_check: Option<DateTime<Utc>>) ->
     }
 }
 
-/// Executor-facing health check capability.
+/// Decrypts a record's password for health checking.
 ///
-/// Contains only methods called through `dyn Health` by the executor.
-/// `run_full_check` remains an inherent method on `HealthServiceImpl`
-/// because the executor does not call it through the trait (it orchestrates
-/// the check by calling vault + `check_hibp_single` directly).
+/// Trait abstraction over vault decryption so `run_full_check` stays
+/// mockall-compatible (mockall cannot mock `Box<dyn Fn>`).
+pub trait PasswordDecryptor: Send + Sync {
+    fn decrypt_password(&self, record_id: Uuid) -> Result<SecureStr, String>;
+}
+
+/// Adapter that wraps a closure as a `PasswordDecryptor`.
+pub struct FnDecryptor<F: Fn(Uuid) -> Result<SecureStr, String> + Send + Sync>(pub F);
+
+impl<F: Fn(Uuid) -> Result<SecureStr, String> + Send + Sync> PasswordDecryptor for FnDecryptor<F> {
+    fn decrypt_password(&self, record_id: Uuid) -> Result<SecureStr, String> {
+        (self.0)(record_id)
+    }
+}
+
+/// Executor-facing health check capability.
 #[cfg_attr(test, mockall::automock)]
 pub trait Health: Send + Sync {
     fn check_hibp_single(&self, password: &SecureStr) -> Result<bool, HealthError>;
+
+    /// Run a full health check on all non-deleted Login records.
+    ///
+    /// Takes stored records and a `PasswordDecryptor` for decrypting record
+    /// passwords. Returns a complete HealthReport.
+    fn run_full_check(
+        &self,
+        records: &[StoredRecord],
+        decryptor: &dyn PasswordDecryptor,
+    ) -> HealthReport;
 }
 
 /// Health check service for password security analysis.
@@ -197,6 +219,14 @@ impl Health for HealthServiceImpl {
             .ok_or_else(|| HealthError::HibpApiError("offline mode".into()))?;
         check_hibp_single_password(password.expose(), agent)
     }
+
+    fn run_full_check(
+        &self,
+        records: &[StoredRecord],
+        decryptor: &dyn PasswordDecryptor,
+    ) -> HealthReport {
+        HealthServiceImpl::run_full_check(self, records, decryptor)
+    }
 }
 
 impl HealthServiceImpl {
@@ -220,20 +250,15 @@ impl HealthServiceImpl {
 
     /// Run a full health check on all non-deleted Login records.
     ///
-    /// This method requires access to VaultService for record decryption.
-    /// It takes a list of stored records and a decrypt function to avoid
-    /// direct coupling with VaultService internals.
-    ///
-    /// # Arguments
-    /// * `records` - All stored records (will be filtered to non-deleted Login)
-    /// * `decrypt_fn` - Function to decrypt a record's password field
+    /// Takes stored records and a `PasswordDecryptor` to decrypt record
+    /// passwords without coupling to VaultService internals.
     ///
     /// # Returns
     /// HealthReport with all detected issues.
     pub fn run_full_check(
         &self,
         records: &[StoredRecord],
-        decrypt_fn: Box<dyn Fn(Uuid) -> Result<SecureStr, String> + Send + Sync>,
+        decryptor: &dyn PasswordDecryptor,
     ) -> HealthReport {
         // 1. Filter to non-deleted Login records
         let login_records: Vec<&StoredRecord> = records
@@ -246,7 +271,7 @@ impl HealthServiceImpl {
         // 2. Decrypt passwords (collect for analysis)
         let mut entries: Vec<PasswordEntry> = Vec::new();
         for record in &login_records {
-            match decrypt_fn(record.id) {
+            match decryptor.decrypt_password(record.id) {
                 Ok(password) => entries.push(PasswordEntry {
                     id: record.id,
                     password,
@@ -528,7 +553,7 @@ mod tests {
             }
         };
 
-        let report = service.run_full_check(&records, Box::new(decrypt_fn));
+        let report = service.run_full_check(&records, &FnDecryptor(decrypt_fn));
 
         assert_eq!(report.total_checked, 2);
         assert_eq!(report.weak_passwords.len(), 1);
@@ -540,7 +565,7 @@ mod tests {
     #[test]
     fn full_check_empty_vault() {
         let service = HealthServiceImpl::new_offline();
-        let report = service.run_full_check(&[], Box::new(|_id| Err("none".into())));
+        let report = service.run_full_check(&[], &FnDecryptor(|_id| Err("none".into())));
         assert_eq!(report.issue_count(), 0);
         assert_eq!(report.total_checked, 0);
     }
@@ -553,7 +578,7 @@ mod tests {
         let service = HealthServiceImpl::new_offline();
         let report = service.run_full_check(
             &[deleted],
-            Box::new(|_id| Ok(SecureStr::new("weak".into()))),
+            &FnDecryptor(|_id| Ok(SecureStr::new("weak".into()))),
         );
         assert_eq!(report.total_checked, 0);
     }
@@ -563,7 +588,7 @@ mod tests {
         let rec = make_stored_record(None);
         let service = HealthServiceImpl::new_offline();
 
-        let report = service.run_full_check(&[rec], Box::new(|_id| Err("decrypt error".into())));
+        let report = service.run_full_check(&[rec], &FnDecryptor(|_id| Err("decrypt error".into())));
         assert_eq!(report.total_checked, 1);
         assert_eq!(report.weak_passwords.len(), 0); // skipped due to decryption failure
     }
