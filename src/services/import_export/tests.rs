@@ -57,7 +57,7 @@ fn create_session_has_created_status() {
     let mut service = ImportExportServiceImpl::new();
     let f = create_csv_file(simple_csv_content());
 
-    let id = service
+    let _id = service
         .create_import_session(
             ImportSource::Csv,
             f.path().to_path_buf(),

@@ -3,7 +3,7 @@ use crate::config::AppConfig;
 use crate::executor::config_impl::ServiceNotificationImpl;
 use crate::executor::sync::handle_trigger_sync;
 use crate::executor::CommandExecutor;
-use crate::services::clipboard::{Clipboard, ClipboardService, MockBackend};
+use crate::services::clipboard::{ClipboardService, MockBackend};
 use crate::services::health::HealthServiceImpl;
 use crate::services::import_export::ImportExportServiceImpl;
 use crate::services::vault::VaultService;

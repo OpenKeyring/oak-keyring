@@ -495,7 +495,7 @@ mod tests {
     use crate::executor::config_impl::ServiceNotificationImpl;
     use crate::executor::CommandExecutor;
     use crate::services::clipboard::{ClipboardService, MockBackend};
-    use crate::services::health::{HealthService, HealthServiceImpl};
+    use crate::services::health::HealthServiceImpl;
     use crate::services::import_export::ImportExportServiceImpl;
     use crate::services::vault::VaultService;
     use crate::types::{CredentialType, EncryptedPayload, SecureStr};

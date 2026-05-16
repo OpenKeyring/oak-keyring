@@ -317,7 +317,7 @@ mod tests {
     use crate::db::schema::init_db_in_memory;
     use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
     use crate::services::clipboard::{Clipboard, ClipboardService, MockBackend};
-    use crate::services::health::{HealthService, HealthServiceImpl};
+    use crate::services::health::HealthServiceImpl;
     use crate::services::import_export::ImportExportServiceImpl;
     use crate::services::rotation::save_checkpoint;
     use crate::services::sync::SyncService;

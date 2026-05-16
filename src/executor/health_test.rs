@@ -16,7 +16,7 @@ use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::db::queries;
 use crate::executor::config_impl::ServiceNotificationImpl;
 use crate::services::clipboard::{ClipboardService, MockBackend};
-use crate::services::health::{Health, HealthServiceImpl, PasswordEntry};
+use crate::services::health::{HealthServiceImpl, PasswordEntry};
 use crate::services::import_export::ImportExportServiceImpl;
 use crate::services::vault::VaultService;
 use crate::types::health::{HealthStateDelta, RecordHealthState};
