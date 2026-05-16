@@ -1121,4 +1121,59 @@ mod tests {
         assert_eq!(breakdown.get(&SkipReason::ValidationFailed), Some(&1));
         assert_eq!(breakdown.get(&SkipReason::VaultWriteError), None);
     }
+
+    /// Verifies that when the vault fails to write importable records,
+    /// `failed_count` in `ImportCompleted` is correctly reported.
+    /// The in-memory vault starts locked, so `create_record` fails for
+    /// every record prepared by the import service.
+    #[test]
+    fn import_completed_reports_vault_write_failures() {
+        use std::io::Write;
+
+        let mut executor = make_test_executor();
+        // Vault is locked (in-memory, no unlock called), so create_record will fail.
+
+        // Write a simple CSV file for import.
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(
+            tmp,
+            "name,username,password,url,notes\n\
+             GitHub,alice,pass1,https://github.com,dev\n\
+             Gmail,bob,pass2,,email"
+        )
+        .expect("write csv");
+        let csv_path = tmp.path().to_path_buf();
+
+        let mapping = CsvColumnMapping {
+            name_column: "name".into(),
+            username_column: "username".into(),
+            password_column: "password".into(),
+            url_column: "url".into(),
+            notes_column: "notes".into(),
+            tags_column: None,
+            skip_header: true,
+        };
+
+        let result = handle_execute_import(
+            &mut executor,
+            None, // no existing session — create and validate inline
+            ImportSource::Csv,
+            csv_path,
+            None,
+            Some(mapping),
+            false,
+        );
+
+        match result {
+            CommandResult::ImportCompleted {
+                imported_count,
+                failed_count,
+                ..
+            } => {
+                assert_eq!(imported_count, 0, "no records should succeed against locked vault");
+                assert!(failed_count > 0, "all importable records should fail against locked vault");
+            }
+            other => panic!("expected ImportCompleted, got {:?}", other),
+        }
+    }
 }

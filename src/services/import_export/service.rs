@@ -136,6 +136,9 @@ pub trait ImportExport: Send + Sync {
     /// Cancel an export session.
     fn cancel_export_session(&mut self, session_id: Uuid) -> Result<(), ImportExportError>;
 
+    /// Get import session status.
+    fn import_session_status(&self, session_id: Uuid) -> Option<ImportSessionStatus>;
+
     /// Get export session status.
     fn export_session_status(&self, session_id: Uuid) -> Option<ExportSessionStatus>;
 
@@ -862,6 +865,10 @@ impl ImportExport for ImportExportServiceImpl {
 
     fn cancel_export_session(&mut self, session_id: Uuid) -> Result<(), ImportExportError> {
         self.cancel_export_session(session_id)
+    }
+
+    fn import_session_status(&self, session_id: Uuid) -> Option<ImportSessionStatus> {
+        self.session_status(session_id)
     }
 
     fn export_session_status(&self, session_id: Uuid) -> Option<ExportSessionStatus> {

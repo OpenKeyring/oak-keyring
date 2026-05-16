@@ -7,7 +7,9 @@ use uuid::Uuid;
 use crate::commands::types::{CsvColumnMapping, ExportFormat, ExportScope, ImportSource};
 use crate::errors::mapping::import_export::ImportExportError;
 use crate::services::import_export::duplicate::ExistingRecordKey;
-use crate::services::import_export::types::{ExportSessionStatus, ImportSessionStatus};
+use crate::services::import_export::types::{
+    ExportSessionStatus, ImportSessionStatus,
+};
 use crate::types::SecureStr;
 
 // Import parameter structs and implementation for tests
@@ -51,7 +53,7 @@ fn create_session_has_created_status() {
     let mut service = ImportExportServiceImpl::new();
     let f = create_csv_file(simple_csv_content());
 
-    let _id = service
+    let id = service
         .create_import_session(
             ImportSource::Csv,
             f.path().to_path_buf(),
@@ -60,6 +62,11 @@ fn create_session_has_created_status() {
             false,
         )
         .expect("create session");
+
+    assert_eq!(
+        service.import_session_status(id),
+        Some(ImportSessionStatus::Created)
+    );
 }
 
 // -- Test 2: Validate CSV ------------------------------------------------
@@ -81,6 +88,10 @@ fn validate_csv_produces_correct_preview() {
 
     let preview = service.validate_import_file(id).expect("validate");
 
+    assert_eq!(
+        service.import_session_status(id),
+        Some(ImportSessionStatus::Validated)
+    );
     assert_eq!(preview.importable, 3);
     assert_eq!(preview.failed, 0);
     assert!(preview.review_items.is_empty());
@@ -115,6 +126,10 @@ fn full_import_csv_produces_correct_result() {
     };
     let (result, _records) = service.execute_import(params).expect("execute import");
 
+    assert_eq!(
+        service.import_session_status(id),
+        Some(ImportSessionStatus::Completed)
+    );
     assert_eq!(result.imported, 3);
     assert_eq!(result.skipped, 0);
     assert_eq!(result.failed, 0);
@@ -208,6 +223,11 @@ fn cancel_changes_status_to_cancelled() {
         .expect("create session");
 
     service.cancel_import(id).expect("cancel");
+
+    assert_eq!(
+        service.import_session_status(id),
+        Some(ImportSessionStatus::Cancelled)
+    );
 }
 
 // -- Test 7: Cleanup removes session --------------------------------------
