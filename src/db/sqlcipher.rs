@@ -10,8 +10,7 @@ pub fn sqlcipher_raw_key_pragma(key: &[u8; 32]) -> String {
 }
 
 pub fn apply_key(conn: &Connection, key: &[u8; 32]) -> Result<(), rusqlite::Error> {
-    conn.execute_batch(&sqlcipher_raw_key_pragma(key))?;
-    Ok(())
+    conn.execute_batch(&sqlcipher_raw_key_pragma(key))
 }
 
 pub fn cipher_version(conn: &Connection) -> Result<String, rusqlite::Error> {
