@@ -317,8 +317,8 @@ mod tests {
     use crate::db::schema::init_db_in_memory;
     use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
     use crate::services::clipboard::{ClipboardService, MockBackend};
-    use crate::services::health::HealthService;
-    use crate::services::import_export::ImportExportService;
+    use crate::services::health::{HealthService, HealthServiceImpl};
+    use crate::services::import_export::ImportExportServiceImpl;
     use crate::services::rotation::save_checkpoint;
     use crate::services::sync::SyncService;
     use crate::types::rotation::{RotationCheckpoint, RotationTrigger};
@@ -357,9 +357,9 @@ mod tests {
             vault,
             vault_db_file_backed: false,
             sync,
-            health: HealthService::new(),
+            health: Arc::new(HealthServiceImpl::new()),
             clipboard,
-            import_export: ImportExportService::new(),
+            import_export: Box::new(ImportExportServiceImpl::new()),
             config: crate::executor::config_impl::ConfigManagerImpl::new(
                 AppConfig::default(),
                 std::path::PathBuf::from(":memory:"),

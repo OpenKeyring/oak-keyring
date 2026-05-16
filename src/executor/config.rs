@@ -276,8 +276,8 @@ mod tests {
         timeout: u64,
         config_dir: std::path::PathBuf,
     ) -> super::super::CommandExecutor {
-        use crate::services::health::HealthService;
-        use crate::services::import_export::ImportExportService;
+        use crate::services::health::{HealthService, HealthServiceImpl};
+        use crate::services::import_export::ImportExportServiceImpl;
         use crate::services::vault::VaultService;
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
@@ -300,9 +300,9 @@ mod tests {
             vault,
             vault_db_file_backed: false,
             sync: None,
-            health: HealthService::new(),
+            health: Arc::new(HealthServiceImpl::new()),
             clipboard,
-            import_export: ImportExportService::new(),
+            import_export: Box::new(ImportExportServiceImpl::new()),
             config: crate::executor::config_impl::ConfigManagerImpl::new(
                 AppConfig::default(),
                 config_dir.clone(),
@@ -324,8 +324,8 @@ mod tests {
     }
 
     fn make_executor_with_clipboard(timeout: u64) -> super::super::CommandExecutor {
-        use crate::services::health::HealthService;
-        use crate::services::import_export::ImportExportService;
+        use crate::services::health::{HealthService, HealthServiceImpl};
+        use crate::services::import_export::ImportExportServiceImpl;
         use crate::services::vault::VaultService;
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
@@ -348,9 +348,9 @@ mod tests {
             vault,
             vault_db_file_backed: false,
             sync: None,
-            health: HealthService::new(),
+            health: Arc::new(HealthServiceImpl::new()),
             clipboard,
-            import_export: ImportExportService::new(),
+            import_export: Box::new(ImportExportServiceImpl::new()),
             config: crate::executor::config_impl::ConfigManagerImpl::new(
                 AppConfig::default(),
                 std::path::PathBuf::from(":memory:"),

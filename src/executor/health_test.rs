@@ -16,8 +16,8 @@ use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::db::queries;
 use crate::executor::config_impl::ServiceNotificationImpl;
 use crate::services::clipboard::{ClipboardService, MockBackend};
-use crate::services::health::{HealthService, PasswordEntry};
-use crate::services::import_export::ImportExportService;
+use crate::services::health::{Health, HealthServiceImpl, PasswordEntry};
+use crate::services::import_export::ImportExportServiceImpl;
 use crate::services::vault::VaultService;
 use crate::types::health::{HealthStateDelta, RecordHealthState};
 use crate::types::record::StoredRecord;
@@ -61,12 +61,12 @@ fn make_executor_with_one_login() -> CommandExecutor {
         vault,
         vault_db_file_backed: false,
         sync: None,
-        health: HealthService::new(),
+        health: Arc::new(HealthServiceImpl::new()),
         clipboard: Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
         )),
-        import_export: ImportExportService::new(),
+        import_export: Box::new(ImportExportServiceImpl::new()),
         config: crate::executor::config_impl::ConfigManagerImpl::new(
             AppConfig::default(),
             std::path::PathBuf::from(":memory:"),
@@ -103,12 +103,12 @@ fn make_executor_no_records() -> CommandExecutor {
         vault,
         vault_db_file_backed: false,
         sync: None,
-        health: HealthService::new(),
+        health: Arc::new(HealthServiceImpl::new()),
         clipboard: Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
         )),
-        import_export: ImportExportService::new(),
+        import_export: Box::new(ImportExportServiceImpl::new()),
         config: crate::executor::config_impl::ConfigManagerImpl::new(
             AppConfig::default(),
             std::path::PathBuf::from(":memory:"),

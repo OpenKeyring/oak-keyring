@@ -26,8 +26,7 @@ use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::{AppConfig, ConfigManager};
 use crate::db::schema::{init_db, init_db_in_memory};
 use crate::services::clipboard::ClipboardService;
-use crate::services::health::HealthService;
-use crate::services::import_export::ImportExportService;
+use crate::services::health::{Health, HealthServiceImpl};
 use crate::services::vault::VaultService;
 use crate::types::SecureStr;
 
@@ -135,13 +134,13 @@ pub struct CommandExecutor {
     /// S2: Sync service — cloud sync (None when no provider configured).
     sync: Option<crate::services::sync::SyncService>,
     /// S3: Health service — password security analysis.
-    health: HealthService,
+    health: Arc<dyn Health>,
     /// S4: Clipboard service — system clipboard with auto-clear.
     #[allow(dead_code)]
     clipboard: Arc<ClipboardService>,
     /// S6: Import/Export service — file parsing and vault export.
     #[allow(dead_code)]
-    import_export: ImportExportService,
+    import_export: Box<dyn crate::services::import_export::ImportExport>,
     /// Application configuration manager.
     config: config_impl::ConfigManagerImpl,
     /// Notifier that dispatches config changes to registered services.
@@ -213,8 +212,9 @@ impl CommandExecutor {
 
         // Create service instances.
         let vault = VaultService::new(conn);
-        let health = HealthService::new();
-        let import_export = ImportExportService::new();
+        let health: Arc<dyn Health> = Arc::new(HealthServiceImpl::new());
+        let import_export =
+            Box::new(crate::services::import_export::ImportExportServiceImpl::new());
 
         // Clipboard degrades to a disabled backend in headless/CI environments.
         let clipboard_clear_seconds = config.general.clipboard_clear_seconds;

@@ -10,8 +10,8 @@ use crate::executor::config_impl::ServiceNotificationImpl;
 use crate::executor::vault::schedule_health_check_after_unlock;
 use crate::executor::CommandExecutor;
 use crate::services::clipboard::{ClipboardService, MockBackend};
-use crate::services::health::HealthService;
-use crate::services::import_export::ImportExportService;
+use crate::services::health::{HealthService, HealthServiceImpl};
+use crate::services::import_export::ImportExportServiceImpl;
 use crate::services::vault::VaultService;
 use crate::types::health::RecordHealthState;
 use crate::types::{CredentialType, EncryptedPayload, SecureStr};
@@ -32,12 +32,12 @@ fn make_unlocked_executor() -> CommandExecutor {
         vault,
         vault_db_file_backed: false,
         sync: None,
-        health: HealthService::new(),
+        health: Arc::new(HealthServiceImpl::new()),
         clipboard: Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
         )),
-        import_export: ImportExportService::new(),
+        import_export: Box::new(ImportExportServiceImpl::new()),
         config: crate::executor::config_impl::ConfigManagerImpl::new(
             AppConfig::default(),
             std::path::PathBuf::from(":memory:"),

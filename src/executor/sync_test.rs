@@ -4,8 +4,8 @@ use crate::executor::config_impl::ServiceNotificationImpl;
 use crate::executor::sync::handle_trigger_sync;
 use crate::executor::CommandExecutor;
 use crate::services::clipboard::{ClipboardService, MockBackend};
-use crate::services::health::HealthService;
-use crate::services::import_export::ImportExportService;
+use crate::services::health::{HealthService, HealthServiceImpl};
+use crate::services::import_export::ImportExportServiceImpl;
 use crate::services::vault::VaultService;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -24,12 +24,12 @@ async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
         vault,
         vault_db_file_backed: false,
         sync: None,
-        health: HealthService::new(),
+        health: Arc::new(HealthServiceImpl::new()),
         clipboard: Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
         )),
-        import_export: ImportExportService::new(),
+        import_export: Box::new(ImportExportServiceImpl::new()),
         config: crate::executor::config_impl::ConfigManagerImpl::new(
             AppConfig::default(),
             std::path::PathBuf::from(":memory:"),
@@ -76,12 +76,12 @@ async fn trigger_sync_returns_cancelled_when_shutdown_token_cancelled() {
         vault,
         vault_db_file_backed: false,
         sync: None,
-        health: HealthService::new(),
+        health: Arc::new(HealthServiceImpl::new()),
         clipboard: Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
         )),
-        import_export: ImportExportService::new(),
+        import_export: Box::new(ImportExportServiceImpl::new()),
         config: crate::executor::config_impl::ConfigManagerImpl::new(
             AppConfig::default(),
             std::path::PathBuf::from(":memory:"),

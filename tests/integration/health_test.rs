@@ -7,7 +7,7 @@ use chrono::Utc;
 use oak_keyring::commands::types::{HealthIssue, HealthReport};
 use oak_keyring::config::security::{HealthCheckFrequency, SecurityConfig};
 use oak_keyring::crypto::strength::evaluate_strength;
-use oak_keyring::services::health::{should_run, HealthService};
+use oak_keyring::services::health::{should_run, Health, HealthService};
 use oak_keyring::types::credential::CredentialType;
 use oak_keyring::types::record::StoredRecord;
 use oak_keyring::types::sensitive::SecureStr;
@@ -53,12 +53,11 @@ fn acceptance_duplicate_password_grouping() {
     let service = HealthService::new();
     let id1 = Uuid::new_v4();
     let id2 = Uuid::new_v4();
-    let same_pw = "abc123".to_string();
 
     let records = vec![make_rec(id1), make_rec(id2)];
-    let decrypt_fn = |_| Ok(SecureStr::new(same_pw.clone()));
+    let decrypt_fn = move |_| Ok(SecureStr::new("abc123".to_string()));
 
-    let report = service.run_full_check(&records, decrypt_fn);
+    let report = service.run_full_check(&records, Box::new(decrypt_fn));
     assert_eq!(report.duplicate_passwords.len(), 1);
     assert_eq!(report.duplicate_passwords[0].len(), 2);
 }
@@ -128,7 +127,10 @@ fn acceptance_expired_yesterday_detected() {
     rec.expires_at = Some(past);
 
     let service = HealthService::new();
-    let report = service.run_full_check(&[rec], |_| Ok(SecureStr::new("strongpass".to_string())));
+    let report = service.run_full_check(
+        &[rec],
+        Box::new(|_| Ok(SecureStr::new("strongpass".to_string()))),
+    );
     assert!(!report.expired.is_empty());
 }
 
@@ -140,7 +142,10 @@ fn acceptance_expired_tomorrow_not_detected() {
     rec.expires_at = Some(future);
 
     let service = HealthService::new();
-    let report = service.run_full_check(&[rec], |_| Ok(SecureStr::new("strongpass".to_string())));
+    let report = service.run_full_check(
+        &[rec],
+        Box::new(|_| Ok(SecureStr::new("strongpass".to_string()))),
+    );
     assert!(report.expired.is_empty());
 }
 

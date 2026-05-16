@@ -19,7 +19,38 @@ use crate::services::import_export::validation::{get_rules_for_format, validate_
 use crate::types::{CredentialType, SecureStr};
 
 // ---------------------------------------------------------------------------
-// ImportExportService
+// Parameter structs for trait object compatibility
+// ---------------------------------------------------------------------------
+
+/// Boxed vault record creator for import sessions.
+pub type VaultCreateFn =
+    Box<dyn FnMut(CredentialType, HashMap<String, String>, Vec<String>) -> Result<Uuid, String>>;
+
+/// Boxed progress callback for import sessions.
+pub type ProgressFn = Option<Box<dyn Fn(usize, usize, &str)>>;
+
+/// Parameters for executing an import session.
+///
+/// Boxes the generic closures from `ImportExportService::execute_import` for trait-object compatibility.
+pub struct ImportParams {
+    pub session_id: Uuid,
+    pub existing_keys: HashSet<ExistingRecordKey>,
+    pub vault_create_fn: VaultCreateFn,
+    pub progress_fn: ProgressFn,
+}
+
+/// Parameters for executing an export session.
+///
+/// Boxes the generic closure from `ImportExportService::execute_export` for trait-object compatibility.
+pub struct ExportParams {
+    pub session_id: Uuid,
+    pub record_collector:
+        Box<dyn FnOnce() -> Result<Vec<super::export::ExportRecord>, String> + Send>,
+    pub vault_id: String,
+}
+
+// ---------------------------------------------------------------------------
+// ImportExport trait
 // ---------------------------------------------------------------------------
 
 /// Coordinates the full import pipeline: parsing, validation, mapping,
@@ -28,15 +59,102 @@ use crate::types::{CredentialType, SecureStr};
 /// Import sessions progress through a well-defined lifecycle:
 /// `Created` -> `Validating` -> `Validated` -> `Importing` -> `Completed`
 ///
+/// Any step can transition to `Cancelled` via `cancel_import`.
+/// Fatal errors during validation or import transition to `Failed`.
+///
+/// Export sessions handle vault record serialization and encryption to
+/// supported output formats (.okb, .csv).
+#[cfg_attr(test, mockall::automock)]
+pub trait ImportExport: Send + Sync {
+    /// Create a new import session in `Created` status.
+    ///
+    /// Returns the session UUID for use in subsequent operations.
+    fn create_import_session(
+        &mut self,
+        source: ImportSource,
+        file_path: PathBuf,
+        decrypt_password: Option<SecureStr>,
+        csv_mapping: Option<CsvColumnMapping>,
+        import_as_notes: bool,
+    ) -> Result<Uuid, ImportExportError>;
+
+    /// Parse, validate, and map the import file.
+    ///
+    /// Must be called when session is in `Created` status. On success the
+    /// session transitions to `Validated` and a preview is available via
+    /// `get_import_preview`.
+    fn validate_import_file(
+        &mut self,
+        session_id: Uuid,
+    ) -> Result<ImportPreview, ImportExportError>;
+
+    /// Return the validation preview for a validated session.
+    fn get_import_preview(&self, session_id: Uuid) -> Result<ImportPreview, ImportExportError>;
+
+    /// Execute the import: create vault records for validated, non-duplicate items.
+    ///
+    /// The `vault_create_fn` closure handles actual record creation. This keeps
+    /// the service decoupled from `VaultService`.
+    fn execute_import(&mut self, params: ImportParams) -> Result<ImportResult, ImportExportError>;
+
+    /// Cancel an in-progress import session.
+    fn cancel_import(&mut self, session_id: Uuid) -> Result<(), ImportExportError>;
+
+    /// Remove a session from the internal map.
+    fn cleanup_session(&mut self, session_id: Uuid) -> Result<(), ImportExportError>;
+
+    /// Create a new export session in `Created` status.
+    ///
+    /// Validates password length (>= 8) and output path extension (.okb).
+    /// Returns the session UUID for use in subsequent operations.
+    fn create_export_session(
+        &mut self,
+        scope: ExportScope,
+        format: ExportFormat,
+        export_password: SecureStr,
+        output_path: PathBuf,
+    ) -> Result<Uuid, ImportExportError>;
+
+    /// Execute the export: collect records, serialize, encrypt, write.
+    ///
+    /// The `record_collector` closure fetches records from the vault, keeping
+    /// the service decoupled from `VaultService`.
+    fn execute_export(
+        &mut self,
+        params: ExportParams,
+    ) -> Result<(PathBuf, usize), ImportExportError>;
+
+    /// Cancel an export session.
+    fn cancel_export_session(&mut self, session_id: Uuid) -> Result<(), ImportExportError>;
+
+    /// Get export session status.
+    fn export_session_status(&self, session_id: Uuid) -> Option<ExportSessionStatus>;
+
+    /// Check whether a parser is registered for the given format.
+    fn has_parser(&self, source: ImportSource) -> bool;
+}
+
+// ---------------------------------------------------------------------------
+// ImportExportServiceImpl
+// ---------------------------------------------------------------------------
+
+/// Default implementation of the `ImportExport` trait.
+///
+/// Coordinates the full import pipeline: parsing, validation, mapping,
+/// duplicate detection, and vault insertion.
+///
+/// Import sessions progress through a well-defined lifecycle:
+/// `Created` -> `Validating` -> `Validated` -> `Importing` -> `Completed`
+///
 /// Any step can transition to `Cancelled` via [`cancel_import`](Self::cancel_import).
 /// Fatal errors during validation or import transition to `Failed`.
-pub struct ImportExportService {
+pub struct ImportExportServiceImpl {
     pub(crate) import_sessions: HashMap<Uuid, ImportSession>,
     export_sessions: HashMap<Uuid, ExportSession>,
     parser_registry: FormatParserRegistry,
 }
 
-impl ImportExportService {
+impl ImportExportServiceImpl {
     pub fn new() -> Self {
         let mut registry = FormatParserRegistry::new();
         registry.register(Box::new(super::parsers::csv::CsvParser));
@@ -256,17 +374,16 @@ impl ImportExportService {
     ///
     /// `progress_fn` is an optional callback invoked after processing each record:
     /// `(current_index, total_count, item_name)`.
-    pub fn execute_import<F, P>(
+    pub fn execute_import(
         &mut self,
-        session_id: Uuid,
-        existing_keys: HashSet<ExistingRecordKey>,
-        mut vault_create_fn: F,
-        progress_fn: Option<P>,
-    ) -> Result<ImportResult, ImportExportError>
-    where
-        F: FnMut(CredentialType, HashMap<String, String>, Vec<String>) -> Result<Uuid, String>,
-        P: Fn(usize, usize, &str),
-    {
+        params: ImportParams,
+    ) -> Result<ImportResult, ImportExportError> {
+        let ImportParams {
+            session_id,
+            existing_keys,
+            mut vault_create_fn,
+            progress_fn,
+        } = params;
         // 1. Verify session status is Validated.
         let import_as_notes = {
             let session = self
@@ -513,15 +630,17 @@ impl ImportExportService {
     ///
     /// The `record_collector` closure fetches records from the vault, keeping
     /// the service decoupled from `VaultService`.
-    pub fn execute_export<F>(
+    pub fn execute_export(
         &mut self,
-        session_id: Uuid,
-        record_collector: F,
-        vault_id: &str,
-    ) -> Result<(PathBuf, usize), ImportExportError>
-    where
-        F: FnOnce() -> Result<Vec<super::export::ExportRecord>, String>,
-    {
+        params: ExportParams,
+    ) -> Result<(PathBuf, usize), ImportExportError> {
+        let ExportParams {
+            session_id,
+            record_collector,
+            vault_id,
+        } = params;
+
+        let vault_id = &vault_id;
         // 1. Verify session exists and status is Created.
         {
             let session = self
@@ -662,8 +781,92 @@ fn read_csv_headers(path: &std::path::Path) -> Result<Vec<String>, ImportExportE
     }
 }
 
-impl Default for ImportExportService {
+impl Default for ImportExportServiceImpl {
     fn default() -> Self {
         Self::new()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Trait implementation
+// ---------------------------------------------------------------------------
+
+impl ImportExport for ImportExportServiceImpl {
+    fn create_import_session(
+        &mut self,
+        source: ImportSource,
+        file_path: PathBuf,
+        decrypt_password: Option<SecureStr>,
+        csv_mapping: Option<CsvColumnMapping>,
+        import_as_notes: bool,
+    ) -> Result<Uuid, ImportExportError> {
+        self.create_import_session(
+            source,
+            file_path,
+            decrypt_password,
+            csv_mapping,
+            import_as_notes,
+        )
+    }
+
+    fn validate_import_file(
+        &mut self,
+        session_id: Uuid,
+    ) -> Result<ImportPreview, ImportExportError> {
+        self.validate_import_file(session_id)
+    }
+
+    fn get_import_preview(&self, session_id: Uuid) -> Result<ImportPreview, ImportExportError> {
+        self.get_import_preview(session_id)
+    }
+
+    fn execute_import(&mut self, params: ImportParams) -> Result<ImportResult, ImportExportError> {
+        self.execute_import(params)
+    }
+
+    fn cancel_import(&mut self, session_id: Uuid) -> Result<(), ImportExportError> {
+        self.cancel_import(session_id)
+    }
+
+    fn cleanup_session(&mut self, session_id: Uuid) -> Result<(), ImportExportError> {
+        self.cleanup_session(session_id)
+    }
+
+    fn create_export_session(
+        &mut self,
+        scope: ExportScope,
+        format: ExportFormat,
+        export_password: SecureStr,
+        output_path: PathBuf,
+    ) -> Result<Uuid, ImportExportError> {
+        self.create_export_session(scope, format, export_password, output_path)
+    }
+
+    fn execute_export(
+        &mut self,
+        params: ExportParams,
+    ) -> Result<(PathBuf, usize), ImportExportError> {
+        self.execute_export(params)
+    }
+
+    fn cancel_export_session(&mut self, session_id: Uuid) -> Result<(), ImportExportError> {
+        self.cancel_export_session(session_id)
+    }
+
+    fn export_session_status(&self, session_id: Uuid) -> Option<ExportSessionStatus> {
+        self.export_session_status(session_id)
+    }
+
+    fn has_parser(&self, source: ImportSource) -> bool {
+        self.has_parser(source)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Type alias for backward compatibility
+// ---------------------------------------------------------------------------
+
+/// Type alias for backward compatibility.
+///
+/// New code should use `ImportExportServiceImpl` directly or `Box<dyn ImportExport>` for trait objects.
+pub type ImportExportService = ImportExportServiceImpl;
