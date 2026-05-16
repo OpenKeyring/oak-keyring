@@ -41,6 +41,7 @@ pub type ProgressFn = Option<Box<dyn Fn(usize, usize, &str)>>;
 pub struct ImportParams {
     pub session_id: Uuid,
     pub existing_keys: HashSet<ExistingRecordKey>,
+    pub import_as_notes: bool,
     pub progress_fn: ProgressFn,
 }
 
@@ -389,10 +390,11 @@ impl ImportExportServiceImpl {
         let ImportParams {
             session_id,
             existing_keys,
+            import_as_notes,
             progress_fn,
         } = params;
         // 1. Verify session status is Validated.
-        let import_as_notes = {
+        {
             let session = self
                 .import_sessions
                 .get(&session_id)
@@ -404,8 +406,7 @@ impl ImportExportServiceImpl {
                     actual: format!("{:?}", session.status),
                 });
             }
-            session.import_as_notes
-        };
+        }
 
         // 2. Transition to Importing.
         {

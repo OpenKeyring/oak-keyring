@@ -1,6 +1,6 @@
 use super::*;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -8,7 +8,7 @@ use crate::commands::types::{CsvColumnMapping, ExportFormat, ExportScope, Import
 use crate::errors::mapping::import_export::ImportExportError;
 use crate::services::import_export::duplicate::ExistingRecordKey;
 use crate::services::import_export::types::{ExportSessionStatus, ImportSessionStatus};
-use crate::types::{CredentialType, SecureStr};
+use crate::types::SecureStr;
 
 // Import parameter structs and implementation for tests
 use crate::services::import_export::{ExportParams, ImportExportServiceImpl, ImportParams};
@@ -110,6 +110,7 @@ fn full_import_csv_produces_correct_result() {
     let params = ImportParams {
         session_id: id,
         existing_keys: existing,
+        import_as_notes: false,
         progress_fn: None,
     };
     let (result, _records) = service.execute_import(params).expect("execute import");
@@ -140,6 +141,7 @@ fn operations_on_invalid_uuid_return_session_not_found() {
     let params = ImportParams {
         session_id: bogus_id,
         existing_keys: existing,
+        import_as_notes: false,
         progress_fn: None,
     };
     let result = service.execute_import(params);
@@ -174,6 +176,7 @@ fn execute_on_created_session_returns_invalid_status() {
     let params = ImportParams {
         session_id: id,
         existing_keys: existing,
+        import_as_notes: false,
         progress_fn: None,
     };
     let result = service.execute_import(params);
@@ -315,6 +318,7 @@ fn import_skips_duplicate_records() {
     let params = ImportParams {
         session_id: id,
         existing_keys: existing,
+        import_as_notes: false,
         progress_fn: None,
     };
     let (result, _records) = service.execute_import(params).expect("execute import");
@@ -347,6 +351,7 @@ fn import_returns_correct_record_counts() {
     let params = ImportParams {
         session_id: id,
         existing_keys: existing,
+        import_as_notes: false,
         progress_fn: None,
     };
     let (result, records) = service.execute_import(params).expect("execute");

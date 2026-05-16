@@ -128,6 +128,7 @@ pub fn handle_execute_import(
     let params = ImportParams {
         session_id,
         existing_keys,
+        import_as_notes,
         progress_fn: Some(Box::new(move |current, total, name: &str| {
             let _ = progress_tx.try_send(Message::ImportProgress {
                 current,

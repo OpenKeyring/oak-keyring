@@ -430,6 +430,7 @@ fn test_okb_basic_full_import() {
     let params = ImportParams {
         session_id,
         existing_keys,
+        import_as_notes: false,
         progress_fn: None,
     };
     let (result, importable_records) = svc.execute_import(params).expect("execute import");
@@ -493,6 +494,7 @@ fn test_okb_mixed_types_full_import() {
     let params = ImportParams {
         session_id,
         existing_keys,
+        import_as_notes: false,
         progress_fn: None,
     };
     let (result, importable_records) = svc.execute_import(params).expect("execute import");
@@ -558,6 +560,7 @@ fn test_okb_edge_cases_full_import() {
     let params = ImportParams {
         session_id,
         existing_keys,
+        import_as_notes: false,
         progress_fn: None,
     };
     let (result, importable_records) = svc.execute_import(params).expect("execute import");
