@@ -381,7 +381,7 @@ async fn trigger_rotation_fails_when_metadata_download_fails() {
 
 #[tokio::test]
 async fn resume_rotation_returns_no_trigger_when_no_checkpoint() {
-    let mut mock_vault = permissive_unlocked_vault();
+    let mock_vault = permissive_unlocked_vault();
 
     let mut executor = base_builder()
         .vault(Box::new(mock_vault))
