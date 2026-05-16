@@ -1,3 +1,4 @@
+pub mod builder;
 pub mod clipboard;
 pub mod config;
 pub mod config_impl;
@@ -9,6 +10,8 @@ pub mod rotation;
 pub mod sync;
 pub mod timer;
 pub mod vault;
+
+pub use builder::ExecutorBuilder;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,12 +29,11 @@ use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::{AppConfig, ConfigManager};
 use crate::db::schema::{init_db, init_db_in_memory};
 use crate::services::clipboard::{Clipboard, ClipboardService};
-use crate::services::health::{Health, HealthServiceImpl};
+use crate::services::health::Health;
 use crate::services::vault::{Vault, VaultServiceImpl};
 use crate::types::SecureStr;
 
-use crate::config::notification::ServiceNotification;
-use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
+use config_impl::{ServiceNotificationImpl};
 
 #[cfg(test)]
 mod health_test;
@@ -210,22 +212,8 @@ impl CommandExecutor {
             }
         };
 
-        // Create service instances.
         let vault = Box::new(VaultServiceImpl::new(conn)) as Box<dyn Vault>;
-        let health: Arc<dyn Health> = Arc::new(HealthServiceImpl::new());
-        let import_export =
-            Box::new(crate::services::import_export::ImportExportServiceImpl::new());
-
-        // Clipboard degrades to a disabled backend in headless/CI environments.
-        let clipboard_clear_seconds = config.general.clipboard_clear_seconds;
-        let clipboard =
-            Arc::new(ClipboardService::new_safe(clipboard_clear_seconds)?) as Arc<dyn Clipboard>;
-
-        // Register clipboard service for config-change notifications.
-        let mut config_notifier = ServiceNotificationImpl::new();
-        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
-            &clipboard,
-        ))));
+        let vault_db_file_backed = matches!(db_startup_mode, DbStartupMode::FileBacked);
 
         // Load OAuth2 tokens from TokenStore (runtime-only, not in config.toml).
         load_oauth2_tokens_into_config(&mut config, &config_dir);
@@ -241,37 +229,20 @@ impl CommandExecutor {
             }
         };
 
-        // Create internal signaling channel
-        let (internal_tx, internal_rx) = mpsc::channel(64);
+        let clipboard_clear_seconds = config.general.clipboard_clear_seconds;
+        let clipboard = Arc::new(ClipboardService::new_safe(clipboard_clear_seconds)?) as Arc<dyn Clipboard>;
 
         info!("CommandExecutor initialized successfully");
 
-        let operation_cancel_token = shutdown_token.child_token();
-
-        let vault_db_file_backed = matches!(db_startup_mode, DbStartupMode::FileBacked);
-
-        Ok(Self {
-            vault: Box::new(vault) as Box<dyn Vault>,
-            vault_db_file_backed,
-            sync,
-            health,
-            clipboard,
-            import_export,
-            config: config_impl::ConfigManagerImpl::new(config, config_dir.clone()),
-            config_notifier,
-            vault_dir,
-            config_dir,
-            health_report: None,
-            last_health_check_time: None,
-            verified_master_password: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token,
-            operation_cancel_token,
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        })
+        Ok(Self::builder(vault_dir.clone(), config_dir.clone())
+            .vault(vault)
+            .vault_db_file_backed(vault_db_file_backed)
+            .sync(sync)
+            .config(config)
+            .result_tx(result_tx)
+            .shutdown_token(shutdown_token)
+            .clipboard(clipboard)
+            .build())
     }
 
     /// Check whether the vault is currently unlocked.
@@ -393,15 +364,29 @@ impl CommandExecutor {
 
     // execute(), pre_check(), post_hook(), and dispatch() are defined in execute.rs
 
-    /// Replace the sync service with a pre-built instance.
+    /// Configure the sync service after construction.
     ///
-    /// # Note
+    /// This method is intended for E2E tests and scenarios where the executor
+    /// is constructed via `CommandExecutor::new()` but a custom sync service
+    /// needs to be injected before `run()` is called.
     ///
-    /// This method is intended for testing purposes only, allowing injection of
-    /// mock sync services. In production, the sync service is configured during
-    /// executor construction.
-    pub fn set_sync_service(&mut self, sync: Option<Box<dyn crate::services::sync::SyncService>>) {
+    /// # Panics
+    ///
+    /// Panics if called after `run()` has started (when the executor is consuming
+    /// commands). This should only be called immediately after construction.
+    #[must_use]
+    pub fn with_sync(mut self, sync: Option<Box<dyn crate::services::sync::SyncService>>) -> Self {
         self.sync = sync;
+        self
+    }
+
+    /// Create an [`ExecutorBuilder`] for constructing a CommandExecutor.
+    ///
+    /// This is the primary method for test fixtures and custom construction scenarios.
+    /// Production code should use [`CommandExecutor::new`] instead.
+    #[must_use]
+    pub fn builder(vault_dir: std::path::PathBuf, config_dir: std::path::PathBuf) -> ExecutorBuilder {
+        ExecutorBuilder::new(vault_dir, config_dir)
     }
 
     pub(crate) async fn shutdown_gracefully(&mut self) -> ShutdownReport {

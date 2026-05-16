@@ -705,11 +705,8 @@ mod tests {
 
     fn make_test_executor() -> CommandExecutor {
         use crate::config::AppConfig;
-        use crate::executor::config_impl::ServiceNotificationImpl;
         use crate::services::clipboard::{ClipboardService, MockBackend};
-        use crate::services::health::HealthServiceImpl;
-        use crate::services::import_export::ImportExportServiceImpl;
-        use crate::services::vault::{Vault, VaultServiceImpl};
+        use crate::services::vault::VaultServiceImpl;
         use std::sync::Arc;
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
@@ -717,36 +714,17 @@ mod tests {
         let conn = crate::db::schema::init_db_in_memory();
         let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
 
-        CommandExecutor {
-            vault: Box::new(vault) as Box<dyn Vault>,
-            vault_db_file_backed: false,
-            sync: None,
-            health: Arc::new(HealthServiceImpl::new()),
-            clipboard: Arc::new(ClipboardService::with_backend(
+        CommandExecutor::builder(":memory:".into(), ":memory:".into())
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(Arc::new(ClipboardService::with_backend(
                 Box::new(MockBackend::new()),
                 30,
-            )),
-            import_export: Box::new(ImportExportServiceImpl::new()),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                std::path::PathBuf::from(":memory:"),
-            ),
-            config_notifier: ServiceNotificationImpl::new(),
-            vault_dir: std::path::PathBuf::from(":memory:"),
-            config_dir: std::path::PathBuf::from(":memory:"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-            verified_master_password: None,
-        }
+            )))
+            .build()
     }
 
     #[test]

@@ -315,14 +315,10 @@ pub fn handle_check_rotation_trigger(executor: &mut CommandExecutor) -> CommandR
 mod tests {
     use super::*;
     use crate::cloud::CloudMetadata;
-    use crate::config::notification::ServiceNotification;
     use crate::config::AppConfig;
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
     use crate::db::schema::init_db_in_memory;
-    use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
     use crate::services::clipboard::{Clipboard, ClipboardService, MockBackend};
-    use crate::services::health::HealthServiceImpl;
-    use crate::services::import_export::ImportExportServiceImpl;
     use crate::services::rotation::save_checkpoint;
     use crate::services::sync::SyncServiceImpl;
     use crate::types::rotation::{RotationCheckpoint, RotationTrigger};
@@ -348,41 +344,19 @@ mod tests {
     fn setup_executor_with_sync(sync: Option<Box<dyn crate::services::sync::SyncService>>) -> CommandExecutor {
         let vault = setup_vault_unlocked();
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
         let clipboard = Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
         )) as Arc<dyn Clipboard>;
-        let mut config_notifier = ServiceNotificationImpl::new();
-        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
-            &clipboard,
-        ))));
 
-        CommandExecutor {
-            vault: Box::new(vault) as Box<dyn Vault>,
-            vault_db_file_backed: false,
-            sync,
-            health: Arc::new(HealthServiceImpl::new()),
-            clipboard,
-            import_export: Box::new(ImportExportServiceImpl::new()),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                std::path::PathBuf::from(":memory:"),
-            ),
-            config_notifier,
-            vault_dir: PathBuf::from(":memory:"),
-            config_dir: PathBuf::from(":memory:"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-            verified_master_password: None,
-        }
+        CommandExecutor::builder(":memory:".into(), ":memory:".into())
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(clipboard)
+            .sync(sync)
+            .build()
     }
 
     /// Create a SyncService backed by a real filesystem (required for atomic

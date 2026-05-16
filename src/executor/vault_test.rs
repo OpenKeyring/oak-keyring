@@ -6,12 +6,9 @@ use tokio_util::sync::CancellationToken;
 use crate::config::security::HealthCheckFrequency;
 use crate::config::AppConfig;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-use crate::executor::config_impl::ServiceNotificationImpl;
 use crate::executor::vault::schedule_health_check_after_unlock;
 use crate::executor::CommandExecutor;
 use crate::services::clipboard::{ClipboardService, MockBackend};
-use crate::services::health::HealthServiceImpl;
-use crate::services::import_export::ImportExportServiceImpl;
 use crate::services::vault::{Vault, VaultServiceImpl};
 use crate::types::health::RecordHealthState;
 use crate::types::{CredentialType, EncryptedPayload, SecureStr};
@@ -26,36 +23,17 @@ fn make_unlocked_executor() -> CommandExecutor {
         .expect("unlock with mnemonic");
 
     let (result_tx, _) = mpsc::channel(64);
-    let (internal_tx, internal_rx) = mpsc::channel(64);
 
-    CommandExecutor {
-        vault: Box::new(vault) as Box<dyn Vault>,
-        vault_db_file_backed: false,
-        sync: None,
-        health: Arc::new(HealthServiceImpl::new()),
-        clipboard: Arc::new(ClipboardService::with_backend(
+    CommandExecutor::builder(":memory:".into(), ":memory:".into())
+        .vault(Box::new(vault))
+        .config(AppConfig::default())
+        .result_tx(result_tx)
+        .shutdown_token(CancellationToken::new())
+        .clipboard(Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
-        )),
-        import_export: Box::new(ImportExportServiceImpl::new()),
-        config: crate::executor::config_impl::ConfigManagerImpl::new(
-            AppConfig::default(),
-            std::path::PathBuf::from(":memory:"),
-        ),
-        config_notifier: ServiceNotificationImpl::new(),
-        vault_dir: std::path::PathBuf::from(":memory:"),
-        config_dir: std::path::PathBuf::from(":memory:"),
-        health_report: None,
-        last_health_check_time: None,
-        result_tx,
-        internal_tx,
-        internal_rx: Some(internal_rx),
-        shutdown_token: CancellationToken::new(),
-        operation_cancel_token: CancellationToken::new(),
-        timer_rebuild_pending: false,
-        oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        verified_master_password: None,
-    }
+        )))
+        .build()
 }
 
 /// Helper: create a Login record and return its UUID.

@@ -84,7 +84,9 @@ async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(
+    let (sync, cloud_dir) = create_fs_sync_service();
+
+    let executor = CommandExecutor::new(
         config,
         result_tx,
         cancel_token,
@@ -92,10 +94,8 @@ async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
         config_dir,
         DbStartupMode::FileBacked,
     )
-    .expect("executor construction should succeed");
-
-    let (sync, cloud_dir) = create_fs_sync_service();
-    executor.set_sync_service(Some(Box::new(sync) as Box<dyn oak_keyring::services::sync::SyncService>));
+    .expect("executor construction should succeed")
+    .with_sync(Some(Box::new(sync) as Box<dyn oak_keyring::services::sync::SyncService>));
 
     tokio::spawn(async move {
         executor.run(command_rx).await;
@@ -124,7 +124,9 @@ async fn setup_key_only_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(
+    let (sync, cloud_dir) = create_fs_sync_service();
+
+    let executor = CommandExecutor::new(
         config,
         result_tx,
         cancel_token,
@@ -132,10 +134,8 @@ async fn setup_key_only_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
         config_dir,
         DbStartupMode::DeferredInMemory,
     )
-    .expect("executor construction should succeed");
-
-    let (sync, cloud_dir) = create_fs_sync_service();
-    executor.set_sync_service(Some(Box::new(sync) as Box<dyn oak_keyring::services::sync::SyncService>));
+    .expect("executor construction should succeed")
+    .with_sync(Some(Box::new(sync) as Box<dyn oak_keyring::services::sync::SyncService>));
 
     tokio::spawn(async move {
         executor.run(command_rx).await;
@@ -462,6 +462,8 @@ async fn sync_cancellation_returns_cancelled() {
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
+    let (sync, _cloud_dir) = create_fs_sync_service();
+
     let mut executor = CommandExecutor::new(
         config,
         result_tx,
@@ -470,10 +472,8 @@ async fn sync_cancellation_returns_cancelled() {
         config_dir,
         DbStartupMode::FileBacked,
     )
-    .expect("executor construction should succeed");
-
-    let (sync, _cloud_dir) = create_fs_sync_service();
-    executor.set_sync_service(Some(Box::new(sync) as Box<dyn oak_keyring::services::sync::SyncService>));
+    .expect("executor construction should succeed")
+    .with_sync(Some(Box::new(sync) as Box<dyn oak_keyring::services::sync::SyncService>));
 
     let op_cancel = executor.cancel_token().clone();
 

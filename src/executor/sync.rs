@@ -596,13 +596,10 @@ mod restore_password_tests {
     use crate::commands::CommandResult;
     use crate::config::AppConfig;
     use crate::db::schema::init_db_in_memory;
-    use crate::executor::config_impl::ServiceNotificationImpl;
     use crate::executor::CommandExecutor;
     use crate::services::clipboard::{ClipboardService, MockBackend};
-    use crate::services::health::HealthServiceImpl;
-    use crate::services::import_export::ImportExportServiceImpl;
     use crate::services::sync::{SyncResult, SyncServiceImpl};
-    use crate::services::vault::{Vault, VaultServiceImpl};
+    use crate::services::vault::VaultServiceImpl;
     use crate::sync::task::SyncReport;
     use crate::types::SecureStr;
     use std::sync::Arc;
@@ -735,36 +732,19 @@ mod restore_password_tests {
         let conn = init_db_in_memory();
         let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
 
-        let mut executor = CommandExecutor {
-            vault: Box::new(vault) as Box<dyn Vault>,
-            vault_db_file_backed: false,
-            sync: Some(create_test_sync_service()),
-            health: Arc::new(HealthServiceImpl::new()),
-            clipboard: Arc::new(ClipboardService::with_backend(
+        let mut executor = CommandExecutor::builder(vault_dir.clone(), temp.path().join("config"))
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(Arc::new(ClipboardService::with_backend(
                 Box::new(MockBackend::new()),
                 30,
-            )),
-            import_export: Box::new(ImportExportServiceImpl::new()),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                temp.path().join("config"),
-            ),
-            config_notifier: ServiceNotificationImpl::new(),
-            vault_dir,
-            config_dir: temp.path().join("config"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-            verified_master_password: Some(SecureStr::new("cached-password".to_string())),
-        };
+            )))
+            .sync(Some(create_test_sync_service()))
+            .verified_master_password(SecureStr::new("cached-password".to_string()))
+            .build();
 
         let result = handle_restore_database_from_cloud(&mut executor, None).await;
 
@@ -787,36 +767,18 @@ mod restore_password_tests {
         let conn = init_db_in_memory();
         let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
 
-        let mut executor = CommandExecutor {
-            vault: Box::new(vault) as Box<dyn Vault>,
-            vault_db_file_backed: false,
-            sync: Some(create_test_sync_service()),
-            health: Arc::new(HealthServiceImpl::new()),
-            clipboard: Arc::new(ClipboardService::with_backend(
+        let mut executor = CommandExecutor::builder(vault_dir.clone(), temp.path().join("config"))
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(Arc::new(ClipboardService::with_backend(
                 Box::new(MockBackend::new()),
                 30,
-            )),
-            import_export: Box::new(ImportExportServiceImpl::new()),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                temp.path().join("config"),
-            ),
-            config_notifier: ServiceNotificationImpl::new(),
-            vault_dir,
-            config_dir: temp.path().join("config"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-            verified_master_password: None,
-        };
+            )))
+            .sync(Some(create_test_sync_service()))
+            .build();
 
         let result = handle_restore_database_from_cloud(
             &mut executor,
