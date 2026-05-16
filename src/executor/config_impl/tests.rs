@@ -3,7 +3,7 @@ use crate::config::manager::ConfigManager;
 use crate::config::notification::ServiceNotification;
 use crate::config::AppConfig;
 use crate::config::{ConfigError, ConfigReloadable, ConfigWatcher};
-use crate::services::clipboard::ClipboardService;
+use crate::services::clipboard::{Clipboard, ClipboardService};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -640,7 +640,7 @@ fn clipboard_adapter_service_id() {
     let clipboard = Arc::new(ClipboardService::with_backend(
         Box::new(MockBackend::new()),
         30,
-    ));
+    )) as Arc<dyn Clipboard>;
     let adapter = ClipboardConfigAdapter::new(clipboard);
     assert_eq!(adapter.service_id(), "clipboard");
 }
@@ -650,7 +650,7 @@ fn clipboard_adapter_reload_updates_timeout() {
     let clipboard = Arc::new(ClipboardService::with_backend(
         Box::new(MockBackend::new()),
         30,
-    ));
+    )) as Arc<dyn Clipboard>;
     let adapter = ClipboardConfigAdapter::new(Arc::clone(&clipboard));
 
     let mut config = AppConfig::default();
@@ -665,7 +665,7 @@ fn clipboard_adapter_integrated_with_notifier() {
     let clipboard = Arc::new(ClipboardService::with_backend(
         Box::new(MockBackend::new()),
         30,
-    ));
+    )) as Arc<dyn Clipboard>;
 
     let mut notifier = ServiceNotificationImpl::new();
     notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
@@ -686,7 +686,7 @@ fn clipboard_adapter_not_notified_for_other_fields() {
     let clipboard = Arc::new(ClipboardService::with_backend(
         Box::new(MockBackend::new()),
         30,
-    ));
+    )) as Arc<dyn Clipboard>;
 
     let mut notifier = ServiceNotificationImpl::new();
     notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(

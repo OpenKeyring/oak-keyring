@@ -9,7 +9,7 @@ use std::time::SystemTime;
 use crate::config::{
     AppConfig, ConfigError, ConfigManager, ConfigReloadable, ConfigWatcher, ServiceNotification,
 };
-use crate::services::clipboard::ClipboardService;
+use crate::services::clipboard::Clipboard;
 
 // ---------------------------------------------------------------------------
 // ConfigManagerImpl
@@ -143,16 +143,16 @@ impl Default for ServiceNotificationImpl {
 // ClipboardConfigAdapter
 // ---------------------------------------------------------------------------
 
-/// Adapter that bridges `ClipboardService` into the `ConfigReloadable` notification system.
+/// Adapter that bridges `Clipboard` trait into the `ConfigReloadable` notification system.
 ///
 /// Holds a shared reference (`Arc`) to the clipboard service and delegates
 /// `reload()` calls to `set_clear_timeout()`.
 pub struct ClipboardConfigAdapter {
-    inner: Arc<ClipboardService>,
+    inner: Arc<dyn Clipboard>,
 }
 
 impl ClipboardConfigAdapter {
-    pub fn new(clipboard: Arc<ClipboardService>) -> Self {
+    pub fn new(clipboard: Arc<dyn Clipboard>) -> Self {
         Self { inner: clipboard }
     }
 }
@@ -167,7 +167,7 @@ impl ConfigReloadable for ClipboardConfigAdapter {
             .set_clear_timeout(config.general.clipboard_clear_seconds);
         tracing::info!(
             timeout = config.general.clipboard_clear_seconds,
-            "ClipboardService reloaded via config notification"
+            "Clipboard reloaded via config notification"
         );
         Ok(())
     }

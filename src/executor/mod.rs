@@ -25,7 +25,7 @@ use crate::commands::{Command, InternalCommand, Message};
 use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::{AppConfig, ConfigManager};
 use crate::db::schema::{init_db, init_db_in_memory};
-use crate::services::clipboard::ClipboardService;
+use crate::services::clipboard::{Clipboard, ClipboardService};
 use crate::services::health::{Health, HealthServiceImpl};
 use crate::services::vault::VaultService;
 use crate::types::SecureStr;
@@ -137,7 +137,7 @@ pub struct CommandExecutor {
     health: Arc<dyn Health>,
     /// S4: Clipboard service — system clipboard with auto-clear.
     #[allow(dead_code)]
-    clipboard: Arc<ClipboardService>,
+    clipboard: Arc<dyn Clipboard>,
     /// S6: Import/Export service — file parsing and vault export.
     #[allow(dead_code)]
     import_export: Box<dyn crate::services::import_export::ImportExport>,
@@ -218,7 +218,8 @@ impl CommandExecutor {
 
         // Clipboard degrades to a disabled backend in headless/CI environments.
         let clipboard_clear_seconds = config.general.clipboard_clear_seconds;
-        let clipboard = Arc::new(ClipboardService::new_safe(clipboard_clear_seconds)?);
+        let clipboard =
+            Arc::new(ClipboardService::new_safe(clipboard_clear_seconds)?) as Arc<dyn Clipboard>;
 
         // Register clipboard service for config-change notifications.
         let mut config_notifier = ServiceNotificationImpl::new();

@@ -316,7 +316,7 @@ mod tests {
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
     use crate::db::schema::init_db_in_memory;
     use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
-    use crate::services::clipboard::{ClipboardService, MockBackend};
+    use crate::services::clipboard::{Clipboard, ClipboardService, MockBackend};
     use crate::services::health::{HealthService, HealthServiceImpl};
     use crate::services::import_export::ImportExportServiceImpl;
     use crate::services::rotation::save_checkpoint;
@@ -347,7 +347,7 @@ mod tests {
         let clipboard = Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
-        ));
+        )) as Arc<dyn Clipboard>;
         let mut config_notifier = ServiceNotificationImpl::new();
         config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
             &clipboard,

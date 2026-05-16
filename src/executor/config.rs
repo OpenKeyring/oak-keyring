@@ -269,14 +269,14 @@ mod tests {
     use super::*;
     use crate::config::notification::ServiceNotification;
     use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
-    use crate::services::clipboard::{ClipboardService, MockBackend};
+    use crate::services::clipboard::{Clipboard, ClipboardService, MockBackend};
     use std::sync::Arc;
 
     fn make_executor_with_clipboard_and_config_dir(
         timeout: u64,
         config_dir: std::path::PathBuf,
     ) -> super::super::CommandExecutor {
-        use crate::services::health::{HealthService, HealthServiceImpl};
+        use crate::services::health::HealthServiceImpl;
         use crate::services::import_export::ImportExportServiceImpl;
         use crate::services::vault::VaultService;
         use tokio::sync::mpsc;
@@ -290,7 +290,7 @@ mod tests {
         let clipboard = Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             timeout,
-        ));
+        )) as Arc<dyn Clipboard>;
         let mut config_notifier = ServiceNotificationImpl::new();
         config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
             &clipboard,
@@ -324,7 +324,7 @@ mod tests {
     }
 
     fn make_executor_with_clipboard(timeout: u64) -> super::super::CommandExecutor {
-        use crate::services::health::{HealthService, HealthServiceImpl};
+        use crate::services::health::HealthServiceImpl;
         use crate::services::import_export::ImportExportServiceImpl;
         use crate::services::vault::VaultService;
         use tokio::sync::mpsc;
@@ -338,7 +338,7 @@ mod tests {
         let clipboard = Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             timeout,
-        ));
+        )) as Arc<dyn Clipboard>;
         let mut config_notifier = ServiceNotificationImpl::new();
         config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
             &clipboard,

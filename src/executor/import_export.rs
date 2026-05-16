@@ -153,7 +153,8 @@ pub fn handle_execute_import(
 
     // Use a temporary Vec to collect records via Arc<Mutex>, then create them
     // in the vault after the service call completes.
-    type PendingRecords = std::sync::Mutex<Vec<(CredentialType, HashMap<String, String>, Vec<String>)>>;
+    type PendingRecords =
+        std::sync::Mutex<Vec<(CredentialType, HashMap<String, String>, Vec<String>)>>;
     let records_to_create = std::sync::Arc::new(PendingRecords::new(Vec::new()));
 
     let records_collector = std::sync::Arc::clone(&records_to_create);
