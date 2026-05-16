@@ -44,12 +44,6 @@ fn simple_csv_content() -> &'static str {
      AWS,admin@aws.com,pass3,https://aws.amazon.com,Cloud account\n"
 }
 
-/// Simple vault-create closure that always succeeds.
-fn success_create_fn(
-) -> impl FnMut(CredentialType, HashMap<String, String>, Vec<String>) -> Result<Uuid, String> {
-    move |_ct, _fields, _tags| Ok(Uuid::new_v4())
-}
-
 // -- Test 1: Create session ----------------------------------------------
 
 #[test]
@@ -113,14 +107,12 @@ fn full_import_csv_produces_correct_result() {
     service.validate_import_file(id).expect("validate");
 
     let existing: HashSet<ExistingRecordKey> = HashSet::new();
-    let create_fn = success_create_fn();
     let params = ImportParams {
         session_id: id,
         existing_keys: existing,
-        vault_create_fn: Box::new(create_fn),
         progress_fn: None,
     };
-    let result = service.execute_import(params).expect("execute import");
+    let (result, _records) = service.execute_import(params).expect("execute import");
 
     assert_eq!(result.imported, 3);
     assert_eq!(result.skipped, 0);
@@ -145,11 +137,9 @@ fn operations_on_invalid_uuid_return_session_not_found() {
     assert!(result.is_err());
 
     let existing: HashSet<ExistingRecordKey> = HashSet::new();
-    let create_fn = success_create_fn();
     let params = ImportParams {
         session_id: bogus_id,
         existing_keys: existing,
-        vault_create_fn: Box::new(create_fn),
         progress_fn: None,
     };
     let result = service.execute_import(params);
@@ -181,11 +171,9 @@ fn execute_on_created_session_returns_invalid_status() {
 
     // Do NOT validate first — attempt to import directly.
     let existing: HashSet<ExistingRecordKey> = HashSet::new();
-    let create_fn = success_create_fn();
     let params = ImportParams {
         session_id: id,
         existing_keys: existing,
-        vault_create_fn: Box::new(create_fn),
         progress_fn: None,
     };
     let result = service.execute_import(params);
@@ -324,24 +312,22 @@ fn import_skips_duplicate_records() {
         core_field: "user1@gmail.com".to_string(),
     });
 
-    let create_fn = success_create_fn();
     let params = ImportParams {
         session_id: id,
         existing_keys: existing,
-        vault_create_fn: Box::new(create_fn),
         progress_fn: None,
     };
-    let result = service.execute_import(params).expect("execute import");
+    let (result, _records) = service.execute_import(params).expect("execute import");
 
     assert_eq!(result.imported, 2);
     assert_eq!(result.skipped, 1);
     assert_eq!(result.failed, 0);
 }
 
-// -- Test 11: Import with vault_create_fn failure --------------------------
+// -- Test 11: Import returns correct record counts --------------------------
 
 #[test]
-fn import_tracks_vault_create_failures() {
+fn import_returns_correct_record_counts() {
     let mut service = ImportExportServiceImpl::new();
     let f = create_csv_file(simple_csv_content());
 
@@ -358,26 +344,16 @@ fn import_tracks_vault_create_failures() {
     service.validate_import_file(id).expect("validate");
 
     let existing: HashSet<ExistingRecordKey> = HashSet::new();
-    let mut call_count = 0;
-    let fail_fn = move |_: CredentialType, _: HashMap<String, String>, _: Vec<String>| {
-        call_count += 1;
-        if call_count > 1 {
-            Ok(Uuid::new_v4())
-        } else {
-            Err("vault error".to_string())
-        }
-    };
-
     let params = ImportParams {
         session_id: id,
         existing_keys: existing,
-        vault_create_fn: Box::new(fail_fn),
         progress_fn: None,
     };
-    let result = service.execute_import(params).expect("execute");
+    let (result, records) = service.execute_import(params).expect("execute");
 
-    assert_eq!(result.imported, 2);
-    assert_eq!(result.failed, 1);
+    assert_eq!(result.imported, 3);
+    assert_eq!(result.failed, 0);
+    assert_eq!(records.len(), 3);
 }
 
 // -- Test 12: Get import preview after validate ----------------------------

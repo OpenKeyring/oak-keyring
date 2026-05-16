@@ -22,20 +22,25 @@ use crate::types::{CredentialType, SecureStr};
 // Parameter structs for trait object compatibility
 // ---------------------------------------------------------------------------
 
-/// Boxed vault record creator for import sessions.
-pub type VaultCreateFn =
-    Box<dyn FnMut(CredentialType, HashMap<String, String>, Vec<String>) -> Result<Uuid, String>>;
+/// Record data ready for vault creation after a successful import session.
+#[derive(Debug, Clone)]
+pub struct ImportableRecord {
+    pub credential_type: CredentialType,
+    pub fields: HashMap<String, String>,
+    pub tags: Vec<String>,
+    /// True if this record was imported from a review item as notes.
+    pub is_review: bool,
+}
 
 /// Boxed progress callback for import sessions.
 pub type ProgressFn = Option<Box<dyn Fn(usize, usize, &str)>>;
 
 /// Parameters for executing an import session.
 ///
-/// Boxes the generic closures from `ImportExportService::execute_import` for trait-object compatibility.
+/// The service returns the records to create via the result tuple.
 pub struct ImportParams {
     pub session_id: Uuid,
     pub existing_keys: HashSet<ExistingRecordKey>,
-    pub vault_create_fn: VaultCreateFn,
     pub progress_fn: ProgressFn,
 }
 
@@ -91,11 +96,14 @@ pub trait ImportExport: Send + Sync {
     /// Return the validation preview for a validated session.
     fn get_import_preview(&self, session_id: Uuid) -> Result<ImportPreview, ImportExportError>;
 
-    /// Execute the import: create vault records for validated, non-duplicate items.
+    /// Execute the import: return the records to be created in the vault.
     ///
-    /// The `vault_create_fn` closure handles actual record creation. This keeps
-    /// the service decoupled from `VaultService`.
-    fn execute_import(&mut self, params: ImportParams) -> Result<ImportResult, ImportExportError>;
+    /// Returns the parsed/validated/non-duplicate records along with the import result.
+    /// The caller (executor) is responsible for creating vault records from the returned data.
+    fn execute_import(
+        &mut self,
+        params: ImportParams,
+    ) -> Result<(ImportResult, Vec<ImportableRecord>), ImportExportError>;
 
     /// Cancel an in-progress import session.
     fn cancel_import(&mut self, session_id: Uuid) -> Result<(), ImportExportError>;
@@ -377,11 +385,10 @@ impl ImportExportServiceImpl {
     pub fn execute_import(
         &mut self,
         params: ImportParams,
-    ) -> Result<ImportResult, ImportExportError> {
+    ) -> Result<(ImportResult, Vec<ImportableRecord>), ImportExportError> {
         let ImportParams {
             session_id,
             existing_keys,
-            mut vault_create_fn,
             progress_fn,
         } = params;
         // 1. Verify session status is Validated.
@@ -485,7 +492,7 @@ impl ImportExportServiceImpl {
         let mut imported: usize = 0;
         let mut reviewed: usize = 0;
         let mut skipped: usize = 0;
-        let mut failed: usize = 0;
+        let failed: usize = 0;
         let mut validation_failed: usize = 0;
 
         // 5. Import non-duplicate, non-validation-failed records
@@ -495,6 +502,8 @@ impl ImportExportServiceImpl {
             .iter()
             .map(|r| r.fields.get("name").cloned().unwrap_or_default())
             .collect();
+
+        let mut importable_records = Vec::with_capacity(total_records);
 
         for (i, mut record) in records.into_iter().enumerate() {
             if let Some(ref progress) = progress_fn {
@@ -511,14 +520,13 @@ impl ImportExportServiceImpl {
                 continue;
             }
 
-            match vault_create_fn(
-                record.credential_type,
-                std::mem::take(&mut record.fields),
-                std::mem::take(&mut record.tags),
-            ) {
-                Ok(_uuid) => imported += 1,
-                Err(_reason) => failed += 1,
-            }
+            importable_records.push(ImportableRecord {
+                credential_type: record.credential_type,
+                fields: std::mem::take(&mut record.fields),
+                tags: std::mem::take(&mut record.tags),
+                is_review: false,
+            });
+            imported += 1;
         }
 
         // 5b. Import review_records as notes — count as reviewed.
@@ -532,19 +540,18 @@ impl ImportExportServiceImpl {
                 progress(record_names.len() + j + 1, total_records, &review_names[j]);
             }
 
-            match vault_create_fn(
-                record.credential_type,
-                std::mem::take(&mut record.fields),
-                std::mem::take(&mut record.tags),
-            ) {
-                Ok(_uuid) => reviewed += 1,
-                Err(_reason) => failed += 1,
-            }
+            importable_records.push(ImportableRecord {
+                credential_type: record.credential_type,
+                fields: std::mem::take(&mut record.fields),
+                tags: std::mem::take(&mut record.tags),
+                is_review: true,
+            });
+            reviewed += 1;
         }
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        let result = ImportResult {
+        let import_result = ImportResult {
             imported,
             reviewed,
             skipped,
@@ -562,7 +569,7 @@ impl ImportExportServiceImpl {
             session.status = ImportSessionStatus::Completed;
         }
 
-        Ok(result)
+        Ok((import_result, importable_records))
     }
 
     /// Cancel an in-progress import session.
@@ -820,7 +827,10 @@ impl ImportExport for ImportExportServiceImpl {
         self.get_import_preview(session_id)
     }
 
-    fn execute_import(&mut self, params: ImportParams) -> Result<ImportResult, ImportExportError> {
+    fn execute_import(
+        &mut self,
+        params: ImportParams,
+    ) -> Result<(ImportResult, Vec<ImportableRecord>), ImportExportError> {
         self.execute_import(params)
     }
 

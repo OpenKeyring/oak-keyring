@@ -426,32 +426,33 @@ fn test_okb_basic_full_import() {
     assert_eq!(preview.importable, 3, "all 3 items should pass validation");
     assert_eq!(preview.failed, 0, "no validation failures");
 
-    let vault_clone = Arc::clone(&vault);
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
     let params = ImportParams {
         session_id,
         existing_keys,
-        vault_create_fn: Box::new(move |cred_type, fields, tags| {
-            let payload = fields_to_payload(cred_type, &fields);
-            vault_clone
-                .lock()
-                .unwrap()
-                .create_record(CreateRecordParams {
-                    credential_type: cred_type,
-                    payload,
-                    tags,
-                    is_favorite: false,
-                    expires_at: None,
-                })
-                .map_err(|e| e.to_string())
-        }),
         progress_fn: None,
     };
-    let result = svc.execute_import(params).expect("execute import");
+    let (result, importable_records) = svc.execute_import(params).expect("execute import");
 
     assert_eq!(result.imported, 3, "should import 3 records");
     assert_eq!(result.failed, 0, "no failures");
     assert_eq!(result.validation_failed, 0, "no validation failures");
+
+    // Create vault records from returned importable records
+    for record in &importable_records {
+        let payload = fields_to_payload(record.credential_type, &record.fields);
+        vault
+            .lock()
+            .unwrap()
+            .create_record(CreateRecordParams {
+                credential_type: record.credential_type,
+                payload,
+                tags: record.tags.clone(),
+                is_favorite: false,
+                expires_at: None,
+            })
+            .unwrap();
+    }
 
     // Verify records in vault
     let records = vault
@@ -488,28 +489,29 @@ fn test_okb_mixed_types_full_import() {
         .expect("create session");
 
     svc.validate_import_file(session_id).expect("validate");
-    let vault_clone = Arc::clone(&vault);
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
     let params = ImportParams {
         session_id,
         existing_keys,
-        vault_create_fn: Box::new(move |cred_type, fields, tags| {
-            let payload = fields_to_payload(cred_type, &fields);
-            vault_clone
-                .lock()
-                .unwrap()
-                .create_record(CreateRecordParams {
-                    credential_type: cred_type,
-                    payload,
-                    tags,
-                    is_favorite: false,
-                    expires_at: None,
-                })
-                .map_err(|e| e.to_string())
-        }),
         progress_fn: None,
     };
-    let result = svc.execute_import(params).expect("execute import");
+    let (result, importable_records) = svc.execute_import(params).expect("execute import");
+
+    // Create vault records from returned importable records
+    for record in &importable_records {
+        let payload = fields_to_payload(record.credential_type, &record.fields);
+        vault
+            .lock()
+            .unwrap()
+            .create_record(CreateRecordParams {
+                credential_type: record.credential_type,
+                payload,
+                tags: record.tags.clone(),
+                is_favorite: false,
+                expires_at: None,
+            })
+            .unwrap();
+    }
 
     assert_eq!(result.imported, 3, "should import 3 records");
     assert_eq!(result.validation_failed, 0);
@@ -552,28 +554,29 @@ fn test_okb_edge_cases_full_import() {
         .expect("create session");
 
     svc.validate_import_file(session_id).expect("validate");
-    let vault_clone = Arc::clone(&vault);
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
     let params = ImportParams {
         session_id,
         existing_keys,
-        vault_create_fn: Box::new(move |cred_type, fields, tags| {
-            let payload = fields_to_payload(cred_type, &fields);
-            vault_clone
-                .lock()
-                .unwrap()
-                .create_record(CreateRecordParams {
-                    credential_type: cred_type,
-                    payload,
-                    tags,
-                    is_favorite: false,
-                    expires_at: None,
-                })
-                .map_err(|e| e.to_string())
-        }),
         progress_fn: None,
     };
-    let result = svc.execute_import(params).expect("execute import");
+    let (result, importable_records) = svc.execute_import(params).expect("execute import");
+
+    // Create vault records from returned importable records
+    for record in &importable_records {
+        let payload = fields_to_payload(record.credential_type, &record.fields);
+        vault
+            .lock()
+            .unwrap()
+            .create_record(CreateRecordParams {
+                credential_type: record.credential_type,
+                payload,
+                tags: record.tags.clone(),
+                is_favorite: false,
+                expires_at: None,
+            })
+            .unwrap();
+    }
 
     assert_eq!(result.imported, 4, "should import 4 records");
     assert_eq!(result.validation_failed, 0);

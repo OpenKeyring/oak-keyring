@@ -29,7 +29,7 @@ use crate::types::{
 /// for vault operations including lifecycle, record CRUD, search, tags,
 /// metadata, audit logging, password history, health state, and rotation support.
 #[cfg_attr(test, mockall::automock)]
-pub trait Vault: Send + Sync {
+pub trait Vault: Send {
     // ------------------------------------------------------------------------
     // Lifecycle
     // ------------------------------------------------------------------------
@@ -194,12 +194,6 @@ pub struct VaultServiceImpl {
     crypto: CryptoManager,
     device_id: String,
 }
-
-// SAFETY: VaultServiceImpl is used exclusively from a single thread (the main
-// executor task). `rusqlite::Connection` contains `RefCell` (not `Sync`), but
-// the executor never shares a vault reference across threads — it owns
-// `Box<dyn Vault>` and only accesses it from one task at a time.
-unsafe impl Sync for VaultServiceImpl {}
 
 /// Temporary type alias for migration.
 /// Prefer VaultServiceImpl for construction and Vault for trait usage.

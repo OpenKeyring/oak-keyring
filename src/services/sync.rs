@@ -30,7 +30,7 @@ pub type SyncFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// for sync operations including full sync cycles, conflict resolution,
 /// metadata management, connectivity testing, pause/resume, and shutdown.
 #[cfg_attr(test, mockall::automock)]
-pub trait SyncService: Send + Sync {
+pub trait SyncService: Send {
     /// Triggers a full sync cycle and returns promptly if `cancel` is triggered.
     fn sync_with_cancel<'a>(
         &'a mut self,
@@ -132,12 +132,6 @@ pub struct SyncServiceImpl {
     /// CloudStorage clone for connectivity checks.
     storage: CloudStorage,
 }
-
-// SAFETY: SyncServiceImpl is used exclusively from a single thread (the main
-// executor task). `mpsc::Receiver` is not `Sync`, but the executor never shares
-// a sync service reference across threads — it owns `Box<dyn SyncService>` and
-// only accesses it from one task at a time.
-unsafe impl Sync for SyncServiceImpl {}
 
 impl SyncServiceImpl {
     /// Creates a new SyncService, spawning a SyncTask in a background tokio task.

@@ -120,16 +120,9 @@ where
     };
 
     // 3. Execute rotation
-    let placeholder_conn =
-        rusqlite::Connection::open_in_memory().expect("in-memory SQLite should never fail");
-    let placeholder = Box::new(crate::services::vault::VaultServiceImpl::new(
-        placeholder_conn,
-    )) as Box<dyn Vault>;
-    let vault = std::mem::replace(&mut executor.vault, placeholder);
-    let mut rotation_svc = RotationService::new(vault);
+    let mut rotation_svc = RotationService::new(&mut *executor.vault);
     let rotation_result = rotation_fn(&mut rotation_svc, expected_version);
-    let vault = rotation_svc.into_vault();
-    executor.vault = vault;
+    drop(rotation_svc);
 
     // 4. Process result: CAS push with conflict resolution
     let result = match rotation_result {
@@ -241,18 +234,9 @@ pub async fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandR
 pub async fn handle_resume_rotation(executor: &mut CommandExecutor) -> CommandResult {
     // Check if there's actually a pending checkpoint
     {
-        let placeholder_conn =
-            rusqlite::Connection::open_in_memory().expect("in-memory SQLite should never fail");
-        let placeholder = Box::new(crate::services::vault::VaultServiceImpl::new(
-            placeholder_conn,
-        )) as Box<dyn Vault>;
-        let vault = std::mem::replace(&mut executor.vault, placeholder);
-
-        let rotation_svc = RotationService::new(vault);
+        let rotation_svc = RotationService::new(&mut *executor.vault);
         let has_checkpoint = matches!(rotation_svc.has_pending_checkpoint(), Ok(true));
-
-        let vault = rotation_svc.into_vault();
-        executor.vault = vault;
+        drop(rotation_svc);
 
         if !has_checkpoint {
             return CommandResult::RotationTriggerChecked {

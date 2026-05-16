@@ -1,8 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use uuid::Uuid;
-
 use crate::commands::types::{
     CsvColumnMapping, ExportFormat, ExportScope, ImportSource, RecordFilter, RecordSort,
     SkipReason, SortDirection, SortField,
@@ -120,61 +118,16 @@ pub fn handle_execute_import(
         id
     };
 
-    // Step 3: Execute import with a closure that creates vault records.
+    // Step 3: Execute import. The service returns the records to create
+    // directly, eliminating the need for the boxed vault_create_fn callback
+    // that required a workaround for 'static closures.
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
     let cancel_token = executor.cancel_token().clone();
     let progress_tx = executor.result_tx.clone();
 
-    // WORKAROUND for 'static closure requirement:
-    // We can't capture &mut executor in a boxed 'static closure.
-    // The proper fix would be to refactor the service to return data
-    // instead of accepting a closure, but that's out of scope for this task.
-    //
-    // For now, we'll use a different approach: we downcast to ImportExportServiceImpl
-    // to access internal state, or we accept that we can't use the trait object
-    // for this particular operation.
-    //
-    // Actually, let me try a different approach: collect the mapped records
-    // from the session, then create them directly without the closure.
-
-    // Get the import session data first
-    let _preview = match executor.import_export.get_import_preview(session_id) {
-        Ok(p) => p,
-        Err(e) => {
-            let err: &dyn ServiceError = &e;
-            return CommandResult::Error {
-                code: err.to_error_code(),
-                context: err.to_error_context(),
-                message_key: "error.import_get_preview_failed",
-                fallback: format!("Failed to get import preview: {}", e),
-            };
-        }
-    };
-
-    // Use a temporary Vec to collect records via Arc<Mutex>, then create them
-    // in the vault after the service call completes.
-    type PendingRecords =
-        std::sync::Mutex<Vec<(CredentialType, HashMap<String, String>, Vec<String>)>>;
-    let records_to_create = std::sync::Arc::new(PendingRecords::new(Vec::new()));
-
-    let records_collector = std::sync::Arc::clone(&records_to_create);
-    let cancel_token_clone = cancel_token.clone();
-
     let params = ImportParams {
         session_id,
         existing_keys,
-        vault_create_fn: Box::new(move |cred_type, fields, tags| {
-            if cancel_token_clone.is_cancelled() {
-                return Err("cancelled".to_string());
-            }
-            // Collect the record data instead of creating it now
-            records_collector
-                .lock()
-                .unwrap()
-                .push((cred_type, fields, tags));
-            // Return a dummy UUID - we'll create the actual records after
-            Ok(Uuid::new_v4())
-        }),
         progress_fn: Some(Box::new(move |current, total, name: &str| {
             let _ = progress_tx.try_send(Message::ImportProgress {
                 current,
@@ -184,41 +137,12 @@ pub fn handle_execute_import(
         })),
     };
 
-    let result = match executor.import_export.execute_import(params) {
-        Ok(r) => {
+    let (import_result, importable_records) = match executor.import_export.execute_import(params) {
+        Ok(tuple) => {
             if executor.cancel_token().is_cancelled() {
                 return CommandResult::cancelled("import_execute");
             }
-
-            // Now actually create the records that were collected
-            let records = records_to_create.lock().unwrap();
-            let mut actually_imported = 0;
-            let mut actually_failed = 0;
-
-            for (cred_type, fields, tags) in records.iter() {
-                if cancel_token.is_cancelled() {
-                    return CommandResult::cancelled("import_execute");
-                }
-                let payload = fields_to_payload(*cred_type, fields);
-                let params = CreateRecordParams {
-                    credential_type: *cred_type,
-                    payload,
-                    tags: tags.clone(),
-                    is_favorite: false,
-                    expires_at: None,
-                };
-                match executor.vault.create_record(params) {
-                    Ok(_) => actually_imported += 1,
-                    Err(_) => actually_failed += 1,
-                }
-            }
-
-            // Adjust the result to reflect actual vault creation
-            let mut adjusted_result = r;
-            adjusted_result.imported = actually_imported;
-            adjusted_result.failed = actually_failed;
-
-            adjusted_result
+            tuple
         }
         Err(e) => {
             if executor.cancel_token().is_cancelled() {
@@ -234,9 +158,34 @@ pub fn handle_execute_import(
         }
     };
 
-    let imported_count = result.imported;
-    let reviewed_count = result.reviewed;
-    let failed_count = result.failed;
+    // Create vault records from the returned importable records.
+    let mut imported_count: usize = 0;
+    let mut reviewed_count: usize = 0;
+    let mut failed_count: usize = 0;
+
+    for record in &importable_records {
+        if cancel_token.is_cancelled() {
+            return CommandResult::cancelled("import_execute");
+        }
+        let payload = fields_to_payload(record.credential_type, &record.fields);
+        let params = CreateRecordParams {
+            credential_type: record.credential_type,
+            payload,
+            tags: record.tags.clone(),
+            is_favorite: false,
+            expires_at: None,
+        };
+        match executor.vault.create_record(params) {
+            Ok(_) => {
+                if record.is_review {
+                    reviewed_count += 1;
+                } else {
+                    imported_count += 1;
+                }
+            }
+            Err(_) => failed_count += 1,
+        }
+    }
 
     // Audit log for successful import.
     if let Err(e) = executor.vault.write_audit_entry(
@@ -245,14 +194,14 @@ pub fn handle_execute_import(
         None,
         Some(format!(
             "source={:?}, imported={}, reviewed={}, failed={}, skipped={}",
-            source, imported_count, reviewed_count, failed_count, result.skipped
+            source, imported_count, reviewed_count, failed_count, import_result.skipped
         )),
     ) {
         tracing::warn!(error = %e, "Failed to write import audit log");
     }
 
     // Schedule a full health scan to evaluate newly imported records.
-    if imported_count > 0 {
+    if imported_count > 0 || reviewed_count > 0 {
         if let Err(e) = executor
             .internal_tx
             .try_send(crate::commands::InternalCommand::ScheduleHealthCheck { force: true })
@@ -264,9 +213,9 @@ pub fn handle_execute_import(
     CommandResult::ImportCompleted {
         imported_count,
         reviewed_count,
-        skipped_count: result.skipped,
+        skipped_count: import_result.skipped,
         failed_count,
-        skip_breakdown: build_skip_breakdown(&result),
+        skip_breakdown: build_skip_breakdown(&import_result),
     }
 }
 

@@ -367,22 +367,6 @@ impl CommandExecutor {
 
     // execute(), pre_check(), post_hook(), and dispatch() are defined in execute.rs
 
-    /// Configure the sync service after construction.
-    ///
-    /// This method is intended for E2E tests and scenarios where the executor
-    /// is constructed via `CommandExecutor::new()` but a custom sync service
-    /// needs to be injected before `run()` is called.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called after `run()` has started (when the executor is consuming
-    /// commands). This should only be called immediately after construction.
-    #[must_use]
-    pub fn with_sync(mut self, sync: Option<Box<dyn crate::services::sync::SyncService>>) -> Self {
-        self.sync = sync;
-        self
-    }
-
     /// Create an [`ExecutorBuilder`] for constructing a CommandExecutor.
     ///
     /// This is the primary method for test fixtures and custom construction scenarios.
