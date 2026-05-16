@@ -6,7 +6,7 @@
 
 use chrono::Utc;
 use oak_keyring::cloud::{CloudMetadata, CloudRecord, CloudStorage, DeviceInfo, RecordVersionInfo};
-use oak_keyring::services::sync::SyncService;
+use oak_keyring::services::sync::SyncServiceImpl;
 use oak_keyring::sync::{
     BackoffTimer, ConflictManager, DetectStage, LocalRecordInfo, NonceValidator, PipelineContext,
     PipelineResult, PullMetadataStage, RetryPolicy, StageOutcome, SyncCheckpoint, SyncPipeline,
@@ -427,7 +427,7 @@ async fn sync_service_lifecycle() {
         .finish();
     let storage = CloudStorage::new(op, "memory".to_string());
 
-    let mut svc = SyncService::new(storage);
+    let mut svc = SyncServiceImpl::new(storage);
 
     // Call sync() → should return Ok or Err (not panic)
     let result = svc.sync(None).await;

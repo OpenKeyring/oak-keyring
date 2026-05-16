@@ -12,7 +12,7 @@ const PENDING_TRIGGER_KEY: &str = "pending_rotation_trigger";
 const PENDING_SINCE_KEY: &str = "pending_rotation_since";
 
 pub fn save_checkpoint(
-    vault: &mut crate::services::vault::VaultService,
+    vault: &mut dyn crate::services::vault::Vault,
     checkpoint: &RotationCheckpoint,
 ) -> Result<(), RotationError> {
     let json = serde_json::to_string(checkpoint)
@@ -24,7 +24,7 @@ pub fn save_checkpoint(
 }
 
 pub fn load_checkpoint(
-    vault: &crate::services::vault::VaultService,
+    vault: &dyn crate::services::vault::Vault,
 ) -> Result<Option<RotationCheckpoint>, RotationError> {
     let json = match vault.get_metadata(CHECKPOINT_KEY) {
         Ok(Some(json)) if !json.is_empty() => json,
@@ -37,7 +37,7 @@ pub fn load_checkpoint(
 }
 
 pub fn delete_checkpoint(
-    vault: &mut crate::services::vault::VaultService,
+    vault: &mut dyn crate::services::vault::Vault,
 ) -> Result<(), RotationError> {
     vault
         .delete_metadata(CHECKPOINT_KEY)
@@ -46,7 +46,7 @@ pub fn delete_checkpoint(
 }
 
 pub fn save_pending_trigger(
-    vault: &mut crate::services::vault::VaultService,
+    vault: &mut dyn crate::services::vault::Vault,
     trigger: &RotationTrigger,
     triggered_at: DateTime<Utc>,
 ) -> Result<(), RotationError> {
@@ -62,7 +62,7 @@ pub fn save_pending_trigger(
 }
 
 pub fn load_pending_trigger(
-    vault: &crate::services::vault::VaultService,
+    vault: &dyn crate::services::vault::Vault,
 ) -> Result<Option<(RotationTrigger, DateTime<Utc>)>, RotationError> {
     let trigger_json = match vault.get_metadata(PENDING_TRIGGER_KEY) {
         Ok(Some(json)) if !json.is_empty() => json,
@@ -87,7 +87,7 @@ pub fn load_pending_trigger(
 }
 
 pub fn clear_pending_trigger(
-    vault: &mut crate::services::vault::VaultService,
+    vault: &mut dyn crate::services::vault::Vault,
 ) -> Result<(), RotationError> {
     vault
         .delete_metadata(PENDING_TRIGGER_KEY)
@@ -143,7 +143,7 @@ pub fn is_past_grace_period(triggered_at: DateTime<Utc>) -> bool {
 
 /// Migrate a single record from old DEK version to current DEK version.
 pub fn migrate_record(
-    vault: &mut crate::services::vault::VaultService,
+    vault: &mut dyn crate::services::vault::Vault,
     record_id: Uuid,
     old_dek_version: u32,
 ) -> Result<(), RotationError> {
@@ -159,7 +159,7 @@ pub fn migrate_record(
 /// Called after decrypting a record during normal read operations.
 /// Returns Ok(()) if no migration needed or migration succeeded.
 pub fn lazy_migrate_record(
-    vault: &mut crate::services::vault::VaultService,
+    vault: &mut dyn crate::services::vault::Vault,
     record_id: Uuid,
     record_dek_version: u32,
 ) -> Result<(), RotationError> {
@@ -187,7 +187,7 @@ pub fn lazy_migrate_record(
 /// Migrate all records to a new DEK version.
 /// Updates checkpoint after each record is migrated for crash recovery.
 pub fn migrate_all_records(
-    vault: &mut crate::services::vault::VaultService,
+    vault: &mut dyn crate::services::vault::Vault,
     checkpoint: &mut RotationCheckpoint,
 ) -> Result<u32, RotationError> {
     let records = vault
@@ -367,16 +367,16 @@ mod trigger_tests {
 
 /// Rotation service for DEK key rotation lifecycle management.
 ///
-/// Holds a VaultService directly (takes ownership) since rotation
-/// operations require &mut VaultService for metadata writes.
-pub struct RotationService {
-    vault: crate::services::vault::VaultService,
+/// Borrows `&mut dyn Vault` during rotation operations. The caller (executor)
+/// retains ownership of the vault throughout the rotation lifecycle.
+pub struct RotationService<'a> {
+    vault: &'a mut dyn crate::services::vault::Vault,
     state: RotationState,
 }
 
-impl RotationService {
-    /// Create a new RotationService with Idle state.
-    pub fn new(vault: crate::services::vault::VaultService) -> Self {
+impl<'a> RotationService<'a> {
+    /// Create a new RotationService borrowing the vault.
+    pub fn new(vault: &'a mut dyn crate::services::vault::Vault) -> Self {
         Self {
             vault,
             state: RotationState::Idle,
@@ -386,14 +386,6 @@ impl RotationService {
     /// Get current rotation state (read-only).
     pub fn state(&self) -> &RotationState {
         &self.state
-    }
-
-    /// Consume the RotationService and return the underlying VaultService.
-    ///
-    /// Used by the executor layer to move the vault back after rotation
-    /// completes (successfully or with an error).
-    pub fn into_vault(self) -> crate::services::vault::VaultService {
-        self.vault
     }
 
     /// Get current rotation config from vault metadata.
@@ -432,13 +424,13 @@ impl RotationService {
 
     /// Check if a pending rotation checkpoint exists (crash recovery).
     pub fn has_pending_checkpoint(&self) -> Result<bool, RotationError> {
-        load_checkpoint(&self.vault).map(|cp| cp.is_some())
+        load_checkpoint(&*self.vault).map(|cp| cp.is_some())
     }
 
     /// Resume rotation from an existing checkpoint.
     /// Called automatically on vault unlock if checkpoint is detected.
     pub fn resume_rotation(&mut self) -> Result<RotationResult, RotationError> {
-        let mut checkpoint = load_checkpoint(&self.vault)?
+        let mut checkpoint = load_checkpoint(&*self.vault)?
             .ok_or_else(|| RotationError::Internal("no checkpoint to resume".into()))?;
 
         let start_time = Utc::now();
@@ -447,7 +439,7 @@ impl RotationService {
         };
 
         // Execute migration from checkpoint (Review Fix: connected wiring)
-        let records_migrated = migrate_all_records(&mut self.vault, &mut checkpoint)?;
+        let records_migrated = migrate_all_records(&mut *self.vault, &mut checkpoint)?;
 
         let result = RotationResult {
             old_dek_version: checkpoint.old_dek_version,
@@ -462,7 +454,7 @@ impl RotationService {
             records_migrated: result.records_migrated,
         };
 
-        delete_checkpoint(&mut self.vault)?;
+        delete_checkpoint(&mut *self.vault)?;
 
         Ok(result)
     }
@@ -516,10 +508,10 @@ impl RotationService {
         };
 
         // Save checkpoint for crash recovery
-        save_checkpoint(&mut self.vault, &checkpoint)?;
+        save_checkpoint(&mut *self.vault, &checkpoint)?;
 
         // Execute record migration (Review Fix: connected wiring)
-        let records_migrated = migrate_all_records(&mut self.vault, &mut checkpoint)?;
+        let records_migrated = migrate_all_records(&mut *self.vault, &mut checkpoint)?;
 
         let result = RotationResult {
             old_dek_version: checkpoint.old_dek_version,
@@ -536,7 +528,7 @@ impl RotationService {
         };
 
         // Delete checkpoint
-        delete_checkpoint(&mut self.vault)?;
+        delete_checkpoint(&mut *self.vault)?;
 
         // Update rotation config
         let mut config = self.get_config()?;
@@ -572,15 +564,15 @@ mod service_tests {
 
     #[test]
     fn rotation_service_starts_idle() {
-        let vault = setup_vault();
-        let service = RotationService::new(vault);
+        let mut vault = setup_vault();
+        let service = RotationService::new(&mut vault);
         assert!(matches!(service.state(), RotationState::Idle));
     }
 
     #[test]
     fn rotation_service_default_config() {
-        let vault = setup_vault();
-        let service = RotationService::new(vault);
+        let mut vault = setup_vault();
+        let service = RotationService::new(&mut vault);
         let config = service.get_config().unwrap();
         assert!(config.auto_rotate);
         assert_eq!(config.rotate_after_days, Some(90));
@@ -588,8 +580,8 @@ mod service_tests {
 
     #[test]
     fn rotation_service_update_config() {
-        let vault = setup_vault();
-        let mut service = RotationService::new(vault);
+        let mut vault = setup_vault();
+        let mut service = RotationService::new(&mut vault);
         let update = RotationConfigUpdate {
             auto_rotate: Some(false),
             rotate_after_days: Some(Some(30)),
@@ -603,8 +595,8 @@ mod service_tests {
 
     #[test]
     fn rotation_service_no_pending_checkpoint_initially() {
-        let vault = setup_vault();
-        let service = RotationService::new(vault);
+        let mut vault = setup_vault();
+        let service = RotationService::new(&mut vault);
         assert!(!service.has_pending_checkpoint().unwrap());
     }
 }

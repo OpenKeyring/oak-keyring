@@ -1,11 +1,12 @@
 // Metadata operations (get/set/delete metadata)
 
+#[cfg(test)]
+use crate::services::vault::VaultService;
+use crate::services::vault::VaultServiceImpl;
 use chrono::{DateTime, Utc};
 
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
-
-use super::VaultService;
 
 /// Metadata key for the last successful health check timestamp.
 const LAST_HEALTH_CHECK_AT_KEY: &str = "last_health_check_at";
@@ -13,7 +14,7 @@ const LAST_HEALTH_CHECK_AT_KEY: &str = "last_health_check_at";
 /// Metadata key for the timestamp when HIBP entered degraded mode.
 const LAST_HIBP_DEGRADED_AT_KEY: &str = "last_hibp_degraded_at";
 
-impl VaultService {
+impl VaultServiceImpl {
     /// Retrieve a metadata value by key.
     ///
     /// Returns `Ok(None)` if the key does not exist.

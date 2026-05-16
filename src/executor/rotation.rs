@@ -2,14 +2,13 @@ use crate::commands::CommandResult;
 use crate::errors::mapping::rotation::RotationError;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::services::rotation::RotationService;
-use crate::services::sync::SyncService;
-use crate::services::vault::VaultService;
+use crate::services::vault::Vault;
 use crate::types::rotation::{RotationConfig, RotationResult};
 
 use super::CommandExecutor;
 
 /// Load rotation config from vault metadata.
-fn load_rotation_config(vault: &VaultService) -> Result<RotationConfig, String> {
+fn load_rotation_config(vault: &dyn Vault) -> Result<RotationConfig, String> {
     match vault.get_metadata("rotation_config") {
         Ok(Some(json)) if !json.is_empty() => {
             serde_json::from_str(&json).map_err(|e| e.to_string())
@@ -23,7 +22,7 @@ fn load_rotation_config(vault: &VaultService) -> Result<RotationConfig, String> 
 /// On CAS push failure, pulls cloud metadata and checks DEK version alignment.
 /// Returns Ok(cloud_dek_version) if compatible, Err with details if anomaly detected.
 async fn resolve_cas_conflict(
-    sync_svc: &mut SyncService,
+    sync_svc: &mut dyn crate::services::sync::SyncService,
     _local_old_version: u32,
     local_new_version: u32,
 ) -> Result<u32, String> {
@@ -121,19 +120,15 @@ where
     };
 
     // 3. Execute rotation
-    let placeholder_conn =
-        rusqlite::Connection::open_in_memory().expect("in-memory SQLite should never fail");
-    let placeholder = VaultService::new(placeholder_conn);
-    let vault = std::mem::replace(&mut executor.vault, placeholder);
-    let mut rotation_svc = RotationService::new(vault);
+    let mut rotation_svc = RotationService::new(&mut *executor.vault);
     let rotation_result = rotation_fn(&mut rotation_svc, expected_version);
-    let vault = rotation_svc.into_vault();
-    executor.vault = vault;
+    drop(rotation_svc);
 
     // 4. Process result: CAS push with conflict resolution
     let result = match rotation_result {
         Ok(res) => {
-            if let Some(sync_svc) = &mut executor.sync {
+            if let Some(sync_svc) = executor.sync.as_mut() {
+                let sync_svc = sync_svc.as_mut();
                 match sync_svc.download_metadata().await {
                     Ok(Some(mut meta)) => {
                         meta.current_dek_version = res.new_dek_version;
@@ -239,16 +234,9 @@ pub async fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandR
 pub async fn handle_resume_rotation(executor: &mut CommandExecutor) -> CommandResult {
     // Check if there's actually a pending checkpoint
     {
-        let placeholder_conn =
-            rusqlite::Connection::open_in_memory().expect("in-memory SQLite should never fail");
-        let placeholder = VaultService::new(placeholder_conn);
-        let vault = std::mem::replace(&mut executor.vault, placeholder);
-
-        let rotation_svc = RotationService::new(vault);
+        let rotation_svc = RotationService::new(&mut *executor.vault);
         let has_checkpoint = matches!(rotation_svc.has_pending_checkpoint(), Ok(true));
-
-        let vault = rotation_svc.into_vault();
-        executor.vault = vault;
+        drop(rotation_svc);
 
         if !has_checkpoint {
             return CommandResult::RotationTriggerChecked {
@@ -311,26 +299,22 @@ pub fn handle_check_rotation_trigger(executor: &mut CommandExecutor) -> CommandR
 mod tests {
     use super::*;
     use crate::cloud::CloudMetadata;
-    use crate::config::notification::ServiceNotification;
     use crate::config::AppConfig;
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
     use crate::db::schema::init_db_in_memory;
-    use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
-    use crate::services::clipboard::{ClipboardService, MockBackend};
-    use crate::services::health::HealthService;
-    use crate::services::import_export::ImportExportService;
+    use crate::services::clipboard::{Clipboard, ClipboardService, MockBackend};
     use crate::services::rotation::save_checkpoint;
-    use crate::services::sync::SyncService;
+    use crate::services::sync::SyncServiceImpl;
     use crate::types::rotation::{RotationCheckpoint, RotationTrigger};
-    use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
-    fn setup_vault_unlocked() -> VaultService {
+    fn setup_vault_unlocked() -> Box<dyn Vault> {
         let conn = init_db_in_memory();
-        let mut vault = VaultService::new(conn);
+        let mut vault =
+            Box::new(crate::services::vault::VaultServiceImpl::new(conn)) as Box<dyn Vault>;
         let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
         vault.unlock_with_mnemonic(&mnemonic).unwrap();
         vault
@@ -340,50 +324,28 @@ mod tests {
         setup_executor_with_sync(None)
     }
 
-    fn setup_executor_with_sync(sync: Option<SyncService>) -> CommandExecutor {
+    fn setup_executor_with_sync(sync: Option<Box<dyn crate::services::sync::SyncService>>) -> CommandExecutor {
         let vault = setup_vault_unlocked();
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
         let clipboard = Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
-        ));
-        let mut config_notifier = ServiceNotificationImpl::new();
-        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
-            &clipboard,
-        ))));
+        )) as Arc<dyn Clipboard>;
 
-        CommandExecutor {
-            vault,
-            vault_db_file_backed: false,
-            sync,
-            health: HealthService::new(),
-            clipboard,
-            import_export: ImportExportService::new(),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                std::path::PathBuf::from(":memory:"),
-            ),
-            config_notifier,
-            vault_dir: PathBuf::from(":memory:"),
-            config_dir: PathBuf::from(":memory:"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-            verified_master_password: None,
-        }
+        CommandExecutor::builder(":memory:".into(), ":memory:".into())
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(clipboard)
+            .sync(sync)
+            .build()
     }
 
     /// Create a SyncService backed by a real filesystem (required for atomic
-    /// rename-based uploads). Returns (TempDir, SyncService) — caller must
+    /// rename-based uploads). Returns (TempDir, Box<dyn SyncService>) — caller must
     /// keep TempDir alive for the test duration.
-    fn create_sync_service() -> (TempDir, SyncService) {
+    fn create_sync_service() -> (TempDir, Box<dyn crate::services::sync::SyncService>) {
         let temp_dir = TempDir::new().unwrap();
         let op = opendal::Operator::new(
             opendal::services::Fs::default().root(temp_dir.path().to_str().unwrap()),
@@ -391,10 +353,10 @@ mod tests {
         .unwrap()
         .finish();
         let storage = crate::cloud::CloudStorage::new(op, "fs".to_string());
-        (temp_dir, SyncService::new(storage))
+        (temp_dir, Box::new(SyncServiceImpl::new(storage)) as Box<dyn crate::services::sync::SyncService>)
     }
 
-    async fn seed_cloud_metadata(sync: &mut SyncService, dek_version: u32) {
+    async fn seed_cloud_metadata(sync: &mut dyn crate::services::sync::SyncService, dek_version: u32) {
         let mut meta = CloudMetadata::new("test-vault".to_string());
         meta.current_dek_version = dek_version;
         sync.push_metadata_atomic(meta, 0).await.unwrap();
@@ -439,7 +401,7 @@ mod tests {
     #[tokio::test]
     async fn trigger_rotation_with_sync_and_prior_metadata() {
         let (_dir, mut sync) = create_sync_service();
-        seed_cloud_metadata(&mut sync, 1).await;
+        seed_cloud_metadata(sync.as_mut(), 1).await;
 
         let mut executor = setup_executor_with_sync(Some(sync));
         let result = handle_trigger_rotation(&mut executor).await;
@@ -515,7 +477,7 @@ mod tests {
     #[tokio::test]
     async fn resume_rotation_with_checkpoint_and_sync() {
         let (_dir, mut sync) = create_sync_service();
-        seed_cloud_metadata(&mut sync, 1).await;
+        seed_cloud_metadata(sync.as_mut(), 1).await;
 
         let mut executor = setup_executor_with_sync(Some(sync));
 
@@ -550,7 +512,7 @@ mod tests {
         meta.current_dek_version = 5;
         sync.push_metadata_atomic(meta, 0).await.unwrap();
 
-        let result = resolve_cas_conflict(&mut sync, 4, 5).await;
+        let result = resolve_cas_conflict(sync.as_mut(), 4, 5).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 5);
     }
@@ -562,7 +524,7 @@ mod tests {
         meta.current_dek_version = 10;
         sync.push_metadata_atomic(meta, 0).await.unwrap();
 
-        let result = resolve_cas_conflict(&mut sync, 4, 5).await;
+        let result = resolve_cas_conflict(sync.as_mut(), 4, 5).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 10);
     }
@@ -574,7 +536,7 @@ mod tests {
         meta.current_dek_version = 3;
         sync.push_metadata_atomic(meta, 0).await.unwrap();
 
-        let result = resolve_cas_conflict(&mut sync, 1, 5).await;
+        let result = resolve_cas_conflict(sync.as_mut(), 1, 5).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("anomaly"));
     }
@@ -583,7 +545,7 @@ mod tests {
     async fn resolve_cas_conflict_no_cloud_metadata() {
         let (_dir, mut sync) = create_sync_service();
 
-        let result = resolve_cas_conflict(&mut sync, 1, 5).await;
+        let result = resolve_cas_conflict(sync.as_mut(), 1, 5).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("vanished"));
     }

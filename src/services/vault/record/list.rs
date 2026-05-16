@@ -5,13 +5,13 @@ use crate::crypto::payload;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 use crate::services::vault::search;
-use crate::services::vault::VaultService;
+use crate::services::vault::VaultServiceImpl;
 use crate::types::record::{StoredRecord, TuiRecord};
 use crate::types::sync::SyncStatus;
 
 use super::helpers::{apply_sort, db_error_to_vault};
 
-impl VaultService {
+impl VaultServiceImpl {
     /// List records matching a filter, with decryption and sorting.
     ///
     /// Queries encrypted records from the database, decrypts name and subtitle

@@ -1,12 +1,12 @@
 // Core CRUD operations (create, read, update, delete)
 
+use crate::services::vault::VaultServiceImpl;
 use chrono::Utc;
 use uuid::Uuid;
 
 use crate::crypto::payload;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
-use crate::services::vault::VaultService;
 use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::record::{CreateRecordParams, DecryptedRecord, StoredRecord, UpdateRecordParams};
@@ -15,7 +15,7 @@ use super::helpers::{
     db_error_to_vault, decrypt_record_name, expires_at_changed, password_changed,
 };
 
-impl VaultService {
+impl VaultServiceImpl {
     /// Create a new vault record with encryption, tags, and audit logging.
     ///
     /// Returns the UUID of the newly created record.

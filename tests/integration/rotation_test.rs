@@ -192,8 +192,8 @@ fn acceptance_grace_period_boundary() {
 
 #[test]
 fn acceptance_rotation_service_starts_idle() {
-    let vault = setup_vault();
-    let service = RotationService::new(vault);
+    let mut vault = setup_vault();
+    let service = RotationService::new(&mut vault);
     assert!(
         matches!(service.state(), RotationState::Idle),
         "new RotationService should start in Idle state"
@@ -206,8 +206,8 @@ fn acceptance_rotation_service_starts_idle() {
 
 #[test]
 fn acceptance_rotation_config_defaults() {
-    let vault = setup_vault();
-    let service = RotationService::new(vault);
+    let mut vault = setup_vault();
+    let service = RotationService::new(&mut vault);
     let config = service.get_config().unwrap();
     assert!(config.auto_rotate, "auto_rotate should default to true");
     assert_eq!(

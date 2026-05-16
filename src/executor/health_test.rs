@@ -13,12 +13,9 @@ use crate::commands::types::HealthReport;
 use crate::commands::{CommandResult, Message};
 use crate::config::AppConfig;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-use crate::db::queries;
-use crate::executor::config_impl::ServiceNotificationImpl;
 use crate::services::clipboard::{ClipboardService, MockBackend};
-use crate::services::health::{HealthService, PasswordEntry};
-use crate::services::import_export::ImportExportService;
-use crate::services::vault::VaultService;
+use crate::services::health::PasswordEntry;
+use crate::services::vault::{Vault, VaultServiceImpl};
 use crate::types::health::{HealthStateDelta, RecordHealthState};
 use crate::types::record::StoredRecord;
 use crate::types::sync::SyncStatus;
@@ -33,7 +30,7 @@ use tokio_util::sync::CancellationToken;
 
 fn make_executor_with_one_login() -> CommandExecutor {
     let conn = crate::db::schema::init_db_in_memory();
-    let mut vault = VaultService::new(conn);
+    let mut vault = VaultServiceImpl::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
     vault
         .unlock_with_mnemonic(&mnemonic)
@@ -55,78 +52,40 @@ fn make_executor_with_one_login() -> CommandExecutor {
         .expect("record");
 
     let (result_tx, _) = mpsc::channel(64);
-    let (internal_tx, internal_rx) = mpsc::channel(64);
 
-    CommandExecutor {
-        vault,
-        vault_db_file_backed: false,
-        sync: None,
-        health: HealthService::new(),
-        clipboard: Arc::new(ClipboardService::with_backend(
+    CommandExecutor::builder(":memory:".into(), ":memory:".into())
+        .vault(Box::new(vault))
+        .config(AppConfig::default())
+        .result_tx(result_tx)
+        .shutdown_token(CancellationToken::new())
+        .clipboard(Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
-        )),
-        import_export: ImportExportService::new(),
-        config: crate::executor::config_impl::ConfigManagerImpl::new(
-            AppConfig::default(),
-            std::path::PathBuf::from(":memory:"),
-        ),
-        config_notifier: ServiceNotificationImpl::new(),
-        vault_dir: std::path::PathBuf::from(":memory:"),
-        config_dir: std::path::PathBuf::from(":memory:"),
-        health_report: None,
-        last_health_check_time: None,
-        result_tx,
-        internal_tx,
-        internal_rx: Some(internal_rx),
-        shutdown_token: CancellationToken::new(),
-        operation_cancel_token: CancellationToken::new(),
-        timer_rebuild_pending: false,
-        oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        verified_master_password: None,
-    }
+        )))
+        .build()
 }
 
 /// Helper: create an executor with an unlocked vault (no records).
 fn make_executor_no_records() -> CommandExecutor {
     let conn = crate::db::schema::init_db_in_memory();
-    let mut vault = VaultService::new(conn);
+    let mut vault = VaultServiceImpl::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
     vault
         .unlock_with_mnemonic(&mnemonic)
         .expect("unlock with mnemonic");
 
     let (result_tx, _) = mpsc::channel(64);
-    let (internal_tx, internal_rx) = mpsc::channel(64);
 
-    CommandExecutor {
-        vault,
-        vault_db_file_backed: false,
-        sync: None,
-        health: HealthService::new(),
-        clipboard: Arc::new(ClipboardService::with_backend(
+    CommandExecutor::builder(":memory:".into(), ":memory:".into())
+        .vault(Box::new(vault))
+        .config(AppConfig::default())
+        .result_tx(result_tx)
+        .shutdown_token(CancellationToken::new())
+        .clipboard(Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
-        )),
-        import_export: ImportExportService::new(),
-        config: crate::executor::config_impl::ConfigManagerImpl::new(
-            AppConfig::default(),
-            std::path::PathBuf::from(":memory:"),
-        ),
-        config_notifier: ServiceNotificationImpl::new(),
-        vault_dir: std::path::PathBuf::from(":memory:"),
-        config_dir: std::path::PathBuf::from(":memory:"),
-        health_report: None,
-        last_health_check_time: None,
-        result_tx,
-        internal_tx,
-        internal_rx: Some(internal_rx),
-        shutdown_token: CancellationToken::new(),
-        operation_cancel_token: CancellationToken::new(),
-        timer_rebuild_pending: false,
-        oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        verified_master_password: None,
-    }
+        )))
+        .build()
 }
 
 /// Helper: create a Login record and return its UUID.
@@ -612,7 +571,7 @@ fn schedule_resync_marks_records_pending_in_sync_state() {
     schedule_health_resync_for_records(&mut executor, &deltas).expect("schedule");
 
     // Verify sync_state entries by checking the DB directly.
-    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    let sync_map = executor.vault.load_sync_status_map();
     assert_eq!(sync_map.len(), 2);
     assert_eq!(sync_map.get(&id1.to_string()), Some(&SyncStatus::Pending));
     assert_eq!(sync_map.get(&id2.to_string()), Some(&SyncStatus::Pending));
@@ -708,7 +667,7 @@ fn schedule_resync_marks_pending_sync_without_changing_record() {
     );
 
     // But sync state should be pending.
-    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    let sync_map = executor.vault.load_sync_status_map();
     assert_eq!(
         sync_map.get(&id.to_string()),
         Some(&SyncStatus::Pending),
@@ -796,7 +755,7 @@ fn full_writeback_does_not_bump_version_but_marks_pending_sync() {
     assert_eq!(v2_after, v2_before, "id2 version unchanged");
 
     // Sync state: only id1 is Pending.
-    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    let sync_map = executor.vault.load_sync_status_map();
     assert_eq!(
         sync_map.get(&id1.to_string()),
         Some(&SyncStatus::Pending),
@@ -1425,7 +1384,7 @@ fn health_check_completed_marks_changed_records_as_pending_sync() {
     );
 
     // Verify sync state: id1 should be Pending, id2 should not
-    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    let sync_map = executor.vault.load_sync_status_map();
     assert_eq!(
         sync_map.get(&id1.to_string()),
         Some(&SyncStatus::Pending),

@@ -108,7 +108,7 @@ fn apply_config_changes(
                 use crate::cloud::provider::create_cloud_storage;
                 match create_cloud_storage(&new_config.sync) {
                     Ok(storage) => {
-                        executor.sync = Some(crate::services::sync::SyncService::new(storage));
+                        executor.sync = Some(Box::new(crate::services::sync::SyncServiceImpl::new(storage)) as Box<dyn crate::services::sync::SyncService>);
                         tracing::info!("SyncService rebuilt with updated config");
                     }
                     Err(e) => {
@@ -151,7 +151,7 @@ pub async fn handle_test_sync_connection(
 
         return match create_cloud_storage(&test_sync) {
             Ok(storage) => {
-                let svc = crate::services::sync::SyncService::new(storage);
+                let svc = crate::services::sync::SyncServiceImpl::new(storage);
                 connection_test_result_with_cancel(cancel, svc.test_connection()).await
             }
             Err(e) => CommandResult::SyncConnectionTested {
@@ -267,108 +267,58 @@ pub fn handle_load_audit_log(executor: &mut CommandExecutor, filter: AuditFilter
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::notification::ServiceNotification;
-    use crate::executor::config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
-    use crate::services::clipboard::{ClipboardService, MockBackend};
+    use crate::services::clipboard::{Clipboard, ClipboardService, MockBackend};
     use std::sync::Arc;
 
     fn make_executor_with_clipboard_and_config_dir(
         timeout: u64,
         config_dir: std::path::PathBuf,
     ) -> super::super::CommandExecutor {
-        use crate::services::health::HealthService;
-        use crate::services::import_export::ImportExportService;
-        use crate::services::vault::VaultService;
+        use crate::config::AppConfig;
+        use crate::services::vault::VaultServiceImpl;
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
 
         let conn = crate::db::schema::init_db_in_memory();
-        let vault = VaultService::new(conn);
+        let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
 
         let clipboard = Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             timeout,
-        ));
-        let mut config_notifier = ServiceNotificationImpl::new();
-        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
-            &clipboard,
-        ))));
+        )) as Arc<dyn Clipboard>;
 
-        super::super::CommandExecutor {
-            vault,
-            vault_db_file_backed: false,
-            sync: None,
-            health: HealthService::new(),
-            clipboard,
-            import_export: ImportExportService::new(),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                config_dir.clone(),
-            ),
-            config_notifier,
-            vault_dir: std::path::PathBuf::from(":memory:"),
-            config_dir,
-            health_report: None,
-            last_health_check_time: None,
-            verified_master_password: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        }
+        super::super::CommandExecutor::builder(":memory:".into(), config_dir)
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(clipboard)
+            .build()
     }
 
     fn make_executor_with_clipboard(timeout: u64) -> super::super::CommandExecutor {
-        use crate::services::health::HealthService;
-        use crate::services::import_export::ImportExportService;
-        use crate::services::vault::VaultService;
+        use crate::config::AppConfig;
+        use crate::services::vault::VaultServiceImpl;
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
 
         let conn = crate::db::schema::init_db_in_memory();
-        let vault = VaultService::new(conn);
+        let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
 
         let clipboard = Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             timeout,
-        ));
-        let mut config_notifier = ServiceNotificationImpl::new();
-        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
-            &clipboard,
-        ))));
+        )) as Arc<dyn Clipboard>;
 
-        super::super::CommandExecutor {
-            vault,
-            vault_db_file_backed: false,
-            sync: None,
-            health: HealthService::new(),
-            clipboard,
-            import_export: ImportExportService::new(),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                std::path::PathBuf::from(":memory:"),
-            ),
-            config_notifier,
-            vault_dir: std::path::PathBuf::from(":memory:"),
-            config_dir: std::path::PathBuf::from(":memory:"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-            verified_master_password: None,
-        }
+        super::super::CommandExecutor::builder(":memory:".into(), ":memory:".into())
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(clipboard)
+            .build()
     }
 
     #[test]

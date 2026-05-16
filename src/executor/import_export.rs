@@ -16,6 +16,9 @@ use crate::types::{CredentialType, EncryptedPayload, SecureStr};
 
 use super::CommandExecutor;
 
+// Re-export parameter structs for convenience
+use crate::services::import_export::{ExportParams, ImportParams};
+
 // ---------------------------------------------------------------------------
 // Import handlers
 // ---------------------------------------------------------------------------
@@ -80,10 +83,8 @@ pub fn handle_execute_import(
         return CommandResult::cancelled("import_execute");
     }
 
+    // If session_id is not provided, create a new session and validate it
     let session_id = if let Some(id) = session_id {
-        if let Some(session) = executor.import_export.import_sessions.get_mut(&id) {
-            session.import_as_notes = import_as_notes;
-        }
         id
     } else {
         let id = match executor.import_export.create_import_session(
@@ -117,45 +118,32 @@ pub fn handle_execute_import(
         id
     };
 
-    // Step 3: Execute import with a closure that creates vault records.
+    // Step 3: Execute import. The service returns the records to create
+    // directly, eliminating the need for the boxed vault_create_fn callback
+    // that required a workaround for 'static closures.
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
-    let import_cancel = executor.cancel_token().clone();
+    let cancel_token = executor.cancel_token().clone();
     let progress_tx = executor.result_tx.clone();
 
-    let result = match executor.import_export.execute_import(
+    let params = ImportParams {
         session_id,
         existing_keys,
-        |cred_type, fields, tags| {
-            if import_cancel.is_cancelled() {
-                return Err("cancelled".to_string());
-            }
-            // Build an EncryptedPayload from the field map.
-            let payload = fields_to_payload(cred_type, &fields);
-            let params = CreateRecordParams {
-                credential_type: cred_type,
-                payload,
-                tags,
-                is_favorite: false,
-                expires_at: None,
-            };
-            executor
-                .vault
-                .create_record(params)
-                .map_err(|e| e.to_string())
-        },
-        Some(move |current, total, name: &str| {
+        import_as_notes,
+        progress_fn: Some(Box::new(move |current, total, name: &str| {
             let _ = progress_tx.try_send(Message::ImportProgress {
                 current,
                 total,
                 current_name: name.to_string(),
             });
-        }),
-    ) {
-        Ok(r) => {
+        })),
+    };
+
+    let (import_result, importable_records) = match executor.import_export.execute_import(params) {
+        Ok(tuple) => {
             if executor.cancel_token().is_cancelled() {
                 return CommandResult::cancelled("import_execute");
             }
-            r
+            tuple
         }
         Err(e) => {
             if executor.cancel_token().is_cancelled() {
@@ -171,9 +159,34 @@ pub fn handle_execute_import(
         }
     };
 
-    let imported_count = result.imported;
-    let reviewed_count = result.reviewed;
-    let failed_count = result.failed;
+    // Create vault records from the returned importable records.
+    let mut imported_count: usize = 0;
+    let mut reviewed_count: usize = 0;
+    let mut failed_count: usize = 0;
+
+    for record in &importable_records {
+        if cancel_token.is_cancelled() {
+            return CommandResult::cancelled("import_execute");
+        }
+        let payload = fields_to_payload(record.credential_type, &record.fields);
+        let params = CreateRecordParams {
+            credential_type: record.credential_type,
+            payload,
+            tags: record.tags.clone(),
+            is_favorite: false,
+            expires_at: None,
+        };
+        match executor.vault.create_record(params) {
+            Ok(_) => {
+                if record.is_review {
+                    reviewed_count += 1;
+                } else {
+                    imported_count += 1;
+                }
+            }
+            Err(_) => failed_count += 1,
+        }
+    }
 
     // Audit log for successful import.
     if let Err(e) = executor.vault.write_audit_entry(
@@ -182,14 +195,14 @@ pub fn handle_execute_import(
         None,
         Some(format!(
             "source={:?}, imported={}, reviewed={}, failed={}, skipped={}",
-            source, imported_count, reviewed_count, failed_count, result.skipped
+            source, imported_count, reviewed_count, failed_count, import_result.skipped
         )),
     ) {
         tracing::warn!(error = %e, "Failed to write import audit log");
     }
 
     // Schedule a full health scan to evaluate newly imported records.
-    if imported_count > 0 {
+    if imported_count > 0 || reviewed_count > 0 {
         if let Err(e) = executor
             .internal_tx
             .try_send(crate::commands::InternalCommand::ScheduleHealthCheck { force: true })
@@ -201,9 +214,9 @@ pub fn handle_execute_import(
     CommandResult::ImportCompleted {
         imported_count,
         reviewed_count,
-        skipped_count: result.skipped,
+        skipped_count: import_result.skipped,
         failed_count,
-        skip_breakdown: build_skip_breakdown(&result),
+        skip_breakdown: build_skip_breakdown(&import_result),
     }
 }
 
@@ -254,40 +267,58 @@ pub fn handle_execute_export(
         }
     };
 
-    // Step 3: Execute export with a closure that collects records from vault.
+    // Step 3: Collect records from vault before creating the closure
+    let cancel_token = executor.cancel_token().clone();
     let filter = RecordFilter::All;
     let sort = RecordSort {
         field: SortField::Name,
         direction: SortDirection::Asc,
     };
 
-    let cancel_token = executor.cancel_token().clone();
+    let records = match executor.vault.list_records(&filter, &sort) {
+        Ok(r) => r,
+        Err(e) => {
+            let err: &dyn ServiceError = &e;
+            return CommandResult::Error {
+                code: err.to_error_code(),
+                context: err.to_error_context(),
+                message_key: "error.export_list_records_failed",
+                fallback: format!("Failed to list records for export: {}", e),
+            };
+        }
+    };
 
-    let (result_path, record_count) = match executor.import_export.execute_export(
-        session_id,
-        || {
-            let records = executor
-                .vault
-                .list_records(&filter, &sort)
-                .map_err(|e| e.to_string())?;
-
-            // Decrypt each record fully to populate export fields.
-            let mut export_records = Vec::with_capacity(records.len());
-            for r in &records {
-                if cancel_token.is_cancelled() {
-                    return Err("cancelled".to_string());
-                }
-                let decrypted = executor
-                    .vault
-                    .get_decrypted_record(r.id)
-                    .map_err(|e| e.to_string())?;
-                export_records.push(decrypted_record_to_export(&decrypted));
+    // Decrypt each record fully to populate export fields
+    let mut export_records = Vec::with_capacity(records.len());
+    for r in &records {
+        if cancel_token.is_cancelled() {
+            return CommandResult::cancelled("export_execute");
+        }
+        let decrypted = match executor.vault.get_decrypted_record(r.id) {
+            Ok(d) => d,
+            Err(e) => {
+                let err: &dyn ServiceError = &e;
+                return CommandResult::Error {
+                    code: err.to_error_code(),
+                    context: err.to_error_context(),
+                    message_key: "error.export_decrypt_failed",
+                    fallback: format!("Failed to decrypt record for export: {}", e),
+                };
             }
+        };
+        export_records.push(decrypted_record_to_export(&decrypted));
+    }
 
-            Ok(export_records)
-        },
-        &executor.vault_dir.to_string_lossy(),
-    ) {
+    let vault_id = executor.vault_dir.to_string_lossy().to_string();
+
+    // Step 4: Execute export with the collected records
+    let params = ExportParams {
+        session_id,
+        record_collector: Box::new(move || Ok(export_records)),
+        vault_id,
+    };
+
+    let (result_path, record_count) = match executor.import_export.execute_export(params) {
         Ok(result) => {
             if cancel_token.is_cancelled() {
                 return CommandResult::cancelled("export_execute");
@@ -624,48 +655,26 @@ mod tests {
 
     fn make_test_executor() -> CommandExecutor {
         use crate::config::AppConfig;
-        use crate::executor::config_impl::ServiceNotificationImpl;
         use crate::services::clipboard::{ClipboardService, MockBackend};
-        use crate::services::health::HealthService;
-        use crate::services::import_export::ImportExportService;
-        use crate::services::vault::VaultService;
+        use crate::services::vault::VaultServiceImpl;
         use std::sync::Arc;
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
 
         let conn = crate::db::schema::init_db_in_memory();
-        let vault = VaultService::new(conn);
+        let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
 
-        CommandExecutor {
-            vault,
-            vault_db_file_backed: false,
-            sync: None,
-            health: HealthService::new(),
-            clipboard: Arc::new(ClipboardService::with_backend(
+        CommandExecutor::builder(":memory:".into(), ":memory:".into())
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(Arc::new(ClipboardService::with_backend(
                 Box::new(MockBackend::new()),
                 30,
-            )),
-            import_export: ImportExportService::new(),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                std::path::PathBuf::from(":memory:"),
-            ),
-            config_notifier: ServiceNotificationImpl::new(),
-            vault_dir: std::path::PathBuf::from(":memory:"),
-            config_dir: std::path::PathBuf::from(":memory:"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-            verified_master_password: None,
-        }
+            )))
+            .build()
     }
 
     #[test]
@@ -1111,5 +1120,60 @@ mod tests {
         assert_eq!(breakdown.get(&SkipReason::Duplicate), Some(&3));
         assert_eq!(breakdown.get(&SkipReason::ValidationFailed), Some(&1));
         assert_eq!(breakdown.get(&SkipReason::VaultWriteError), None);
+    }
+
+    /// Verifies that when the vault fails to write importable records,
+    /// `failed_count` in `ImportCompleted` is correctly reported.
+    /// The in-memory vault starts locked, so `create_record` fails for
+    /// every record prepared by the import service.
+    #[test]
+    fn import_completed_reports_vault_write_failures() {
+        use std::io::Write;
+
+        let mut executor = make_test_executor();
+        // Vault is locked (in-memory, no unlock called), so create_record will fail.
+
+        // Write a simple CSV file for import.
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(
+            tmp,
+            "name,username,password,url,notes\n\
+             GitHub,alice,pass1,https://github.com,dev\n\
+             Gmail,bob,pass2,,email"
+        )
+        .expect("write csv");
+        let csv_path = tmp.path().to_path_buf();
+
+        let mapping = CsvColumnMapping {
+            name_column: "name".into(),
+            username_column: "username".into(),
+            password_column: "password".into(),
+            url_column: "url".into(),
+            notes_column: "notes".into(),
+            tags_column: None,
+            skip_header: true,
+        };
+
+        let result = handle_execute_import(
+            &mut executor,
+            None, // no existing session — create and validate inline
+            ImportSource::Csv,
+            csv_path,
+            None,
+            Some(mapping),
+            false,
+        );
+
+        match result {
+            CommandResult::ImportCompleted {
+                imported_count,
+                failed_count,
+                ..
+            } => {
+                assert_eq!(imported_count, 0, "no records should succeed against locked vault");
+                assert!(failed_count > 0, "all importable records should fail against locked vault");
+            }
+            other => panic!("expected ImportCompleted, got {:?}", other),
+        }
     }
 }

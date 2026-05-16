@@ -36,6 +36,34 @@ Key rules:
 - `sync/` coordinates sync state, pipeline, retry, conflict, and cloud access.
 - `errors/` is shared across layers for structured error propagation.
 
+## Service Architecture Rules
+
+**Trait-based services:** New executor-facing services must define traits. Concrete implementations use `XxxServiceImpl` naming (e.g., `trait Vault` → `struct VaultServiceImpl`).
+
+**Test injection boundaries:** Executor orchestration uses trait objects where tests need injection. The `ExecutorBuilder` is the primary test injection boundary. Service fields use `Box<dyn Trait>` for exclusive ownership or `Arc<dyn Trait>` for shared access according to ownership needs:
+- `vault: Box<dyn Vault>` – mutated by executor handlers
+- `health: Arc<dyn Health>` – cloned into background work
+- `clipboard: Arc<dyn Clipboard>` – shared with config reload adapter
+- `import_export: Box<dyn ImportExport>` – stateful sessions, executor-owned
+- `sync: Option<Box<dyn SyncService>>` – optional runtime, consumed during shutdown
+
+**Async trait compatibility:** Service traits use `BoxFuture<'_, Result<T, E>>` return types for async methods. Native `async fn` in traits is NOT dyn-compatible in Rust 1.93. The BoxFuture pattern enables both trait objects AND mockall automock:
+```rust
+type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+```
+
+**Mockall usage:** Traits use `#[cfg_attr(test, mockall::automock)]` for test-only mock generation. Production code must not depend on mock types.
+
+**Callback parameter structs:** Generic callbacks become boxed callback parameter structs where needed for trait object compatibility.
+
+**Sync shutdown:** Sync shutdown uses a trait-object-compatible method such as `shutdown_box` to enable dynamic dispatch through `dyn SyncService`.
+
+**Concrete infrastructure stays concrete:** Config manager, service notifier, OAuth token store, channels, cancellation tokens, paths, and timer flags remain concrete types.
+
+**Recovery backdoor:** `begin_file_backed_vault_db()` may construct `VaultServiceImpl` directly as a documented production backdoor when trait injection is impractical.
+
+**Testing patterns:** Executor tests should use `ExecutorBuilder` for setup, not manually construct the full `CommandExecutor` struct after builder migration. No silent skipping of failed tests or disconnected pipelines.
+
 ## Knowledge References
 
 Legacy aliases such as `D0`, `S4`, `U10`, and `Plan K` are module shorthand only. They are not new documentation IDs.

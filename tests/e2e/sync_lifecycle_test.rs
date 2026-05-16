@@ -15,9 +15,13 @@ use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
 use oak_keyring::errors::ErrorCode;
 use oak_keyring::executor::{CommandExecutor, DbStartupMode};
+use oak_keyring::services::clipboard::ClipboardService;
 use oak_keyring::services::sync::SyncService;
+use oak_keyring::services::sync::SyncServiceImpl;
+use oak_keyring::services::vault::VaultServiceImpl;
 use oak_keyring::types::credential::EncryptedPayload;
 use oak_keyring::types::sensitive::SecureStr;
+use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
@@ -34,7 +38,7 @@ struct SyncTestContext {
     result_rx: mpsc::Receiver<Message>,
 }
 
-fn create_fs_sync_service() -> (SyncService, TempDir) {
+fn create_fs_sync_service() -> (SyncServiceImpl, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let op = opendal::Operator::new(
         opendal::services::Fs::default().root(temp_dir.path().to_str().unwrap()),
@@ -42,7 +46,7 @@ fn create_fs_sync_service() -> (SyncService, TempDir) {
     .unwrap()
     .finish();
     let storage = oak_keyring::cloud::CloudStorage::new(op, "fs".to_string());
-    (SyncService::new(storage), temp_dir)
+    (SyncServiceImpl::new(storage), temp_dir)
 }
 
 async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Receiver<Message>) {
@@ -73,8 +77,41 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
     (command_tx, result_rx)
 }
 
+/// Build a CommandExecutor with a custom SyncService via ExecutorBuilder.
+fn build_executor_with_sync(
+    config: AppConfig,
+    result_tx: mpsc::Sender<Message>,
+    cancel_token: CancellationToken,
+    data_dir: std::path::PathBuf,
+    config_dir: std::path::PathBuf,
+    db_mode: DbStartupMode,
+    sync: Option<Box<dyn SyncService>>,
+) -> CommandExecutor {
+    use oak_keyring::db::schema::{init_db, init_db_in_memory};
+
+    let conn = match db_mode {
+        DbStartupMode::FileBacked => init_db(&data_dir).expect("db init should succeed"),
+        DbStartupMode::DeferredInMemory => init_db_in_memory(),
+    };
+    let vault = Box::new(VaultServiceImpl::new(conn));
+    let vault_db_file_backed = matches!(db_mode, DbStartupMode::FileBacked);
+    let clipboard = Arc::new(
+        ClipboardService::new_safe(config.general.clipboard_clear_seconds)
+            .expect("clipboard should initialize"),
+    );
+
+    CommandExecutor::builder(data_dir, config_dir)
+        .vault(vault)
+        .vault_db_file_backed(vault_db_file_backed)
+        .sync(sync)
+        .config(config)
+        .result_tx(result_tx)
+        .shutdown_token(cancel_token)
+        .clipboard(clipboard)
+        .build()
+}
+
 async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
-    // Create oak-keyring subdirectories (paths::data_dir() appends "oak-keyring")
     let data_dir = vault_dir.path().join("oak-keyring");
     let config_dir = vault_dir.path().join("oak-keyring");
     std::fs::create_dir_all(&data_dir).unwrap();
@@ -84,18 +121,17 @@ async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(
+    let (sync, cloud_dir) = create_fs_sync_service();
+
+    let executor = build_executor_with_sync(
         config,
         result_tx,
         cancel_token,
         data_dir,
         config_dir,
         DbStartupMode::FileBacked,
-    )
-    .expect("executor construction should succeed");
-
-    let (sync, cloud_dir) = create_fs_sync_service();
-    executor.set_sync_service(Some(sync));
+        Some(Box::new(sync)),
+    );
 
     tokio::spawn(async move {
         executor.run(command_rx).await;
@@ -124,18 +160,17 @@ async fn setup_key_only_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(
+    let (sync, cloud_dir) = create_fs_sync_service();
+
+    let executor = build_executor_with_sync(
         config,
         result_tx,
         cancel_token,
         data_dir,
         config_dir,
         DbStartupMode::DeferredInMemory,
-    )
-    .expect("executor construction should succeed");
-
-    let (sync, cloud_dir) = create_fs_sync_service();
-    executor.set_sync_service(Some(sync));
+        Some(Box::new(sync)),
+    );
 
     tokio::spawn(async move {
         executor.run(command_rx).await;
@@ -462,18 +497,17 @@ async fn sync_cancellation_returns_cancelled() {
     let config = AppConfig::default();
     let cancel_token = CancellationToken::new();
 
-    let mut executor = CommandExecutor::new(
+    let (sync, _cloud_dir) = create_fs_sync_service();
+
+    let executor = build_executor_with_sync(
         config,
         result_tx,
         cancel_token,
         data_dir,
         config_dir,
         DbStartupMode::FileBacked,
-    )
-    .expect("executor construction should succeed");
-
-    let (sync, _cloud_dir) = create_fs_sync_service();
-    executor.set_sync_service(Some(sync));
+        Some(Box::new(sync)),
+    );
 
     let op_cancel = executor.cancel_token().clone();
 

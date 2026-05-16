@@ -45,7 +45,7 @@ fn schedule_health_scan(executor: &CommandExecutor) {
 /// older than the current DEK version, we re-encrypt it with the current key.
 /// Failures are logged but do not block the read — the record is still
 /// readable with the old DEK version.
-fn attempt_lazy_migration(vault: &mut crate::services::vault::VaultService, id: Uuid) {
+fn attempt_lazy_migration(vault: &mut dyn crate::services::vault::Vault, id: Uuid) {
     // Get the stored record to check its DEK version.
     let dek_version = match vault.get_stored_record(id) {
         Ok(stored) => stored.dek_version,
@@ -492,12 +492,9 @@ mod tests {
     use crate::commands::types::{HealthIssue, HealthReport};
     use crate::config::AppConfig;
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-    use crate::executor::config_impl::ServiceNotificationImpl;
     use crate::executor::CommandExecutor;
     use crate::services::clipboard::{ClipboardService, MockBackend};
-    use crate::services::health::HealthService;
-    use crate::services::import_export::ImportExportService;
-    use crate::services::vault::VaultService;
+    use crate::services::vault::{Vault, VaultServiceImpl};
     use crate::types::{CredentialType, EncryptedPayload, SecureStr};
 
     use super::*;
@@ -505,43 +502,24 @@ mod tests {
     /// Create a basic unlocked executor with no records.
     fn make_unlocked_executor() -> CommandExecutor {
         let conn = crate::db::schema::init_db_in_memory();
-        let mut vault = VaultService::new(conn);
+        let mut vault = VaultServiceImpl::new(conn);
         let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
         vault
             .unlock_with_mnemonic(&mnemonic)
             .expect("unlock with mnemonic");
 
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
 
-        CommandExecutor {
-            vault,
-            vault_db_file_backed: false,
-            sync: None,
-            health: HealthService::new(),
-            clipboard: Arc::new(ClipboardService::with_backend(
+        CommandExecutor::builder(":memory:".into(), ":memory:".into())
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(Arc::new(ClipboardService::with_backend(
                 Box::new(MockBackend::new()),
                 30,
-            )),
-            import_export: ImportExportService::new(),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                std::path::PathBuf::from(":memory:"),
-            ),
-            config_notifier: ServiceNotificationImpl::new(),
-            vault_dir: std::path::PathBuf::from(":memory:"),
-            config_dir: std::path::PathBuf::from(":memory:"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-            verified_master_password: None,
-        }
+            )))
+            .build()
     }
 
     /// Helper: create a Login record and return its UUID.

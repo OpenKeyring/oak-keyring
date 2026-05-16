@@ -1,18 +1,18 @@
 // Field-level record access (decrypt_field)
 
+use crate::services::vault::VaultServiceImpl;
 use uuid::Uuid;
 
 use crate::commands::types::FieldSelector;
 use crate::crypto::payload;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
-use crate::services::vault::VaultService;
 use crate::types::audit::AuditOperation;
 use crate::types::sensitive::SecureStr;
 
 use super::helpers::{db_error_to_vault, extract_field};
 
-impl VaultService {
+impl VaultServiceImpl {
     /// Decrypt and return a single field from a record.
     ///
     /// Unlike `get_decrypted_record`, this method provides fine-grained
