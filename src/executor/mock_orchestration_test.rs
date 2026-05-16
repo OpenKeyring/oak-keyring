@@ -533,6 +533,110 @@ async fn restore_database_from_cloud_returns_needs_oauth_without_sync() {
 }
 
 // ---------------------------------------------------------------------------
+// Import orchestration: partial vault write failure
+// ---------------------------------------------------------------------------
+
+#[test]
+fn import_reports_mixed_success_and_failure_counts() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use crate::commands::types::ImportSource;
+    use crate::executor::import_export;
+    use crate::services::import_export::service::{ImportableRecord, MockImportExport};
+    use crate::services::import_export::types::ImportResult;
+    use crate::errors::mapping::vault::VaultError;
+    use crate::types::CredentialType;
+
+    // ── Mock vault: create_record fails for 1st call, succeeds for 2nd+3rd ──
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mut mock_vault = MockVault::new();
+    mock_vault.expect_is_unlocked().returning(|| true);
+
+    let cc = Arc::clone(&call_count);
+    mock_vault.expect_create_record()
+        .times(3)
+        .returning(move |_params| {
+            let n = cc.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                Err(VaultError::NotUnlocked)
+            } else {
+                Ok(Uuid::new_v4())
+            }
+        });
+
+    mock_vault.expect_write_audit_entry()
+        .returning(|_, _, _, _| Ok(()));
+
+    // ── Mock import_export: returns 3 importable records ──
+    let mut mock_ie = MockImportExport::new();
+    mock_ie.expect_execute_import()
+        .once()
+        .returning(|_| {
+            let result = ImportResult {
+                imported: 3,
+                reviewed: 0,
+                skipped: 0,
+                failed: 0,
+                validation_failed: 0,
+                duration_ms: 0,
+            };
+            let records = vec![
+                ImportableRecord {
+                    credential_type: CredentialType::Login,
+                    fields: Default::default(),
+                    tags: vec![],
+                    is_review: false,
+                },
+                ImportableRecord {
+                    credential_type: CredentialType::Login,
+                    fields: Default::default(),
+                    tags: vec![],
+                    is_review: false,
+                },
+                ImportableRecord {
+                    credential_type: CredentialType::Login,
+                    fields: Default::default(),
+                    tags: vec![],
+                    is_review: false,
+                },
+            ];
+            Ok((result, records))
+        });
+
+    // ── Build executor ──
+    let mut executor = base_builder()
+        .vault(Box::new(mock_vault))
+        .import_export(Box::new(mock_ie))
+        .config(AppConfig::default())
+        .build();
+
+    // ── Call handler with existing session_id (skips session creation) ──
+    let result = import_export::handle_execute_import(
+        &mut executor,
+        Some(Uuid::new_v4()),
+        ImportSource::Csv,
+        std::path::PathBuf::from("fake.csv"),
+        None,
+        None,
+        false,
+    );
+
+    match result {
+        CommandResult::ImportCompleted {
+            imported_count,
+            reviewed_count,
+            failed_count,
+            ..
+        } => {
+            assert_eq!(imported_count, 2, "2 records should succeed");
+            assert_eq!(reviewed_count, 0, "no review records");
+            assert_eq!(failed_count, 1, "1 record should fail");
+        }
+        other => panic!("expected ImportCompleted, got {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Builder field tests
 // ---------------------------------------------------------------------------
 
