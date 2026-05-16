@@ -47,6 +47,9 @@ mod vault_test;
 #[cfg(test)]
 mod sync_test;
 
+#[cfg(test)]
+mod mock_orchestration_test;
+
 const SYNC_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

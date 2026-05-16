@@ -149,7 +149,7 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
     }))
 }
 
-async fn ensure_cloud_restore_has_records(
+pub(super) async fn ensure_cloud_restore_has_records(
     metadata_source: &mut dyn crate::services::sync::SyncService,
 ) -> Result<(), CommandResult> {
     match metadata_source.download_metadata().await {
