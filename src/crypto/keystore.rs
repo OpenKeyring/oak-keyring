@@ -392,6 +392,12 @@ impl KeyStore {
         DataEncryptionKey::new(&mut dek)
     }
 
+    #[cfg(feature = "sqlcipher-poc")]
+    pub fn db_page_key(&self) -> Result<[u8; 32], String> {
+        let kek = self.kek.as_ref().ok_or("KeyStore not unlocked")?;
+        Ok(hkdf::derive_db_page_key(kek.as_bytes())?)
+    }
+
     pub fn current_dek_version(&self) -> u32 {
         self.current_dek_version
     }

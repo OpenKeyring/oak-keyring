@@ -86,6 +86,12 @@ impl CryptoManager {
         ks.get_dek(version)
     }
 
+    #[cfg(feature = "sqlcipher-poc")]
+    pub fn db_page_key(&self) -> Result<[u8; 32], String> {
+        let ks = self.keystore.as_ref().ok_or("CryptoManager not unlocked")?;
+        ks.db_page_key()
+    }
+
     fn get_current_dek(&self) -> Result<DataEncryptionKey, String> {
         self.get_dek(self.current_dek_version)
     }
