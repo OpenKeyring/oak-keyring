@@ -7,6 +7,7 @@ pub mod health;
 pub mod import_export;
 pub mod record;
 pub mod rotation;
+pub mod runtime;
 pub mod sync;
 pub mod timer;
 pub mod vault;
@@ -132,9 +133,9 @@ impl ShutdownStepStatus {
 /// to the appropriate handler. The run loop receives commands via
 /// an mpsc channel and sends results back through a separate channel.
 pub struct CommandExecutor {
-    /// S1: Vault service — SQLite CRUD + encryption.
-    vault: Box<dyn Vault>,
-    /// True when `vault` wraps an on-disk vault.db rather than recovery-only memory state.
+    /// S1: Vault service — SQLite CRUD + encryption, tracked by runtime state.
+    vault_runtime: runtime::VaultRuntime,
+    /// True when `vault_runtime` wraps an on-disk vault.db rather than recovery-only memory state.
     vault_db_file_backed: bool,
     /// S2: Sync service — cloud sync (None when no provider configured).
     sync: Option<Box<dyn crate::services::sync::SyncService>>,
@@ -207,16 +208,35 @@ impl CommandExecutor {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), ?db_startup_mode, "initializing CommandExecutor");
 
-        let conn = match db_startup_mode {
-            DbStartupMode::FileBacked => init_db(&vault_dir)?,
-            DbStartupMode::DeferredInMemory => {
-                info!("using in-memory database until vault database is explicitly initialized");
-                init_db_in_memory()
-            }
+        let vault_db_file_backed = matches!(db_startup_mode, DbStartupMode::FileBacked);
+
+        #[cfg(not(feature = "sqlcipher"))]
+        let vault_runtime = {
+            let conn = match db_startup_mode {
+                DbStartupMode::FileBacked => init_db(&vault_dir)?,
+                DbStartupMode::DeferredInMemory => {
+                    info!("using in-memory database until vault database is explicitly initialized");
+                    init_db_in_memory()
+                }
+            };
+
+            let vault = Box::new(VaultServiceImpl::new(conn)) as Box<dyn Vault>;
+            runtime::VaultRuntime::open(vault)
         };
 
-        let vault = Box::new(VaultServiceImpl::new(conn)) as Box<dyn Vault>;
-        let vault_db_file_backed = matches!(db_startup_mode, DbStartupMode::FileBacked);
+        #[cfg(feature = "sqlcipher")]
+        let vault_runtime = match db_startup_mode {
+            DbStartupMode::FileBacked => {
+                // Production SQLCipher: start locked. Unlock must provide the key.
+                runtime::VaultRuntime::locked()
+            }
+            DbStartupMode::DeferredInMemory => {
+                info!("using in-memory database until vault database is explicitly initialized");
+                let conn = init_db_in_memory();
+                let vault = Box::new(VaultServiceImpl::new(conn)) as Box<dyn Vault>;
+                runtime::VaultRuntime::open(vault)
+            }
+        };
 
         // Load OAuth2 tokens from TokenStore (runtime-only, not in config.toml).
         load_oauth2_tokens_into_config(&mut config, &config_dir);
@@ -242,7 +262,7 @@ impl CommandExecutor {
         info!("CommandExecutor initialized successfully");
 
         Ok(Self::builder(vault_dir.clone(), config_dir.clone())
-            .vault(vault)
+            .vault_runtime(vault_runtime)
             .vault_db_file_backed(vault_db_file_backed)
             .sync(sync)
             .config(config)
@@ -254,7 +274,24 @@ impl CommandExecutor {
 
     /// Check whether the vault is currently unlocked.
     pub fn is_unlocked(&self) -> bool {
-        self.vault.is_unlocked()
+        self.vault_runtime.is_open()
+            && self.vault().map(|v| v.is_unlocked()).unwrap_or(false)
+    }
+
+    /// Get a reference to the vault (read-only operations).
+    ///
+    /// Returns an error if the vault runtime is not `Open`.
+    pub(super) fn vault(&self) -> Result<&dyn Vault, crate::errors::mapping::vault::VaultError> {
+        Ok(self.vault_runtime.open_vault()?)
+    }
+
+    /// Get a mutable reference to the vault (read-write operations).
+    ///
+    /// Returns an error if the vault runtime is not `Open`.
+    pub(super) fn vault_mut(
+        &mut self,
+    ) -> Result<&mut dyn Vault, crate::errors::mapping::vault::VaultError> {
+        Ok(self.vault_runtime.open_vault_mut()?)
     }
 
     /// Get a reference to the operation cancellation token.
@@ -398,9 +435,12 @@ impl CommandExecutor {
         }
 
         if self.vault_db_file_backed {
-            report.wal_checkpoint = match self.vault.checkpoint_wal() {
-                Ok(()) => ShutdownStepStatus::Completed,
-                Err(e) => ShutdownStepStatus::Failed(e.to_string()),
+            report.wal_checkpoint = match self.vault() {
+                Ok(vault) => match vault.checkpoint_wal() {
+                    Ok(()) => ShutdownStepStatus::Completed,
+                    Err(e) => ShutdownStepStatus::Failed(e.to_string()),
+                },
+                Err(_) => ShutdownStepStatus::NotApplicable,
             };
         }
 
@@ -418,8 +458,10 @@ impl CommandExecutor {
     ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
         let existed_before = vault_db_paths(&self.vault_dir).map(|path| artifact_exists(&path));
         let conn = init_db(&self.vault_dir)?;
-        self.vault =
-            Box::new(crate::services::vault::VaultServiceImpl::new(conn)) as Box<dyn Vault>;
+        self.vault_runtime =
+            runtime::VaultRuntime::open(
+                Box::new(crate::services::vault::VaultServiceImpl::new(conn)),
+            );
         info!("opened pending file-backed vault database");
         Ok(PendingFileBackedVaultDb {
             executor: self,
@@ -440,37 +482,38 @@ impl PendingFileBackedVaultDb<'_> {
         &mut self,
         master_password: &crate::types::SecureStr,
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        let vault_dir = self.executor.vault_dir.clone();
         self.executor
-            .vault
-            .unlock(&self.executor.vault_dir, master_password)
+            .vault_mut()?
+            .unlock(&vault_dir, master_password)
     }
 
     pub(super) fn create_record(
         &mut self,
         params: crate::types::record::CreateRecordParams,
     ) -> Result<uuid::Uuid, crate::errors::mapping::vault::VaultError> {
-        self.executor.vault.create_record(params)
+        self.executor.vault_mut()?.create_record(params)
     }
 
     pub(super) fn apply_downloaded_cloud_record(
         &mut self,
         record: &crate::cloud::CloudRecord,
     ) -> Result<bool, crate::errors::mapping::vault::VaultError> {
-        self.executor.vault.apply_downloaded_cloud_record(record)
+        self.executor.vault_mut()?.apply_downloaded_cloud_record(record)
     }
 
     pub(super) fn upsert_record_health_state(
         &mut self,
         state: &crate::types::health::RecordHealthState,
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        self.executor.vault.upsert_record_health_state(state)
+        self.executor.vault_mut()?.upsert_record_health_state(state)
     }
 
     pub(super) fn delete_record_health_states(
         &mut self,
         record_ids: &[uuid::Uuid],
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        self.executor.vault.delete_record_health_states(record_ids)
+        self.executor.vault_mut()?.delete_record_health_states(record_ids)
     }
 
     pub(super) async fn restore_pull_only(
@@ -490,7 +533,7 @@ impl PendingFileBackedVaultDb<'_> {
         key: &str,
         value: &str,
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        self.executor.vault.set_metadata(key, value)
+        self.executor.vault_mut()?.set_metadata(key, value)
     }
 
     pub(super) fn commit(mut self) {
@@ -512,9 +555,11 @@ impl Drop for PendingFileBackedVaultDb<'_> {
         // real vault. Roll back to the in-memory placeholder first so the
         // executor cannot keep using a connection to files we are about to
         // remove.
-        self.executor.vault = Box::new(crate::services::vault::VaultServiceImpl::new(
-            init_db_in_memory(),
-        )) as Box<dyn Vault>;
+        self.executor.vault_runtime = runtime::VaultRuntime::open(
+            Box::new(crate::services::vault::VaultServiceImpl::new(
+                init_db_in_memory(),
+            )),
+        );
         self.executor.vault_db_file_backed = false;
 
         for (path, existed_before) in vault_db_paths(&self.executor.vault_dir)

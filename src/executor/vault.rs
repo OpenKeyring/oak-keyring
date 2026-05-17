@@ -1,6 +1,7 @@
 use crate::commands::{CommandResult, InternalCommand};
 use crate::config::ConfigManager;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
+use crate::errors::service_error::ServiceError;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::{RecoveryWords, SecureStr};
 
@@ -67,7 +68,14 @@ fn cleanup_failed_new_vault_initialization(
 /// Errors during scheduling are logged and silently ignored — unlock must
 /// never fail due to health check scheduling issues.
 pub(super) fn schedule_health_check_after_unlock(executor: &mut CommandExecutor) {
-    let last_check = match executor.vault.get_last_health_check_at() {
+    let vault = match executor.vault() {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "vault runtime not open, skipping health check scheduling");
+            return;
+        }
+    };
+    let last_check = match vault.get_last_health_check_at() {
         Ok(ts) => ts,
         Err(e) => {
             tracing::warn!(error = %e, "failed to read last_health_check_at, skipping scheduling");
@@ -108,7 +116,22 @@ pub async fn handle_unlock(
     executor: &mut CommandExecutor,
     master_password: SecureStr,
 ) -> CommandResult {
-    match executor.vault.unlock(&executor.vault_dir, &master_password) {
+    let vault_dir = executor.vault_dir.clone();
+    let unlock_result = {
+        let vault = match executor.vault_mut() {
+            Ok(v) => v,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: e.to_error_code(),
+                    context: e.to_error_context(),
+                    message_key: "error.vault_not_available",
+                    fallback: format!("Vault is not available for unlock: {}", e),
+                };
+            }
+        };
+        vault.unlock(&vault_dir, &master_password)
+    };
+    match unlock_result {
         Ok(()) => {
             schedule_health_check_after_unlock(executor);
             CommandResult::VaultUnlocked
@@ -136,7 +159,21 @@ pub async fn handle_unlock_with_recovery_key(
         }
     };
 
-    match executor.vault.unlock_with_mnemonic(&passkey) {
+    let unlock_result = {
+        let vault = match executor.vault_mut() {
+            Ok(v) => v,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: e.to_error_code(),
+                    context: e.to_error_context(),
+                    message_key: "error.vault_not_available",
+                    fallback: format!("Vault is not available for unlock: {}", e),
+                };
+            }
+        };
+        vault.unlock_with_mnemonic(&passkey)
+    };
+    match unlock_result {
         Ok(()) => {
             // Post-recovery: resume interrupted rotation or trigger new one.
             // Prefer resume_rotation if a checkpoint exists (crash recovery),
@@ -167,7 +204,9 @@ pub async fn handle_unlock_with_recovery_key(
 
 #[tracing::instrument(skip(executor))]
 pub fn handle_lock(executor: &mut CommandExecutor) -> CommandResult {
-    executor.vault.lock();
+    if let Ok(vault) = executor.vault_mut() {
+        vault.lock();
+    }
     executor.verified_master_password = None;
     CommandResult::VaultLocked
 }
@@ -225,8 +264,12 @@ pub fn handle_change_master_password(
     ) {
         Ok(()) => {
             // Re-unlock with new password if currently unlocked
-            if executor.vault.is_unlocked() {
-                let _ = executor.vault.unlock(&executor.vault_dir, &new_password);
+            if let Ok(vault) = executor.vault() {
+                if vault.is_unlocked() {
+                    let vault_dir = executor.vault_dir.clone();
+                    let _ = executor.vault_mut()
+                        .and_then(|v| v.unlock(&vault_dir, &new_password));
+                }
             }
             CommandResult::MasterPasswordChanged
         }
@@ -467,7 +510,20 @@ pub async fn handle_validate_restored_database(executor: &mut CommandExecutor) -
         }
     };
 
-    match executor.vault.unlock(&executor.vault_dir, &master_password) {
+    let vault_dir = executor.vault_dir.clone();
+    let unlock_result = {
+        let vault = match executor.vault_mut() {
+            Ok(v) => v,
+            Err(e) => {
+                drop(master_password);
+                return CommandResult::DatabaseValidationFailed {
+                    reason: format!("Vault not available for validation: {}", e),
+                };
+            }
+        };
+        vault.unlock(&vault_dir, &master_password)
+    };
+    match unlock_result {
         Ok(_) => {
             drop(master_password);
             CommandResult::DatabaseRestored {

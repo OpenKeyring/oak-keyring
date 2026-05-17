@@ -176,7 +176,9 @@ pub fn handle_execute_import(
             is_favorite: false,
             expires_at: None,
         };
-        match executor.vault.create_record(params) {
+        match executor.vault_mut()
+            .and_then(|v| v.create_record(params))
+        {
             Ok(_) => {
                 if record.is_review {
                     reviewed_count += 1;
@@ -189,15 +191,17 @@ pub fn handle_execute_import(
     }
 
     // Audit log for successful import.
-    if let Err(e) = executor.vault.write_audit_entry(
-        crate::types::AuditOperation::VaultImport,
-        None,
-        None,
-        Some(format!(
-            "source={:?}, imported={}, reviewed={}, failed={}, skipped={}",
-            source, imported_count, reviewed_count, failed_count, import_result.skipped
-        )),
-    ) {
+    if let Err(e) = executor.vault_mut()
+        .and_then(|v| v.write_audit_entry(
+            crate::types::AuditOperation::VaultImport,
+            None,
+            None,
+            Some(format!(
+                "source={:?}, imported={}, reviewed={}, failed={}, skipped={}",
+                source, imported_count, reviewed_count, failed_count, import_result.skipped
+            )),
+        ))
+    {
         tracing::warn!(error = %e, "Failed to write import audit log");
     }
 
@@ -275,7 +279,9 @@ pub fn handle_execute_export(
         direction: SortDirection::Asc,
     };
 
-    let records = match executor.vault.list_records(&filter, &sort) {
+    let records = match executor.vault_mut()
+        .and_then(|v| v.list_records(&filter, &sort))
+    {
         Ok(r) => r,
         Err(e) => {
             let err: &dyn ServiceError = &e;
@@ -294,7 +300,9 @@ pub fn handle_execute_export(
         if cancel_token.is_cancelled() {
             return CommandResult::cancelled("export_execute");
         }
-        let decrypted = match executor.vault.get_decrypted_record(r.id) {
+        let decrypted = match executor.vault_mut()
+            .and_then(|v| v.get_decrypted_record(r.id))
+        {
             Ok(d) => d,
             Err(e) => {
                 let err: &dyn ServiceError = &e;
@@ -340,17 +348,19 @@ pub fn handle_execute_export(
     };
 
     // Audit log for successful export.
-    if let Err(e) = executor.vault.write_audit_entry(
-        crate::types::AuditOperation::VaultExport,
-        None,
-        None,
-        Some(format!(
-            "scope={}, path={}, count={}",
-            scope_desc,
-            result_path.display(),
-            record_count
-        )),
-    ) {
+    if let Err(e) = executor.vault_mut()
+        .and_then(|v| v.write_audit_entry(
+            crate::types::AuditOperation::VaultExport,
+            None,
+            None,
+            Some(format!(
+                "scope={}, path={}, count={}",
+                scope_desc,
+                result_path.display(),
+                record_count
+            )),
+        ))
+    {
         tracing::warn!(error = %e, "Failed to write export audit log");
     }
 

@@ -83,7 +83,7 @@ pub fn handle_create_record(
         expires_at,
     };
 
-    match executor.vault.create_record(params) {
+    match executor.vault_mut().and_then(|v| v.create_record(params)) {
         Ok(id) => {
             // New records need a health evaluation — schedule a full scan.
             schedule_health_scan(executor);
@@ -112,7 +112,7 @@ pub fn handle_update_record(
         expected_version,
     };
 
-    match executor.vault.update_record(params) {
+    match executor.vault_mut().and_then(|v| v.update_record(params)) {
         Ok(()) => {
             // VaultService manages health state internally (delete or carry-forward).
             // Schedule a health scan so that deleted health states get re-evaluated.
@@ -125,7 +125,7 @@ pub fn handle_update_record(
 
 #[tracing::instrument(skip_all)]
 pub fn handle_soft_delete_record(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
-    match executor.vault.soft_delete_record(id) {
+    match executor.vault_mut().and_then(|v| v.soft_delete_record(id)) {
         Ok(()) => {
             schedule_health_scan(executor);
             CommandResult::RecordDeleted { id }
@@ -136,7 +136,7 @@ pub fn handle_soft_delete_record(executor: &mut CommandExecutor, id: Uuid) -> Co
 
 #[tracing::instrument(skip_all)]
 pub fn handle_restore_record(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
-    match executor.vault.restore_record(id) {
+    match executor.vault_mut().and_then(|v| v.restore_record(id)) {
         Ok(()) => {
             schedule_health_scan(executor);
             CommandResult::RecordRestored { id }
@@ -147,7 +147,7 @@ pub fn handle_restore_record(executor: &mut CommandExecutor, id: Uuid) -> Comman
 
 #[tracing::instrument(skip_all)]
 pub fn handle_hard_delete_record(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
-    match executor.vault.hard_delete_record(id) {
+    match executor.vault_mut().and_then(|v| v.hard_delete_record(id)) {
         Ok(()) => {
             schedule_health_scan(executor);
             CommandResult::RecordDestroyed { id }
@@ -162,7 +162,7 @@ pub fn handle_toggle_favorite(
     id: Uuid,
     is_favorite: bool,
 ) -> CommandResult {
-    match executor.vault.toggle_favorite(id, is_favorite) {
+    match executor.vault_mut().and_then(|v| v.toggle_favorite(id, is_favorite)) {
         Ok(()) => CommandResult::FavoriteToggled { id, is_favorite },
         Err(e) => vault_error(e, "Failed to toggle favorite"),
     }
@@ -174,7 +174,7 @@ pub fn handle_load_record_list(
     filter: RecordFilter,
     sort: RecordSort,
 ) -> CommandResult {
-    match executor.vault.list_records(&filter, &sort) {
+    match executor.vault_mut().and_then(|v| v.list_records(&filter, &sort)) {
         Ok(mut records) => {
             // Spec Compliance: Populate health fields from cached health_report.
             // When no health report exists, is_expired stays false (set by vault
@@ -237,9 +237,11 @@ pub fn handle_load_record_list(
 pub fn handle_load_record_detail(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
     // Lazy migration: check DEK version before decrypting.
     // If the record is on an older DEK version, migrate it first.
-    attempt_lazy_migration(&mut executor.vault, id);
+    if let Ok(vault) = executor.vault_mut() {
+        attempt_lazy_migration(vault, id);
+    }
 
-    match executor.vault.get_decrypted_record(id) {
+    match executor.vault_mut().and_then(|v| v.get_decrypted_record(id)) {
         Ok(record) => {
             // Compute password strength based on credential type.
             let password_strength = compute_password_strength(&record);
@@ -283,9 +285,11 @@ fn compute_password_strength(
 #[tracing::instrument(skip_all)]
 pub fn handle_load_record_for_edit(executor: &mut CommandExecutor, id: Uuid) -> CommandResult {
     // Lazy migration: check DEK version before decrypting.
-    attempt_lazy_migration(&mut executor.vault, id);
+    if let Ok(vault) = executor.vault_mut() {
+        attempt_lazy_migration(vault, id);
+    }
 
-    match executor.vault.get_decrypted_record(id) {
+    match executor.vault_mut().and_then(|v| v.get_decrypted_record(id)) {
         Ok(record) => CommandResult::RecordForEditLoaded { record },
         Err(e) => vault_error(e, "Failed to load record for edit"),
     }
@@ -297,7 +301,7 @@ pub fn handle_decrypt_field(
     id: Uuid,
     field: FieldSelector,
 ) -> CommandResult {
-    match executor.vault.decrypt_field(id, field) {
+    match executor.vault_mut().and_then(|v| v.decrypt_field(id, field)) {
         Ok(value) => CommandResult::FieldDecrypted { id, field, value },
         Err(e) => vault_error(e, "Failed to decrypt field"),
     }
@@ -308,13 +312,13 @@ pub fn handle_load_password_history(
     executor: &mut CommandExecutor,
     record_id: Uuid,
 ) -> CommandResult {
-    match executor.vault.get_password_history(record_id) {
+    match executor.vault_mut().and_then(|v| v.get_password_history(record_id)) {
         Ok(entries) => {
             // Vault returns Vec<PasswordHistory> (encrypted).
             // Decrypt each entry to build PasswordHistoryView for the UI.
             let mut views = Vec::with_capacity(entries.len());
             for entry in &entries {
-                let password = match executor.vault.decrypt_history_password(entry.id) {
+                let password = match executor.vault_mut().and_then(|v| v.decrypt_history_password(entry.id)) {
                     Ok(p) => p,
                     Err(_) => SecureStr::new(String::from("***")),
                 };
@@ -332,7 +336,7 @@ pub fn handle_load_password_history(
 
 #[tracing::instrument(skip_all)]
 pub fn handle_load_tags(executor: &mut CommandExecutor) -> CommandResult {
-    match executor.vault.list_tags_with_stats() {
+    match executor.vault_mut().and_then(|v| v.list_tags_with_stats()) {
         Ok(tags_with_stats) => {
             let tags: Vec<_> = tags_with_stats.iter().map(|(t, _)| t.clone()).collect();
             let tag_stats: HashMap<i64, TagSortMeta> = tags_with_stats
@@ -351,7 +355,7 @@ pub fn handle_rename_tag(
     old_name: String,
     new_name: String,
 ) -> CommandResult {
-    match executor.vault.rename_tag(&old_name, &new_name) {
+    match executor.vault_mut().and_then(|v| v.rename_tag(&old_name, &new_name)) {
         Ok(()) => CommandResult::TagRenamed { old_name, new_name },
         Err(e) => vault_error(e, "Failed to rename tag"),
     }
@@ -359,7 +363,7 @@ pub fn handle_rename_tag(
 
 #[tracing::instrument(skip_all)]
 pub fn handle_delete_tag(executor: &mut CommandExecutor, name: String) -> CommandResult {
-    match executor.vault.delete_tag(&name) {
+    match executor.vault_mut().and_then(|v| v.delete_tag(&name)) {
         Ok(()) => CommandResult::TagDeleted { name },
         Err(e) => vault_error(e, "Failed to delete tag"),
     }
@@ -371,7 +375,7 @@ pub fn handle_batch_add_tag(
     record_ids: Vec<Uuid>,
     tag_name: String,
 ) -> CommandResult {
-    match executor.vault.batch_add_tag(&record_ids, &tag_name) {
+    match executor.vault_mut().and_then(|v| v.batch_add_tag(&record_ids, &tag_name)) {
         Ok(count) => CommandResult::BatchTagAdded { count },
         Err(e) => vault_error(e, "Failed to add tag to records"),
     }
@@ -383,7 +387,7 @@ pub fn handle_batch_remove_tag(
     record_ids: Vec<Uuid>,
     tag_name: String,
 ) -> CommandResult {
-    match executor.vault.batch_remove_tag(&record_ids, &tag_name) {
+    match executor.vault_mut().and_then(|v| v.batch_remove_tag(&record_ids, &tag_name)) {
         Ok(count) => CommandResult::BatchTagRemoved { count },
         Err(e) => vault_error(e, "Failed to remove tag from records"),
     }
@@ -394,7 +398,7 @@ pub fn handle_batch_soft_delete(
     executor: &mut CommandExecutor,
     record_ids: Vec<Uuid>,
 ) -> CommandResult {
-    match executor.vault.batch_soft_delete(&record_ids) {
+    match executor.vault_mut().and_then(|v| v.batch_soft_delete(&record_ids)) {
         Ok(count) => CommandResult::BatchDeleted { count },
         Err(e) => vault_error(e, "Failed to batch delete records"),
     }
@@ -402,7 +406,7 @@ pub fn handle_batch_soft_delete(
 
 #[tracing::instrument(skip_all)]
 pub fn handle_empty_trash(executor: &mut CommandExecutor) -> CommandResult {
-    match executor.vault.empty_trash() {
+    match executor.vault_mut().and_then(|v| v.empty_trash()) {
         Ok(count) => CommandResult::TrashEmptied { count },
         Err(e) => vault_error(e, "Failed to empty trash"),
     }
@@ -494,7 +498,7 @@ mod tests {
     use crate::crypto::bip39::{MnemonicLanguage, Passkey};
     use crate::executor::CommandExecutor;
     use crate::services::clipboard::{ClipboardService, MockBackend};
-    use crate::services::vault::{Vault, VaultServiceImpl};
+    use crate::services::vault::VaultServiceImpl;
     use crate::types::{CredentialType, EncryptedPayload, SecureStr};
 
     use super::*;
@@ -525,7 +529,8 @@ mod tests {
     /// Helper: create a Login record and return its UUID.
     fn create_login_record(executor: &mut CommandExecutor, name: &str, password: &str) -> Uuid {
         executor
-            .vault
+            .vault_mut()
+            .unwrap()
             .create_record(CreateRecordParams {
                 credential_type: CredentialType::Login,
                 payload: EncryptedPayload::Login {
@@ -545,7 +550,8 @@ mod tests {
     /// Helper: create an API record and return its UUID.
     fn create_api_record(executor: &mut CommandExecutor, name: &str, secret_key: &str) -> Uuid {
         executor
-            .vault
+            .vault_mut()
+            .unwrap()
             .create_record(CreateRecordParams {
                 credential_type: CredentialType::Api,
                 payload: EncryptedPayload::Api {
@@ -565,7 +571,8 @@ mod tests {
     /// Helper: create an SSH record and return its UUID.
     fn create_ssh_record(executor: &mut CommandExecutor, name: &str) -> Uuid {
         executor
-            .vault
+            .vault_mut()
+            .unwrap()
             .create_record(CreateRecordParams {
                 credential_type: CredentialType::Ssh,
                 payload: EncryptedPayload::Ssh {
