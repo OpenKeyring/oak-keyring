@@ -26,50 +26,60 @@ impl ListPanel {
                 Style::default().fg(theme::TEXT),
             )];
         }
-        let text_lower = text.to_lowercase();
-        let len = text.len();
-        // Track which characters are matched
-        let mut matched = vec![false; len];
+
+        // Character-level matching to handle multi-byte UTF-8 correctly.
+        let chars: Vec<char> = text.chars().collect();
+        let char_count = chars.len();
+        let chars_lower: Vec<char> = text.to_lowercase().chars().collect();
+
+        // If case folding changed char count, we can't safely map positions back.
+        if chars.len() != chars_lower.len() {
+            return vec![Span::styled(text.to_string(), Style::default().fg(theme::TEXT))];
+        }
+
+        let mut matched = vec![false; char_count];
         for term in search_terms {
-            let term_lower = term.to_lowercase();
+            let term_chars: Vec<char> = term.to_lowercase().chars().collect();
+            let term_len = term_chars.len();
+            if term_len == 0 || term_len > char_count {
+                continue;
+            }
             let mut start = 0;
-            while start + term_lower.len() <= len {
-                if text_lower[start..].starts_with(&term_lower) {
-                    let end = (start + term_lower.len()).min(len);
-                    for m in &mut matched[start..end] {
+            while start + term_len <= char_count {
+                if chars_lower[start..start + term_len] == term_chars[..] {
+                    for m in &mut matched[start..start + term_len] {
                         *m = true;
                     }
-                    start = end;
+                    start += term_len;
                 } else {
                     start += 1;
                 }
             }
         }
-        // Build spans from matched/unmatched ranges
+
+        // Map char indices to byte offsets for valid string slicing.
+        // byte_off[i] = byte position of char i; byte_off[char_count] = text.len()
+        let mut byte_off: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+        byte_off.push(text.len());
+
         let mut spans = Vec::new();
         let mut i = 0;
-        while i < len {
-            if matched[i] {
-                let start = i;
-                while i < len && matched[i] {
-                    i += 1;
-                }
-                spans.push(Span::styled(
-                    text[start..i].to_string(),
+        while i < char_count {
+            let start = i;
+            let is_match = matched[i];
+            while i < char_count && matched[i] == is_match {
+                i += 1;
+            }
+            spans.push(Span::styled(
+                text[byte_off[start]..byte_off[i]].to_string(),
+                if is_match {
                     Style::default()
                         .fg(theme::WARNING)
-                        .add_modifier(Modifier::BOLD),
-                ));
-            } else {
-                let start = i;
-                while i < len && !matched[i] {
-                    i += 1;
-                }
-                spans.push(Span::styled(
-                    text[start..i].to_string(),
-                    Style::default().fg(theme::TEXT),
-                ));
-            }
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme::TEXT)
+                },
+            ));
         }
         spans
     }

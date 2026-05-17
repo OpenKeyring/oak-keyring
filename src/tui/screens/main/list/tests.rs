@@ -985,3 +985,52 @@ fn trash_item_3_lines_at_full_width() {
     // Should have 3 lines at full width: title, metadata, separator
     assert_eq!(item.height(), 3);
 }
+
+// ---------------------------------------------------------------------------
+// highlight_match Unicode tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn highlight_chinese_text_does_not_panic() {
+    let terms: Vec<String> = vec!["密码".to_string()];
+    // Must not panic on multi-byte UTF-8
+    let spans = ListPanel::highlight_match("我的密码管理器", &terms);
+    assert!(!spans.is_empty());
+    // Verify highlighted span exists with WARNING color
+    let has_highlight = spans.iter().any(|s| {
+        s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100))
+    });
+    assert!(has_highlight, "Chinese search term should be highlighted");
+}
+
+#[test]
+fn highlight_mixed_ascii_cjk() {
+    let terms: Vec<String> = vec!["test".to_string()];
+    let spans = ListPanel::highlight_match("test密码test", &terms);
+    // Should have 3 spans: highlighted "test", normal "密码", highlighted "test"
+    assert!(spans.len() >= 3, "Expected at least 3 spans for mixed text");
+}
+
+#[test]
+fn highlight_empty_terms_returns_plain_span() {
+    let spans = ListPanel::highlight_match("任何文本", &[]);
+    assert_eq!(spans.len(), 1);
+}
+
+#[test]
+fn highlight_no_match_returns_single_span() {
+    let terms: Vec<String> = vec!["不存在".to_string()];
+    let spans = ListPanel::highlight_match("密码管理器", &terms);
+    assert_eq!(spans.len(), 1);
+}
+
+#[test]
+fn highlight_multi_term_chinese() {
+    let terms: Vec<String> = vec!["密码".to_string(), "管理".to_string()];
+    let spans = ListPanel::highlight_match("密码管理器", &terms);
+    // Both terms should be highlighted (adjacent, merged into one span)
+    let has_highlight = spans.iter().any(|s| {
+        s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100))
+    });
+    assert!(has_highlight, "Multi-term Chinese search should highlight");
+}

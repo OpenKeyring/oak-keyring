@@ -3168,3 +3168,170 @@ fn question_mark_opens_help_overlay() {
         other => panic!("Expected Help overlay, got {:?}", other),
     }
 }
+
+// ---------------------------------------------------------------------------
+// VaultLocked cleanup tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn vault_locked_clears_state_and_navigates_to_unlock() {
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.list.records = vec![make_test_record(Some(id1)), make_test_record(Some(id2))];
+    state.list.selected_index = Some(1);
+    state.overlay_manager.open(Overlay::Help);
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(crate::commands::result::CommandResult::VaultLocked),
+        &mut ctx,
+    );
+
+    assert!(state.list.records.is_empty());
+    assert!(state.list.selected_index.is_none());
+    assert!(state.detail.record.is_none());
+    assert!(!state.overlay_manager.is_active());
+    assert!(matches!(
+        result,
+        ScreenResult::NavigateTo(crate::commands::types::Screen::Unlock)
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// Search detail loading tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn search_typing_loads_detail_for_selected_record() {
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::List;
+    state.list.records = vec![
+        make_test_record_with_name(id1, "Alpha"),
+        make_test_record_with_name(id2, "Beta"),
+    ];
+    state.list.selected_index = Some(0);
+    state.list.enter_search();
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    // Type 'a' — should filter to "Alpha" and emit LoadRecordDetail
+    let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+    let result = state.update(Message::KeyEvent(key), &mut ctx);
+
+    match result {
+        ScreenResult::Command(cmd) => {
+            let expected = Box::new(Command::LoadRecordDetail { id: id1 });
+            assert_eq!(
+                format!("{:?}", cmd),
+                format!("{:?}", expected),
+                "Expected LoadRecordDetail for filtered record"
+            );
+        }
+        other => panic!("Expected Command(LoadRecordDetail), got {:?}", other),
+    }
+}
+
+#[test]
+fn search_down_arrow_loads_detail() {
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::List;
+    state.list.records = vec![
+        make_test_record_with_name(id1, "Alpha"),
+        make_test_record_with_name(id2, "Beta"),
+    ];
+    state.list.selected_index = Some(0);
+    state.list.enter_search();
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let key = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+    let result = state.update(Message::KeyEvent(key), &mut ctx);
+
+    match result {
+        ScreenResult::Command(cmd) => {
+            let expected = Box::new(Command::LoadRecordDetail { id: id2 });
+            assert_eq!(
+                format!("{:?}", cmd),
+                format!("{:?}", expected),
+                "Expected LoadRecordDetail for second record after Down"
+            );
+        }
+        other => panic!("Expected Command(LoadRecordDetail), got {:?}", other),
+    }
+}
+
+#[test]
+fn search_esc_restores_and_loads_detail() {
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::List;
+    state.list.records = vec![
+        make_test_record_with_name(id1, "Alpha"),
+        make_test_record_with_name(id2, "Bravo"),
+    ];
+    state.list.selected_index = Some(1);
+    state.list.enter_search();
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    let result = state.update(Message::KeyEvent(key), &mut ctx);
+
+    // Should restore pre-search selection (index 1, id2) and load its detail
+    assert_eq!(state.list.selected_index, Some(1));
+    match result {
+        ScreenResult::Command(cmd) => {
+            let expected = Box::new(Command::LoadRecordDetail { id: id2 });
+            assert_eq!(
+                format!("{:?}", cmd),
+                format!("{:?}", expected),
+                "Expected LoadRecordDetail for restored selection after Esc"
+            );
+        }
+        other => panic!("Expected Command(LoadRecordDetail), got {:?}", other),
+    }
+}
+
+fn make_test_record_with_name(id: Uuid, name: &str) -> TuiRecord {
+    TuiRecord {
+        id,
+        credential_type: CredentialType::Login,
+        name: name.to_string(),
+        subtitle: String::new(),
+        is_favorite: false,
+        is_expired: false,
+        expires_at: None,
+        has_weak_password: false,
+        is_compromised: false,
+        duplicate_group_size: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        deleted: false,
+        deleted_at: None,
+        tags: Vec::new(),
+        sync_status: None,
+    }
+}

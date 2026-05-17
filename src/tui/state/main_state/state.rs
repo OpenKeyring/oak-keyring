@@ -545,7 +545,9 @@ impl MainScreenState {
 
     /// Apply client-side search filter: replace displayed records with
     /// filtered subset from the pre-search snapshot.
-    fn apply_search_filter_to_records(&mut self) {
+    /// Apply client-side search filter and return the currently selected record ID.
+    /// Returns `None` when not in search mode, no snapshot, or no record selected.
+    fn apply_search_filter_to_records(&mut self) -> Option<Uuid> {
         if let ListMode::Search(ref search_state) = self.list.mode {
             if let Some(ref snapshot) = search_state.pre_search {
                 let filtered = self.list.apply_search_filter(snapshot.records.clone());
@@ -578,8 +580,10 @@ impl MainScreenState {
                     }
                 }
                 self.list.adjust_scroll();
+                return self.list.selected_record().map(|r| r.id);
             }
         }
+        None
     }
 
     /// Sync render-only fields from AppState-level shared state.
@@ -1016,6 +1020,16 @@ impl Screen for MainScreenState {
                         });
                         ScreenResult::Continue
                     }
+                    CommandResult::VaultLocked => {
+                        // Security: clear all sensitive state on vault lock.
+                        self.list.records.clear();
+                        self.list.selected_index = None;
+                        self.list.scroll_offset = 0;
+                        self.detail.clear();
+                        self.overlay_manager.close();
+                        self.status_bar.record_count = 0;
+                        ScreenResult::NavigateTo(ScreenEnum::Unlock)
+                    }
                     _ => ScreenResult::Continue,
                 }
             }
@@ -1078,8 +1092,10 @@ impl MainScreenState {
                     return ScreenResult::Continue;
                 }
                 KeyCode::Esc => {
-                    // Cancel search: restore pre-search snapshot
-                    let _restored_id = self.list.cancel_search_restore();
+                    // Cancel search: restore pre-search snapshot and reload detail
+                    if let Some(id) = self.list.cancel_search_restore() {
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
+                    }
                     return ScreenResult::Continue;
                 }
                 KeyCode::Backspace => {
@@ -1087,7 +1103,9 @@ impl MainScreenState {
                         let mut new_query = s.query.clone();
                         new_query.pop();
                         self.list.update_search_query(new_query);
-                        self.apply_search_filter_to_records();
+                        if let Some(id) = self.apply_search_filter_to_records() {
+                            return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
+                        }
                     }
                     return ScreenResult::Continue;
                 }
@@ -1102,16 +1120,28 @@ impl MainScreenState {
                     if let ListMode::Search(ref s) = self.list.mode {
                         let new_query = format!("{}{}", s.query, c);
                         self.list.update_search_query(new_query);
-                        self.apply_search_filter_to_records();
+                        if let Some(id) = self.apply_search_filter_to_records() {
+                            return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
+                        }
                     }
                     return ScreenResult::Continue;
                 }
                 KeyCode::Down => {
                     self.list.move_down();
+                    if let Some(record) = self.list.selected_record() {
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                            id: record.id,
+                        }));
+                    }
                     return ScreenResult::Continue;
                 }
                 KeyCode::Up => {
                     self.list.move_up();
+                    if let Some(record) = self.list.selected_record() {
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                            id: record.id,
+                        }));
+                    }
                     return ScreenResult::Continue;
                 }
                 _ => return ScreenResult::Continue, // consume all other keys
