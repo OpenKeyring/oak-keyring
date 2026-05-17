@@ -1,9 +1,9 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 use std::time::Duration;
 
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 use rusqlite::backup::Backup;
 use rusqlite::Connection;
 
@@ -117,7 +117,7 @@ where
 /// `key` must match the already-open source connection. The destination backup
 /// connection is keyed before `Backup::new` so the retained backup file is also
 /// SQLCipher-encrypted.
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 pub fn run_with_encrypted_backup<F>(
     conn: Connection,
     db_path: &Path,
@@ -189,7 +189,7 @@ fn remove_backup_files(dst_path: &Path) -> Result<(), MigrationError> {
     Ok(())
 }
 
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 fn backup_encrypted_database(
     src: &Connection,
     dst_path: &Path,

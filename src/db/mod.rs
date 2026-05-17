@@ -2,7 +2,7 @@ pub mod migrations;
 pub mod models;
 pub mod queries;
 pub mod schema;
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 pub mod sqlcipher;
 
 pub use queries::DbError;
