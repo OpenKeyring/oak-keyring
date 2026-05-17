@@ -457,7 +457,7 @@ impl CommandExecutor {
     /// fully validated and applied data. Dropping it rolls back newly created
     /// database artifacts while preserving artifacts that existed beforehand.
     #[cfg(feature = "sqlcipher")]
-    pub(super) fn begin_file_backed_vault_db(
+    pub fn begin_file_backed_vault_db(
         &mut self,
         key: &crate::crypto::db_page_key::DbPageKey,
     ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
@@ -481,7 +481,7 @@ impl CommandExecutor {
     /// fully validated and applied data. Dropping it rolls back newly created
     /// database artifacts while preserving artifacts that existed beforehand.
     #[cfg(not(feature = "sqlcipher"))]
-    pub(super) fn begin_file_backed_vault_db(
+    pub fn begin_file_backed_vault_db(
         &mut self,
     ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
         let existed_before = vault_db_paths(&self.vault_dir).map(|path| artifact_exists(&path));
@@ -498,7 +498,7 @@ impl CommandExecutor {
     }
 }
 
-pub(super) struct PendingFileBackedVaultDb<'a> {
+pub struct PendingFileBackedVaultDb<'a> {
     executor: &'a mut CommandExecutor,
     committed: bool,
     existed_before: [bool; 4],

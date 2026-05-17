@@ -131,3 +131,49 @@ async fn unlock_opens_sqlcipher_only_after_keystore_unlock() {
     ));
     assert!(executor.is_unlocked());
 }
+
+#[test]
+fn pending_sqlcipher_guard_rolls_back_uncommitted_database_files() {
+    let dir = TempDir::new().expect("temp dir");
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let mut executor = CommandExecutor::new(
+        oak_keyring::config::AppConfig::default_config(),
+        tx,
+        tokio_util::sync::CancellationToken::new(),
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        DbStartupMode::DeferredInMemory,
+    )
+    .expect("executor");
+
+    let key = test_db_page_key([0x44; 32]);
+    // Start a pending file-backed guard by calling begin_file_backed_vault_db.
+    // The guard rolls back newly created database files on drop when not committed.
+    {
+        let _guard = executor
+            .begin_file_backed_vault_db(&key)
+            .expect("begin pending");
+        // The SQLCipher vault.db file should exist after begin
+        assert!(
+            dir.path().join("vault.db").exists(),
+            "vault.db should exist after begin_file_backed_vault_db"
+        );
+        // Don't commit — guard should roll back uncommitted files on drop
+    }
+    // After the guard is dropped without commit, all files created by
+    // begin_file_backed_vault_db should be removed.
+    assert!(
+        !dir.path().join("vault.db").exists(),
+        "vault.db should be rolled back after guard drop without commit"
+    );
+    // WAL and SHM files may or may not have been created; if they were, they
+    // must also be removed by the rollback.
+    assert!(
+        !dir.path().join("vault.db-wal").exists(),
+        "vault.db-wal should be rolled back after guard drop without commit"
+    );
+    assert!(
+        !dir.path().join("vault.db-shm").exists(),
+        "vault.db-shm should be rolled back after guard drop without commit"
+    );
+}
