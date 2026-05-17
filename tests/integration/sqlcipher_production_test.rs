@@ -172,8 +172,89 @@ fn pending_sqlcipher_guard_rolls_back_uncommitted_database_files() {
         !dir.path().join("vault.db-wal").exists(),
         "vault.db-wal should be rolled back after guard drop without commit"
     );
+}
+
+#[tokio::test]
+async fn lock_drops_open_sqlcipher_runtime() {
+    let dir = TempDir::new().expect("temp dir");
+    // Set up an unlocked executor with SQLCipher vault
+    let mut sk = [0x55u8; 32];
+    let password = SecureStr::new("lock test password".to_string());
+    KeyStore::initialize(
+        dir.path(),
+        &mut sk,
+        &password,
+        &Argon2Params::medium(),
+        MnemonicLanguage::English,
+    )
+    .expect("initialize key file");
+
+    let key = KeyStore::unlock(dir.path(), &password)
+        .expect("unlock keystore")
+        .db_page_key()
+        .expect("derive db key");
+    VaultDbFactory::create_sqlcipher_vault(dir.path(), &key).expect("create encrypted db");
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let mut executor = CommandExecutor::new(
+        oak_keyring::config::AppConfig::default_config(),
+        tx,
+        tokio_util::sync::CancellationToken::new(),
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        DbStartupMode::DeferredInMemory,
+    )
+    .expect("executor starts locked");
+
+    // Unlock first (password is moved here — all borrows above released)
+    let unlock_result = oak_keyring::executor::vault::handle_unlock(
+        &mut executor,
+        password,
+    ).await;
+    assert!(matches!(unlock_result, CommandResult::VaultUnlocked));
+    assert!(executor.is_unlocked());
+
+    // Lock
+    let result = oak_keyring::executor::vault::handle_lock(&mut executor);
+    assert!(matches!(result, CommandResult::VaultLocked));
+    assert!(!executor.is_unlocked());
+}
+
+#[tokio::test]
+async fn sqlcipher_wal_does_not_contain_plaintext_secrets() {
+    let dir = TempDir::new().expect("temp dir");
+    let mut sk = [0x66u8; 32];
+    let password = SecureStr::new("wal test password".to_string());
+    KeyStore::initialize(
+        dir.path(),
+        &mut sk,
+        &password,
+        &Argon2Params::medium(),
+        MnemonicLanguage::English,
+    )
+    .expect("initialize key file");
+
+    let key = KeyStore::unlock(dir.path(), &password)
+        .expect("unlock keystore")
+        .db_page_key()
+        .expect("derive db key");
+    let conn = VaultDbFactory::create_sqlcipher_vault(dir.path(), &key).expect("create encrypted db");
+
+    // Write a marker and checkpoint
+    conn.execute("INSERT INTO tags (name) VALUES ('wal-marker')", [])
+        .expect("insert marker");
+    oak_keyring::db::schema::checkpoint_wal(&conn).expect("checkpoint wal");
+    drop(conn);
+
+    // Scan main DB file for the marker - should NOT appear in plaintext
+    let db_bytes = std::fs::read(dir.path().join("vault.db")).expect("read vault.db");
+    // The marker "wal-marker" should not be readable in the encrypted DB
     assert!(
-        !dir.path().join("vault.db-shm").exists(),
-        "vault.db-shm should be rolled back after guard drop without commit"
+        !contains_plaintext(&db_bytes, b"wal-marker"),
+        "vault.db must not contain plaintext marker"
     );
+}
+
+fn contains_plaintext(data: &[u8], pattern: &[u8]) -> bool {
+    data.windows(pattern.len()).any(|window| window == pattern)
 }

@@ -311,6 +311,11 @@ pub fn handle_lock(executor: &mut CommandExecutor) -> CommandResult {
         vault.lock();
     }
     executor.verified_master_password = None;
+    #[cfg(feature = "sqlcipher")]
+    {
+        executor.vault_runtime = crate::executor::runtime::VaultRuntime::locked();
+        executor.vault_db_file_backed = false;
+    }
     CommandResult::VaultLocked
 }
 

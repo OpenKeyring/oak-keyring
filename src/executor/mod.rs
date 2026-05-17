@@ -446,6 +446,8 @@ impl CommandExecutor {
                 Err(_) => ShutdownStepStatus::NotApplicable,
             };
         }
+        self.vault_runtime = crate::executor::runtime::VaultRuntime::locked();
+        self.vault_db_file_backed = false;
 
         tracing::info!(?report, "executor graceful shutdown completed");
         report
