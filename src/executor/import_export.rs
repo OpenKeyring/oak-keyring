@@ -1170,8 +1170,14 @@ mod tests {
                 failed_count,
                 ..
             } => {
-                assert_eq!(imported_count, 0, "no records should succeed against locked vault");
-                assert!(failed_count > 0, "all importable records should fail against locked vault");
+                assert_eq!(
+                    imported_count, 0,
+                    "no records should succeed against locked vault"
+                );
+                assert!(
+                    failed_count > 0,
+                    "all importable records should fail against locked vault"
+                );
             }
             other => panic!("expected ImportCompleted, got {:?}", other),
         }

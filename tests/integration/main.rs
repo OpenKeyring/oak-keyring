@@ -11,6 +11,8 @@ mod main_pipeline_test;
 mod okb_sample_file_test;
 mod okb_serialization_roundtrip_test;
 mod rotation_test;
+#[cfg(feature = "sqlcipher-poc")]
+mod sqlcipher_poc_test;
 mod ui_entry_test;
 mod vault_db_crypto_test;
 mod vault_service_test;

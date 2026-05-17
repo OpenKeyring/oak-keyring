@@ -7,9 +7,7 @@ use uuid::Uuid;
 use crate::commands::types::{CsvColumnMapping, ExportFormat, ExportScope, ImportSource};
 use crate::errors::mapping::import_export::ImportExportError;
 use crate::services::import_export::duplicate::ExistingRecordKey;
-use crate::services::import_export::types::{
-    ExportSessionStatus, ImportSessionStatus,
-};
+use crate::services::import_export::types::{ExportSessionStatus, ImportSessionStatus};
 use crate::types::SecureStr;
 
 // Import parameter structs and implementation for tests

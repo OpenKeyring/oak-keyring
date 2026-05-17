@@ -1,6 +1,10 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "sqlcipher-poc")]
+use std::time::Duration;
 
+#[cfg(feature = "sqlcipher-poc")]
+use rusqlite::backup::Backup;
 use rusqlite::Connection;
 
 use crate::db::migrations::{self, MigrationError};
@@ -105,7 +109,39 @@ where
     F: FnOnce(&Connection) -> Result<(), MigrationError>,
 {
     backup_database(&conn, backup_path)?;
+    run_with_existing_backup(conn, db_path, backup_path, work)
+}
 
+/// SQLCipher PoC-only variant of `run_with_backup`.
+///
+/// `key` must match the already-open source connection. The destination backup
+/// connection is keyed before `Backup::new` so the retained backup file is also
+/// SQLCipher-encrypted.
+#[cfg(feature = "sqlcipher-poc")]
+pub fn run_with_encrypted_backup<F>(
+    conn: Connection,
+    db_path: &Path,
+    backup_path: &Path,
+    key: &[u8; 32],
+    work: F,
+) -> Result<Connection, InitDbError>
+where
+    F: FnOnce(&Connection) -> Result<(), MigrationError>,
+{
+    remove_backup_files(backup_path)?;
+    backup_encrypted_database(&conn, backup_path, key)?;
+    run_with_existing_backup(conn, db_path, backup_path, work)
+}
+
+fn run_with_existing_backup<F>(
+    conn: Connection,
+    db_path: &Path,
+    backup_path: &Path,
+    work: F,
+) -> Result<Connection, InitDbError>
+where
+    F: FnOnce(&Connection) -> Result<(), MigrationError>,
+{
     match work(&conn) {
         Ok(()) => {
             if let Err(e) = std::fs::remove_file(backup_path) {
@@ -137,13 +173,37 @@ fn backup_database(src: &Connection, dst_path: &Path) -> Result<(), MigrationErr
     // Connection::backup opens the destination as a SQLite database. If a stale
     // .bak from a prior run exists, opening it would merge with that file's pages
     // rather than producing a fresh snapshot.
+    remove_backup_files(dst_path)?;
+
+    src.backup(rusqlite::DatabaseName::Main, dst_path, None)
+        .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))
+}
+
+fn remove_backup_files(dst_path: &Path) -> Result<(), MigrationError> {
     for sidecar in [None, Some("-wal"), Some("-shm")] {
         let p = sidecar.map_or_else(|| dst_path.to_path_buf(), |s| with_suffix(dst_path, s));
         if p.exists() {
             std::fs::remove_file(&p).map_err(MigrationError::BackupFailed)?;
         }
     }
-    src.backup(rusqlite::DatabaseName::Main, dst_path, None)
+    Ok(())
+}
+
+#[cfg(feature = "sqlcipher-poc")]
+fn backup_encrypted_database(
+    src: &Connection,
+    dst_path: &Path,
+    key: &[u8; 32],
+) -> Result<(), MigrationError> {
+    let mut dst = Connection::open(dst_path)
+        .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))?;
+    crate::db::sqlcipher::apply_key(&dst, key)
+        .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))?;
+
+    let backup = Backup::new(src, &mut dst)
+        .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))?;
+    backup
+        .run_to_completion(100, Duration::from_millis(0), None)
         .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))
 }
 
