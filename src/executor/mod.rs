@@ -741,3 +741,47 @@ mod db_startup_mode_tests {
         );
     }
 }
+
+#[cfg(all(test, feature = "sqlcipher"))]
+mod rollback_tests {
+    use super::*;
+    use crate::crypto::db_page_key::test_db_page_key;
+    use crate::db::vault_db::VaultDbError;
+
+    #[test]
+    fn rollback_reports_database_rollback_failed_when_file_removal_fails() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let mut executor = CommandExecutor::new(
+            crate::config::AppConfig::default_config(),
+            tx,
+            tokio_util::sync::CancellationToken::new(),
+            dir.path().to_path_buf(),
+            dir.path().to_path_buf(),
+            DbStartupMode::DeferredInMemory,
+        )
+        .expect("executor");
+
+        let key = test_db_page_key([0xee; 32]);
+        let guard = executor
+            .begin_file_backed_vault_db(&key)
+            .expect("begin pending");
+
+        // Replace vault.db with a directory so std::fs::remove_file fails
+        // (it cannot remove directories). This forces rollback() to surface
+        // DbRollbackFailed.
+        let vault_db = dir.path().join("vault.db");
+        std::fs::remove_file(&vault_db).expect("remove vault.db");
+        std::fs::create_dir(&vault_db).expect("create dir in place of vault.db");
+
+        let result = guard.rollback();
+        assert!(
+            matches!(result, Err(VaultDbError::DbRollbackFailed(_))),
+            "rollback must return DbRollbackFailed, got {:?}",
+            result
+        );
+
+        // Clean up
+        std::fs::remove_dir(&vault_db).ok();
+    }
+}
