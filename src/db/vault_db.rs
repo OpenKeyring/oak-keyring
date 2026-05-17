@@ -59,13 +59,11 @@ impl VaultDbFactory {
         };
         match migrate_and_validate(conn) {
             Ok(conn) => Ok(conn),
-            Err(e) => {
-                Err(if is_plaintext_sqlite(&db_path) {
-                    VaultDbError::PlaintextDatabaseUnsupported
-                } else {
-                    e
-                })
-            }
+            Err(e) => Err(if is_plaintext_sqlite(&db_path) {
+                VaultDbError::PlaintextDatabaseUnsupported
+            } else {
+                e
+            }),
         }
     }
 }
@@ -81,6 +79,16 @@ fn open_keyed_connection(db_path: &Path, key: &DbPageKey) -> Result<Connection, 
 }
 
 fn migrate_and_validate(conn: Connection) -> Result<Connection, VaultDbError> {
+    // Check for unsupported schema version before running migrations,
+    // consistent with the non-SQLCipher init_db path in schema.rs.
+    let current = crate::db::migrations::read_current_version(&conn);
+    if current > crate::db::migrations::SCHEMA_VERSION {
+        return Err(VaultDbError::UnsupportedSchemaVersion {
+            current,
+            supported: crate::db::migrations::SCHEMA_VERSION,
+        });
+    }
+
     crate::db::migrations::run_migrations(&conn)
         .map_err(|e| VaultDbError::DbMigrationFailed(e.to_string()))?;
     schema::run_quick_check(&conn).map_err(map_init_error)?;

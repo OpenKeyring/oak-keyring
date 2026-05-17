@@ -1,3 +1,4 @@
+use oak_keyring::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
 use oak_keyring::commands::CommandResult;
 use oak_keyring::crypto::argon2::Argon2Params;
 use oak_keyring::crypto::bip39::MnemonicLanguage;
@@ -5,6 +6,7 @@ use oak_keyring::crypto::db_page_key::test_db_page_key;
 use oak_keyring::crypto::keystore::KeyStore;
 use oak_keyring::db::vault_db::{VaultDbError, VaultDbFactory};
 use oak_keyring::executor::{CommandExecutor, DbStartupMode};
+use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
 use oak_keyring::types::SecureStr;
 use rusqlite::Connection;
 use tempfile::TempDir;
@@ -252,6 +254,240 @@ async fn sqlcipher_wal_does_not_contain_plaintext_secrets() {
     assert!(
         !contains_plaintext(&db_bytes, b"wal-marker"),
         "vault.db must not contain plaintext marker"
+    );
+}
+
+#[tokio::test]
+async fn sqlcipher_unlocked_vault_supports_full_query_pipeline() {
+    let dir = TempDir::new().expect("temp dir");
+    let mut sk = [0x77u8; 32];
+    KeyStore::initialize(
+        dir.path(),
+        &mut sk,
+        &SecureStr::new("query pipeline password".to_string()),
+        &Argon2Params::medium(),
+        MnemonicLanguage::English,
+    )
+    .expect("initialize");
+    let key = KeyStore::unlock(dir.path(), &SecureStr::new("query pipeline password".to_string()))
+        .expect("unlock ks")
+        .db_page_key()
+        .expect("key");
+    VaultDbFactory::create_sqlcipher_vault(dir.path(), &key).expect("create db");
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let mut executor = CommandExecutor::new(
+        oak_keyring::config::AppConfig::default_config(),
+        tx,
+        tokio_util::sync::CancellationToken::new(),
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        DbStartupMode::DeferredInMemory,
+    )
+    .expect("executor");
+
+    let unlock_result = oak_keyring::executor::vault::handle_unlock(
+        &mut executor,
+        SecureStr::new("query pipeline password".to_string()),
+    )
+    .await;
+    assert!(matches!(unlock_result, CommandResult::VaultUnlocked));
+
+    // Create a record through the executor's public record handler
+    let create_result = oak_keyring::executor::record::handle_create_record(
+        &mut executor,
+        CredentialType::Login,
+        EncryptedPayload::Login {
+            name: "test-login".to_string(),
+            username: "user@test.com".to_string(),
+            password: SecureStr::new("test-password".to_string()),
+            url: Some("https://test.example.com".to_string()),
+            notes: Some("regression test".to_string()),
+        },
+        vec!["test-tag".to_string()],
+        false,
+        None,
+    );
+    let created_id = match &create_result {
+        CommandResult::RecordCreated { id } => *id,
+        other => panic!("Expected RecordCreated, got {:?}", other),
+    };
+
+    // List records via public handler
+    let list_result = oak_keyring::executor::record::handle_load_record_list(
+        &mut executor,
+        RecordFilter::All,
+        RecordSort {
+            field: SortField::Name,
+            direction: SortDirection::Asc,
+        },
+    );
+    let records = match &list_result {
+        CommandResult::RecordListLoaded { records, .. } => records,
+        other => panic!("Expected RecordListLoaded, got {:?}", other),
+    };
+    assert!(!records.is_empty(), "must have at least one record");
+
+    // Search
+    let search_result = oak_keyring::executor::record::handle_load_record_list(
+        &mut executor,
+        RecordFilter::Search("test-login".to_string()),
+        RecordSort {
+            field: SortField::Name,
+            direction: SortDirection::Asc,
+        },
+    );
+    let search_records = match &search_result {
+        CommandResult::RecordListLoaded { records, .. } => records,
+        other => panic!("Expected RecordListLoaded, got {:?}", other),
+    };
+    assert_eq!(search_records.len(), 1);
+
+    // Check the created record is the one we found
+    assert_eq!(search_records[0].id, created_id);
+
+    // Tag list via public handler
+    let tags_result = oak_keyring::executor::record::handle_load_tags(&mut executor);
+    let tags = match &tags_result {
+        CommandResult::TagsLoaded { tags, .. } => tags,
+        other => panic!("Expected TagsLoaded, got {:?}", other),
+    };
+    assert!(
+        tags.iter().any(|tag| tag.name == "test-tag"),
+        "must find test-tag"
+    );
+
+    // Verify plain SQLite cannot read
+    let plain = Connection::open(dir.path().join("vault.db")).expect("plain handle");
+    let read_schema: rusqlite::Result<i64> =
+        plain.query_row("SELECT COUNT(*) FROM sqlite_master", [], |row| row.get(0));
+    assert!(
+        read_schema.is_err(),
+        "plain SQLite must not read SQLCipher schema"
+    );
+}
+
+#[tokio::test]
+async fn change_master_password_preserves_sqlcipher_db_access() {
+    let dir = TempDir::new().expect("temp dir");
+    let mut sk = [0x88u8; 32];
+    let old_password_text = "old master password";
+    let new_password_text = "new master password";
+
+    KeyStore::initialize(
+        dir.path(),
+        &mut sk,
+        &SecureStr::new(old_password_text.to_string()),
+        &Argon2Params::medium(),
+        MnemonicLanguage::English,
+    )
+    .expect("initialize");
+    let key = KeyStore::unlock(dir.path(), &SecureStr::new(old_password_text.to_string()))
+        .expect("unlock ks")
+        .db_page_key()
+        .expect("key");
+    VaultDbFactory::create_sqlcipher_vault(dir.path(), &key).expect("create db");
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let mut executor = CommandExecutor::new(
+        oak_keyring::config::AppConfig::default_config(),
+        tx,
+        tokio_util::sync::CancellationToken::new(),
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        DbStartupMode::DeferredInMemory,
+    )
+    .expect("executor");
+
+    // Unlock with old password
+    let unlock = oak_keyring::executor::vault::handle_unlock(
+        &mut executor,
+        SecureStr::new(old_password_text.to_string()),
+    )
+    .await;
+    assert!(matches!(unlock, CommandResult::VaultUnlocked));
+
+    // Change master password
+    let result = oak_keyring::executor::vault::handle_change_master_password(
+        &mut executor,
+        Some(SecureStr::new(old_password_text.to_string())),
+        SecureStr::new(new_password_text.to_string()),
+    );
+    assert!(matches!(result, CommandResult::MasterPasswordChanged));
+
+    // Lock and unlock with new password
+    oak_keyring::executor::vault::handle_lock(&mut executor);
+
+    let unlock_new = oak_keyring::executor::vault::handle_unlock(
+        &mut executor,
+        SecureStr::new(new_password_text.to_string()),
+    )
+    .await;
+    assert!(matches!(unlock_new, CommandResult::VaultUnlocked));
+    assert!(executor.is_unlocked());
+}
+
+#[test]
+fn plaintext_database_error_is_distinguishable() {
+    let dir = TempDir::new().expect("temp dir");
+    // Create a plaintext SQLite database
+    Connection::open(dir.path().join("vault.db"))
+        .expect("plain db")
+        .execute("CREATE TABLE plaintext_marker(id INTEGER PRIMARY KEY)", [])
+        .expect("create table");
+
+    let key = test_db_page_key([0x99; 32]);
+    let err = VaultDbFactory::open_sqlcipher_vault(dir.path(), &key).unwrap_err();
+    assert!(
+        matches!(err, VaultDbError::PlaintextDatabaseUnsupported),
+        "plaintext should produce PlaintextDatabaseUnsupported, got {:?}",
+        err
+    );
+}
+
+#[test]
+fn wrong_key_error_is_distinguishable() {
+    let dir = TempDir::new().expect("temp dir");
+    // Create with one key
+    let key1 = test_db_page_key([0xaa; 32]);
+    VaultDbFactory::create_sqlcipher_vault(dir.path(), &key1).expect("create with key1");
+
+    // Try to open with different key
+    // With the wrong SQLCipher key, the connection opens and PRAGMA key succeeds,
+    // but PRAGMA journal_mode=WAL (in apply_pragmas) fails because SQLCipher
+    // needs the correct key to read the database header.
+    let key2 = test_db_page_key([0xbb; 32]);
+    let err = VaultDbFactory::open_sqlcipher_vault(dir.path(), &key2).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            VaultDbError::WrongDbPageKey | VaultDbError::DbOpenIo(_) | VaultDbError::CorruptDatabase(_)
+        ),
+        "wrong key should produce WrongDbPageKey, DbOpenIo, or CorruptDatabase, got {:?}",
+        err
+    );
+}
+
+#[test]
+fn unsupported_schema_version_error_is_distinguishable() {
+    let dir = TempDir::new().expect("temp dir");
+    let key = test_db_page_key([0xcc; 32]);
+    let conn = VaultDbFactory::create_sqlcipher_vault(dir.path(), &key).expect("create db");
+
+    // Write an impossibly high schema version into the metadata table
+    conn.execute(
+        "UPDATE metadata SET value = '999999' WHERE key = 'schema_version'",
+        [],
+    )
+    .expect("set impossible version");
+    drop(conn);
+
+    // Try to open - should get UnsupportedSchemaVersion
+    let err = VaultDbFactory::open_sqlcipher_vault(dir.path(), &key).unwrap_err();
+    assert!(
+        matches!(err, VaultDbError::UnsupportedSchemaVersion { .. }),
+        "unsupported version should produce UnsupportedSchemaVersion, got {:?}",
+        err
     );
 }
 
