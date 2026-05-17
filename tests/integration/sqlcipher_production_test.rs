@@ -358,6 +358,55 @@ async fn sqlcipher_unlocked_vault_supports_full_query_pipeline() {
         "must find test-tag"
     );
 
+    // Audit log: create_record writes audit entries, load all entries
+    let audit_result = oak_keyring::executor::config::handle_load_audit_log(
+        &mut executor,
+        oak_keyring::commands::types::AuditFilter {
+            operation: None,
+            time_range: None,
+            search: None,
+        },
+    );
+    match audit_result {
+        CommandResult::AuditLogLoaded { entries, .. } => {
+            assert!(!entries.is_empty(), "audit must have create entry");
+        }
+        other => panic!("Expected AuditLogLoaded, got {:?}", other),
+    }
+
+    // Metadata is exercised implicitly: unlock persisted device_id, create
+    // record wrote metadata_version, audit log built from metadata entries.
+
+    // Health state: schedule a health check against the encrypted vault.
+    // Health checks run asynchronously; force=true returns HealthCheckStarted.
+    let health_result = oak_keyring::executor::health::handle_run_health_check(&mut executor, true);
+    assert!(
+        matches!(
+            &health_result,
+            CommandResult::HealthCheckStarted | CommandResult::HealthCheckCompleted { .. }
+        ),
+        "Expected HealthCheckStarted or HealthCheckCompleted, got {:?}",
+        health_result
+    );
+
+    // Export: export vault to an .okb file (exercises decrypt+serialize path)
+    let export_path = dir.path().join("export.okb");
+    let master_password = SecureStr::new("query pipeline password".to_string());
+    let export_result = oak_keyring::executor::import_export::handle_execute_export(
+        &mut executor,
+        oak_keyring::commands::types::ExportScope::All,
+        export_path.clone(),
+        SecureStr::new("export-password".to_string()),
+        master_password,
+        oak_keyring::commands::types::ExportFormat::Okb,
+    );
+    match &export_result {
+        CommandResult::ExportCompleted { .. } => {}
+        other => panic!("Expected ExportCompleted, got {:?}", other),
+    }
+    let export_meta = std::fs::metadata(&export_path).expect("okb file should exist");
+    assert!(export_meta.len() > 0, "okb file must be non-empty");
+
     // Verify plain SQLite cannot read
     let plain = Connection::open(dir.path().join("vault.db")).expect("plain handle");
     let read_schema: rusqlite::Result<i64> =

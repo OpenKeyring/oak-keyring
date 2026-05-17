@@ -576,6 +576,43 @@ impl PendingFileBackedVaultDb<'_> {
     }
 }
 
+impl PendingFileBackedVaultDb<'_> {
+    /// Explicitly roll back this pending guard, removing any newly created
+    /// database artifacts and returning the executor to a locked state.
+    ///
+    /// Returns `DbRollbackFailed` if any file removal fails. The error carries
+    /// the path of the file that could not be removed.
+    pub(super) fn rollback(mut self) -> Result<(), crate::db::vault_db::VaultDbError> {
+        self.committed = true; // skip duplicate cleanup in Drop
+        self.executor.vault_runtime = runtime::VaultRuntime::locked();
+        self.executor.vault_db_file_backed = false;
+
+        let mut first_error: Option<(std::path::PathBuf, std::io::Error)> = None;
+        for (path, existed_before) in vault_db_paths(&self.executor.vault_dir)
+            .into_iter()
+            .zip(self.existed_before)
+        {
+            if existed_before {
+                continue;
+            }
+            if let Err(e) = std::fs::remove_file(&path) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::error!(path = %path.display(), error = %e, "rollback: failed to remove uncommitted file");
+                    first_error.get_or_insert((path, e));
+                }
+            }
+        }
+        if let Some((path, error)) = first_error {
+            Err(crate::db::vault_db::VaultDbError::DbRollbackFailed(
+                format!("{}: {}", path.display(), error),
+            ))
+        } else {
+            info!("rolled back uncommitted file-backed vault database");
+            Ok(())
+        }
+    }
+}
+
 impl Drop for PendingFileBackedVaultDb<'_> {
     fn drop(&mut self) {
         if self.committed {
