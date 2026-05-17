@@ -1022,6 +1022,7 @@ impl Screen for MainScreenState {
                     }
                     CommandResult::VaultLocked => {
                         // Security: clear all sensitive state on vault lock.
+                        self.list.mode = ListMode::Normal;
                         self.list.records.clear();
                         self.list.selected_index = None;
                         self.list.scroll_offset = 0;
@@ -1106,6 +1107,7 @@ impl MainScreenState {
                         if let Some(id) = self.apply_search_filter_to_records() {
                             return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
                         }
+                        self.detail.clear();
                     }
                     return ScreenResult::Continue;
                 }
@@ -1123,6 +1125,7 @@ impl MainScreenState {
                         if let Some(id) = self.apply_search_filter_to_records() {
                             return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
                         }
+                        self.detail.clear();
                     }
                     return ScreenResult::Continue;
                 }
@@ -1133,6 +1136,7 @@ impl MainScreenState {
                             id: record.id,
                         }));
                     }
+                    self.detail.clear();
                     return ScreenResult::Continue;
                 }
                 KeyCode::Up => {
@@ -1142,6 +1146,7 @@ impl MainScreenState {
                             id: record.id,
                         }));
                     }
+                    self.detail.clear();
                     return ScreenResult::Continue;
                 }
                 _ => return ScreenResult::Continue, // consume all other keys

@@ -3335,3 +3335,64 @@ fn make_test_record_with_name(id: Uuid, name: &str) -> TuiRecord {
         sync_status: None,
     }
 }
+
+#[test]
+fn vault_locked_clears_search_snapshot() {
+    let id1 = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::List;
+    state.list.records = vec![make_test_record_with_name(id1, "Alpha")];
+    state.list.selected_index = Some(0);
+    // Enter search to create a snapshot
+    state.list.enter_search();
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(
+        Message::CommandCompleted(crate::commands::result::CommandResult::VaultLocked),
+        &mut ctx,
+    );
+
+    assert!(matches!(state.list.mode, crate::tui::state::list_state::ListMode::Normal));
+    assert!(state.list.records.is_empty());
+    assert!(state.list.selected_index.is_none());
+    assert!(state.detail.record.is_none());
+    assert!(matches!(result, ScreenResult::NavigateTo(_)));
+}
+
+#[test]
+fn search_no_results_clears_detail() {
+    let id1 = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::List;
+    state.list.records = vec![make_test_record_with_name(id1, "Alpha")];
+    state.list.selected_index = Some(0);
+    state.list.enter_search();
+
+    // Simulate having a detail loaded by setting a non-None password_visible
+    // (detail.clear() sets password_visible = false and record = None)
+    state.detail.password_visible = true;
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    // Type 'z' — no match, should clear detail
+    let key = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
+    let _result = state.update(Message::KeyEvent(key), &mut ctx);
+
+    assert!(
+        state.list.records.is_empty(),
+        "Filter should produce no results"
+    );
+    assert!(
+        !state.detail.password_visible,
+        "Detail should be cleared when no records match"
+    );
+}
