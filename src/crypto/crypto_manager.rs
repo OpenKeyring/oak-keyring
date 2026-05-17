@@ -86,10 +86,22 @@ impl CryptoManager {
         ks.get_dek(version)
     }
 
-    #[cfg(feature = "sqlcipher-poc")]
-    pub fn db_page_key(&self) -> Result<[u8; 32], String> {
+    #[cfg(feature = "sqlcipher")]
+    pub fn db_page_key(&self) -> Result<crate::crypto::db_page_key::DbPageKey, String> {
         let ks = self.keystore.as_ref().ok_or("CryptoManager not unlocked")?;
         ks.db_page_key()
+    }
+
+    pub fn from_unlocked_keystore(keystore: KeyStore) -> Self {
+        let current_dek_version = keystore.current_dek_version();
+        Self {
+            keystore: Some(keystore),
+            current_dek_version,
+        }
+    }
+
+    pub fn device_id(&self) -> Option<String> {
+        self.keystore.as_ref().map(|ks| ks.device_id().to_string())
     }
 
     fn get_current_dek(&self) -> Result<DataEncryptionKey, String> {

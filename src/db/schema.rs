@@ -1,13 +1,16 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 use std::time::Duration;
 
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 use rusqlite::backup::Backup;
 use rusqlite::Connection;
 
 use crate::db::migrations::{self, MigrationError};
+
+#[cfg(feature = "sqlcipher")]
+use crate::crypto::db_page_key::DbPageKey;
 
 pub fn apply_pragmas(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
@@ -19,7 +22,7 @@ pub fn apply_pragmas(conn: &Connection) -> Result<(), rusqlite::Error> {
     )
 }
 
-fn run_quick_check(conn: &Connection) -> Result<(), InitDbError> {
+pub(crate) fn run_quick_check(conn: &Connection) -> Result<(), InitDbError> {
     let result: String = conn.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
     if result.eq_ignore_ascii_case("ok") {
         Ok(())
@@ -28,7 +31,7 @@ fn run_quick_check(conn: &Connection) -> Result<(), InitDbError> {
     }
 }
 
-fn run_foreign_key_check(conn: &Connection) -> Result<(), InitDbError> {
+pub(crate) fn run_foreign_key_check(conn: &Connection) -> Result<(), InitDbError> {
     let mut stmt = conn.prepare("PRAGMA foreign_key_check")?;
     let mut rows = stmt.query([])?;
     if let Some(row) = rows.next()? {
@@ -117,12 +120,12 @@ where
 /// `key` must match the already-open source connection. The destination backup
 /// connection is keyed before `Backup::new` so the retained backup file is also
 /// SQLCipher-encrypted.
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 pub fn run_with_encrypted_backup<F>(
     conn: Connection,
     db_path: &Path,
     backup_path: &Path,
-    key: &[u8; 32],
+    key: &DbPageKey,
     work: F,
 ) -> Result<Connection, InitDbError>
 where
@@ -189,11 +192,11 @@ fn remove_backup_files(dst_path: &Path) -> Result<(), MigrationError> {
     Ok(())
 }
 
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 fn backup_encrypted_database(
     src: &Connection,
     dst_path: &Path,
-    key: &[u8; 32],
+    key: &DbPageKey,
 ) -> Result<(), MigrationError> {
     let mut dst = Connection::open(dst_path)
         .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))?;

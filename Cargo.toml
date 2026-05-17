@@ -114,9 +114,9 @@ tempfile = "3"
 anyhow = "1"
 
 [features]
-default = ["sqlite-bundled"]
+default = ["sqlcipher"]
 sqlite-bundled = ["rusqlite/bundled"]
-sqlcipher-poc = [
+sqlcipher = [
     "dep:libsqlite3-sys",
     "libsqlite3-sys/bundled-sqlcipher-vendored-openssl",
 ]

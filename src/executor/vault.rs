@@ -1,6 +1,8 @@
 use crate::commands::{CommandResult, InternalCommand};
 use crate::config::ConfigManager;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
+#[cfg(not(feature = "sqlcipher"))]
+use crate::errors::service_error::ServiceError;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::{RecoveryWords, SecureStr};
 
@@ -57,6 +59,18 @@ fn cleanup_failed_new_vault_initialization(
     }
 }
 
+/// Derive a database page key from the keystore for a pending vault initialization.
+///
+/// Unlocks the existing keystore (created by [`KeyStore::initialize`]) and
+/// derives the [`DbPageKey`] needed to create a SQLCipher-encrypted database.
+#[cfg(feature = "sqlcipher")]
+pub(super) fn derive_db_page_key_for_pending(
+    vault_dir: &std::path::Path,
+    master_password: &SecureStr,
+) -> Result<crate::crypto::db_page_key::DbPageKey, String> {
+    crate::crypto::keystore::KeyStore::unlock(vault_dir, master_password)?.db_page_key()
+}
+
 /// Schedule health check after a successful unlock.
 ///
 /// Reads the persisted `last_health_check_at` from metadata, evaluates
@@ -67,7 +81,14 @@ fn cleanup_failed_new_vault_initialization(
 /// Errors during scheduling are logged and silently ignored — unlock must
 /// never fail due to health check scheduling issues.
 pub(super) fn schedule_health_check_after_unlock(executor: &mut CommandExecutor) {
-    let last_check = match executor.vault.get_last_health_check_at() {
+    let vault = match executor.vault() {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "vault runtime not open, skipping health check scheduling");
+            return;
+        }
+    };
+    let last_check = match vault.get_last_health_check_at() {
         Ok(ts) => ts,
         Err(e) => {
             tracing::warn!(error = %e, "failed to read last_health_check_at, skipping scheduling");
@@ -103,19 +124,131 @@ pub(super) fn schedule_health_check_after_unlock(executor: &mut CommandExecutor)
     }
 }
 
+#[cfg(feature = "sqlcipher")]
+fn vault_db_error_result(err: crate::db::vault_db::VaultDbError) -> CommandResult {
+    use crate::db::vault_db::VaultDbError;
+    use crate::errors::{ErrorCode, ErrorContext};
+
+    match err {
+        VaultDbError::PlaintextDatabaseUnsupported => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.plaintext_database_unsupported",
+            fallback: "Plaintext SQLite vault databases are not supported. This vault cannot be opened with SQLCipher.".to_string(),
+        },
+        VaultDbError::WrongDbPageKey => CommandResult::Error {
+            code: ErrorCode::CryptoEncryptionFailed,
+            context: ErrorContext::default(),
+            message_key: "error.wrong_db_key",
+            fallback: "The database page key does not match. The vault database may be from a different master password or may be corrupt.".to_string(),
+        },
+        VaultDbError::CorruptDatabase(msg) => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.corrupt_database",
+            fallback: format!("The vault database is corrupt: {}", msg),
+        },
+        VaultDbError::UnsupportedSchemaVersion { current, supported } => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.unsupported_schema",
+            fallback: format!("Database schema version {} is newer than this build supports ({})", current, supported),
+        },
+        VaultDbError::DbOpenIo(msg) => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.db_open_io",
+            fallback: format!("Failed to open vault database: {}", msg),
+        },
+        VaultDbError::DbMigrationFailed(msg) => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.db_migration_failed",
+            fallback: format!("Database migration failed: {}", msg),
+        },
+        VaultDbError::DbRollbackFailed(msg) => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.db_rollback_failed",
+            fallback: format!("Database rollback failed: {}", msg),
+        },
+    }
+}
+
 #[tracing::instrument(skip(executor, master_password))]
 pub async fn handle_unlock(
     executor: &mut CommandExecutor,
     master_password: SecureStr,
 ) -> CommandResult {
-    match executor.vault.unlock(&executor.vault_dir, &master_password) {
-        Ok(()) => {
-            schedule_health_check_after_unlock(executor);
-            CommandResult::VaultUnlocked
+    #[cfg(feature = "sqlcipher")]
+    {
+        // Key-first unlock for SQLCipher production
+        let keystore = match crate::crypto::keystore::KeyStore::unlock(
+            &executor.vault_dir,
+            &master_password,
+        ) {
+            Ok(ks) => ks,
+            Err(_) => {
+                return CommandResult::VaultUnlockFailed {
+                    attempts_remaining: None,
+                };
+            }
+        };
+
+        let db_page_key = match keystore.db_page_key() {
+            Ok(key) => key,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: crate::errors::ErrorCode::CryptoKeyDerivationFailed,
+                    context: crate::errors::ErrorContext::default(),
+                    message_key: "error.db_key_derivation_failed",
+                    fallback: format!("Failed to derive database page key: {}", e),
+                };
+            }
+        };
+
+        let conn = match crate::db::vault_db::VaultDbFactory::open_sqlcipher_vault(
+            &executor.vault_dir,
+            &db_page_key,
+        ) {
+            Ok(conn) => conn,
+            Err(e) => return vault_db_error_result(e),
+        };
+
+        let crypto = crate::crypto::CryptoManager::from_unlocked_keystore(keystore);
+        executor.vault_runtime = crate::executor::runtime::VaultRuntime::open(Box::new(
+            crate::services::vault::VaultServiceImpl::new_unlocked(conn, crypto),
+        ));
+        executor.vault_db_file_backed = true;
+        schedule_health_check_after_unlock(executor);
+        return CommandResult::VaultUnlocked;
+    }
+    #[cfg(not(feature = "sqlcipher"))]
+    {
+        let vault_dir = executor.vault_dir.clone();
+        let unlock_result = {
+            let vault = match executor.vault_mut() {
+                Ok(v) => v,
+                Err(e) => {
+                    return CommandResult::Error {
+                        code: e.to_error_code(),
+                        context: e.to_error_context(),
+                        message_key: "error.vault_not_available",
+                        fallback: format!("Vault is not available for unlock: {}", e),
+                    };
+                }
+            };
+            vault.unlock(&vault_dir, &master_password)
+        };
+        match unlock_result {
+            Ok(()) => {
+                schedule_health_check_after_unlock(executor);
+                CommandResult::VaultUnlocked
+            }
+            Err(_) => CommandResult::VaultUnlockFailed {
+                attempts_remaining: None,
+            },
         }
-        Err(_) => CommandResult::VaultUnlockFailed {
-            attempts_remaining: None,
-        },
     }
 }
 
@@ -136,39 +269,168 @@ pub async fn handle_unlock_with_recovery_key(
         }
     };
 
-    match executor.vault.unlock_with_mnemonic(&passkey) {
-        Ok(()) => {
-            // Post-recovery: resume interrupted rotation or trigger new one.
-            // Prefer resume_rotation if a checkpoint exists (crash recovery),
-            // otherwise trigger a fresh rotation (security best practice).
-            tracing::info!("Post-recovery: checking for interrupted rotation");
-            let rotation_result = super::rotation::handle_resume_rotation(executor).await;
-            if let CommandResult::RotationTriggerChecked { .. } = &rotation_result {
-                // No pending checkpoint — trigger fresh rotation
-                tracing::info!("No pending checkpoint, triggering fresh DEK rotation");
-                let fresh_result = super::rotation::handle_trigger_rotation(executor).await;
-                if let CommandResult::Error { .. } = &fresh_result {
-                    tracing::warn!("Post-recovery DEK rotation failed, vault is still usable");
-                }
-            } else if let CommandResult::Error { .. } = &rotation_result {
-                tracing::warn!("Post-recovery rotation resume failed, vault is still usable");
+    #[cfg(feature = "sqlcipher")]
+    {
+        // Key-first recovery unlock for SQLCipher production.
+        // Derive key material directly from the mnemonic (no keystore file needed).
+        let seed = match passkey.to_seed(None) {
+            Ok(s) => s,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::CryptoKeyDerivationFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.seed_derivation_failed",
+                    fallback: format!("Failed to derive seed from recovery key: {}", e),
+                };
             }
+        };
+        let mut sk_bytes = seed.to_secret_key();
+        let mut kek_bytes = match crate::crypto::hkdf::derive_kek(&sk_bytes) {
+            Ok(k) => k,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::CryptoKeyDerivationFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.kek_derivation_failed",
+                    fallback: format!("Failed to derive key encryption key: {}", e),
+                };
+            }
+        };
+        let db_page_key = match crate::crypto::hkdf::derive_db_page_key(&kek_bytes) {
+            Ok(mut k) => match crate::crypto::db_page_key::DbPageKey::new(&mut k) {
+                Ok(dk) => dk,
+                Err(e) => {
+                    return CommandResult::Error {
+                        code: ErrorCode::CryptoKeyDerivationFailed,
+                        context: ErrorContext::default(),
+                        message_key: "error.db_key_derivation_failed",
+                        fallback: format!("Failed to wrap database page key: {}", e),
+                    };
+                }
+            },
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::CryptoKeyDerivationFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.db_key_derivation_failed",
+                    fallback: format!("Failed to derive database page key: {}", e),
+                };
+            }
+        };
 
-            // Schedule health check after successful recovery unlock
-            schedule_health_check_after_unlock(executor);
+        let conn = match crate::db::vault_db::VaultDbFactory::open_sqlcipher_vault(
+            &executor.vault_dir,
+            &db_page_key,
+        ) {
+            Ok(c) => c,
+            Err(e) => return vault_db_error_result(e),
+        };
 
-            CommandResult::RecoveryKeyUnlocked
+        // Build the keystore in-memory from the reconstructed key material.
+        use crate::crypto::keystore::{KeyEncryptionKey, KeyStore, SecretKey};
+        let secret_key = match SecretKey::new(&mut sk_bytes) {
+            Ok(sk) => sk,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::CryptoKeyDerivationFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.secret_key_failed",
+                    fallback: format!("Failed to wrap secret key: {}", e),
+                };
+            }
+        };
+        let kek = match KeyEncryptionKey::new(&mut kek_bytes) {
+            Ok(k) => k,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::CryptoKeyDerivationFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.kek_failed",
+                    fallback: format!("Failed to wrap key encryption key: {}", e),
+                };
+            }
+        };
+        let ks = KeyStore {
+            sk: Some(secret_key),
+            kek: Some(kek),
+            current_dek_version: 1,
+            device_id: uuid::Uuid::new_v4().to_string(),
+            mnemonic_language: crate::crypto::bip39::MnemonicLanguage::English,
+        };
+        let crypto = crate::crypto::CryptoManager::from_unlocked_keystore(ks);
+        executor.vault_runtime = crate::executor::runtime::VaultRuntime::open(Box::new(
+            crate::services::vault::VaultServiceImpl::new_unlocked(conn, crypto),
+        ));
+        executor.vault_db_file_backed = true;
+
+        // Post-recovery rotation and health check.
+        tracing::info!("Post-recovery: checking for interrupted rotation");
+        let rotation_result = super::rotation::handle_resume_rotation(executor).await;
+        if let CommandResult::RotationTriggerChecked { .. } = &rotation_result {
+            tracing::info!("No pending checkpoint, triggering fresh DEK rotation");
+            let fresh_result = super::rotation::handle_trigger_rotation(executor).await;
+            if let CommandResult::Error { .. } = &fresh_result {
+                tracing::warn!("Post-recovery DEK rotation failed, vault is still usable");
+            }
+        } else if let CommandResult::Error { .. } = &rotation_result {
+            tracing::warn!("Post-recovery rotation resume failed, vault is still usable");
         }
-        Err(_) => CommandResult::VaultUnlockFailed {
-            attempts_remaining: None,
-        },
+        schedule_health_check_after_unlock(executor);
+        return CommandResult::RecoveryKeyUnlocked;
+    }
+
+    #[cfg(not(feature = "sqlcipher"))]
+    {
+        let unlock_result = {
+            let vault = match executor.vault_mut() {
+                Ok(v) => v,
+                Err(e) => {
+                    return CommandResult::Error {
+                        code: e.to_error_code(),
+                        context: e.to_error_context(),
+                        message_key: "error.vault_not_available",
+                        fallback: format!("Vault is not available for unlock: {}", e),
+                    };
+                }
+            };
+            vault.unlock_with_mnemonic(&passkey)
+        };
+        match unlock_result {
+            Ok(()) => {
+                // Post-recovery: resume interrupted rotation or trigger new one.
+                tracing::info!("Post-recovery: checking for interrupted rotation");
+                let rotation_result = super::rotation::handle_resume_rotation(executor).await;
+                if let CommandResult::RotationTriggerChecked { .. } = &rotation_result {
+                    tracing::info!("No pending checkpoint, triggering fresh DEK rotation");
+                    let fresh_result = super::rotation::handle_trigger_rotation(executor).await;
+                    if let CommandResult::Error { .. } = &fresh_result {
+                        tracing::warn!("Post-recovery DEK rotation failed, vault is still usable");
+                    }
+                } else if let CommandResult::Error { .. } = &rotation_result {
+                    tracing::warn!("Post-recovery rotation resume failed, vault is still usable");
+                }
+
+                schedule_health_check_after_unlock(executor);
+                CommandResult::RecoveryKeyUnlocked
+            }
+            Err(_) => CommandResult::VaultUnlockFailed {
+                attempts_remaining: None,
+            },
+        }
     }
 }
 
 #[tracing::instrument(skip(executor))]
 pub fn handle_lock(executor: &mut CommandExecutor) -> CommandResult {
-    executor.vault.lock();
+    if let Ok(vault) = executor.vault_mut() {
+        vault.lock();
+    }
     executor.verified_master_password = None;
+    #[cfg(feature = "sqlcipher")]
+    {
+        executor.vault_runtime = crate::executor::runtime::VaultRuntime::locked();
+        executor.vault_db_file_backed = false;
+    }
     CommandResult::VaultLocked
 }
 
@@ -225,8 +487,13 @@ pub fn handle_change_master_password(
     ) {
         Ok(()) => {
             // Re-unlock with new password if currently unlocked
-            if executor.vault.is_unlocked() {
-                let _ = executor.vault.unlock(&executor.vault_dir, &new_password);
+            if let Ok(vault) = executor.vault() {
+                if vault.is_unlocked() {
+                    let vault_dir = executor.vault_dir.clone();
+                    let _ = executor
+                        .vault_mut()
+                        .and_then(|v| v.unlock(&vault_dir, &new_password));
+                }
             }
             CommandResult::MasterPasswordChanged
         }
@@ -317,9 +584,43 @@ pub async fn handle_initialize_vault(
         }
     }
 
+    // Step 3a (SQLCipher): Derive database page key from initialized keystore.
+    #[cfg(feature = "sqlcipher")]
+    let db_page_key = match derive_db_page_key_for_pending(&vault_path, &master_password) {
+        Ok(key) => key,
+        Err(e) => {
+            cleanup_failed_new_vault_initialization(
+                &vault_path,
+                key_existed_before,
+                vault_db_existed_before,
+                wal_existed_before,
+                shm_existed_before,
+            );
+            return CommandResult::Error {
+                code: ErrorCode::CryptoKeyDerivationFailed,
+                context: ErrorContext::default(),
+                message_key: "error.db_key_derivation_failed",
+                fallback: format!(
+                    "Failed to derive database page key after initialization: {}",
+                    e
+                ),
+            };
+        }
+    };
+
     // Step 4: Commit the database only after the keystore exists and the new
     // password can unlock the file-backed vault.
-    let mut pending = match executor.begin_file_backed_vault_db() {
+    let begin_result = {
+        #[cfg(feature = "sqlcipher")]
+        {
+            executor.begin_file_backed_vault_db(&db_page_key)
+        }
+        #[cfg(not(feature = "sqlcipher"))]
+        {
+            executor.begin_file_backed_vault_db()
+        }
+    };
+    let mut pending = match begin_result {
         Ok(pending) => pending,
         Err(e) => {
             cleanup_failed_new_vault_initialization(
@@ -344,7 +645,16 @@ pub async fn handle_initialize_vault(
             CommandResult::VaultInitialized
         }
         Err(e) => {
-            drop(pending);
+            #[cfg(feature = "sqlcipher")]
+            {
+                if let Err(rollback_err) = pending.rollback() {
+                    tracing::error!(error = %rollback_err, "rollback failed during new vault initialization");
+                }
+            }
+            #[cfg(not(feature = "sqlcipher"))]
+            {
+                drop(pending);
+            }
             cleanup_failed_new_vault_initialization(
                 &vault_path,
                 key_existed_before,
@@ -449,8 +759,9 @@ pub async fn handle_rebuild_keyfile_from_recovery(
 
 /// Validate that the existing vault.db can be decrypted with the rebuilt key.
 ///
-/// Attempts to unlock the vault with the cached master password (set during
-/// keyfile rebuild). Success proves the key matches the database.
+/// In SQLCipher production builds, validates by deriving the DbPageKey from the
+/// cached master password and opening the encrypted database through VaultDbFactory.
+/// In non-SQLCipher builds, uses the vault trait's unlock method.
 pub async fn handle_validate_restored_database(executor: &mut CommandExecutor) -> CommandResult {
     if !executor.vault_dir.join("vault.db").exists() {
         return CommandResult::DatabaseValidationFailed {
@@ -467,18 +778,139 @@ pub async fn handle_validate_restored_database(executor: &mut CommandExecutor) -
         }
     };
 
-    match executor.vault.unlock(&executor.vault_dir, &master_password) {
-        Ok(_) => {
-            drop(master_password);
-            CommandResult::DatabaseRestored {
-                source: crate::commands::types::DatabaseRecoverySource::Okb,
+    let vault_dir = executor.vault_dir.clone();
+
+    #[cfg(feature = "sqlcipher")]
+    {
+        let db_page_key = match derive_db_page_key_for_pending(&vault_dir, &master_password) {
+            Ok(key) => key,
+            Err(e) => {
+                drop(master_password);
+                return CommandResult::DatabaseValidationFailed {
+                    reason: format!("Failed to derive database page key for validation: {}", e),
+                };
+            }
+        };
+        match crate::db::vault_db::VaultDbFactory::open_sqlcipher_vault(&vault_dir, &db_page_key) {
+            Ok(_conn) => {
+                drop(master_password);
+                drop(_conn);
+                CommandResult::DatabaseRestored {
+                    source: crate::commands::types::DatabaseRecoverySource::Okb,
+                }
+            }
+            Err(e) => {
+                drop(master_password);
+                CommandResult::DatabaseValidationFailed {
+                    reason: format!("Restored database does not match current key: {}", e),
+                }
             }
         }
-        Err(e) => {
-            drop(master_password);
-            CommandResult::DatabaseValidationFailed {
-                reason: format!("Restored database does not match current key: {}", e),
+    }
+    #[cfg(not(feature = "sqlcipher"))]
+    {
+        let unlock_result = {
+            let vault = match executor.vault_mut() {
+                Ok(v) => v,
+                Err(e) => {
+                    drop(master_password);
+                    return CommandResult::DatabaseValidationFailed {
+                        reason: format!("Vault not available for validation: {}", e),
+                    };
+                }
+            };
+            vault.unlock(&vault_dir, &master_password)
+        };
+        match unlock_result {
+            Ok(_) => {
+                drop(master_password);
+                CommandResult::DatabaseRestored {
+                    source: crate::commands::types::DatabaseRecoverySource::Okb,
+                }
+            }
+            Err(e) => {
+                drop(master_password);
+                CommandResult::DatabaseValidationFailed {
+                    reason: format!("Restored database does not match current key: {}", e),
+                }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod rollback_tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_removes_newly_created_artifacts() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let vault_dir = dir.path();
+
+        std::fs::write(vault_dir.join("wrapped_secret_key.json"), b"key").expect("write key");
+        std::fs::write(vault_dir.join("vault.db"), b"db").expect("write db");
+        std::fs::write(vault_dir.join("vault.db-wal"), b"wal").expect("write wal");
+        std::fs::write(vault_dir.join("vault.db-shm"), b"shm").expect("write shm");
+
+        cleanup_failed_new_vault_initialization(vault_dir, false, false, false, false);
+
+        assert!(
+            !vault_dir.join("wrapped_secret_key.json").exists(),
+            "new key must be removed"
+        );
+        assert!(
+            !vault_dir.join("vault.db").exists(),
+            "new db must be removed"
+        );
+        assert!(
+            !vault_dir.join("vault.db-wal").exists(),
+            "new wal must be removed"
+        );
+        assert!(
+            !vault_dir.join("vault.db-shm").exists(),
+            "new shm must be removed"
+        );
+    }
+
+    #[test]
+    fn cleanup_preserves_preexisting_key() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let vault_dir = dir.path();
+
+        std::fs::write(vault_dir.join("wrapped_secret_key.json"), b"original key")
+            .expect("write key");
+
+        cleanup_failed_new_vault_initialization(vault_dir, true, false, false, false);
+
+        assert!(
+            vault_dir.join("wrapped_secret_key.json").exists(),
+            "preexisting key must survive cleanup"
+        );
+    }
+
+    #[test]
+    fn cleanup_preserves_preexisting_database() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let vault_dir = dir.path();
+
+        std::fs::write(vault_dir.join("vault.db"), b"original db").expect("write db");
+
+        cleanup_failed_new_vault_initialization(vault_dir, false, true, false, false);
+
+        assert!(
+            vault_dir.join("vault.db").exists(),
+            "preexisting db must survive cleanup"
+        );
+    }
+
+    #[test]
+    fn cleanup_missing_artifacts_is_noop() {
+        let dir = tempfile::tempdir().expect("temp dir");
+
+        cleanup_failed_new_vault_initialization(dir.path(), false, false, false, false);
+
+        // No files should exist after cleanup when none existed before.
+        assert!(!dir.path().join("wrapped_secret_key.json").exists());
+        assert!(!dir.path().join("vault.db").exists());
     }
 }

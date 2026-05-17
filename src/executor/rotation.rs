@@ -120,9 +120,26 @@ where
     };
 
     // 3. Execute rotation
-    let mut rotation_svc = RotationService::new(&mut *executor.vault);
-    let rotation_result = rotation_fn(&mut rotation_svc, expected_version);
-    drop(rotation_svc);
+    let rotation_result = {
+        let vault = match executor.vault_mut() {
+            Ok(v) => v,
+            Err(e) => {
+                if let Some(sync_svc) = &mut executor.sync {
+                    let _ = sync_svc.resume().await;
+                }
+                return CommandResult::Error {
+                    code: e.to_error_code(),
+                    context: e.to_error_context(),
+                    message_key: "error.vault_not_available",
+                    fallback: format!("Vault is not available for rotation: {}", e),
+                };
+            }
+        };
+        let mut rotation_svc = RotationService::new(vault);
+        let result = rotation_fn(&mut rotation_svc, expected_version);
+        drop(rotation_svc);
+        result
+    };
 
     // 4. Process result: CAS push with conflict resolution
     let result = match rotation_result {
@@ -233,17 +250,29 @@ pub async fn handle_trigger_rotation(executor: &mut CommandExecutor) -> CommandR
 #[tracing::instrument(skip_all)]
 pub async fn handle_resume_rotation(executor: &mut CommandExecutor) -> CommandResult {
     // Check if there's actually a pending checkpoint
-    {
-        let rotation_svc = RotationService::new(&mut *executor.vault);
-        let has_checkpoint = matches!(rotation_svc.has_pending_checkpoint(), Ok(true));
+    let has_checkpoint = {
+        let vault = match executor.vault_mut() {
+            Ok(v) => v,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: e.to_error_code(),
+                    context: e.to_error_context(),
+                    message_key: "error.vault_not_available",
+                    fallback: format!("Vault is not available: {}", e),
+                };
+            }
+        };
+        let rotation_svc = RotationService::new(vault);
+        let result = matches!(rotation_svc.has_pending_checkpoint(), Ok(true));
         drop(rotation_svc);
+        result
+    };
 
-        if !has_checkpoint {
-            return CommandResult::RotationTriggerChecked {
-                should_rotate: false,
-                reason: Some("no_pending_checkpoint".to_string()),
-            };
-        }
+    if !has_checkpoint {
+        return CommandResult::RotationTriggerChecked {
+            should_rotate: false,
+            reason: Some("no_pending_checkpoint".to_string()),
+        };
     }
 
     execute_rotation_protocol(
@@ -257,7 +286,18 @@ pub async fn handle_resume_rotation(executor: &mut CommandExecutor) -> CommandRe
 
 #[tracing::instrument(skip_all)]
 pub fn handle_check_rotation_trigger(executor: &mut CommandExecutor) -> CommandResult {
-    let config = match load_rotation_config(&executor.vault) {
+    let vault = match executor.vault() {
+        Ok(v) => v,
+        Err(e) => {
+            return CommandResult::Error {
+                code: e.to_error_code(),
+                context: e.to_error_context(),
+                message_key: "error.vault_not_available",
+                fallback: format!("Vault is not available: {}", e),
+            };
+        }
+    };
+    let config = match load_rotation_config(vault) {
         Ok(c) => c,
         Err(_e) => {
             return CommandResult::Error {
@@ -464,7 +504,7 @@ mod tests {
             started_at: chrono::Utc::now(),
             cloud_metadata_revision: "0".to_string(),
         };
-        save_checkpoint(&mut executor.vault, &checkpoint).unwrap();
+        save_checkpoint(&mut *executor.vault_mut().unwrap(), &checkpoint).unwrap();
 
         let result = handle_resume_rotation(&mut executor).await;
 
@@ -499,7 +539,7 @@ mod tests {
             started_at: chrono::Utc::now(),
             cloud_metadata_revision: "0".to_string(),
         };
-        save_checkpoint(&mut executor.vault, &checkpoint).unwrap();
+        save_checkpoint(&mut *executor.vault_mut().unwrap(), &checkpoint).unwrap();
 
         let result = handle_resume_rotation(&mut executor).await;
 

@@ -16,6 +16,7 @@ use crate::services::sync::SyncService;
 use crate::services::vault::Vault;
 
 use super::config_impl::{ClipboardConfigAdapter, ConfigManagerImpl, ServiceNotificationImpl};
+use super::runtime;
 use super::CommandExecutor;
 
 /// Builder for [`CommandExecutor`] — the single dependency-injection boundary.
@@ -25,7 +26,7 @@ use super::CommandExecutor;
 /// required fields (vault, config, result_tx, shutdown_token) and relies on
 /// builder defaults for services (health, clipboard, import_export).
 pub struct ExecutorBuilder {
-    vault: Option<Box<dyn Vault>>,
+    vault_runtime: Option<runtime::VaultRuntime>,
     vault_db_file_backed: bool,
     sync: Option<Box<dyn SyncService>>,
     health: Option<Arc<dyn Health>>,
@@ -53,7 +54,7 @@ impl ExecutorBuilder {
     #[must_use]
     pub fn new(vault_dir: PathBuf, config_dir: PathBuf) -> Self {
         Self {
-            vault: None,
+            vault_runtime: None,
             vault_db_file_backed: false,
             sync: None,
             health: None,
@@ -71,10 +72,17 @@ impl ExecutorBuilder {
         }
     }
 
-    /// Set the vault service (required).
+    /// Set the vault service (required) — wraps in `VaultRuntime::open`.
     #[must_use]
     pub fn vault(mut self, vault: Box<dyn Vault>) -> Self {
-        self.vault = Some(vault);
+        self.vault_runtime = Some(runtime::VaultRuntime::open(vault));
+        self
+    }
+
+    /// Set the vault runtime directly.
+    #[must_use]
+    pub fn vault_runtime(mut self, vault_runtime: runtime::VaultRuntime) -> Self {
+        self.vault_runtime = Some(vault_runtime);
         self
     }
 
@@ -191,7 +199,9 @@ impl ExecutorBuilder {
     /// `.sync()`. This keeps the builder pure and testable.
     #[track_caller]
     pub fn build(self) -> CommandExecutor {
-        let vault = self.vault.expect("ExecutorBuilder requires a vault");
+        let vault_runtime = self
+            .vault_runtime
+            .expect("ExecutorBuilder requires a vault");
         let config = self.config.expect("ExecutorBuilder requires config");
         let result_tx = self.result_tx.expect("ExecutorBuilder requires result_tx");
         let shutdown_token = self
@@ -233,7 +243,7 @@ impl ExecutorBuilder {
         ))));
 
         CommandExecutor {
-            vault,
+            vault_runtime,
             vault_db_file_backed: self.vault_db_file_backed,
             sync: self.sync,
             health,

@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use oak_keyring::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
+use oak_keyring::crypto::db_page_key::DbPageKey;
 use oak_keyring::services::vault::VaultServiceImpl;
 use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
 use oak_keyring::types::record::{CreateRecordParams, UpdateRecordParams};
@@ -14,18 +15,15 @@ use oak_keyring::types::sensitive::SecureStr;
 use rusqlite::Connection;
 use tempfile::TempDir;
 
-#[cfg(feature = "sqlcipher-poc")]
-const MODE: &str = "sqlcipher-poc";
+#[cfg(feature = "sqlcipher")]
+const MODE: &str = "sqlcipher";
 
-#[cfg(not(feature = "sqlcipher-poc"))]
+#[cfg(not(feature = "sqlcipher"))]
 const MODE: &str = "sqlite-bundled";
-
-#[cfg(feature = "sqlcipher-poc")]
-const SQLCIPHER_KEY: [u8; 32] = [7u8; 32];
 
 const DEFAULT_COUNTS: [usize; 3] = [100, 1000, 10000];
 const SEARCH_QUERY: &str = "bench-login-000";
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 const TAG_QUERY: &str = "bench";
 
 enum Metric {
@@ -55,13 +53,16 @@ struct BenchRow {
     sqlite_to_sqlcipher_migration_ms: Metric,
 }
 
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 fn open_connection(vault_dir: &Path) -> Result<Connection> {
-    oak_keyring::db::sqlcipher::open_encrypted_vault_dir(vault_dir, &SQLCIPHER_KEY)
+    let mut key_bytes = [7u8; 32];
+    let key =
+        DbPageKey::new(&mut key_bytes).map_err(|e| anyhow::anyhow!("create DbPageKey: {e}"))?;
+    oak_keyring::db::sqlcipher::open_encrypted_vault_dir(vault_dir, &key)
         .context("open SQLCipher database")
 }
 
-#[cfg(not(feature = "sqlcipher-poc"))]
+#[cfg(not(feature = "sqlcipher"))]
 fn open_connection(vault_dir: &Path) -> Result<Connection> {
     oak_keyring::db::schema::init_db(vault_dir).context("open SQLite database")
 }
@@ -181,7 +182,7 @@ fn generated_name_contains_search_query(i: usize) -> bool {
     format!("bench-login-{i:06}").contains(SEARCH_QUERY)
 }
 
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 fn validate_tag_records(
     records: &[oak_keyring::types::record::TuiRecord],
     expected_count: usize,
@@ -273,7 +274,7 @@ fn run_workload(vault: &mut VaultServiceImpl, count: usize) -> Result<BenchRow> 
     })
 }
 
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 fn sqlite_to_sqlcipher_migration_metric(count: usize) -> Result<Metric> {
     let plaintext_dir = TempDir::new().context("create plaintext migration source dir")?;
     let encrypted_dir = TempDir::new().context("create SQLCipher migration target dir")?;
@@ -303,20 +304,24 @@ fn sqlite_to_sqlcipher_migration_metric(count: usize) -> Result<Metric> {
     Ok(Metric::Millis(export_duration))
 }
 
-#[cfg(not(feature = "sqlcipher-poc"))]
+#[cfg(not(feature = "sqlcipher"))]
 fn sqlite_to_sqlcipher_migration_metric(_count: usize) -> Result<Metric> {
     Ok(Metric::NotAvailable(
-        "SQLCipher export requires the sqlcipher-poc feature",
+        "SQLCipher export requires the sqlcipher feature",
     ))
 }
 
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 fn export_plaintext_sqlite_to_sqlcipher(source: &Path, target: &Path) -> Result<()> {
+    let key = {
+        let mut bytes = [7u8; 32];
+        DbPageKey::new(&mut bytes).map_err(|e| anyhow::anyhow!("DbPageKey: {e}"))?
+    };
     let source_conn = Connection::open(source).context("open plaintext source for export")?;
     let target_path = target
         .to_str()
         .context("SQLCipher export target path must be valid UTF-8")?;
-    let raw_key = format!("x'{}'", hex::encode(SQLCIPHER_KEY));
+    let raw_key = oak_keyring::db::sqlcipher::sqlcipher_key_hex(&key);
 
     source_conn
         .execute(
@@ -334,7 +339,7 @@ fn export_plaintext_sqlite_to_sqlcipher(source: &Path, target: &Path) -> Result<
     export_result.and(detach_result)
 }
 
-#[cfg(feature = "sqlcipher-poc")]
+#[cfg(feature = "sqlcipher")]
 fn validate_sqlcipher_export(
     vault_dir: &Path,
     mnemonic: &Passkey,

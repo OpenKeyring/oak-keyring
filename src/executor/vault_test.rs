@@ -9,7 +9,7 @@ use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::executor::vault::schedule_health_check_after_unlock;
 use crate::executor::CommandExecutor;
 use crate::services::clipboard::{ClipboardService, MockBackend};
-use crate::services::vault::{Vault, VaultServiceImpl};
+use crate::services::vault::VaultServiceImpl;
 use crate::types::health::RecordHealthState;
 use crate::types::{CredentialType, EncryptedPayload, SecureStr};
 
@@ -39,7 +39,8 @@ fn make_unlocked_executor() -> CommandExecutor {
 /// Helper: create a Login record and return its UUID.
 fn create_login_record(executor: &mut CommandExecutor, name: &str) -> uuid::Uuid {
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .create_record(crate::types::record::CreateRecordParams {
             credential_type: CredentialType::Login,
             payload: EncryptedPayload::Login {
@@ -59,7 +60,8 @@ fn create_login_record(executor: &mut CommandExecutor, name: &str) -> uuid::Uuid
 /// Helper: insert a health state via the VaultService wrapper.
 fn insert_health_state(executor: &mut CommandExecutor, state: RecordHealthState) {
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .upsert_record_health_state(&state)
         .expect("insert health state");
 }
@@ -108,7 +110,8 @@ fn loads_cached_report_when_check_not_due() {
     });
     let recent = chrono::Utc::now() - chrono::Duration::hours(1);
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .set_last_health_check_at(recent)
         .expect("set last health check");
 
@@ -207,7 +210,8 @@ fn loads_empty_cache_when_no_health_states() {
     });
     let recent = chrono::Utc::now() - chrono::Duration::minutes(30);
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .set_last_health_check_at(recent)
         .expect("set last health check");
 
@@ -238,7 +242,8 @@ fn schedules_check_when_daily_frequency_expired() {
     // Set last check to 2 days ago (> 24h)
     let two_days_ago = chrono::Utc::now() - chrono::Duration::days(2);
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .set_last_health_check_at(two_days_ago)
         .expect("set last health check");
 
@@ -265,7 +270,8 @@ fn loads_cached_report_with_multiple_categories() {
     });
     let recent = chrono::Utc::now() - chrono::Duration::hours(6);
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .set_last_health_check_at(recent)
         .expect("set last health check");
 

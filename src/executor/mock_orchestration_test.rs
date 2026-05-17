@@ -203,6 +203,7 @@ fn vault_lock_calls_trait_method() {
     assert!(executor.verified_master_password.is_none());
 }
 
+#[cfg(not(feature = "sqlcipher"))]
 #[tokio::test]
 async fn vault_unlock_calls_unlock_on_trait() {
     let mut mock_vault = MockVault::new();
