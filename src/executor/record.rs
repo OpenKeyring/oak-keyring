@@ -162,7 +162,10 @@ pub fn handle_toggle_favorite(
     id: Uuid,
     is_favorite: bool,
 ) -> CommandResult {
-    match executor.vault_mut().and_then(|v| v.toggle_favorite(id, is_favorite)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.toggle_favorite(id, is_favorite))
+    {
         Ok(()) => CommandResult::FavoriteToggled { id, is_favorite },
         Err(e) => vault_error(e, "Failed to toggle favorite"),
     }
@@ -174,7 +177,10 @@ pub fn handle_load_record_list(
     filter: RecordFilter,
     sort: RecordSort,
 ) -> CommandResult {
-    match executor.vault_mut().and_then(|v| v.list_records(&filter, &sort)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.list_records(&filter, &sort))
+    {
         Ok(mut records) => {
             // Spec Compliance: Populate health fields from cached health_report.
             // When no health report exists, is_expired stays false (set by vault
@@ -241,7 +247,10 @@ pub fn handle_load_record_detail(executor: &mut CommandExecutor, id: Uuid) -> Co
         attempt_lazy_migration(vault, id);
     }
 
-    match executor.vault_mut().and_then(|v| v.get_decrypted_record(id)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.get_decrypted_record(id))
+    {
         Ok(record) => {
             // Compute password strength based on credential type.
             let password_strength = compute_password_strength(&record);
@@ -289,7 +298,10 @@ pub fn handle_load_record_for_edit(executor: &mut CommandExecutor, id: Uuid) -> 
         attempt_lazy_migration(vault, id);
     }
 
-    match executor.vault_mut().and_then(|v| v.get_decrypted_record(id)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.get_decrypted_record(id))
+    {
         Ok(record) => CommandResult::RecordForEditLoaded { record },
         Err(e) => vault_error(e, "Failed to load record for edit"),
     }
@@ -301,7 +313,10 @@ pub fn handle_decrypt_field(
     id: Uuid,
     field: FieldSelector,
 ) -> CommandResult {
-    match executor.vault_mut().and_then(|v| v.decrypt_field(id, field)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.decrypt_field(id, field))
+    {
         Ok(value) => CommandResult::FieldDecrypted { id, field, value },
         Err(e) => vault_error(e, "Failed to decrypt field"),
     }
@@ -312,13 +327,19 @@ pub fn handle_load_password_history(
     executor: &mut CommandExecutor,
     record_id: Uuid,
 ) -> CommandResult {
-    match executor.vault_mut().and_then(|v| v.get_password_history(record_id)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.get_password_history(record_id))
+    {
         Ok(entries) => {
             // Vault returns Vec<PasswordHistory> (encrypted).
             // Decrypt each entry to build PasswordHistoryView for the UI.
             let mut views = Vec::with_capacity(entries.len());
             for entry in &entries {
-                let password = match executor.vault_mut().and_then(|v| v.decrypt_history_password(entry.id)) {
+                let password = match executor
+                    .vault_mut()
+                    .and_then(|v| v.decrypt_history_password(entry.id))
+                {
                     Ok(p) => p,
                     Err(_) => SecureStr::new(String::from("***")),
                 };
@@ -355,7 +376,10 @@ pub fn handle_rename_tag(
     old_name: String,
     new_name: String,
 ) -> CommandResult {
-    match executor.vault_mut().and_then(|v| v.rename_tag(&old_name, &new_name)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.rename_tag(&old_name, &new_name))
+    {
         Ok(()) => CommandResult::TagRenamed { old_name, new_name },
         Err(e) => vault_error(e, "Failed to rename tag"),
     }
@@ -375,7 +399,10 @@ pub fn handle_batch_add_tag(
     record_ids: Vec<Uuid>,
     tag_name: String,
 ) -> CommandResult {
-    match executor.vault_mut().and_then(|v| v.batch_add_tag(&record_ids, &tag_name)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.batch_add_tag(&record_ids, &tag_name))
+    {
         Ok(count) => CommandResult::BatchTagAdded { count },
         Err(e) => vault_error(e, "Failed to add tag to records"),
     }
@@ -387,7 +414,10 @@ pub fn handle_batch_remove_tag(
     record_ids: Vec<Uuid>,
     tag_name: String,
 ) -> CommandResult {
-    match executor.vault_mut().and_then(|v| v.batch_remove_tag(&record_ids, &tag_name)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.batch_remove_tag(&record_ids, &tag_name))
+    {
         Ok(count) => CommandResult::BatchTagRemoved { count },
         Err(e) => vault_error(e, "Failed to remove tag from records"),
     }
@@ -398,7 +428,10 @@ pub fn handle_batch_soft_delete(
     executor: &mut CommandExecutor,
     record_ids: Vec<Uuid>,
 ) -> CommandResult {
-    match executor.vault_mut().and_then(|v| v.batch_soft_delete(&record_ids)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.batch_soft_delete(&record_ids))
+    {
         Ok(count) => CommandResult::BatchDeleted { count },
         Err(e) => vault_error(e, "Failed to batch delete records"),
     }

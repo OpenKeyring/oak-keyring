@@ -14,7 +14,8 @@ pub async fn handle_copy_to_clipboard(
     field: FieldSelector,
 ) -> CommandResult {
     // Step 1: Decrypt field via VaultService
-    let plaintext = match executor.vault_mut()
+    let plaintext = match executor
+        .vault_mut()
         .and_then(|v| v.decrypt_field(id, field))
     {
         Ok(s) => s,
@@ -79,7 +80,8 @@ pub async fn handle_copy_history_password(
     executor: &mut CommandExecutor,
     history_id: i64,
 ) -> CommandResult {
-    let plaintext = match executor.vault_mut()
+    let plaintext = match executor
+        .vault_mut()
         .and_then(|v| v.decrypt_history_password(history_id))
     {
         Ok(s) => s,

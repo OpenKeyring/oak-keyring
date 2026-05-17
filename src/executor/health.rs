@@ -182,7 +182,9 @@ pub fn persist_health_report(
         .collect();
 
     // Transactional batch replace.
-    executor.vault_mut()?.replace_record_health_states(&new_states)?;
+    executor
+        .vault_mut()?
+        .replace_record_health_states(&new_states)?;
 
     Ok(deltas)
 }
@@ -205,7 +207,9 @@ pub fn schedule_health_resync_for_records(
     let record_ids: Vec<Uuid> = deltas.iter().map(|d| d.record_id).collect();
 
     // Mark sync_state = Pending for the next sync cycle.
-    executor.vault_mut()?.mark_records_pending_sync(&record_ids)?;
+    executor
+        .vault_mut()?
+        .mark_records_pending_sync(&record_ids)?;
 
     tracing::info!(
         count = record_ids.len(),
@@ -338,7 +342,8 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor, force: bool) -> C
 
     let mut entries = Vec::with_capacity(login_records.len());
     for record in &login_records {
-        match executor.vault_mut()
+        match executor
+            .vault_mut()
             .and_then(|v| v.decrypt_field(record.id, FieldSelector::Password))
         {
             Ok(password) => entries.push(PasswordEntry {
@@ -480,7 +485,8 @@ pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) 
     }
 
     // Step 1: Decrypt the record's password
-    let password = match executor.vault_mut()
+    let password = match executor
+        .vault_mut()
         .and_then(|v| v.decrypt_field(record_id, FieldSelector::Password))
     {
         Ok(s) => s,

@@ -253,7 +253,10 @@ pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor
 
 #[tracing::instrument(skip_all)]
 pub fn handle_load_audit_log(executor: &mut CommandExecutor, filter: AuditFilter) -> CommandResult {
-    match executor.vault_mut().and_then(|v| v.query_audit_log(&filter)) {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.query_audit_log(&filter))
+    {
         Ok((entries, total)) => CommandResult::AuditLogLoaded { entries, total },
         Err(e) => {
             let err: &dyn ServiceError = &e;
