@@ -10,6 +10,14 @@ pub(crate) fn sqlcipher_raw_key_pragma(key: &DbPageKey) -> String {
     format!("PRAGMA key = \"x'{}'\";", hex::encode(key.expose()))
 }
 
+/// Return the SQLCipher hex-encoded key literal for use with `ATTACH KEY` syntax.
+/// Only needed by the benchmark. Production code should use [`apply_key`] or
+/// [`open_encrypted_connection`] instead.
+#[cfg(feature = "sqlcipher")]
+pub fn sqlcipher_key_hex(key: &DbPageKey) -> String {
+    format!("x'{}'", hex::encode(key.expose()))
+}
+
 pub fn apply_key(conn: &Connection, key: &DbPageKey) -> Result<(), rusqlite::Error> {
     conn.execute_batch(&sqlcipher_raw_key_pragma(key))
 }

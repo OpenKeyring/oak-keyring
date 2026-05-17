@@ -26,7 +26,7 @@ impl DbPageKey {
     }
 
     /// Exposes the underlying 32-byte key.
-    pub fn expose(&self) -> &[u8; 32] {
+    pub(crate) fn expose(&self) -> &[u8; 32] {
         self.0.expose()
     }
 }

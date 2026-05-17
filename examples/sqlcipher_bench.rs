@@ -321,7 +321,7 @@ fn export_plaintext_sqlite_to_sqlcipher(source: &Path, target: &Path) -> Result<
     let target_path = target
         .to_str()
         .context("SQLCipher export target path must be valid UTF-8")?;
-    let raw_key = format!("x'{}'", hex::encode(key.expose()));
+    let raw_key = oak_keyring::db::sqlcipher::sqlcipher_key_hex(&key);
 
     source_conn
         .execute(

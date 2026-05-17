@@ -33,7 +33,7 @@ impl VaultDbFactory {
     ) -> Result<Connection, VaultDbError> {
         std::fs::create_dir_all(vault_dir).map_err(|e| VaultDbError::DbOpenIo(e.to_string()))?;
         let db_path = vault_dir.join("vault.db");
-        let conn = open_keyed_connection(&db_path, key)?;
+        let conn = open_keyed_connection(&db_path, key, false)?;
         migrate_and_validate(conn)
     }
 
@@ -49,7 +49,7 @@ impl VaultDbFactory {
             )));
         }
         // Open once with key; fall back to plaintext check on any error.
-        let conn = match open_keyed_connection(&db_path, key) {
+        let conn = match open_keyed_connection(&db_path, key, true) {
             Ok(c) => c,
             Err(e) => {
                 return Err(if is_plaintext_sqlite(&db_path) {
@@ -70,20 +70,34 @@ impl VaultDbFactory {
     }
 }
 
-fn open_keyed_connection(db_path: &Path, key: &DbPageKey) -> Result<Connection, VaultDbError> {
+/// Open a SQLCipher-keyed connection.
+///
+/// When `validate_key` is true (existing database open), a probe query is run
+/// after key application to surface wrong-key errors before pragma application.
+/// For new database creation, `validate_key` is false because the database file
+/// has no schema yet, so the probe would fail reading a plaintext header through
+/// the encryption layer.
+fn open_keyed_connection(
+    db_path: &Path,
+    key: &DbPageKey,
+    validate_key: bool,
+) -> Result<Connection, VaultDbError> {
     let conn = Connection::open(db_path).map_err(|e| VaultDbError::DbOpenIo(e.to_string()))?;
     crate::db::sqlcipher::apply_key(&conn, key).map_err(|e| {
         tracing::warn!(error = %e, "failed to apply SQLCipher key to database");
         VaultDbError::WrongDbPageKey
     })?;
-    // Probe the keyed connection to surface wrong-key errors before pragma
-    // application. PRAGMA key alone does not validate the key material;
-    // the first read through the encryption layer reveals mismatches.
-    conn.query_row("SELECT COUNT(*) FROM sqlite_master", [], |_row| Ok(()))
-        .map_err(|e| {
-            tracing::warn!(error = %e, "SQLCipher key validation probe failed");
-            VaultDbError::WrongDbPageKey
-        })?;
+    if validate_key {
+        // Probe the keyed connection to surface wrong-key errors before
+        // pragma application. PRAGMA key alone does not validate the
+        // key material; the first read through the encryption layer
+        // reveals mismatches.
+        conn.query_row("SELECT COUNT(*) FROM sqlite_master", [], |_row| Ok(()))
+            .map_err(|e| {
+                tracing::warn!(error = %e, "SQLCipher key validation probe failed");
+                VaultDbError::WrongDbPageKey
+            })?;
+    }
     schema::apply_pragmas(&conn).map_err(|e| VaultDbError::DbOpenIo(e.to_string()))?;
     Ok(conn)
 }

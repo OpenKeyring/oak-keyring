@@ -87,21 +87,46 @@ fn build_executor_with_sync(
     db_mode: DbStartupMode,
     sync: Option<Box<dyn SyncService>>,
 ) -> CommandExecutor {
-    use oak_keyring::db::schema::{init_db, init_db_in_memory};
+    use oak_keyring::db::schema::init_db_in_memory;
 
-    let conn = match db_mode {
-        DbStartupMode::FileBacked => init_db(&data_dir).expect("db init should succeed"),
-        DbStartupMode::DeferredInMemory => init_db_in_memory(),
+    let (vault_runtime, vault_db_file_backed) = match db_mode {
+        #[cfg(feature = "sqlcipher")]
+        DbStartupMode::FileBacked => {
+            // SQLCipher production: start locked. The test will send
+            // InitializeVault or UnlockVault to open the encrypted DB.
+            (
+                oak_keyring::executor::runtime::VaultRuntime::locked(),
+                false,
+            )
+        }
+        #[cfg(not(feature = "sqlcipher"))]
+        DbStartupMode::FileBacked => {
+            use oak_keyring::db::schema::init_db;
+            let conn = init_db(&data_dir).expect("db init should succeed");
+            (
+                oak_keyring::executor::runtime::VaultRuntime::open(Box::new(
+                    VaultServiceImpl::new(conn),
+                )),
+                true,
+            )
+        }
+        DbStartupMode::DeferredInMemory => {
+            let conn = init_db_in_memory();
+            (
+                oak_keyring::executor::runtime::VaultRuntime::open(Box::new(
+                    VaultServiceImpl::new(conn),
+                )),
+                false,
+            )
+        }
     };
-    let vault = Box::new(VaultServiceImpl::new(conn));
-    let vault_db_file_backed = matches!(db_mode, DbStartupMode::FileBacked);
     let clipboard = Arc::new(
         ClipboardService::new_safe(config.general.clipboard_clear_seconds)
             .expect("clipboard should initialize"),
     );
 
     CommandExecutor::builder(data_dir, config_dir)
-        .vault(vault)
+        .vault_runtime(vault_runtime)
         .vault_db_file_backed(vault_db_file_backed)
         .sync(sync)
         .config(config)

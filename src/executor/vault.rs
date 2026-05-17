@@ -1,7 +1,6 @@
 use crate::commands::{CommandResult, InternalCommand};
 use crate::config::ConfigManager;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-use crate::errors::service_error::ServiceError;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::{RecoveryWords, SecureStr};
 
@@ -268,46 +267,154 @@ pub async fn handle_unlock_with_recovery_key(
         }
     };
 
-    let unlock_result = {
-        let vault = match executor.vault_mut() {
-            Ok(v) => v,
+    #[cfg(feature = "sqlcipher")]
+    {
+        // Key-first recovery unlock for SQLCipher production.
+        // Derive key material directly from the mnemonic (no keystore file needed).
+        let seed = match passkey.to_seed(None) {
+            Ok(s) => s,
             Err(e) => {
                 return CommandResult::Error {
-                    code: e.to_error_code(),
-                    context: e.to_error_context(),
-                    message_key: "error.vault_not_available",
-                    fallback: format!("Vault is not available for unlock: {}", e),
+                    code: ErrorCode::CryptoKeyDerivationFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.seed_derivation_failed",
+                    fallback: format!("Failed to derive seed from recovery key: {}", e),
                 };
             }
         };
-        vault.unlock_with_mnemonic(&passkey)
-    };
-    match unlock_result {
-        Ok(()) => {
-            // Post-recovery: resume interrupted rotation or trigger new one.
-            // Prefer resume_rotation if a checkpoint exists (crash recovery),
-            // otherwise trigger a fresh rotation (security best practice).
-            tracing::info!("Post-recovery: checking for interrupted rotation");
-            let rotation_result = super::rotation::handle_resume_rotation(executor).await;
-            if let CommandResult::RotationTriggerChecked { .. } = &rotation_result {
-                // No pending checkpoint — trigger fresh rotation
-                tracing::info!("No pending checkpoint, triggering fresh DEK rotation");
-                let fresh_result = super::rotation::handle_trigger_rotation(executor).await;
-                if let CommandResult::Error { .. } = &fresh_result {
-                    tracing::warn!("Post-recovery DEK rotation failed, vault is still usable");
-                }
-            } else if let CommandResult::Error { .. } = &rotation_result {
-                tracing::warn!("Post-recovery rotation resume failed, vault is still usable");
+        let mut sk_bytes = seed.to_secret_key();
+        let mut kek_bytes = match crate::crypto::hkdf::derive_kek(&sk_bytes) {
+            Ok(k) => k,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::CryptoKeyDerivationFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.kek_derivation_failed",
+                    fallback: format!("Failed to derive key encryption key: {}", e),
+                };
             }
+        };
+        let db_page_key = match crate::crypto::hkdf::derive_db_page_key(&kek_bytes) {
+            Ok(mut k) => match crate::crypto::db_page_key::DbPageKey::new(&mut k) {
+                Ok(dk) => dk,
+                Err(e) => {
+                    return CommandResult::Error {
+                        code: ErrorCode::CryptoKeyDerivationFailed,
+                        context: ErrorContext::default(),
+                        message_key: "error.db_key_derivation_failed",
+                        fallback: format!("Failed to wrap database page key: {}", e),
+                    };
+                }
+            },
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::CryptoKeyDerivationFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.db_key_derivation_failed",
+                    fallback: format!("Failed to derive database page key: {}", e),
+                };
+            }
+        };
 
-            // Schedule health check after successful recovery unlock
-            schedule_health_check_after_unlock(executor);
+        let conn = match crate::db::vault_db::VaultDbFactory::open_sqlcipher_vault(
+            &executor.vault_dir,
+            &db_page_key,
+        ) {
+            Ok(c) => c,
+            Err(e) => return vault_db_error_result(e),
+        };
 
-            CommandResult::RecoveryKeyUnlocked
+        // Build the keystore in-memory from the reconstructed key material.
+        use crate::crypto::keystore::{KeyEncryptionKey, KeyStore, SecretKey};
+        let secret_key = match SecretKey::new(&mut sk_bytes) {
+            Ok(sk) => sk,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::CryptoKeyDerivationFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.secret_key_failed",
+                    fallback: format!("Failed to wrap secret key: {}", e),
+                };
+            }
+        };
+        let kek = match KeyEncryptionKey::new(&mut kek_bytes) {
+            Ok(k) => k,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: ErrorCode::CryptoKeyDerivationFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.kek_failed",
+                    fallback: format!("Failed to wrap key encryption key: {}", e),
+                };
+            }
+        };
+        let ks = KeyStore {
+            sk: Some(secret_key),
+            kek: Some(kek),
+            current_dek_version: 1,
+            device_id: uuid::Uuid::new_v4().to_string(),
+            mnemonic_language: crate::crypto::bip39::MnemonicLanguage::English,
+        };
+        let crypto = crate::crypto::CryptoManager::from_unlocked_keystore(ks);
+        executor.vault_runtime = crate::executor::runtime::VaultRuntime::open(Box::new(
+            crate::services::vault::VaultServiceImpl::new_unlocked(conn, crypto),
+        ));
+        executor.vault_db_file_backed = true;
+
+        // Post-recovery rotation and health check.
+        tracing::info!("Post-recovery: checking for interrupted rotation");
+        let rotation_result = super::rotation::handle_resume_rotation(executor).await;
+        if let CommandResult::RotationTriggerChecked { .. } = &rotation_result {
+            tracing::info!("No pending checkpoint, triggering fresh DEK rotation");
+            let fresh_result = super::rotation::handle_trigger_rotation(executor).await;
+            if let CommandResult::Error { .. } = &fresh_result {
+                tracing::warn!("Post-recovery DEK rotation failed, vault is still usable");
+            }
+        } else if let CommandResult::Error { .. } = &rotation_result {
+            tracing::warn!("Post-recovery rotation resume failed, vault is still usable");
         }
-        Err(_) => CommandResult::VaultUnlockFailed {
-            attempts_remaining: None,
-        },
+        schedule_health_check_after_unlock(executor);
+        return CommandResult::RecoveryKeyUnlocked;
+    }
+
+    #[cfg(not(feature = "sqlcipher"))]
+    {
+        let unlock_result = {
+            let vault = match executor.vault_mut() {
+                Ok(v) => v,
+                Err(e) => {
+                    return CommandResult::Error {
+                        code: e.to_error_code(),
+                        context: e.to_error_context(),
+                        message_key: "error.vault_not_available",
+                        fallback: format!("Vault is not available for unlock: {}", e),
+                    };
+                }
+            };
+            vault.unlock_with_mnemonic(&passkey)
+        };
+        match unlock_result {
+            Ok(()) => {
+                // Post-recovery: resume interrupted rotation or trigger new one.
+                tracing::info!("Post-recovery: checking for interrupted rotation");
+                let rotation_result = super::rotation::handle_resume_rotation(executor).await;
+                if let CommandResult::RotationTriggerChecked { .. } = &rotation_result {
+                    tracing::info!("No pending checkpoint, triggering fresh DEK rotation");
+                    let fresh_result = super::rotation::handle_trigger_rotation(executor).await;
+                    if let CommandResult::Error { .. } = &fresh_result {
+                        tracing::warn!("Post-recovery DEK rotation failed, vault is still usable");
+                    }
+                } else if let CommandResult::Error { .. } = &rotation_result {
+                    tracing::warn!("Post-recovery rotation resume failed, vault is still usable");
+                }
+
+                schedule_health_check_after_unlock(executor);
+                CommandResult::RecoveryKeyUnlocked
+            }
+            Err(_) => CommandResult::VaultUnlockFailed {
+                attempts_remaining: None,
+            },
+        }
     }
 }
 
