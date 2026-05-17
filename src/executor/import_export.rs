@@ -176,9 +176,7 @@ pub fn handle_execute_import(
             is_favorite: false,
             expires_at: None,
         };
-        match executor.vault_mut()
-            .and_then(|v| v.create_record(params))
-        {
+        match executor.vault_mut().and_then(|v| v.create_record(params)) {
             Ok(_) => {
                 if record.is_review {
                     reviewed_count += 1;
@@ -191,8 +189,8 @@ pub fn handle_execute_import(
     }
 
     // Audit log for successful import.
-    if let Err(e) = executor.vault_mut()
-        .and_then(|v| v.write_audit_entry(
+    if let Err(e) = executor.vault_mut().and_then(|v| {
+        v.write_audit_entry(
             crate::types::AuditOperation::VaultImport,
             None,
             None,
@@ -200,8 +198,8 @@ pub fn handle_execute_import(
                 "source={:?}, imported={}, reviewed={}, failed={}, skipped={}",
                 source, imported_count, reviewed_count, failed_count, import_result.skipped
             )),
-        ))
-    {
+        )
+    }) {
         tracing::warn!(error = %e, "Failed to write import audit log");
     }
 
@@ -279,7 +277,8 @@ pub fn handle_execute_export(
         direction: SortDirection::Asc,
     };
 
-    let records = match executor.vault_mut()
+    let records = match executor
+        .vault_mut()
         .and_then(|v| v.list_records(&filter, &sort))
     {
         Ok(r) => r,
@@ -300,7 +299,8 @@ pub fn handle_execute_export(
         if cancel_token.is_cancelled() {
             return CommandResult::cancelled("export_execute");
         }
-        let decrypted = match executor.vault_mut()
+        let decrypted = match executor
+            .vault_mut()
             .and_then(|v| v.get_decrypted_record(r.id))
         {
             Ok(d) => d,
@@ -348,8 +348,8 @@ pub fn handle_execute_export(
     };
 
     // Audit log for successful export.
-    if let Err(e) = executor.vault_mut()
-        .and_then(|v| v.write_audit_entry(
+    if let Err(e) = executor.vault_mut().and_then(|v| {
+        v.write_audit_entry(
             crate::types::AuditOperation::VaultExport,
             None,
             None,
@@ -359,8 +359,8 @@ pub fn handle_execute_export(
                 result_path.display(),
                 record_count
             )),
-        ))
-    {
+        )
+    }) {
         tracing::warn!(error = %e, "Failed to write export audit log");
     }
 
@@ -594,7 +594,41 @@ pub async fn handle_restore_database_from_okb(
     // Create a pending file-backed vault.db. If any later step fails, dropping
     // the guard restores the executor to an in-memory vault and removes the
     // uncommitted database files.
-    let mut pending = match executor.begin_file_backed_vault_db() {
+    let mut pending = match {
+        #[cfg(feature = "sqlcipher")]
+        {
+            let keystore = match crate::crypto::keystore::KeyStore::unlock(
+                &executor.vault_dir,
+                &master_password,
+            ) {
+                Ok(ks) => ks,
+                Err(_) => {
+                    return CommandResult::Error {
+                        code: ErrorCode::CryptoEncryptionFailed,
+                        context: ErrorContext::default(),
+                        message_key: "error.keystore_unlock_failed",
+                        fallback: "Failed to unlock keystore for restore.".to_string(),
+                    };
+                }
+            };
+            let db_page_key = match keystore.db_page_key() {
+                Ok(key) => key,
+                Err(e) => {
+                    return CommandResult::Error {
+                        code: ErrorCode::CryptoKeyDerivationFailed,
+                        context: ErrorContext::default(),
+                        message_key: "error.db_key_derivation_failed",
+                        fallback: format!("Failed to derive database page key: {}", e),
+                    };
+                }
+            };
+            executor.begin_file_backed_vault_db(&db_page_key)
+        }
+        #[cfg(not(feature = "sqlcipher"))]
+        {
+            executor.begin_file_backed_vault_db()
+        }
+    } {
         Ok(pending) => pending,
         Err(e) => {
             return CommandResult::Error {

@@ -58,6 +58,18 @@ fn cleanup_failed_new_vault_initialization(
     }
 }
 
+/// Derive a database page key from the keystore for a pending vault initialization.
+///
+/// Unlocks the existing keystore (created by [`KeyStore::initialize`]) and
+/// derives the [`DbPageKey`] needed to create a SQLCipher-encrypted database.
+#[cfg(feature = "sqlcipher")]
+pub(super) fn derive_db_page_key_for_pending(
+    vault_dir: &std::path::Path,
+    master_password: &SecureStr,
+) -> Result<crate::crypto::db_page_key::DbPageKey, String> {
+    crate::crypto::keystore::KeyStore::unlock(vault_dir, master_password)?.db_page_key()
+}
+
 /// Schedule health check after a successful unlock.
 ///
 /// Reads the persisted `last_health_check_at` from metadata, evaluates
@@ -452,9 +464,43 @@ pub async fn handle_initialize_vault(
         }
     }
 
+    // Step 3a (SQLCipher): Derive database page key from initialized keystore.
+    #[cfg(feature = "sqlcipher")]
+    let db_page_key = match derive_db_page_key_for_pending(&vault_path, &master_password) {
+        Ok(key) => key,
+        Err(e) => {
+            cleanup_failed_new_vault_initialization(
+                &vault_path,
+                key_existed_before,
+                vault_db_existed_before,
+                wal_existed_before,
+                shm_existed_before,
+            );
+            return CommandResult::Error {
+                code: ErrorCode::CryptoKeyDerivationFailed,
+                context: ErrorContext::default(),
+                message_key: "error.db_key_derivation_failed",
+                fallback: format!(
+                    "Failed to derive database page key after initialization: {}",
+                    e
+                ),
+            };
+        }
+    };
+
     // Step 4: Commit the database only after the keystore exists and the new
     // password can unlock the file-backed vault.
-    let mut pending = match executor.begin_file_backed_vault_db() {
+    let begin_result = {
+        #[cfg(feature = "sqlcipher")]
+        {
+            executor.begin_file_backed_vault_db(&db_page_key)
+        }
+        #[cfg(not(feature = "sqlcipher"))]
+        {
+            executor.begin_file_backed_vault_db()
+        }
+    };
+    let mut pending = match begin_result {
         Ok(pending) => pending,
         Err(e) => {
             cleanup_failed_new_vault_initialization(
@@ -628,5 +674,82 @@ pub async fn handle_validate_restored_database(executor: &mut CommandExecutor) -
                 reason: format!("Restored database does not match current key: {}", e),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod rollback_tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_removes_newly_created_artifacts() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let vault_dir = dir.path();
+
+        std::fs::write(vault_dir.join("wrapped_secret_key.json"), b"key").expect("write key");
+        std::fs::write(vault_dir.join("vault.db"), b"db").expect("write db");
+        std::fs::write(vault_dir.join("vault.db-wal"), b"wal").expect("write wal");
+        std::fs::write(vault_dir.join("vault.db-shm"), b"shm").expect("write shm");
+
+        cleanup_failed_new_vault_initialization(vault_dir, false, false, false, false);
+
+        assert!(
+            !vault_dir.join("wrapped_secret_key.json").exists(),
+            "new key must be removed"
+        );
+        assert!(
+            !vault_dir.join("vault.db").exists(),
+            "new db must be removed"
+        );
+        assert!(
+            !vault_dir.join("vault.db-wal").exists(),
+            "new wal must be removed"
+        );
+        assert!(
+            !vault_dir.join("vault.db-shm").exists(),
+            "new shm must be removed"
+        );
+    }
+
+    #[test]
+    fn cleanup_preserves_preexisting_key() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let vault_dir = dir.path();
+
+        std::fs::write(vault_dir.join("wrapped_secret_key.json"), b"original key")
+            .expect("write key");
+
+        cleanup_failed_new_vault_initialization(vault_dir, true, false, false, false);
+
+        assert!(
+            vault_dir.join("wrapped_secret_key.json").exists(),
+            "preexisting key must survive cleanup"
+        );
+    }
+
+    #[test]
+    fn cleanup_preserves_preexisting_database() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let vault_dir = dir.path();
+
+        std::fs::write(vault_dir.join("vault.db"), b"original db").expect("write db");
+
+        cleanup_failed_new_vault_initialization(vault_dir, false, true, false, false);
+
+        assert!(
+            vault_dir.join("vault.db").exists(),
+            "preexisting db must survive cleanup"
+        );
+    }
+
+    #[test]
+    fn cleanup_missing_artifacts_is_noop() {
+        let dir = tempfile::tempdir().expect("temp dir");
+
+        cleanup_failed_new_vault_initialization(dir.path(), false, false, false, false);
+
+        // No files should exist after cleanup when none existed before.
+        assert!(!dir.path().join("wrapped_secret_key.json").exists());
+        assert!(!dir.path().join("vault.db").exists());
     }
 }

@@ -28,7 +28,9 @@ use crate::commands::types::HealthReport;
 use crate::commands::{Command, InternalCommand, Message};
 use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::{AppConfig, ConfigManager};
-use crate::db::schema::{init_db, init_db_in_memory};
+use crate::db::schema::init_db_in_memory;
+#[cfg(not(feature = "sqlcipher"))]
+use crate::db::schema::init_db;
 use crate::services::clipboard::{Clipboard, ClipboardService};
 use crate::services::health::Health;
 use crate::services::vault::{Vault, VaultServiceImpl};
@@ -215,7 +217,9 @@ impl CommandExecutor {
             let conn = match db_startup_mode {
                 DbStartupMode::FileBacked => init_db(&vault_dir)?,
                 DbStartupMode::DeferredInMemory => {
-                    info!("using in-memory database until vault database is explicitly initialized");
+                    info!(
+                        "using in-memory database until vault database is explicitly initialized"
+                    );
                     init_db_in_memory()
                 }
             };
@@ -274,8 +278,7 @@ impl CommandExecutor {
 
     /// Check whether the vault is currently unlocked.
     pub fn is_unlocked(&self) -> bool {
-        self.vault_runtime.is_open()
-            && self.vault().map(|v| v.is_unlocked()).unwrap_or(false)
+        self.vault_runtime.is_open() && self.vault().map(|v| v.is_unlocked()).unwrap_or(false)
     }
 
     /// Get a reference to the vault (read-only operations).
@@ -448,20 +451,44 @@ impl CommandExecutor {
         report
     }
 
-    /// Open a speculative file-backed vault database.
+    /// Open a speculative file-backed vault database encrypted with SQLCipher.
     ///
     /// The returned guard must be committed after the restore/init flow has
     /// fully validated and applied data. Dropping it rolls back newly created
     /// database artifacts while preserving artifacts that existed beforehand.
+    #[cfg(feature = "sqlcipher")]
+    pub(super) fn begin_file_backed_vault_db(
+        &mut self,
+        key: &crate::crypto::db_page_key::DbPageKey,
+    ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
+        let existed_before = vault_db_paths(&self.vault_dir).map(|path| artifact_exists(&path));
+        let conn =
+            crate::db::vault_db::VaultDbFactory::create_sqlcipher_vault(&self.vault_dir, key)?;
+        self.vault_runtime = runtime::VaultRuntime::open(Box::new(
+            crate::services::vault::VaultServiceImpl::new(conn),
+        ));
+        info!("opened pending file-backed SQLCipher vault database");
+        Ok(PendingFileBackedVaultDb {
+            executor: self,
+            committed: false,
+            existed_before,
+        })
+    }
+
+    /// Open a speculative file-backed vault database (plain SQLite).
+    ///
+    /// The returned guard must be committed after the restore/init flow has
+    /// fully validated and applied data. Dropping it rolls back newly created
+    /// database artifacts while preserving artifacts that existed beforehand.
+    #[cfg(not(feature = "sqlcipher"))]
     pub(super) fn begin_file_backed_vault_db(
         &mut self,
     ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
         let existed_before = vault_db_paths(&self.vault_dir).map(|path| artifact_exists(&path));
         let conn = init_db(&self.vault_dir)?;
-        self.vault_runtime =
-            runtime::VaultRuntime::open(
-                Box::new(crate::services::vault::VaultServiceImpl::new(conn)),
-            );
+        self.vault_runtime = runtime::VaultRuntime::open(Box::new(
+            crate::services::vault::VaultServiceImpl::new(conn),
+        ));
         info!("opened pending file-backed vault database");
         Ok(PendingFileBackedVaultDb {
             executor: self,
@@ -499,7 +526,9 @@ impl PendingFileBackedVaultDb<'_> {
         &mut self,
         record: &crate::cloud::CloudRecord,
     ) -> Result<bool, crate::errors::mapping::vault::VaultError> {
-        self.executor.vault_mut()?.apply_downloaded_cloud_record(record)
+        self.executor
+            .vault_mut()?
+            .apply_downloaded_cloud_record(record)
     }
 
     pub(super) fn upsert_record_health_state(
@@ -513,7 +542,9 @@ impl PendingFileBackedVaultDb<'_> {
         &mut self,
         record_ids: &[uuid::Uuid],
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        self.executor.vault_mut()?.delete_record_health_states(record_ids)
+        self.executor
+            .vault_mut()?
+            .delete_record_health_states(record_ids)
     }
 
     pub(super) async fn restore_pull_only(
@@ -555,11 +586,9 @@ impl Drop for PendingFileBackedVaultDb<'_> {
         // real vault. Roll back to the in-memory placeholder first so the
         // executor cannot keep using a connection to files we are about to
         // remove.
-        self.executor.vault_runtime = runtime::VaultRuntime::open(
-            Box::new(crate::services::vault::VaultServiceImpl::new(
-                init_db_in_memory(),
-            )),
-        );
+        self.executor.vault_runtime = runtime::VaultRuntime::open(Box::new(
+            crate::services::vault::VaultServiceImpl::new(init_db_in_memory()),
+        ));
         self.executor.vault_db_file_backed = false;
 
         for (path, existed_before) in vault_db_paths(&self.executor.vault_dir)

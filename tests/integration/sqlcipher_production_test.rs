@@ -1,3 +1,4 @@
+use oak_keyring::commands::CommandResult;
 use oak_keyring::crypto::argon2::Argon2Params;
 use oak_keyring::crypto::bip39::MnemonicLanguage;
 use oak_keyring::crypto::db_page_key::test_db_page_key;
@@ -24,6 +25,37 @@ fn factory_creates_sqlcipher_vault_unreadable_without_key() {
     assert!(
         result.is_err(),
         "plain SQLite must not read SQLCipher schema"
+    );
+}
+
+#[tokio::test]
+async fn new_vault_creates_sqlcipher_database_directly() {
+    let dir = TempDir::new().expect("temp dir");
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let mut executor = CommandExecutor::new(
+        oak_keyring::config::AppConfig::default_config(),
+        tx,
+        tokio_util::sync::CancellationToken::new(),
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        DbStartupMode::DeferredInMemory,
+    )
+    .expect("executor");
+
+    let result = oak_keyring::executor::vault::handle_initialize_vault(
+        &mut executor,
+        SecureStr::new("new vault password".to_string()),
+        None,
+    )
+    .await;
+    assert!(matches!(result, CommandResult::VaultInitialized));
+
+    let plain = Connection::open(dir.path().join("vault.db")).expect("plain handle");
+    let read_schema: rusqlite::Result<i64> =
+        plain.query_row("SELECT COUNT(*) FROM sqlite_master", [], |row| row.get(0));
+    assert!(
+        read_schema.is_err(),
+        "new vault db must be SQLCipher encrypted"
     );
 }
 

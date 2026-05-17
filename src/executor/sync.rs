@@ -358,7 +358,8 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
             // Apply downloaded CloudRecords to local vault before health states,
             // so FK constraints on record_health_state.record_id are satisfied.
             for record in &sync_result.downloaded_records {
-                if let Err(e) = executor.vault_mut()
+                if let Err(e) = executor
+                    .vault_mut()
                     .and_then(|v| v.apply_downloaded_cloud_record(record))
                 {
                     tracing::warn!(
@@ -371,7 +372,8 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
 
             // Apply downloaded health states to local vault
             for state in &sync_result.downloaded_health_states {
-                if let Err(e) = executor.vault_mut()
+                if let Err(e) = executor
+                    .vault_mut()
                     .and_then(|v| v.upsert_record_health_state(state))
                 {
                     tracing::warn!(
@@ -382,9 +384,9 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
                 }
             }
             if !sync_result.downloaded_health_deleted.is_empty() {
-                if let Err(e) = executor.vault_mut()
-                    .and_then(|v| v.delete_record_health_states(&sync_result.downloaded_health_deleted))
-                {
+                if let Err(e) = executor.vault_mut().and_then(|v| {
+                    v.delete_record_health_states(&sync_result.downloaded_health_deleted)
+                }) {
                     tracing::warn!(
                         error = %e,
                         "Failed to delete stale health states after sync"
@@ -541,7 +543,41 @@ pub async fn handle_restore_database_from_cloud(
         };
     // Create a pending file-backed vault.db. If unlock or sync fails, dropping
     // the guard removes the uncommitted database files.
-    let mut pending = match executor.begin_file_backed_vault_db() {
+    let mut pending = match {
+        #[cfg(feature = "sqlcipher")]
+        {
+            let keystore = match crate::crypto::keystore::KeyStore::unlock(
+                &executor.vault_dir,
+                master_password.password(),
+            ) {
+                Ok(ks) => ks,
+                Err(_) => {
+                    return CommandResult::Error {
+                        code: ErrorCode::CryptoEncryptionFailed,
+                        context: ErrorContext::default(),
+                        message_key: "error.keystore_unlock_failed",
+                        fallback: "Failed to unlock keystore for restore.".to_string(),
+                    };
+                }
+            };
+            let db_page_key = match keystore.db_page_key() {
+                Ok(key) => key,
+                Err(e) => {
+                    return CommandResult::Error {
+                        code: ErrorCode::CryptoKeyDerivationFailed,
+                        context: ErrorContext::default(),
+                        message_key: "error.db_key_derivation_failed",
+                        fallback: format!("Failed to derive database page key: {}", e),
+                    };
+                }
+            };
+            executor.begin_file_backed_vault_db(&db_page_key)
+        }
+        #[cfg(not(feature = "sqlcipher"))]
+        {
+            executor.begin_file_backed_vault_db()
+        }
+    } {
         Ok(pending) => pending,
         Err(e) => {
             return CommandResult::Error {
