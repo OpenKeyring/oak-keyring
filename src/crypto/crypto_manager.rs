@@ -92,6 +92,18 @@ impl CryptoManager {
         ks.db_page_key()
     }
 
+    pub fn from_unlocked_keystore(keystore: KeyStore) -> Self {
+        let current_dek_version = keystore.current_dek_version();
+        Self {
+            keystore: Some(keystore),
+            current_dek_version,
+        }
+    }
+
+    pub fn device_id(&self) -> Option<String> {
+        self.keystore.as_ref().map(|ks| ks.device_id().to_string())
+    }
+
     fn get_current_dek(&self) -> Result<DataEncryptionKey, String> {
         self.get_dek(self.current_dek_version)
     }

@@ -111,34 +111,125 @@ pub(super) fn schedule_health_check_after_unlock(executor: &mut CommandExecutor)
     }
 }
 
+#[cfg(feature = "sqlcipher")]
+fn vault_db_error_result(err: crate::db::vault_db::VaultDbError) -> CommandResult {
+    use crate::db::vault_db::VaultDbError;
+    use crate::errors::{ErrorCode, ErrorContext};
+
+    match err {
+        VaultDbError::PlaintextDatabaseUnsupported => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.plaintext_database_unsupported",
+            fallback: "Plaintext SQLite vault databases are not supported. This vault cannot be opened with SQLCipher.".to_string(),
+        },
+        VaultDbError::WrongDbPageKey => CommandResult::Error {
+            code: ErrorCode::CryptoEncryptionFailed,
+            context: ErrorContext::default(),
+            message_key: "error.wrong_db_key",
+            fallback: "The database page key does not match. The vault database may be from a different master password or may be corrupt.".to_string(),
+        },
+        VaultDbError::CorruptDatabase(msg) => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.corrupt_database",
+            fallback: format!("The vault database is corrupt: {}", msg),
+        },
+        VaultDbError::UnsupportedSchemaVersion { current, supported } => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.unsupported_schema",
+            fallback: format!("Database schema version {} is newer than this build supports ({})", current, supported),
+        },
+        VaultDbError::DbOpenIo(msg) => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.db_open_io",
+            fallback: format!("Failed to open vault database: {}", msg),
+        },
+        VaultDbError::DbMigrationFailed(msg) => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.db_migration_failed",
+            fallback: format!("Database migration failed: {}", msg),
+        },
+    }
+}
+
 #[tracing::instrument(skip(executor, master_password))]
 pub async fn handle_unlock(
     executor: &mut CommandExecutor,
     master_password: SecureStr,
 ) -> CommandResult {
-    let vault_dir = executor.vault_dir.clone();
-    let unlock_result = {
-        let vault = match executor.vault_mut() {
-            Ok(v) => v,
-            Err(e) => {
-                return CommandResult::Error {
-                    code: e.to_error_code(),
-                    context: e.to_error_context(),
-                    message_key: "error.vault_not_available",
-                    fallback: format!("Vault is not available for unlock: {}", e),
+    #[cfg(feature = "sqlcipher")]
+    {
+        // Key-first unlock for SQLCipher production
+        let keystore = match crate::crypto::keystore::KeyStore::unlock(
+            &executor.vault_dir,
+            &master_password,
+        ) {
+            Ok(ks) => ks,
+            Err(_) => {
+                return CommandResult::VaultUnlockFailed {
+                    attempts_remaining: None,
                 };
             }
         };
-        vault.unlock(&vault_dir, &master_password)
-    };
-    match unlock_result {
-        Ok(()) => {
-            schedule_health_check_after_unlock(executor);
-            CommandResult::VaultUnlocked
+
+        let db_page_key = match keystore.db_page_key() {
+            Ok(key) => key,
+            Err(e) => {
+                return CommandResult::Error {
+                    code: crate::errors::ErrorCode::CryptoKeyDerivationFailed,
+                    context: crate::errors::ErrorContext::default(),
+                    message_key: "error.db_key_derivation_failed",
+                    fallback: format!("Failed to derive database page key: {}", e),
+                };
+            }
+        };
+
+        let conn = match crate::db::vault_db::VaultDbFactory::open_sqlcipher_vault(
+            &executor.vault_dir,
+            &db_page_key,
+        ) {
+            Ok(conn) => conn,
+            Err(e) => return vault_db_error_result(e),
+        };
+
+        let crypto = crate::crypto::CryptoManager::from_unlocked_keystore(keystore);
+        executor.vault_runtime = crate::executor::runtime::VaultRuntime::open(Box::new(
+            crate::services::vault::VaultServiceImpl::new_unlocked(conn, crypto),
+        ));
+        executor.vault_db_file_backed = true;
+        schedule_health_check_after_unlock(executor);
+        return CommandResult::VaultUnlocked;
+    }
+    #[cfg(not(feature = "sqlcipher"))]
+    {
+        let vault_dir = executor.vault_dir.clone();
+        let unlock_result = {
+            let vault = match executor.vault_mut() {
+                Ok(v) => v,
+                Err(e) => {
+                    return CommandResult::Error {
+                        code: e.to_error_code(),
+                        context: e.to_error_context(),
+                        message_key: "error.vault_not_available",
+                        fallback: format!("Vault is not available for unlock: {}", e),
+                    };
+                }
+            };
+            vault.unlock(&vault_dir, &master_password)
+        };
+        match unlock_result {
+            Ok(()) => {
+                schedule_health_check_after_unlock(executor);
+                CommandResult::VaultUnlocked
+            }
+            Err(_) => CommandResult::VaultUnlockFailed {
+                attempts_remaining: None,
+            },
         }
-        Err(_) => CommandResult::VaultUnlockFailed {
-            attempts_remaining: None,
-        },
     }
 }
 
@@ -267,7 +358,8 @@ pub fn handle_change_master_password(
             if let Ok(vault) = executor.vault() {
                 if vault.is_unlocked() {
                     let vault_dir = executor.vault_dir.clone();
-                    let _ = executor.vault_mut()
+                    let _ = executor
+                        .vault_mut()
                         .and_then(|v| v.unlock(&vault_dir, &new_password));
                 }
             }

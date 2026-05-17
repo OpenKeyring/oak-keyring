@@ -667,6 +667,17 @@ impl VaultServiceImpl {
         }
     }
 
+    pub fn new_unlocked(conn: Connection, crypto: CryptoManager) -> Self {
+        let device_id = crypto
+            .device_id()
+            .unwrap_or_else(|| "unknown-device".to_string());
+        Self {
+            conn,
+            crypto,
+            device_id,
+        }
+    }
+
     pub fn unlock(&mut self, path: &Path, cmk: &crate::types::SecureStr) -> Result<(), VaultError> {
         self.crypto
             .unlock(path, cmk)
