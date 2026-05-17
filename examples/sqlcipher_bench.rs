@@ -56,8 +56,8 @@ struct BenchRow {
 #[cfg(feature = "sqlcipher")]
 fn open_connection(vault_dir: &Path) -> Result<Connection> {
     let mut key_bytes = [7u8; 32];
-    let key = DbPageKey::new(&mut key_bytes)
-        .map_err(|e| anyhow::anyhow!("create DbPageKey: {e}"))?;
+    let key =
+        DbPageKey::new(&mut key_bytes).map_err(|e| anyhow::anyhow!("create DbPageKey: {e}"))?;
     oak_keyring::db::sqlcipher::open_encrypted_vault_dir(vault_dir, &key)
         .context("open SQLCipher database")
 }

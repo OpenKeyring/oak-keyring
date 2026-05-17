@@ -22,7 +22,7 @@ pub fn apply_pragmas(conn: &Connection) -> Result<(), rusqlite::Error> {
     )
 }
 
-fn run_quick_check(conn: &Connection) -> Result<(), InitDbError> {
+pub(crate) fn run_quick_check(conn: &Connection) -> Result<(), InitDbError> {
     let result: String = conn.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
     if result.eq_ignore_ascii_case("ok") {
         Ok(())
@@ -31,7 +31,7 @@ fn run_quick_check(conn: &Connection) -> Result<(), InitDbError> {
     }
 }
 
-fn run_foreign_key_check(conn: &Connection) -> Result<(), InitDbError> {
+pub(crate) fn run_foreign_key_check(conn: &Connection) -> Result<(), InitDbError> {
     let mut stmt = conn.prepare("PRAGMA foreign_key_check")?;
     let mut rows = stmt.query([])?;
     if let Some(row) = rows.next()? {
