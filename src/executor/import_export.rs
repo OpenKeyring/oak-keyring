@@ -594,6 +594,7 @@ pub async fn handle_restore_database_from_okb(
     // Create a pending file-backed vault.db. If any later step fails, dropping
     // the guard restores the executor to an in-memory vault and removes the
     // uncommitted database files.
+    #[allow(clippy::blocks_in_conditions)]
     let mut pending = match {
         #[cfg(feature = "sqlcipher")]
         {

@@ -543,6 +543,7 @@ pub async fn handle_restore_database_from_cloud(
         };
     // Create a pending file-backed vault.db. If unlock or sync fails, dropping
     // the guard removes the uncommitted database files.
+    #[allow(clippy::blocks_in_conditions)]
     let mut pending = match {
         #[cfg(feature = "sqlcipher")]
         {
