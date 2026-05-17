@@ -166,6 +166,7 @@ fn render_empty_state_search_no_results() {
         mode: ListMode::Search(SearchState {
             query: "nonexistent".to_string(),
             cursor: 11,
+            pre_search: None,
         }),
         ..Default::default()
     };
@@ -222,6 +223,7 @@ fn render_search_mode_bar() {
         mode: ListMode::Search(SearchState {
             query: "git".to_string(),
             cursor: 3,
+            pre_search: None,
         }),
         ..Default::default()
     };
@@ -483,7 +485,8 @@ fn build_record_item_visual_selected() {
 
 #[test]
 fn highlight_match_basic() {
-    let spans = ListPanel::highlight_match("GitHub", "git");
+    let terms: Vec<String> = vec!["git".to_string()];
+    let spans = ListPanel::highlight_match("GitHub", &terms);
     // Should produce two spans: "Git" (highlighted) + "Hub" (normal)
     assert_eq!(spans.len(), 2);
     assert_eq!(spans[0].content.as_ref(), "Git");
@@ -497,7 +500,8 @@ fn highlight_match_basic() {
 
 #[test]
 fn highlight_match_multi_occurrence() {
-    let spans = ListPanel::highlight_match("test_test_test", "test");
+    let terms: Vec<String> = vec!["test".to_string()];
+    let spans = ListPanel::highlight_match("test_test_test", &terms);
     // Should produce alternating: match + "_" + match + "_" + match
     assert_eq!(spans.len(), 5);
     assert_eq!(spans[0].content.as_ref(), "test"); // highlighted
@@ -514,7 +518,8 @@ fn highlight_match_multi_occurrence() {
 
 #[test]
 fn highlight_match_empty_query() {
-    let spans = ListPanel::highlight_match("GitHub", "");
+    let terms: Vec<String> = vec![];
+    let spans = ListPanel::highlight_match("GitHub", &terms);
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].content.as_ref(), "GitHub");
     assert!(spans[0].style.fg == Some(theme::TEXT));
@@ -522,7 +527,8 @@ fn highlight_match_empty_query() {
 
 #[test]
 fn highlight_match_case_insensitive() {
-    let spans = ListPanel::highlight_match("MyGitRepo", "git");
+    let terms: Vec<String> = vec!["git".to_string()];
+    let spans = ListPanel::highlight_match("MyGitRepo", &terms);
     assert_eq!(spans.len(), 3);
     assert_eq!(spans[0].content.as_ref(), "My");
     assert_eq!(spans[1].content.as_ref(), "Git"); // highlighted
@@ -532,7 +538,8 @@ fn highlight_match_case_insensitive() {
 
 #[test]
 fn highlight_match_no_match() {
-    let spans = ListPanel::highlight_match("GitHub", "xyz");
+    let terms: Vec<String> = vec!["xyz".to_string()];
+    let spans = ListPanel::highlight_match("GitHub", &terms);
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].content.as_ref(), "GitHub");
     assert!(spans[0].style.fg == Some(theme::TEXT));
@@ -649,6 +656,7 @@ fn build_empty_state_variant_search_mode_overrides_filter() {
         mode: ListMode::Search(SearchState {
             query: "mysearch".to_string(),
             cursor: 8,
+            pre_search: None,
         }),
         ..Default::default()
     };
@@ -930,6 +938,7 @@ fn acceptance_trash_search_mode_in_list() {
     state.mode = ListMode::Search(SearchState {
         query: "git".to_string(),
         cursor: 3,
+        pre_search: None,
     });
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::Trash);
     assert!(!result.is_empty());

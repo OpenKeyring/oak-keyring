@@ -14,44 +14,62 @@ use crate::tui::theme;
 use super::ListPanel;
 
 impl ListPanel {
-    /// Highlight matching portions of `text` that match `query` (case-insensitive).
+    /// Highlight matching portions of `text` that match `search_terms` (case-insensitive).
     ///
-    /// Returns a vector of `Span`s where matching substrings are rendered in
-    /// yellow bold (`theme::WARNING` + `Modifier::BOLD`) and non-matching
-    /// portions in the default text color.
-    pub(super) fn highlight_match(text: &str, query: &str) -> Vec<Span<'static>> {
-        if query.is_empty() {
+    /// Each term in `search_terms` is highlighted independently using
+    /// `theme::WARNING` + `Modifier::BOLD`. This aligns with the multi-term
+    /// AND filter logic in `ListPanelState::apply_search_filter`.
+    pub(super) fn highlight_match(text: &str, search_terms: &[String]) -> Vec<Span<'static>> {
+        if search_terms.is_empty() {
             return vec![Span::styled(
                 text.to_string(),
                 Style::default().fg(theme::TEXT),
             )];
         }
-        let query_lower = query.to_lowercase();
         let text_lower = text.to_lowercase();
+        let len = text.len();
+        // Track which characters are matched
+        let mut matched = vec![false; len];
+        for term in search_terms {
+            let term_lower = term.to_lowercase();
+            let mut start = 0;
+            while start + term_lower.len() <= len {
+                if text_lower[start..].starts_with(&term_lower) {
+                    let end = (start + term_lower.len()).min(len);
+                    for m in &mut matched[start..end] {
+                        *m = true;
+                    }
+                    start = end;
+                } else {
+                    start += 1;
+                }
+            }
+        }
+        // Build spans from matched/unmatched ranges
         let mut spans = Vec::new();
-        let mut last_end = 0;
-
-        while let Some(pos) = text_lower[last_end..].find(&query_lower) {
-            let abs_pos = last_end + pos;
-            if abs_pos > last_end {
+        let mut i = 0;
+        while i < len {
+            if matched[i] {
+                let start = i;
+                while i < len && matched[i] {
+                    i += 1;
+                }
                 spans.push(Span::styled(
-                    text[last_end..abs_pos].to_string(),
+                    text[start..i].to_string(),
+                    Style::default()
+                        .fg(theme::WARNING)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                let start = i;
+                while i < len && !matched[i] {
+                    i += 1;
+                }
+                spans.push(Span::styled(
+                    text[start..i].to_string(),
                     Style::default().fg(theme::TEXT),
                 ));
             }
-            spans.push(Span::styled(
-                text[abs_pos..abs_pos + query.len()].to_string(),
-                Style::default()
-                    .fg(theme::WARNING)
-                    .add_modifier(Modifier::BOLD),
-            ));
-            last_end = abs_pos + query.len();
-        }
-        if last_end < text.len() {
-            spans.push(Span::styled(
-                text[last_end..].to_string(),
-                Style::default().fg(theme::TEXT),
-            ));
         }
         spans
     }
@@ -195,7 +213,12 @@ pub(super) fn build_record_item<'a>(
     // Build title spans with optional search highlighting
     let mut title_spans = vec![Span::styled(prefix_str, base_style)];
     if let Some(query) = search_query {
-        title_spans.extend(ListPanel::highlight_match(&record.name, query));
+        let terms: Vec<String> = query
+            .to_lowercase()
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        title_spans.extend(ListPanel::highlight_match(&record.name, &terms));
     } else {
         title_spans.push(Span::styled(record.name.clone(), base_style));
     }
@@ -224,8 +247,13 @@ pub(super) fn build_record_item<'a>(
     // Build subtitle with optional search highlighting
     let subtitle_prefix = "  ";
     let subtitle_line = if let Some(query) = search_query {
+        let terms: Vec<String> = query
+            .to_lowercase()
+            .split_whitespace()
+            .map(String::from)
+            .collect();
         let mut sub_spans = vec![Span::styled(subtitle_prefix, subtitle_style)];
-        sub_spans.extend(ListPanel::highlight_match(&record.subtitle, query));
+        sub_spans.extend(ListPanel::highlight_match(&record.subtitle, &terms));
         Line::from(sub_spans)
     } else {
         Line::from(Span::styled(

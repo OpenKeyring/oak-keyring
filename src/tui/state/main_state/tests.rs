@@ -2003,22 +2003,25 @@ fn record_destroyed_triggers_list_refresh() {
 
 #[test]
 #[allow(clippy::field_reassign_with_default)]
-fn record_list_loaded_cursor_recovery_keeps_selection() {
+fn record_list_loaded_cursor_recovery_keeps_selection_by_id() {
     use crate::commands::result::CommandResult;
 
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
     let mut state = MainScreenState::default();
-    state.list.records = vec![make_test_record(None), make_test_record(None)];
+    state.list.records = vec![make_test_record(Some(id1)), make_test_record(Some(id2))];
     state.list.selected_index = Some(1);
     state.list_auto_select = false;
 
-    let (tx, _rx) = mpsc::channel(16);
+    let (tx, mut rx) = mpsc::channel(16);
     let config = crate::config::AppConfig::default();
     let mut ctx = ScreenContext {
         command_tx: &tx,
         config: &config,
     };
 
-    let new_records = vec![make_test_record(None), make_test_record(None)];
+    // New records in different order — id2 is now at index 0
+    let new_records = vec![make_test_record(Some(id2)), make_test_record(Some(id1))];
     let result = state.update(
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: new_records,
@@ -2028,34 +2031,40 @@ fn record_list_loaded_cursor_recovery_keeps_selection() {
     );
 
     assert!(matches!(result, ScreenResult::Continue));
-    assert_eq!(state.list.selected_index, Some(1));
+    // Selection should follow record id2 (was at index 1, now at index 0)
+    assert_eq!(state.list.selected_index, Some(0));
     assert!(!state.list_auto_select);
+    // No LoadRecordDetail sent — same record id remains selected
+    assert!(rx.try_recv().is_err());
 }
 
 #[test]
 #[allow(clippy::field_reassign_with_default)]
-fn record_list_loaded_cursor_recovery_clamps_oob() {
+fn record_list_loaded_cursor_recovery_falls_back_when_id_disappears() {
     use crate::commands::result::CommandResult;
 
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
+    let id3 = Uuid::new_v4();
     let mut state = MainScreenState::default();
     state.list.records = vec![
-        make_test_record(None),
-        make_test_record(None),
-        make_test_record(None),
+        make_test_record(Some(id1)),
+        make_test_record(Some(id2)),
+        make_test_record(Some(id3)),
     ];
-    state.list.selected_index = Some(2);
+    state.list.selected_index = Some(2); // selected id3
     state.list_auto_select = false;
 
-    let (tx, _rx) = mpsc::channel(16);
+    let (tx, mut rx) = mpsc::channel(16);
     let config = crate::config::AppConfig::default();
     let mut ctx = ScreenContext {
         command_tx: &tx,
         config: &config,
     };
 
-    // New list has only 1 record — index 2 should clamp to 0
-    let new_records = vec![make_test_record(None)];
-    let result = state.update(
+    // New list does not contain id3 — fallback to first row (id1)
+    let new_records = vec![make_test_record(Some(id1))];
+    let _result = state.update(
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: new_records,
             total: 1,
@@ -2063,8 +2072,19 @@ fn record_list_loaded_cursor_recovery_clamps_oob() {
         &mut ctx,
     );
 
-    assert!(matches!(result, ScreenResult::Continue));
+    assert!(matches!(_result, ScreenResult::Continue));
+    // Fallback to first row when selected id is gone
     assert_eq!(state.list.selected_index, Some(0));
+    // LoadRecordDetail should be sent for the new selection (different id)
+    let cmd = rx
+        .try_recv()
+        .expect("Should send LoadRecordDetail for fallback record");
+    match cmd {
+        Command::LoadRecordDetail { id } => {
+            assert_eq!(id, id1);
+        }
+        other => panic!("Expected LoadRecordDetail, got {:?}", other),
+    }
 }
 
 #[test]

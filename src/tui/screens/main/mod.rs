@@ -377,8 +377,33 @@ impl MainScreen {
                             state.list.exit_search();
                         }
                     }
-                    KeyCode::Char('s') if !state.list.is_visual() => {
+                    KeyCode::Char('s') if !state.list.is_visual() && !state.list.is_searching() => {
                         state.list.toggle_sort_direction();
+                        state.current_sort.direction = state.list.sort.direction;
+                        let cmd = Box::new(Command::LoadRecordList {
+                            filter: state.current_filter.clone(),
+                            sort: state.current_sort.clone(),
+                        });
+                        return MainKeyResult {
+                            messages,
+                            overlay,
+                            command: Some(cmd),
+                            focused_panel: None,
+                        };
+                    }
+                    KeyCode::Char('S') if !state.list.is_visual() && !state.list.is_searching() => {
+                        state.list.cycle_sort_field();
+                        state.current_sort.field = state.list.sort.field;
+                        let cmd = Box::new(Command::LoadRecordList {
+                            filter: state.current_filter.clone(),
+                            sort: state.current_sort.clone(),
+                        });
+                        return MainKeyResult {
+                            messages,
+                            overlay,
+                            command: Some(cmd),
+                            focused_panel: None,
+                        };
                     }
                     _ => {}
                 }
