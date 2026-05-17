@@ -28,9 +28,9 @@ use crate::commands::types::HealthReport;
 use crate::commands::{Command, InternalCommand, Message};
 use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::{AppConfig, ConfigManager};
-use crate::db::schema::init_db_in_memory;
 #[cfg(not(feature = "sqlcipher"))]
 use crate::db::schema::init_db;
+use crate::db::schema::init_db_in_memory;
 use crate::services::clipboard::{Clipboard, ClipboardService};
 use crate::services::health::Health;
 use crate::services::vault::{Vault, VaultServiceImpl};
@@ -585,12 +585,9 @@ impl Drop for PendingFileBackedVaultDb<'_> {
         // Pending file-backed databases are speculative recovery outputs. If a
         // restore/init path returns before commit(), leaving those files on disk
         // would make the next startup treat an empty or partial database as a
-        // real vault. Roll back to the in-memory placeholder first so the
-        // executor cannot keep using a connection to files we are about to
-        // remove.
-        self.executor.vault_runtime = runtime::VaultRuntime::open(Box::new(
-            crate::services::vault::VaultServiceImpl::new(init_db_in_memory()),
-        ));
+        // real vault. Drop the open vault runtime first so the executor cannot
+        // keep using a connection to files we are about to remove.
+        self.executor.vault_runtime = runtime::VaultRuntime::locked();
         self.executor.vault_db_file_backed = false;
 
         for (path, existed_before) in vault_db_paths(&self.executor.vault_dir)

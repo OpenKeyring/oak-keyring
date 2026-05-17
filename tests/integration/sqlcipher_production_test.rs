@@ -209,10 +209,7 @@ async fn lock_drops_open_sqlcipher_runtime() {
     .expect("executor starts locked");
 
     // Unlock first (password is moved here — all borrows above released)
-    let unlock_result = oak_keyring::executor::vault::handle_unlock(
-        &mut executor,
-        password,
-    ).await;
+    let unlock_result = oak_keyring::executor::vault::handle_unlock(&mut executor, password).await;
     assert!(matches!(unlock_result, CommandResult::VaultUnlocked));
     assert!(executor.is_unlocked());
 
@@ -240,7 +237,8 @@ async fn sqlcipher_wal_does_not_contain_plaintext_secrets() {
         .expect("unlock keystore")
         .db_page_key()
         .expect("derive db key");
-    let conn = VaultDbFactory::create_sqlcipher_vault(dir.path(), &key).expect("create encrypted db");
+    let conn =
+        VaultDbFactory::create_sqlcipher_vault(dir.path(), &key).expect("create encrypted db");
 
     // Write a marker and checkpoint
     conn.execute("INSERT INTO tags (name) VALUES ('wal-marker')", [])
@@ -269,10 +267,13 @@ async fn sqlcipher_unlocked_vault_supports_full_query_pipeline() {
         MnemonicLanguage::English,
     )
     .expect("initialize");
-    let key = KeyStore::unlock(dir.path(), &SecureStr::new("query pipeline password".to_string()))
-        .expect("unlock ks")
-        .db_page_key()
-        .expect("key");
+    let key = KeyStore::unlock(
+        dir.path(),
+        &SecureStr::new("query pipeline password".to_string()),
+    )
+    .expect("unlock ks")
+    .db_page_key()
+    .expect("key");
     VaultDbFactory::create_sqlcipher_vault(dir.path(), &key).expect("create db");
 
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
@@ -452,18 +453,14 @@ fn wrong_key_error_is_distinguishable() {
     let key1 = test_db_page_key([0xaa; 32]);
     VaultDbFactory::create_sqlcipher_vault(dir.path(), &key1).expect("create with key1");
 
-    // Try to open with different key
-    // With the wrong SQLCipher key, the connection opens and PRAGMA key succeeds,
-    // but PRAGMA journal_mode=WAL (in apply_pragmas) fails because SQLCipher
-    // needs the correct key to read the database header.
+    // Try to open with different key.
+    // The cipher_version probe in open_keyed_connection validates the key
+    // material on first read through SQLCipher's encryption layer.
     let key2 = test_db_page_key([0xbb; 32]);
     let err = VaultDbFactory::open_sqlcipher_vault(dir.path(), &key2).unwrap_err();
     assert!(
-        matches!(
-            err,
-            VaultDbError::WrongDbPageKey | VaultDbError::DbOpenIo(_) | VaultDbError::CorruptDatabase(_)
-        ),
-        "wrong key should produce WrongDbPageKey, DbOpenIo, or CorruptDatabase, got {:?}",
+        matches!(err, VaultDbError::WrongDbPageKey),
+        "wrong key should produce WrongDbPageKey, got {:?}",
         err
     );
 }

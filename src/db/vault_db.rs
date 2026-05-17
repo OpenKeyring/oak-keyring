@@ -20,6 +20,8 @@ pub enum VaultDbError {
     DbOpenIo(String),
     #[error("database migration failed: {0}")]
     DbMigrationFailed(String),
+    #[error("database rollback failed: {0}")]
+    DbRollbackFailed(String),
 }
 
 pub struct VaultDbFactory;
@@ -74,6 +76,14 @@ fn open_keyed_connection(db_path: &Path, key: &DbPageKey) -> Result<Connection, 
         tracing::warn!(error = %e, "failed to apply SQLCipher key to database");
         VaultDbError::WrongDbPageKey
     })?;
+    // Probe the keyed connection to surface wrong-key errors before pragma
+    // application. PRAGMA key alone does not validate the key material;
+    // the first read through the encryption layer reveals mismatches.
+    conn.query_row("SELECT COUNT(*) FROM sqlite_master", [], |_row| Ok(()))
+        .map_err(|e| {
+            tracing::warn!(error = %e, "SQLCipher key validation probe failed");
+            VaultDbError::WrongDbPageKey
+        })?;
     schema::apply_pragmas(&conn).map_err(|e| VaultDbError::DbOpenIo(e.to_string()))?;
     Ok(conn)
 }

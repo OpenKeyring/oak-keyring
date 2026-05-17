@@ -165,6 +165,12 @@ fn vault_db_error_result(err: crate::db::vault_db::VaultDbError) -> CommandResul
             message_key: "error.db_migration_failed",
             fallback: format!("Database migration failed: {}", msg),
         },
+        VaultDbError::DbRollbackFailed(msg) => CommandResult::Error {
+            code: ErrorCode::VaultDatabaseIoError,
+            context: ErrorContext::default(),
+            message_key: "error.db_rollback_failed",
+            fallback: format!("Database rollback failed: {}", msg),
+        },
     }
 }
 
@@ -635,8 +641,9 @@ pub async fn handle_rebuild_keyfile_from_recovery(
 
 /// Validate that the existing vault.db can be decrypted with the rebuilt key.
 ///
-/// Attempts to unlock the vault with the cached master password (set during
-/// keyfile rebuild). Success proves the key matches the database.
+/// In SQLCipher production builds, validates by deriving the DbPageKey from the
+/// cached master password and opening the encrypted database through VaultDbFactory.
+/// In non-SQLCipher builds, uses the vault trait's unlock method.
 pub async fn handle_validate_restored_database(executor: &mut CommandExecutor) -> CommandResult {
     if !executor.vault_dir.join("vault.db").exists() {
         return CommandResult::DatabaseValidationFailed {
@@ -654,29 +661,60 @@ pub async fn handle_validate_restored_database(executor: &mut CommandExecutor) -
     };
 
     let vault_dir = executor.vault_dir.clone();
-    let unlock_result = {
-        let vault = match executor.vault_mut() {
-            Ok(v) => v,
+
+    #[cfg(feature = "sqlcipher")]
+    {
+        let db_page_key = match derive_db_page_key_for_pending(&vault_dir, &master_password) {
+            Ok(key) => key,
             Err(e) => {
                 drop(master_password);
                 return CommandResult::DatabaseValidationFailed {
-                    reason: format!("Vault not available for validation: {}", e),
+                    reason: format!("Failed to derive database page key for validation: {}", e),
                 };
             }
         };
-        vault.unlock(&vault_dir, &master_password)
-    };
-    match unlock_result {
-        Ok(_) => {
-            drop(master_password);
-            CommandResult::DatabaseRestored {
-                source: crate::commands::types::DatabaseRecoverySource::Okb,
+        match crate::db::vault_db::VaultDbFactory::open_sqlcipher_vault(&vault_dir, &db_page_key) {
+            Ok(_conn) => {
+                drop(master_password);
+                drop(_conn);
+                CommandResult::DatabaseRestored {
+                    source: crate::commands::types::DatabaseRecoverySource::Okb,
+                }
+            }
+            Err(e) => {
+                drop(master_password);
+                CommandResult::DatabaseValidationFailed {
+                    reason: format!("Restored database does not match current key: {}", e),
+                }
             }
         }
-        Err(e) => {
-            drop(master_password);
-            CommandResult::DatabaseValidationFailed {
-                reason: format!("Restored database does not match current key: {}", e),
+    }
+    #[cfg(not(feature = "sqlcipher"))]
+    {
+        let unlock_result = {
+            let vault = match executor.vault_mut() {
+                Ok(v) => v,
+                Err(e) => {
+                    drop(master_password);
+                    return CommandResult::DatabaseValidationFailed {
+                        reason: format!("Vault not available for validation: {}", e),
+                    };
+                }
+            };
+            vault.unlock(&vault_dir, &master_password)
+        };
+        match unlock_result {
+            Ok(_) => {
+                drop(master_password);
+                CommandResult::DatabaseRestored {
+                    source: crate::commands::types::DatabaseRecoverySource::Okb,
+                }
+            }
+            Err(e) => {
+                drop(master_password);
+                CommandResult::DatabaseValidationFailed {
+                    reason: format!("Restored database does not match current key: {}", e),
+                }
             }
         }
     }
