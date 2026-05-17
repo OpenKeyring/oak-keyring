@@ -1,6 +1,7 @@
 pub mod argon2;
 pub mod bip39;
 pub mod crypto_manager;
+pub mod db_page_key;
 pub mod hkdf;
 pub mod keystore;
 pub mod password;

@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use oak_keyring::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
+use oak_keyring::crypto::db_page_key::DbPageKey;
 use oak_keyring::services::vault::VaultServiceImpl;
 use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
 use oak_keyring::types::record::{CreateRecordParams, UpdateRecordParams};
@@ -19,9 +20,6 @@ const MODE: &str = "sqlcipher";
 
 #[cfg(not(feature = "sqlcipher"))]
 const MODE: &str = "sqlite-bundled";
-
-#[cfg(feature = "sqlcipher")]
-const SQLCIPHER_KEY: [u8; 32] = [7u8; 32];
 
 const DEFAULT_COUNTS: [usize; 3] = [100, 1000, 10000];
 const SEARCH_QUERY: &str = "bench-login-000";
@@ -57,7 +55,10 @@ struct BenchRow {
 
 #[cfg(feature = "sqlcipher")]
 fn open_connection(vault_dir: &Path) -> Result<Connection> {
-    oak_keyring::db::sqlcipher::open_encrypted_vault_dir(vault_dir, &SQLCIPHER_KEY)
+    let mut key_bytes = [7u8; 32];
+    let key = DbPageKey::new(&mut key_bytes)
+        .map_err(|e| anyhow::anyhow!("create DbPageKey: {e}"))?;
+    oak_keyring::db::sqlcipher::open_encrypted_vault_dir(vault_dir, &key)
         .context("open SQLCipher database")
 }
 
@@ -312,11 +313,15 @@ fn sqlite_to_sqlcipher_migration_metric(_count: usize) -> Result<Metric> {
 
 #[cfg(feature = "sqlcipher")]
 fn export_plaintext_sqlite_to_sqlcipher(source: &Path, target: &Path) -> Result<()> {
+    let key = {
+        let mut bytes = [7u8; 32];
+        DbPageKey::new(&mut bytes).map_err(|e| anyhow::anyhow!("DbPageKey: {e}"))?
+    };
     let source_conn = Connection::open(source).context("open plaintext source for export")?;
     let target_path = target
         .to_str()
         .context("SQLCipher export target path must be valid UTF-8")?;
-    let raw_key = format!("x'{}'", hex::encode(SQLCIPHER_KEY));
+    let raw_key = format!("x'{}'", hex::encode(key.expose()));
 
     source_conn
         .execute(

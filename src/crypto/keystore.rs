@@ -393,9 +393,10 @@ impl KeyStore {
     }
 
     #[cfg(feature = "sqlcipher")]
-    pub fn db_page_key(&self) -> Result<[u8; 32], String> {
+    pub fn db_page_key(&self) -> Result<crate::crypto::db_page_key::DbPageKey, String> {
         let kek = self.kek.as_ref().ok_or("KeyStore not unlocked")?;
-        Ok(hkdf::derive_db_page_key(kek.as_bytes())?)
+        let mut key = hkdf::derive_db_page_key(kek.as_bytes())?;
+        crate::crypto::db_page_key::DbPageKey::new(&mut key)
     }
 
     pub fn current_dek_version(&self) -> u32 {

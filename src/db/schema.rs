@@ -9,6 +9,9 @@ use rusqlite::Connection;
 
 use crate::db::migrations::{self, MigrationError};
 
+#[cfg(feature = "sqlcipher")]
+use crate::crypto::db_page_key::DbPageKey;
+
 pub fn apply_pragmas(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
@@ -122,7 +125,7 @@ pub fn run_with_encrypted_backup<F>(
     conn: Connection,
     db_path: &Path,
     backup_path: &Path,
-    key: &[u8; 32],
+    key: &DbPageKey,
     work: F,
 ) -> Result<Connection, InitDbError>
 where
@@ -193,7 +196,7 @@ fn remove_backup_files(dst_path: &Path) -> Result<(), MigrationError> {
 fn backup_encrypted_database(
     src: &Connection,
     dst_path: &Path,
-    key: &[u8; 32],
+    key: &DbPageKey,
 ) -> Result<(), MigrationError> {
     let mut dst = Connection::open(dst_path)
         .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))?;

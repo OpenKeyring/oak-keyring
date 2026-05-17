@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use oak_keyring::crypto::db_page_key::DbPageKey;
 use oak_keyring::db::migrations::MigrationError;
 use oak_keyring::db::schema::run_with_encrypted_backup;
 use oak_keyring::db::sqlcipher::{
@@ -8,8 +9,9 @@ use oak_keyring::db::sqlcipher::{
 use rusqlite::Connection;
 use tempfile::TempDir;
 
-fn test_key() -> [u8; 32] {
-    [7u8; 32]
+fn test_key() -> DbPageKey {
+    let mut bytes = [7u8; 32];
+    DbPageKey::new(&mut bytes).expect("create test DbPageKey")
 }
 
 fn assert_plain_sqlite_schema_read_fails(db_path: &Path) {
@@ -39,7 +41,8 @@ fn assert_file_does_not_contain(path: &Path, needle: &[u8]) {
 #[test]
 fn cipher_version_is_available() {
     let dir = TempDir::new().expect("temp dir");
-    let conn = open_encrypted_vault_dir(dir.path(), &test_key()).expect("open encrypted db");
+    let key = test_key();
+    let conn = open_encrypted_vault_dir(dir.path(), &key).expect("open encrypted db");
     let version = cipher_version(&conn).expect("cipher version");
     assert!(
         !version.trim().is_empty(),
@@ -50,7 +53,8 @@ fn cipher_version_is_available() {
 #[test]
 fn encrypted_database_runs_migrations() {
     let dir = TempDir::new().expect("temp dir");
-    let conn = open_encrypted_vault_dir(dir.path(), &test_key()).expect("open encrypted db");
+    let key = test_key();
+    let conn = open_encrypted_vault_dir(dir.path(), &key).expect("open encrypted db");
 
     let count: i64 = conn
         .query_row(
@@ -67,14 +71,15 @@ fn encrypted_database_runs_migrations() {
 fn encrypted_database_reopens_with_same_key() {
     let dir = TempDir::new().expect("temp dir");
     let db_path = dir.path().join("vault.db");
+    let key = test_key();
 
     {
-        let conn = open_encrypted_connection(&db_path, &test_key()).expect("open encrypted db");
+        let conn = open_encrypted_connection(&db_path, &key).expect("open encrypted db");
         conn.execute("INSERT INTO tags (name) VALUES ('work')", [])
             .expect("insert tag");
     }
 
-    let conn = open_encrypted_connection(&db_path, &test_key()).expect("reopen encrypted db");
+    let conn = open_encrypted_connection(&db_path, &key).expect("reopen encrypted db");
     let tag: String = conn
         .query_row("SELECT name FROM tags", [], |row| row.get(0))
         .expect("read tag");
@@ -85,9 +90,10 @@ fn encrypted_database_reopens_with_same_key() {
 fn encrypted_database_rejects_plain_sqlite_open() {
     let dir = TempDir::new().expect("temp dir");
     let db_path = dir.path().join("vault.db");
+    let key = test_key();
 
     {
-        let conn = open_encrypted_connection(&db_path, &test_key()).expect("open encrypted db");
+        let conn = open_encrypted_connection(&db_path, &key).expect("open encrypted db");
         conn.execute("INSERT INTO tags (name) VALUES ('secret-tag')", [])
             .expect("insert tag");
     }
@@ -101,8 +107,9 @@ fn encrypted_wal_and_shm_do_not_expose_plaintext() {
     let db_path = dir.path().join("vault.db");
     let wal_path = dir.path().join("vault.db-wal");
     let shm_path = dir.path().join("vault.db-shm");
+    let key = test_key();
 
-    let conn = open_encrypted_connection(&db_path, &test_key()).expect("open encrypted db");
+    let conn = open_encrypted_connection(&db_path, &key).expect("open encrypted db");
     let journal_mode: String = conn
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .expect("query journal mode");
@@ -127,10 +134,14 @@ fn encrypted_wal_and_shm_do_not_expose_plaintext() {
 fn encrypted_database_rejects_wrong_key() {
     let dir = TempDir::new().expect("temp dir");
     let db_path = dir.path().join("vault.db");
-    let wrong_key = [9u8; 32];
+    let key = test_key();
+    let wrong_key = {
+        let mut k = [9u8; 32];
+        DbPageKey::new(&mut k).expect("create wrong DbPageKey")
+    };
 
     {
-        let conn = open_encrypted_connection(&db_path, &test_key()).expect("open encrypted db");
+        let conn = open_encrypted_connection(&db_path, &key).expect("open encrypted db");
         conn.execute("INSERT INTO tags (name) VALUES ('secret-tag')", [])
             .expect("insert tag");
     }
@@ -150,11 +161,12 @@ fn failed_migration_backup_path_does_not_create_plaintext_sqlite_backup() {
     let dir = TempDir::new().expect("temp dir");
     let db_path = dir.path().join("vault.db");
     let backup_path = dir.path().join("vault.db.migration.bak");
+    let key = test_key();
 
-    let conn = open_encrypted_connection(&db_path, &test_key()).expect("open encrypted db");
+    let conn = open_encrypted_connection(&db_path, &key).expect("open encrypted db");
     conn.execute("INSERT INTO tags (name) VALUES ('backup-secret-tag')", [])
         .expect("insert tag before backup");
-    let result = run_with_encrypted_backup(conn, &db_path, &backup_path, &test_key(), |c| {
+    let result = run_with_encrypted_backup(conn, &db_path, &backup_path, &key, |c| {
         c.execute("INSERT INTO tags (name) VALUES ('post-backup-tag')", [])
             .map_err(|source| MigrationError::ExecutionFailed {
                 version: 99,
@@ -172,7 +184,7 @@ fn failed_migration_backup_path_does_not_create_plaintext_sqlite_backup() {
     assert_plain_sqlite_schema_read_fails(&db_path);
 
     let restored = Connection::open(&db_path).expect("open restored db handle");
-    apply_key(&restored, &test_key()).expect("apply restored db key");
+    apply_key(&restored, &key).expect("apply restored db key");
     let restored_backup_secret_count: i64 = restored
         .query_row(
             "SELECT COUNT(*) FROM tags WHERE name = 'backup-secret-tag'",
@@ -205,7 +217,7 @@ fn failed_migration_backup_path_does_not_create_plaintext_sqlite_backup() {
     assert_file_does_not_contain(&backup_path, b"post-backup-tag");
 
     let backup = Connection::open(&backup_path).expect("open backup handle");
-    apply_key(&backup, &test_key()).expect("apply backup key");
+    apply_key(&backup, &key).expect("apply backup key");
     let backup_secret_count: i64 = backup
         .query_row(
             "SELECT COUNT(*) FROM tags WHERE name = 'backup-secret-tag'",
