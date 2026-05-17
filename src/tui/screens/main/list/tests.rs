@@ -166,6 +166,7 @@ fn render_empty_state_search_no_results() {
         mode: ListMode::Search(SearchState {
             query: "nonexistent".to_string(),
             cursor: 11,
+            pre_search: None,
         }),
         ..Default::default()
     };
@@ -222,6 +223,7 @@ fn render_search_mode_bar() {
         mode: ListMode::Search(SearchState {
             query: "git".to_string(),
             cursor: 3,
+            pre_search: None,
         }),
         ..Default::default()
     };
@@ -483,7 +485,8 @@ fn build_record_item_visual_selected() {
 
 #[test]
 fn highlight_match_basic() {
-    let spans = ListPanel::highlight_match("GitHub", "git");
+    let terms: Vec<String> = vec!["git".to_string()];
+    let spans = ListPanel::highlight_match("GitHub", &terms);
     // Should produce two spans: "Git" (highlighted) + "Hub" (normal)
     assert_eq!(spans.len(), 2);
     assert_eq!(spans[0].content.as_ref(), "Git");
@@ -497,7 +500,8 @@ fn highlight_match_basic() {
 
 #[test]
 fn highlight_match_multi_occurrence() {
-    let spans = ListPanel::highlight_match("test_test_test", "test");
+    let terms: Vec<String> = vec!["test".to_string()];
+    let spans = ListPanel::highlight_match("test_test_test", &terms);
     // Should produce alternating: match + "_" + match + "_" + match
     assert_eq!(spans.len(), 5);
     assert_eq!(spans[0].content.as_ref(), "test"); // highlighted
@@ -514,7 +518,8 @@ fn highlight_match_multi_occurrence() {
 
 #[test]
 fn highlight_match_empty_query() {
-    let spans = ListPanel::highlight_match("GitHub", "");
+    let terms: Vec<String> = vec![];
+    let spans = ListPanel::highlight_match("GitHub", &terms);
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].content.as_ref(), "GitHub");
     assert!(spans[0].style.fg == Some(theme::TEXT));
@@ -522,7 +527,8 @@ fn highlight_match_empty_query() {
 
 #[test]
 fn highlight_match_case_insensitive() {
-    let spans = ListPanel::highlight_match("MyGitRepo", "git");
+    let terms: Vec<String> = vec!["git".to_string()];
+    let spans = ListPanel::highlight_match("MyGitRepo", &terms);
     assert_eq!(spans.len(), 3);
     assert_eq!(spans[0].content.as_ref(), "My");
     assert_eq!(spans[1].content.as_ref(), "Git"); // highlighted
@@ -532,7 +538,8 @@ fn highlight_match_case_insensitive() {
 
 #[test]
 fn highlight_match_no_match() {
-    let spans = ListPanel::highlight_match("GitHub", "xyz");
+    let terms: Vec<String> = vec!["xyz".to_string()];
+    let spans = ListPanel::highlight_match("GitHub", &terms);
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].content.as_ref(), "GitHub");
     assert!(spans[0].style.fg == Some(theme::TEXT));
@@ -649,6 +656,7 @@ fn build_empty_state_variant_search_mode_overrides_filter() {
         mode: ListMode::Search(SearchState {
             query: "mysearch".to_string(),
             cursor: 8,
+            pre_search: None,
         }),
         ..Default::default()
     };
@@ -930,6 +938,7 @@ fn acceptance_trash_search_mode_in_list() {
     state.mode = ListMode::Search(SearchState {
         query: "git".to_string(),
         cursor: 3,
+        pre_search: None,
     });
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::Trash);
     assert!(!result.is_empty());
@@ -975,4 +984,53 @@ fn trash_item_3_lines_at_full_width() {
     let item = build_trash_item(&record, false, false, true, true, 120, 30);
     // Should have 3 lines at full width: title, metadata, separator
     assert_eq!(item.height(), 3);
+}
+
+// ---------------------------------------------------------------------------
+// highlight_match Unicode tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn highlight_chinese_text_does_not_panic() {
+    let terms: Vec<String> = vec!["密码".to_string()];
+    // Must not panic on multi-byte UTF-8
+    let spans = ListPanel::highlight_match("我的密码管理器", &terms);
+    assert!(!spans.is_empty());
+    // Verify highlighted span exists with WARNING color
+    let has_highlight = spans.iter().any(|s| {
+        s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100))
+    });
+    assert!(has_highlight, "Chinese search term should be highlighted");
+}
+
+#[test]
+fn highlight_mixed_ascii_cjk() {
+    let terms: Vec<String> = vec!["test".to_string()];
+    let spans = ListPanel::highlight_match("test密码test", &terms);
+    // Should have 3 spans: highlighted "test", normal "密码", highlighted "test"
+    assert!(spans.len() >= 3, "Expected at least 3 spans for mixed text");
+}
+
+#[test]
+fn highlight_empty_terms_returns_plain_span() {
+    let spans = ListPanel::highlight_match("任何文本", &[]);
+    assert_eq!(spans.len(), 1);
+}
+
+#[test]
+fn highlight_no_match_returns_single_span() {
+    let terms: Vec<String> = vec!["不存在".to_string()];
+    let spans = ListPanel::highlight_match("密码管理器", &terms);
+    assert_eq!(spans.len(), 1);
+}
+
+#[test]
+fn highlight_multi_term_chinese() {
+    let terms: Vec<String> = vec!["密码".to_string(), "管理".to_string()];
+    let spans = ListPanel::highlight_match("密码管理器", &terms);
+    // Both terms should be highlighted (adjacent, merged into one span)
+    let has_highlight = spans.iter().any(|s| {
+        s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100))
+    });
+    assert!(has_highlight, "Multi-term Chinese search should highlight");
 }

@@ -21,11 +21,21 @@ use crate::types::record::TuiRecord;
 // Sub-states
 // ---------------------------------------------------------------------------
 
+/// Snapshot of list state before entering search, for Esc restoration.
+#[derive(Debug, Clone)]
+pub struct SearchSnapshot {
+    pub records: Vec<TuiRecord>,
+    pub selected_index: Option<usize>,
+    pub scroll_offset: usize,
+}
+
 /// Search mode state: the current query string and cursor position within it.
 #[derive(Debug, Clone, Default)]
 pub struct SearchState {
     pub query: String,
     pub cursor: usize,
+    /// Pre-search snapshot saved on enter, restored on Esc.
+    pub pre_search: Option<SearchSnapshot>,
 }
 
 /// Visual (multi-select) mode state: the set of selected record IDs.
@@ -185,14 +195,42 @@ impl ListPanelState {
 
     // ── Mode transitions ───────────────────────────────────────────────────
 
-    /// Enter search mode. Resets query and cursor.
+    /// Enter search mode. Saves current list state as pre-search snapshot.
     pub fn enter_search(&mut self) {
-        self.mode = ListMode::Search(SearchState::default());
+        let snapshot = SearchSnapshot {
+            records: self.records.clone(),
+            selected_index: self.selected_index,
+            scroll_offset: self.scroll_offset,
+        };
+        self.mode = ListMode::Search(SearchState {
+            pre_search: Some(snapshot),
+            ..Default::default()
+        });
     }
 
-    /// Exit search mode back to normal browsing.
+    /// Exit search mode back to normal browsing, discarding search state.
     pub fn exit_search(&mut self) {
         self.mode = ListMode::Normal;
+    }
+
+    /// Cancel search and restore pre-search snapshot (for Esc).
+    /// Returns the restored selected record id, if any.
+    pub fn cancel_search_restore(&mut self) -> Option<Uuid> {
+        if let ListMode::Search(ref mut state) = self.mode {
+            if let Some(snapshot) = state.pre_search.take() {
+                let restored_id = snapshot
+                    .selected_index
+                    .and_then(|idx| snapshot.records.get(idx))
+                    .map(|r| r.id);
+                self.records = snapshot.records;
+                self.selected_index = snapshot.selected_index;
+                self.scroll_offset = snapshot.scroll_offset;
+                self.mode = ListMode::Normal;
+                return restored_id;
+            }
+        }
+        self.mode = ListMode::Normal;
+        None
     }
 
     /// Enter visual (multi-select) mode. Starts with an empty selection set.
@@ -261,32 +299,39 @@ impl ListPanelState {
 
     // ── Search filtering ───────────────────────────────────────────────────
 
+    /// Get search terms (lowercase, whitespace-split) if in search mode.
+    pub fn search_terms(&self) -> Option<Vec<String>> {
+        match &self.mode {
+            ListMode::Search(state) if !state.query.trim().is_empty() => Some(
+                state
+                    .query
+                    .trim()
+                    .to_lowercase()
+                    .split_whitespace()
+                    .map(String::from)
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
     /// Filter records using multi-term AND logic on name + subtitle.
     /// Each whitespace-separated term must appear (case-insensitive) in either
     /// the record name or subtitle.
     pub fn apply_search_filter(&self, all_records: Vec<TuiRecord>) -> Vec<TuiRecord> {
-        let query = match &self.mode {
-            ListMode::Search(state) => state.query.trim().to_lowercase(),
+        let terms = match self.search_terms() {
+            Some(t) if !t.is_empty() => t,
             _ => return all_records,
         };
-
-        if query.is_empty() {
-            return all_records;
-        }
-
-        let terms: Vec<&str> = query.split_whitespace().collect();
-        if terms.is_empty() {
-            return all_records;
-        }
 
         all_records
             .into_iter()
             .filter(|record| {
                 let name_lower = record.name.to_lowercase();
                 let subtitle_lower = record.subtitle.to_lowercase();
-                terms
-                    .iter()
-                    .all(|term| name_lower.contains(term) || subtitle_lower.contains(term))
+                terms.iter().all(|term| {
+                    name_lower.contains(term.as_str()) || subtitle_lower.contains(term.as_str())
+                })
             })
             .collect()
     }
