@@ -40,7 +40,10 @@ impl std::fmt::Debug for DbPageKey {
 #[cfg(any(test, feature = "sqlcipher"))]
 pub fn test_db_page_key(bytes: [u8; 32]) -> DbPageKey {
     let mut bytes = bytes;
-    DbPageKey::new(&mut bytes).expect("create test DbPageKey")
+    match DbPageKey::new(&mut bytes) {
+        Ok(key) => key,
+        Err(e) => panic!("test_db_page_key: failed to create key: {}", e),
+    }
 }
 
 #[cfg(test)]

@@ -645,8 +645,15 @@ pub async fn handle_initialize_vault(
             CommandResult::VaultInitialized
         }
         Err(e) => {
-            if let Err(rollback_err) = pending.rollback() {
-                tracing::error!(error = %rollback_err, "rollback failed during new vault initialization");
+            #[cfg(feature = "sqlcipher")]
+            {
+                if let Err(rollback_err) = pending.rollback() {
+                    tracing::error!(error = %rollback_err, "rollback failed during new vault initialization");
+                }
+            }
+            #[cfg(not(feature = "sqlcipher"))]
+            {
+                drop(pending);
             }
             cleanup_failed_new_vault_initialization(
                 &vault_path,

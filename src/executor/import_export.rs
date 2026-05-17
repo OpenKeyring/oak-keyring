@@ -594,6 +594,9 @@ pub async fn handle_restore_database_from_okb(
     // Create a pending file-backed vault.db. If any later step fails, dropping
     // the guard restores the executor to an in-memory vault and removes the
     // uncommitted database files.
+    // The match { } pattern is required for borrow-checker compatibility with
+    // PendingFileBackedVaultDb — a named let binding would extend the mutable
+    // borrow lifetime past restore_cache_on_failure calls in the Err arm.
     #[allow(clippy::blocks_in_conditions)]
     let mut pending = match {
         #[cfg(feature = "sqlcipher")]

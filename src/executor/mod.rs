@@ -576,6 +576,7 @@ impl PendingFileBackedVaultDb<'_> {
     }
 }
 
+#[cfg(feature = "sqlcipher")]
 impl PendingFileBackedVaultDb<'_> {
     /// Explicitly roll back this pending guard, removing any newly created
     /// database artifacts and returning the executor to a locked state.
