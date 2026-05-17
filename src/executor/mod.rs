@@ -33,7 +33,7 @@ use crate::services::health::Health;
 use crate::services::vault::{Vault, VaultServiceImpl};
 use crate::types::SecureStr;
 
-use config_impl::{ServiceNotificationImpl};
+use config_impl::ServiceNotificationImpl;
 
 #[cfg(test)]
 mod health_test;
@@ -224,7 +224,10 @@ impl CommandExecutor {
         let sync = match create_cloud_storage(&config.sync) {
             Ok(storage) => {
                 info!("SyncService initialized for {:?}", config.sync.provider);
-                Some(Box::new(crate::services::sync::SyncServiceImpl::new(storage)) as Box<dyn crate::services::sync::SyncService>)
+                Some(
+                    Box::new(crate::services::sync::SyncServiceImpl::new(storage))
+                        as Box<dyn crate::services::sync::SyncService>,
+                )
             }
             Err(e) => {
                 info!(error = %e, "SyncService not initialized — sync features disabled");
@@ -233,7 +236,8 @@ impl CommandExecutor {
         };
 
         let clipboard_clear_seconds = config.general.clipboard_clear_seconds;
-        let clipboard = Arc::new(ClipboardService::new_safe(clipboard_clear_seconds)?) as Arc<dyn Clipboard>;
+        let clipboard =
+            Arc::new(ClipboardService::new_safe(clipboard_clear_seconds)?) as Arc<dyn Clipboard>;
 
         info!("CommandExecutor initialized successfully");
 
@@ -372,7 +376,10 @@ impl CommandExecutor {
     /// This is the primary method for test fixtures and custom construction scenarios.
     /// Production code should use [`CommandExecutor::new`] instead.
     #[must_use]
-    pub fn builder(vault_dir: std::path::PathBuf, config_dir: std::path::PathBuf) -> ExecutorBuilder {
+    pub fn builder(
+        vault_dir: std::path::PathBuf,
+        config_dir: std::path::PathBuf,
+    ) -> ExecutorBuilder {
         ExecutorBuilder::new(vault_dir, config_dir)
     }
 

@@ -47,8 +47,7 @@ fn permissive_unlocked_vault() -> MockVault {
     let mut mock = mock_unlocked_vault();
     mock.expect_get_metadata().returning(|_| Ok(None));
     mock.expect_set_metadata().returning(|_, _| Ok(()));
-    mock.expect_load_sync_status_map()
-        .returning(HashMap::new);
+    mock.expect_load_sync_status_map().returning(HashMap::new);
     mock.expect_list_all_stored_records()
         .returning(|| Ok(vec![]));
     mock.expect_list_record_health_states()
@@ -85,8 +84,7 @@ async fn health_check_skips_when_frequency_gate_blocks() {
         .returning(|| Ok(vec![]));
 
     let mut config = AppConfig::default();
-    config.security.health_check_frequency =
-        crate::config::security::HealthCheckFrequency::Daily;
+    config.security.health_check_frequency = crate::config::security::HealthCheckFrequency::Daily;
 
     let mut executor = base_builder()
         .vault(Box::new(mock_vault))
@@ -106,25 +104,22 @@ async fn health_check_skips_when_frequency_gate_blocks() {
 #[tokio::test]
 async fn cloud_restore_preflight_checks_metadata_via_sync_trait() {
     let mut mock_sync = MockSyncService::new();
-    mock_sync
-        .expect_download_metadata()
-        .once()
-        .returning(|| {
-            Box::pin(async {
-                let mut metadata = CloudMetadata::new("test-vault".to_string());
-                metadata.upsert_record(
-                    "record-1".to_string(),
-                    crate::cloud::RecordVersionInfo {
-                        version: 1,
-                        updated_at: "2026-05-14T00:00:00Z".to_string(),
-                        updated_by: "test-device".to_string(),
-                        checksum: "checksum".to_string(),
-                        deleted: false,
-                    },
-                );
-                Ok(Some(metadata))
-            })
-        });
+    mock_sync.expect_download_metadata().once().returning(|| {
+        Box::pin(async {
+            let mut metadata = CloudMetadata::new("test-vault".to_string());
+            metadata.upsert_record(
+                "record-1".to_string(),
+                crate::cloud::RecordVersionInfo {
+                    version: 1,
+                    updated_at: "2026-05-14T00:00:00Z".to_string(),
+                    updated_by: "test-device".to_string(),
+                    checksum: "checksum".to_string(),
+                    deleted: false,
+                },
+            );
+            Ok(Some(metadata))
+        })
+    });
 
     let result = sync::ensure_cloud_restore_has_records(&mut mock_sync).await;
     assert!(result.is_ok());
@@ -240,28 +235,22 @@ async fn trigger_rotation_with_mock_sync_pause_resume_flow() {
         .expect_pause()
         .once()
         .returning(|| Box::pin(async { Ok(()) }));
-    mock_sync
-        .expect_download_metadata()
-        .once()
-        .returning(|| {
-            Box::pin(async {
-                let mut meta = CloudMetadata::new("test-vault".to_string());
-                meta.metadata_version = 1;
-                Ok(Some(meta))
-            })
-        });
+    mock_sync.expect_download_metadata().once().returning(|| {
+        Box::pin(async {
+            let mut meta = CloudMetadata::new("test-vault".to_string());
+            meta.metadata_version = 1;
+            Ok(Some(meta))
+        })
+    });
 
     // After rotation: download_metadata (for CAS push), push, resume
-    mock_sync
-        .expect_download_metadata()
-        .once()
-        .returning(|| {
-            Box::pin(async {
-                let mut meta = CloudMetadata::new("test-vault".to_string());
-                meta.metadata_version = 1;
-                Ok(Some(meta))
-            })
-        });
+    mock_sync.expect_download_metadata().once().returning(|| {
+        Box::pin(async {
+            let mut meta = CloudMetadata::new("test-vault".to_string());
+            meta.metadata_version = 1;
+            Ok(Some(meta))
+        })
+    });
     mock_sync
         .expect_push_metadata_atomic()
         .once()
@@ -287,9 +276,7 @@ async fn trigger_rotation_with_mock_sync_pause_resume_flow() {
         }
     });
     mock_vault.expect_set_metadata().returning(|_, _| Ok(()));
-    mock_vault
-        .expect_delete_metadata()
-        .returning(|_| Ok(()));
+    mock_vault.expect_delete_metadata().returning(|_| Ok(()));
     mock_vault
         .expect_write_audit_entry()
         .returning(|_, _, _, _| Ok(()));
@@ -404,9 +391,7 @@ async fn resume_rotation_returns_no_trigger_when_no_checkpoint() {
 #[test]
 fn check_rotation_trigger_returns_correct_result() {
     let mut mock_vault = MockVault::new();
-    mock_vault
-        .expect_get_metadata()
-        .returning(|_| Ok(None));
+    mock_vault.expect_get_metadata().returning(|_| Ok(None));
 
     let mut executor = base_builder()
         .vault(Box::new(mock_vault))
@@ -541,10 +526,10 @@ fn import_reports_mixed_success_and_failure_counts() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use crate::commands::types::ImportSource;
+    use crate::errors::mapping::vault::VaultError;
     use crate::executor::import_export;
     use crate::services::import_export::service::{ImportableRecord, MockImportExport};
     use crate::services::import_export::types::ImportResult;
-    use crate::errors::mapping::vault::VaultError;
     use crate::types::CredentialType;
 
     // ── Mock vault: create_record fails for 1st call, succeeds for 2nd+3rd ──
@@ -553,7 +538,8 @@ fn import_reports_mixed_success_and_failure_counts() {
     mock_vault.expect_is_unlocked().returning(|| true);
 
     let cc = Arc::clone(&call_count);
-    mock_vault.expect_create_record()
+    mock_vault
+        .expect_create_record()
         .times(3)
         .returning(move |_params| {
             let n = cc.fetch_add(1, Ordering::SeqCst);
@@ -564,44 +550,43 @@ fn import_reports_mixed_success_and_failure_counts() {
             }
         });
 
-    mock_vault.expect_write_audit_entry()
+    mock_vault
+        .expect_write_audit_entry()
         .returning(|_, _, _, _| Ok(()));
 
     // ── Mock import_export: returns 3 importable records ──
     let mut mock_ie = MockImportExport::new();
-    mock_ie.expect_execute_import()
-        .once()
-        .returning(|_| {
-            let result = ImportResult {
-                imported: 3,
-                reviewed: 0,
-                skipped: 0,
-                failed: 0,
-                validation_failed: 0,
-                duration_ms: 0,
-            };
-            let records = vec![
-                ImportableRecord {
-                    credential_type: CredentialType::Login,
-                    fields: Default::default(),
-                    tags: vec![],
-                    is_review: false,
-                },
-                ImportableRecord {
-                    credential_type: CredentialType::Login,
-                    fields: Default::default(),
-                    tags: vec![],
-                    is_review: false,
-                },
-                ImportableRecord {
-                    credential_type: CredentialType::Login,
-                    fields: Default::default(),
-                    tags: vec![],
-                    is_review: false,
-                },
-            ];
-            Ok((result, records))
-        });
+    mock_ie.expect_execute_import().once().returning(|_| {
+        let result = ImportResult {
+            imported: 3,
+            reviewed: 0,
+            skipped: 0,
+            failed: 0,
+            validation_failed: 0,
+            duration_ms: 0,
+        };
+        let records = vec![
+            ImportableRecord {
+                credential_type: CredentialType::Login,
+                fields: Default::default(),
+                tags: vec![],
+                is_review: false,
+            },
+            ImportableRecord {
+                credential_type: CredentialType::Login,
+                fields: Default::default(),
+                tags: vec![],
+                is_review: false,
+            },
+            ImportableRecord {
+                credential_type: CredentialType::Login,
+                fields: Default::default(),
+                tags: vec![],
+                is_review: false,
+            },
+        ];
+        Ok((result, records))
+    });
 
     // ── Build executor ──
     let mut executor = base_builder()

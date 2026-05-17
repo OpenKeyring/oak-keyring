@@ -324,7 +324,9 @@ mod tests {
         setup_executor_with_sync(None)
     }
 
-    fn setup_executor_with_sync(sync: Option<Box<dyn crate::services::sync::SyncService>>) -> CommandExecutor {
+    fn setup_executor_with_sync(
+        sync: Option<Box<dyn crate::services::sync::SyncService>>,
+    ) -> CommandExecutor {
         let vault = setup_vault_unlocked();
         let (result_tx, _) = mpsc::channel(64);
         let clipboard = Arc::new(ClipboardService::with_backend(
@@ -353,10 +355,16 @@ mod tests {
         .unwrap()
         .finish();
         let storage = crate::cloud::CloudStorage::new(op, "fs".to_string());
-        (temp_dir, Box::new(SyncServiceImpl::new(storage)) as Box<dyn crate::services::sync::SyncService>)
+        (
+            temp_dir,
+            Box::new(SyncServiceImpl::new(storage)) as Box<dyn crate::services::sync::SyncService>,
+        )
     }
 
-    async fn seed_cloud_metadata(sync: &mut dyn crate::services::sync::SyncService, dek_version: u32) {
+    async fn seed_cloud_metadata(
+        sync: &mut dyn crate::services::sync::SyncService,
+        dek_version: u32,
+    ) {
         let mut meta = CloudMetadata::new("test-vault".to_string());
         meta.current_dek_version = dek_version;
         sync.push_metadata_atomic(meta, 0).await.unwrap();

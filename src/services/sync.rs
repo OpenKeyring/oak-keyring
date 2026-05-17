@@ -73,9 +73,7 @@ pub trait SyncService: Send {
     fn resume<'a>(&'a mut self) -> SyncFuture<'a, Result<(), SyncError>>;
 
     /// Restores cloud state by pulling remote metadata and records only.
-    fn restore_pull_only<'a>(
-        &'a mut self,
-    ) -> SyncFuture<'a, Result<SyncResult, SyncError>>;
+    fn restore_pull_only<'a>(&'a mut self) -> SyncFuture<'a, Result<SyncResult, SyncError>>;
 
     /// Initiates graceful shutdown (trait-object-compatible).
     fn shutdown_box(self: Box<Self>) -> SyncFuture<'static, Result<(), SyncError>>;
@@ -634,9 +632,7 @@ impl SyncService for SyncServiceImpl {
         cancel: CancellationToken,
         vault_data: Option<Box<SyncVaultData>>,
     ) -> SyncFuture<'a, Result<SyncResult, SyncError>> {
-        Box::pin(async move {
-            SyncServiceImpl::sync_with_cancel(self, cancel, vault_data).await
-        })
+        Box::pin(async move { SyncServiceImpl::sync_with_cancel(self, cancel, vault_data).await })
     }
 
     fn resolve_conflict<'a>(
@@ -644,26 +640,20 @@ impl SyncService for SyncServiceImpl {
         record_id: String,
         strategy: ResolutionStrategy,
     ) -> SyncFuture<'a, Result<(), SyncError>> {
-        Box::pin(async move {
-            SyncServiceImpl::resolve_conflict(self, record_id, strategy).await
-        })
+        Box::pin(async move { SyncServiceImpl::resolve_conflict(self, record_id, strategy).await })
     }
 
     fn resolve_all_conflicts<'a>(
         &'a mut self,
         strategy: ResolutionStrategy,
     ) -> SyncFuture<'a, Result<usize, SyncError>> {
-        Box::pin(async move {
-            SyncServiceImpl::resolve_all_conflicts(self, strategy).await
-        })
+        Box::pin(async move { SyncServiceImpl::resolve_all_conflicts(self, strategy).await })
     }
 
     fn download_metadata<'a>(
         &'a mut self,
     ) -> SyncFuture<'a, Result<Option<CloudMetadata>, SyncError>> {
-        Box::pin(async move {
-            SyncServiceImpl::download_metadata(self).await
-        })
+        Box::pin(async move { SyncServiceImpl::download_metadata(self).await })
     }
 
     fn push_metadata_atomic<'a>(
@@ -677,35 +667,23 @@ impl SyncService for SyncServiceImpl {
     }
 
     fn test_connection(&self) -> SyncFuture<'_, Result<(bool, String), SyncError>> {
-        Box::pin(async move {
-            SyncServiceImpl::test_connection(self).await
-        })
+        Box::pin(async move { SyncServiceImpl::test_connection(self).await })
     }
 
     fn pause<'a>(&'a mut self) -> SyncFuture<'a, Result<(), SyncError>> {
-        Box::pin(async move {
-            SyncServiceImpl::pause(self).await
-        })
+        Box::pin(async move { SyncServiceImpl::pause(self).await })
     }
 
     fn resume<'a>(&'a mut self) -> SyncFuture<'a, Result<(), SyncError>> {
-        Box::pin(async move {
-            SyncServiceImpl::resume(self).await
-        })
+        Box::pin(async move { SyncServiceImpl::resume(self).await })
     }
 
-    fn restore_pull_only<'a>(
-        &'a mut self,
-    ) -> SyncFuture<'a, Result<SyncResult, SyncError>> {
-        Box::pin(async move {
-            SyncServiceImpl::restore_pull_only(self).await
-        })
+    fn restore_pull_only<'a>(&'a mut self) -> SyncFuture<'a, Result<SyncResult, SyncError>> {
+        Box::pin(async move { SyncServiceImpl::restore_pull_only(self).await })
     }
 
     fn shutdown_box(self: Box<Self>) -> SyncFuture<'static, Result<(), SyncError>> {
-        Box::pin(async move {
-            SyncServiceImpl::shutdown(*self).await
-        })
+        Box::pin(async move { SyncServiceImpl::shutdown(*self).await })
     }
 }
 

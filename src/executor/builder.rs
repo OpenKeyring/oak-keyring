@@ -7,8 +7,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::commands::Message;
-use crate::config::AppConfig;
 use crate::config::notification::ServiceNotification;
+use crate::config::AppConfig;
 use crate::services::clipboard::{Clipboard, ClipboardService};
 use crate::services::health::{Health, HealthServiceImpl};
 use crate::services::import_export::{ImportExport, ImportExportServiceImpl};
@@ -199,7 +199,9 @@ impl ExecutorBuilder {
             .expect("ExecutorBuilder requires shutdown_token");
 
         // Default services if not explicitly set
-        let health = self.health.unwrap_or_else(|| Arc::new(HealthServiceImpl::new()));
+        let health = self
+            .health
+            .unwrap_or_else(|| Arc::new(HealthServiceImpl::new()));
         let import_export = self
             .import_export
             .unwrap_or_else(|| Box::new(ImportExportServiceImpl::new()));

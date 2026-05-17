@@ -588,7 +588,8 @@ mod tests {
         let rec = make_stored_record(None);
         let service = HealthServiceImpl::new_offline();
 
-        let report = service.run_full_check(&[rec], &FnDecryptor(|_id| Err("decrypt error".into())));
+        let report =
+            service.run_full_check(&[rec], &FnDecryptor(|_id| Err("decrypt error".into())));
         assert_eq!(report.total_checked, 1);
         assert_eq!(report.weak_passwords.len(), 0); // skipped due to decryption failure
     }

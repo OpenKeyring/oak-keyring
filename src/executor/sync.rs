@@ -610,7 +610,10 @@ mod restore_password_tests {
         let op = opendal::Operator::new(opendal::services::Memory::default())
             .unwrap()
             .finish();
-        Box::new(SyncServiceImpl::new(crate::cloud::CloudStorage::new(op, "memory".to_string()))) as Box<dyn crate::services::sync::SyncService>
+        Box::new(SyncServiceImpl::new(crate::cloud::CloudStorage::new(
+            op,
+            "memory".to_string(),
+        ))) as Box<dyn crate::services::sync::SyncService>
     }
 
     #[test]

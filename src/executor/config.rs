@@ -108,7 +108,10 @@ fn apply_config_changes(
                 use crate::cloud::provider::create_cloud_storage;
                 match create_cloud_storage(&new_config.sync) {
                     Ok(storage) => {
-                        executor.sync = Some(Box::new(crate::services::sync::SyncServiceImpl::new(storage)) as Box<dyn crate::services::sync::SyncService>);
+                        executor.sync = Some(Box::new(crate::services::sync::SyncServiceImpl::new(
+                            storage,
+                        ))
+                            as Box<dyn crate::services::sync::SyncService>);
                         tracing::info!("SyncService rebuilt with updated config");
                     }
                     Err(e) => {
