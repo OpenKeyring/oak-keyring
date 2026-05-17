@@ -1,6 +1,8 @@
 use crate::commands::{CommandResult, InternalCommand};
 use crate::config::ConfigManager;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
+#[cfg(not(feature = "sqlcipher"))]
+use crate::errors::service_error::ServiceError;
 use crate::errors::{ErrorCode, ErrorContext};
 use crate::types::{RecoveryWords, SecureStr};
 
