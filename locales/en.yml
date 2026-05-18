@@ -273,6 +273,7 @@ tui:
     health_weak: "Weak"
     health_leaked: "Leaked"
     health_duplicate: "Duplicate"
+    health_expired: "Expired"
     time_just_now: "just now"
     time_minutes_ago: "%{n}m ago"
     time_hours_ago: "%{n}h ago"

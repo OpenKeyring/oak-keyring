@@ -125,6 +125,27 @@ fn make_record_with_duplicate(id: Uuid, name: &str, group_size: usize) -> TuiRec
     }
 }
 
+fn make_record_with_expired(id: Uuid, name: &str) -> TuiRecord {
+    TuiRecord {
+        id,
+        credential_type: CredentialType::Login,
+        name: name.to_string(),
+        subtitle: String::new(),
+        is_favorite: false,
+        is_expired: true,
+        expires_at: Some(Utc::now() - chrono::Duration::try_days(30).unwrap()),
+        has_weak_password: false,
+        is_compromised: false,
+        duplicate_group_size: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        deleted: false,
+        deleted_at: None,
+        tags: Vec::new(),
+        sync_status: None,
+    }
+}
+
 /// Render into a TestBackend and return the buffer as a string snapshot.
 fn render_snapshot(
     state: &ListPanelState,
@@ -725,8 +746,19 @@ fn health_badge_duplicate_ascii() {
 
 #[test]
 fn health_badge_expired() {
-    let result = health_badge(Some(&HealthIssue::Expired), true);
-    assert!(result.is_none());
+    let span = health_badge(Some(&HealthIssue::Expired), true).unwrap();
+    let text = span.content.as_ref();
+    assert!(text.contains('\u{2717}')); // ✗
+    assert!(text.contains("Expired") || text.contains("expired"));
+    assert!(span.style.fg == Some(theme::INFO));
+}
+
+#[test]
+fn health_badge_expired_ascii() {
+    let span = health_badge(Some(&HealthIssue::Expired), false).unwrap();
+    let text = span.content.as_ref();
+    assert!(text.contains('x'));
+    assert!(span.style.fg == Some(theme::INFO));
 }
 
 #[test]
@@ -748,6 +780,14 @@ fn render_compromised_badge_in_list() {
 #[test]
 fn render_duplicate_badge_in_list() {
     let record = make_record_with_duplicate(Uuid::new_v4(), "SharedPass", 3);
+    let state = ListPanelState::with_records(vec![record]);
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_expired_badge_in_list() {
+    let record = make_record_with_expired(Uuid::new_v4(), "OldSite");
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
     assert!(!result.is_empty());
@@ -777,6 +817,33 @@ fn render_weak_takes_priority_over_duplicate() {
 fn render_duplicate_group_size_one_no_badge() {
     // group_size == 1 means it's in a group of 1 (itself), not actually duplicated
     let record = make_record_with_duplicate(Uuid::new_v4(), "Unique", 1);
+    let state = ListPanelState::with_records(vec![record]);
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_compromised_takes_priority_over_expired() {
+    let mut record = make_record_with_compromised(Uuid::new_v4(), "HackedExpired");
+    record.is_expired = true;
+    let state = ListPanelState::with_records(vec![record]);
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_weak_takes_priority_over_expired() {
+    let mut record = make_record_with_weak(Uuid::new_v4(), "WeakExpired");
+    record.is_expired = true;
+    let state = ListPanelState::with_records(vec![record]);
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_duplicate_takes_priority_over_expired() {
+    let mut record = make_record_with_duplicate(Uuid::new_v4(), "DupExpired", 3);
+    record.is_expired = true;
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
     assert!(!result.is_empty());
@@ -997,9 +1064,9 @@ fn highlight_chinese_text_does_not_panic() {
     let spans = ListPanel::highlight_match("我的密码管理器", &terms);
     assert!(!spans.is_empty());
     // Verify highlighted span exists with WARNING color
-    let has_highlight = spans.iter().any(|s| {
-        s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100))
-    });
+    let has_highlight = spans
+        .iter()
+        .any(|s| s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100)));
     assert!(has_highlight, "Chinese search term should be highlighted");
 }
 
@@ -1029,8 +1096,8 @@ fn highlight_multi_term_chinese() {
     let terms: Vec<String> = vec!["密码".to_string(), "管理".to_string()];
     let spans = ListPanel::highlight_match("密码管理器", &terms);
     // Both terms should be highlighted (adjacent, merged into one span)
-    let has_highlight = spans.iter().any(|s| {
-        s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100))
-    });
+    let has_highlight = spans
+        .iter()
+        .any(|s| s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100)));
     assert!(has_highlight, "Multi-term Chinese search should highlight");
 }
