@@ -3396,3 +3396,283 @@ fn search_no_results_clears_detail() {
         "Detail should be cleared when no records match"
     );
 }
+
+// ── Issue #123: trash navigation → detail → restore/hard-delete ──────────
+
+#[test]
+fn trash_navigation_then_restore_full_flow() {
+    use crate::commands::result::CommandResult;
+    use crate::commands::types::RecordFilter;
+    use crate::types::credential::CredentialType;
+    use crate::types::record::{DecryptedRecord, TuiRecord};
+    use crate::types::SecureStr;
+
+    let id0 = Uuid::new_v4();
+    let id1 = Uuid::new_v4();
+    let records = vec![
+        TuiRecord {
+            id: id0,
+            credential_type: CredentialType::Login,
+            name: "Deleted-A".to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: true,
+            deleted_at: Some(chrono::Utc::now()),
+            tags: Vec::new(),
+            sync_status: None,
+        },
+        TuiRecord {
+            id: id1,
+            credential_type: CredentialType::Login,
+            name: "Deleted-B".to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: true,
+            deleted_at: Some(chrono::Utc::now()),
+            tags: Vec::new(),
+            sync_status: None,
+        },
+    ];
+
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::List;
+    state.current_filter = RecordFilter::Trash;
+    state.list.records = records;
+    state.list.selected_index = Some(0);
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    // Step 1: press j to navigate to second record
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    assert_eq!(state.list.selected_index, Some(1));
+    let selected_id = match &result {
+        ScreenResult::Command(cmd) => match cmd.as_ref() {
+            Command::LoadRecordDetail { id } => *id,
+            _ => panic!("expected LoadRecordDetail, got {:?}", cmd),
+        },
+        _ => panic!("expected Command result from trash j, got {:?}", result),
+    };
+    assert_eq!(selected_id, id1, "j should select second record");
+
+    // Step 2: apply RecordDetailLoaded for the navigated record
+    let decrypted = DecryptedRecord::Login {
+        id: selected_id,
+        is_favorite: false,
+        expires_at: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        version: 1,
+        deleted: true,
+        deleted_at: Some(chrono::Utc::now()),
+        tags: Vec::new(),
+        name: "Deleted-B".to_string(),
+        username: "user".to_string(),
+        password: SecureStr::new("pass".to_string()),
+        url: None,
+        notes: None,
+    };
+    state.update(
+        Message::CommandCompleted(CommandResult::RecordDetailLoaded {
+            record: decrypted,
+            password_strength: None,
+            health_issue: None,
+        }),
+        &mut ctx,
+    );
+
+    // Step 3: assert detail loaded with correct id and is_trash
+    assert!(
+        state.detail.record.is_some(),
+        "detail should have a record loaded"
+    );
+    assert_eq!(state.detail.record.as_ref().unwrap().id, selected_id);
+    assert!(
+        state.detail.is_trash,
+        "detail should be marked as trash context"
+    );
+
+    // Step 4: press r to open restore confirm
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    // Overlay should be opened (state.update routes through MainScreen::handle_key_event)
+    assert!(
+        state.overlay_manager.is_active(),
+        "restore confirm overlay should be open"
+    );
+    drop(result);
+
+    // Step 5: Restore defaults to Confirm, press Enter directly
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    assert!(
+        !state.overlay_manager.is_active(),
+        "overlay should close after confirm"
+    );
+    match result {
+        ScreenResult::Command(cmd) => match cmd.as_ref() {
+            Command::RestoreRecord { id } => {
+                assert_eq!(*id, selected_id, "should restore the navigated record");
+            }
+            _ => panic!("expected RestoreRecord, got {:?}", cmd),
+        },
+        _ => panic!("expected Command from restore confirm, got {:?}", result),
+    }
+}
+
+#[test]
+fn trash_navigation_then_hard_delete_full_flow() {
+    use crate::commands::result::CommandResult;
+    use crate::commands::types::RecordFilter;
+    use crate::types::credential::CredentialType;
+    use crate::types::record::{DecryptedRecord, TuiRecord};
+    use crate::types::SecureStr;
+
+    let id0 = Uuid::new_v4();
+    let id1 = Uuid::new_v4();
+    let records = vec![
+        TuiRecord {
+            id: id0,
+            credential_type: CredentialType::Login,
+            name: "Deleted-A".to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: true,
+            deleted_at: Some(chrono::Utc::now()),
+            tags: Vec::new(),
+            sync_status: None,
+        },
+        TuiRecord {
+            id: id1,
+            credential_type: CredentialType::Login,
+            name: "Deleted-B".to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: true,
+            deleted_at: Some(chrono::Utc::now()),
+            tags: Vec::new(),
+            sync_status: None,
+        },
+    ];
+
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::List;
+    state.current_filter = RecordFilter::Trash;
+    state.list.records = records;
+    state.list.selected_index = Some(0);
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    // Navigate to second record
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    let selected_id = match &result {
+        ScreenResult::Command(cmd) => match cmd.as_ref() {
+            Command::LoadRecordDetail { id } => *id,
+            _ => panic!("expected LoadRecordDetail"),
+        },
+        _ => panic!("expected Command from trash j"),
+    };
+
+    // Load detail
+    let decrypted = DecryptedRecord::Login {
+        id: selected_id,
+        is_favorite: false,
+        expires_at: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        version: 1,
+        deleted: true,
+        deleted_at: Some(chrono::Utc::now()),
+        tags: Vec::new(),
+        name: "Deleted-B".to_string(),
+        username: "user".to_string(),
+        password: SecureStr::new("pass".to_string()),
+        url: None,
+        notes: None,
+    };
+    state.update(
+        Message::CommandCompleted(CommandResult::RecordDetailLoaded {
+            record: decrypted,
+            password_strength: None,
+            health_issue: None,
+        }),
+        &mut ctx,
+    );
+    assert!(state.detail.record.is_some());
+    assert!(state.detail.is_trash);
+
+    // Press D (Shift+D) to open hard-delete confirm
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Char('D'), KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    assert!(
+        state.overlay_manager.is_active(),
+        "hard delete confirm overlay should be open"
+    );
+    drop(result);
+
+    // Tab to Confirm, Enter to confirm
+    state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    match result {
+        ScreenResult::Command(cmd) => match cmd.as_ref() {
+            Command::HardDeleteRecord { id } => {
+                assert_eq!(*id, selected_id, "should hard-delete the navigated record");
+            }
+            _ => panic!("expected HardDeleteRecord, got {:?}", cmd),
+        },
+        _ => panic!("expected Command from hard-delete confirm, got {:?}", result),
+    }
+}
