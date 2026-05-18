@@ -494,6 +494,83 @@ fn list_unfocused() {
 }
 
 // ---------------------------------------------------------------------------
+// Buffer cell-style assertions for search highlight
+// ---------------------------------------------------------------------------
+
+#[test]
+fn list_search_highlight_cell_styles() {
+    let r1 = make_record(Uuid::new_v4(), "GitHub", "user@github.com");
+    let r2 = make_record(Uuid::new_v4(), "GitLab", "dev@gitlab.com");
+    let mut state = ListPanelState::with_records(vec![r1, r2]);
+    state.mode = ListMode::Search(SearchState {
+        query: "git".to_string(),
+        cursor: 3,
+        pre_search: None,
+    });
+    // Select the second record so the first (GitHub) is NOT selected,
+    // avoiding the List highlight_style overriding search highlight fg.
+    state.selected_index = Some(1);
+
+    let backend = TestBackend::new(60, 15);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            ListPanel::view(
+                frame,
+                frame.area(),
+                &state,
+                true,
+                true,
+                RecordFilter::All,
+                30,
+            );
+        })
+        .unwrap();
+
+    let buf = terminal.backend().buffer();
+    let warning = ratatui::style::Color::Rgb(255, 158, 100);
+
+    // y=0: search bar.  y=1: first record title line ("  GitHub...")
+    // "  " prefix occupies x=0,1.  "G" starts at x=2.
+    // Search term "git" matches "Git" case-insensitively → x=2,3,4 highlighted.
+
+    // Highlighted cells (G,i,t) must have WARNING fg + BOLD modifier
+    for x in 2..=4 {
+        let cell = buf
+            .cell((x, 1))
+            .unwrap_or_else(|| panic!("cell ({}, 1) missing", x));
+        assert_eq!(
+            cell.style().fg,
+            Some(warning),
+            "cell ({}, 1) should have WARNING fg for highlighted 'Git', got {:?}",
+            x,
+            cell.style().fg
+        );
+        assert!(
+            cell.style()
+                .add_modifier
+                .contains(ratatui::style::Modifier::BOLD),
+            "cell ({}, 1) should have BOLD modifier for highlighted 'Git'",
+            x
+        );
+    }
+
+    // Non-highlighted cells (H,u,b) must NOT have WARNING fg
+    for x in 5..=7 {
+        let cell = buf
+            .cell((x, 1))
+            .unwrap_or_else(|| panic!("cell ({}, 1) missing", x));
+        assert_ne!(
+            cell.style().fg,
+            Some(warning),
+            "cell ({}, 1) should NOT have WARNING fg for non-matching 'Hub', got {:?}",
+            x,
+            cell.style().fg
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Content-assertion tests for acceptance criteria
 // ---------------------------------------------------------------------------
 
