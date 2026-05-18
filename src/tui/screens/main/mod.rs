@@ -608,12 +608,28 @@ impl MainScreen {
                     }));
                 }
             }
-            // Navigation still works in trash
+            // Navigation loads detail for the newly selected trash record
             KeyCode::Char('j') | KeyCode::Down => {
                 state.list.move_down();
+                if let Some(record) = state.list.selected_record() {
+                    return MainKeyResult {
+                        messages,
+                        overlay,
+                        command: Some(Box::new(Command::LoadRecordDetail { id: record.id })),
+                        focused_panel: None,
+                    };
+                }
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 state.list.move_up();
+                if let Some(record) = state.list.selected_record() {
+                    return MainKeyResult {
+                        messages,
+                        overlay,
+                        command: Some(Box::new(Command::LoadRecordDetail { id: record.id })),
+                        focused_panel: None,
+                    };
+                }
             }
             _ => {}
         }
@@ -1073,6 +1089,66 @@ mod tests {
 
         screen.handle_key_event(make_key(KeyCode::Char('k')), &mut state, PanelId::List);
         assert_eq!(state.list.selected_index, Some(0));
+    }
+
+    #[test]
+    fn trash_j_sends_load_record_detail() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let ids: Vec<_> = records.iter().map(|r| r.id).collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('j')), &mut state, PanelId::List);
+        assert_eq!(state.list.selected_index, Some(1));
+        assert!(
+            result.command.is_some(),
+            "trash j should send LoadRecordDetail"
+        );
+        match result.command {
+            Some(cmd) => {
+                assert!(
+                    matches!(cmd.as_ref(), Command::LoadRecordDetail { id } if *id == ids[1]),
+                    "expected LoadRecordDetail with id of second record"
+                );
+            }
+            None => panic!("trash j should send LoadRecordDetail command"),
+        }
+    }
+
+    #[test]
+    fn trash_k_sends_load_record_detail() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let ids: Vec<_> = records.iter().map(|r| r.id).collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.list.move_down();
+        assert_eq!(state.list.selected_index, Some(1));
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('k')), &mut state, PanelId::List);
+        assert_eq!(state.list.selected_index, Some(0));
+        assert!(
+            result.command.is_some(),
+            "trash k should send LoadRecordDetail"
+        );
+        match result.command {
+            Some(cmd) => {
+                assert!(
+                    matches!(cmd.as_ref(), Command::LoadRecordDetail { id } if *id == ids[0]),
+                    "expected LoadRecordDetail with id of first record"
+                );
+            }
+            None => panic!("trash k should send LoadRecordDetail command"),
+        }
     }
 
     // ── Tag sorting tests ───────────────────────────────────────────────────────
