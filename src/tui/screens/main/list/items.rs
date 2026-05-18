@@ -218,14 +218,9 @@ pub(super) fn build_record_item<'a>(
     // Determine badge span style (override for visual-selected context)
     let badge_span = badge.map(|span| {
         if is_visual_selected {
-            // Preserve original badge color for visual-selected override
-            let badge_fg = if record.is_compromised {
-                theme::ERROR
-            } else if record.is_expired {
-                theme::INFO
-            } else {
-                theme::WARNING
-            };
+            // Derive color from the chosen badge, not from record flags,
+            // so the visual-selected color matches the priority-derived badge.
+            let badge_fg = span.style.fg.unwrap_or(theme::TEXT);
             Span::styled(
                 span.content,
                 Style::default()

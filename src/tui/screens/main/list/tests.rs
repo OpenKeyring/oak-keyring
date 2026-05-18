@@ -790,7 +790,10 @@ fn render_expired_badge_in_list() {
     let record = make_record_with_expired(Uuid::new_v4(), "OldSite");
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
-    assert!(!result.is_empty());
+    assert!(
+        result.contains("Expired"),
+        "expired badge should be visible in list"
+    );
 }
 
 #[test]
@@ -824,29 +827,65 @@ fn render_duplicate_group_size_one_no_badge() {
 
 #[test]
 fn render_compromised_takes_priority_over_expired() {
-    let mut record = make_record_with_compromised(Uuid::new_v4(), "HackedExpired");
+    let mut record = make_record_with_compromised(Uuid::new_v4(), "HackedOld");
     record.is_expired = true;
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
-    assert!(!result.is_empty());
+    assert!(
+        result.contains("Leaked"),
+        "compromised badge should be visible"
+    );
+    assert!(
+        !result.contains("Expired"),
+        "expired badge should be suppressed when compromised is present"
+    );
 }
 
 #[test]
 fn render_weak_takes_priority_over_expired() {
-    let mut record = make_record_with_weak(Uuid::new_v4(), "WeakExpired");
+    let mut record = make_record_with_weak(Uuid::new_v4(), "WeakOld");
     record.is_expired = true;
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
-    assert!(!result.is_empty());
+    assert!(result.contains("Weak"), "weak badge should be visible");
+    assert!(
+        !result.contains("Expired"),
+        "expired badge should be suppressed when weak is present"
+    );
 }
 
 #[test]
 fn render_duplicate_takes_priority_over_expired() {
-    let mut record = make_record_with_duplicate(Uuid::new_v4(), "DupExpired", 3);
+    let mut record = make_record_with_duplicate(Uuid::new_v4(), "DupOld", 3);
     record.is_expired = true;
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
-    assert!(!result.is_empty());
+    assert!(result.contains("3"), "duplicate count should be visible");
+    assert!(
+        !result.contains("Expired"),
+        "expired badge should be suppressed when duplicate is present"
+    );
+}
+
+#[test]
+fn render_visual_selected_weak_and_expired_uses_weak_color() {
+    // Weak + expired record in visual-selected mode: badge should use Weak (orange),
+    // not Expired (blue), because Weak has higher priority.
+    let id = Uuid::new_v4();
+    let mut record = make_record_with_weak(id, "WeakOld");
+    record.is_expired = true;
+    let mut state = ListPanelState::with_records(vec![record]);
+    let mut selected = HashSet::new();
+    selected.insert(id);
+    state.mode = ListMode::Visual(VisualState {
+        selected_ids: selected,
+    });
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(result.contains("Weak"), "weak badge should be visible");
+    assert!(
+        !result.contains("Expired"),
+        "expired badge should be suppressed when weak is present"
+    );
 }
 
 #[test]
