@@ -1,6 +1,5 @@
 use std::env;
 use std::io::Write;
-use std::ops::Range;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -89,7 +88,7 @@ fn create_params(i: usize) -> CreateRecordParams {
         credential_type: CredentialType::Login,
         payload: login_payload(&format!("bench-login-{i:06}"), &format!("secret-{i:06}")),
         tags: vec!["bench".to_string(), format!("bucket-{}", i % 10)],
-        is_favorite: i % 11 == 0,
+        is_favorite: i.is_multiple_of(11),
         expires_at: None,
     }
 }
@@ -169,15 +168,6 @@ fn validate_search_records(
     Ok(())
 }
 
-fn expected_search_count_for_ranges(ranges: &[Range<usize>]) -> usize {
-    ranges
-        .iter()
-        .cloned()
-        .flatten()
-        .filter(|i| generated_name_contains_search_query(*i))
-        .count()
-}
-
 fn generated_name_contains_search_query(i: usize) -> bool {
     format!("bench-login-{i:06}").contains(SEARCH_QUERY)
 }
@@ -233,7 +223,7 @@ fn run_workload(vault: &mut VaultServiceImpl, count: usize) -> Result<BenchRow> 
             .context("search benchmark records")
     });
     let search_records = search_result?;
-    let expected_search_count = expected_search_count_for_ranges(&[0..count]);
+    let expected_search_count = (0..count).filter(|i| generated_name_contains_search_query(*i)).count();
     validate_search_records(&search_records, expected_search_count)
         .context("validate search benchmark result")?;
 
@@ -360,7 +350,7 @@ fn validate_sqlcipher_export(
     let search_records = vault
         .list_records(&RecordFilter::Search(SEARCH_QUERY.to_string()), &sort())
         .context("search exported SQLCipher records")?;
-    let expected_search_count = expected_search_count_for_ranges(&[0..expected_count]);
+    let expected_search_count = (0..expected_count).filter(|i| generated_name_contains_search_query(*i)).count();
     validate_search_records(&search_records, expected_search_count)
         .context("validate exported SQLCipher search records")?;
 
