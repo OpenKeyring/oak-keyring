@@ -1105,7 +1105,9 @@ impl MainScreenState {
                         new_query.pop();
                         self.list.update_search_query(new_query);
                         if let Some(id) = self.apply_search_filter_to_records() {
-                            return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
+                            return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                                id,
+                            }));
                         }
                         self.detail.clear();
                     }
@@ -1123,7 +1125,9 @@ impl MainScreenState {
                         let new_query = format!("{}{}", s.query, c);
                         self.list.update_search_query(new_query);
                         if let Some(id) = self.apply_search_filter_to_records() {
-                            return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
+                            return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                                id,
+                            }));
                         }
                         self.detail.clear();
                     }

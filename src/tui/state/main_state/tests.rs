@@ -3357,7 +3357,10 @@ fn vault_locked_clears_search_snapshot() {
         &mut ctx,
     );
 
-    assert!(matches!(state.list.mode, crate::tui::state::list_state::ListMode::Normal));
+    assert!(matches!(
+        state.list.mode,
+        crate::tui::state::list_state::ListMode::Normal
+    ));
     assert!(state.list.records.is_empty());
     assert!(state.list.selected_index.is_none());
     assert!(state.detail.record.is_none());

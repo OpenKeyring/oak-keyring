@@ -272,6 +272,7 @@ tui:
     health_weak: "弱"
     health_leaked: "已泄露"
     health_duplicate: "重复"
+    health_expired: "已过期"
     time_just_now: "刚刚"
     time_minutes_ago: "%{n}分钟前"
     time_hours_ago: "%{n}小时前"
