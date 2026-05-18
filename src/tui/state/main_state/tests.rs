@@ -3676,6 +3676,9 @@ fn trash_navigation_then_hard_delete_full_flow() {
             }
             _ => panic!("expected HardDeleteRecord, got {:?}", cmd),
         },
-        _ => panic!("expected Command from hard-delete confirm, got {:?}", result),
+        _ => panic!(
+            "expected Command from hard-delete confirm, got {:?}",
+            result
+        ),
     }
 }
