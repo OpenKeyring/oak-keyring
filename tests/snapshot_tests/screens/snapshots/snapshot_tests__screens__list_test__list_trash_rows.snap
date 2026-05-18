@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_tests/screens/list_test.rs
+expression: terminal.backend()
+---
+"  Sort: [ Created ▼ ]  [ ↓ Descending ]                     "
+"  OldSite                                                  ◀"
+"  Deleted 5 days ago  Auto-delete in 25 days                "
+"────────────────────────────────────────────────────────────"
+"  Another                                                   "
+"  Deleted 20 days ago  ⚠   Auto-delete in 10 days           "
+"────────────────────────────────────────────────────────────"
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "

@@ -34,7 +34,10 @@ impl ListPanel {
 
         // If case folding changed char count, we can't safely map positions back.
         if chars.len() != chars_lower.len() {
-            return vec![Span::styled(text.to_string(), Style::default().fg(theme::TEXT))];
+            return vec![Span::styled(
+                text.to_string(),
+                Style::default().fg(theme::TEXT),
+            )];
         }
 
         let mut matched = vec![false; char_count];

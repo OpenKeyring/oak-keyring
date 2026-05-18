@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_tests/screens/list_test.rs
+expression: terminal.backend()
+---
+"  Sort: [ Created ▼ ]  [ ↓ Descending ]                     "
+"                            🔐                              " Hidden by multi-width symbols: [(29, " ")]
+"                                                            "
+"                      No passwords yet                      "
+"                                                            "
+"            Press n to create your first password           "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
