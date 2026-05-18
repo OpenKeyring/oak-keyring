@@ -955,6 +955,8 @@ tui:
     shortcuts_trash_detail_ascii: "C CopyPwd  U CopyUser  P Show/Hide  R Restore  D PermDelete  F1 Help"
     shortcuts_visual: "Space Select  a All  d BatchDel  t BatchTag  Esc Exit"
     shortcuts_visual_ascii: "Space Select  A All  D BatchDel  T BatchTag  Esc Exit"
+    shortcuts_visual_trash: "Space Select  a All  r BatchRestore  D BatchHardDel  Esc Exit"
+    shortcuts_visual_trash_ascii: "Space Select  A All  R BatchRestore  D BatchHardDel  Esc Exit"
 
   # ---- Sync Indicator ----
   sync_indicator:

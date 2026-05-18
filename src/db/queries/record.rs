@@ -293,7 +293,7 @@ pub fn batch_soft_delete_records(
 
 /// Batch restore multiple soft-deleted records.
 ///
-/// Returns the number of affected rows.
+/// Only restores records where `deleted = 1`. Returns the number of affected rows.
 pub fn batch_restore_records(conn: &Connection, ids: &[Uuid]) -> Result<usize> {
     if ids.is_empty() {
         return Ok(0);
@@ -301,7 +301,7 @@ pub fn batch_restore_records(conn: &Connection, ids: &[Uuid]) -> Result<usize> {
 
     let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
     let sql = format!(
-        "UPDATE records SET deleted = 0, deleted_at = NULL WHERE id IN ({})",
+        "UPDATE records SET deleted = 0, deleted_at = NULL WHERE id IN ({}) AND deleted = 1",
         placeholders.join(", ")
     );
 
@@ -312,9 +312,9 @@ pub fn batch_restore_records(conn: &Connection, ids: &[Uuid]) -> Result<usize> {
     Ok(affected)
 }
 
-/// Batch hard-delete multiple records (and cascading record_tags via FK).
+/// Batch hard-delete multiple soft-deleted records (and cascading record_tags via FK).
 ///
-/// Returns the number of affected rows.
+/// Only deletes records where `deleted = 1`. Returns the number of affected rows.
 pub fn batch_hard_delete_records(conn: &Connection, ids: &[Uuid]) -> Result<usize> {
     if ids.is_empty() {
         return Ok(0);
@@ -322,7 +322,7 @@ pub fn batch_hard_delete_records(conn: &Connection, ids: &[Uuid]) -> Result<usiz
 
     let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
     let sql = format!(
-        "DELETE FROM records WHERE id IN ({})",
+        "DELETE FROM records WHERE id IN ({}) AND deleted = 1",
         placeholders.join(", ")
     );
 

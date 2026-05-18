@@ -952,6 +952,8 @@ tui:
     shortcuts_trash_detail_ascii: "C 复制密码  U 复制用户名  P 显示/隐藏  R 恢复  D 永久删除  F1 帮助"
     shortcuts_visual: "Space选择  a全选  d批量删除  t批量标签  Esc退出"
     shortcuts_visual_ascii: "Space 选择  A 全选  D 批量删除  T 批量标签  Esc 退出"
+    shortcuts_visual_trash: "Space选择  a全选  r批量恢复  D批量永久删除  Esc退出"
+    shortcuts_visual_trash_ascii: "Space 选择  A 全选  R 批量恢复  D 批量永久删除  Esc 退出"
 
   # ---- Sync Indicator ----
   sync_indicator:
