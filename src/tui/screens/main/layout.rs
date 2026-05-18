@@ -68,8 +68,8 @@ mod tests {
         let area = Rect::new(0, 0, 120, 30);
         let layout = calculate_layout(area, 120);
 
-        // Full tier: sidebar width = 50
-        assert_eq!(layout.sidebar.width, 50);
+        // Full tier: sidebar width = 36
+        assert_eq!(layout.sidebar.width, 36);
         assert_eq!(layout.sidebar.height, 28); // 30 - 2 (separator + status)
         assert_eq!(layout.status_bar.height, 1);
         assert_eq!(layout.status_separator.height, 1);
