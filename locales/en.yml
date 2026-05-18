@@ -955,6 +955,8 @@ tui:
     shortcuts_trash_detail_ascii: "C CopyPwd  U CopyUser  P Show/Hide  R Restore  D PermDelete  F1 Help"
     shortcuts_visual: "Space Select  a All  d BatchDel  t BatchTag  Esc Exit"
     shortcuts_visual_ascii: "Space Select  A All  D BatchDel  T BatchTag  Esc Exit"
+    shortcuts_visual_trash: "Space Select  a All  r BatchRestore  D BatchHardDel  Esc Exit"
+    shortcuts_visual_trash_ascii: "Space Select  A All  R BatchRestore  D BatchHardDel  Esc Exit"
 
   # ---- Sync Indicator ----
   sync_indicator:
@@ -1088,6 +1090,8 @@ tui:
   batch:
     batch_delete_title: "Batch Delete"
     batch_delete_body: "Move %{count} passwords to trash?"
+    batch_restore_body: "Restore %{count} passwords from trash?"
+    batch_hard_delete_body: "Permanently delete %{count} passwords?"
     batch_tag_title: "Batch Tags — %{count} selected"
     add_tag: "Add Tag:"
     current_tags: "Current Tags:"

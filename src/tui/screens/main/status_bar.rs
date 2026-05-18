@@ -64,7 +64,7 @@ impl StatusBarPanel {
         let msg_style = Style::default().fg(theme::TEXT_SECONDARY).bg(bar_bg);
 
         let shortcuts = if visual_mode && matches!(focused_panel, PanelId::List | PanelId::Detail) {
-            visual_shortcuts_text(unicode)
+            visual_shortcuts_text(unicode, is_trash)
         } else {
             shortcuts_text(focused_panel, unicode, is_trash)
         };
@@ -209,8 +209,14 @@ fn shortcuts_text(focused_panel: PanelId, unicode: bool, is_trash: bool) -> Stri
 }
 
 /// Return the visual mode shortcut text.
-fn visual_shortcuts_text(unicode: bool) -> String {
-    if unicode {
+fn visual_shortcuts_text(unicode: bool, is_trash: bool) -> String {
+    if is_trash {
+        if unicode {
+            t!("tui.status_bar.shortcuts_visual_trash").to_string()
+        } else {
+            t!("tui.status_bar.shortcuts_visual_trash_ascii").to_string()
+        }
+    } else if unicode {
         t!("tui.status_bar.shortcuts_visual").to_string()
     } else {
         t!("tui.status_bar.shortcuts_visual_ascii").to_string()
@@ -497,10 +503,19 @@ mod tests {
 
     #[test]
     fn visual_mode_shortcuts_shown_when_visual_active() {
-        let text = visual_shortcuts_text(true);
+        let text = visual_shortcuts_text(true, false);
         assert!(
             text.contains("Space") || text.contains("Space\u{9009}\u{62E9}"),
             "visual shortcuts should mention Space"
+        );
+    }
+
+    #[test]
+    fn trash_visual_shortcuts_show_restore_and_hard_delete() {
+        let text = visual_shortcuts_text(true, true);
+        assert!(
+            !text.contains("BatchDel") && !text.contains("BatchTag"),
+            "trash visual shortcuts should not show BatchDel/BatchTag"
         );
     }
 

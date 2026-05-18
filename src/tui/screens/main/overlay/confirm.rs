@@ -1,10 +1,12 @@
-//! Confirmation dialog overlay — renders one of 6 confirm variants with Cancel/Confirm buttons.
+//! Confirmation dialog overlay — renders one of 8 confirm variants with Cancel/Confirm buttons.
 //!
 //! Variants:
 //! - **SoftDelete**: move record to trash (reversible)
 //! - **HardDelete**: permanently delete record (irreversible)
 //! - **EmptyTrash**: empty the trash (irreversible)
 //! - **BatchSoftDelete**: move multiple records to trash (reversible)
+//! - **BatchRestore**: restore multiple records from trash (reversible)
+//! - **BatchHardDelete**: permanently delete multiple records (irreversible)
 //! - **TagDelete**: delete a tag (irreversible)
 //! - **Restore**: restore a record from trash (reversible)
 
@@ -114,6 +116,7 @@ fn is_danger_variant(variant: &ConfirmVariant) -> bool {
         ConfirmVariant::HardDelete { .. }
             | ConfirmVariant::EmptyTrash { .. }
             | ConfirmVariant::TagDelete { .. }
+            | ConfirmVariant::BatchHardDelete { .. }
     )
 }
 
@@ -124,6 +127,10 @@ fn confirm_label_for(variant: &ConfirmVariant) -> String {
         ConfirmVariant::HardDelete { .. } => t!("tui.trash.permanent_delete_title").to_string(),
         ConfirmVariant::EmptyTrash { .. } => t!("tui.trash.empty_trash_title").to_string(),
         ConfirmVariant::BatchSoftDelete { .. } => t!("tui.overlay.confirm_button").to_string(),
+        ConfirmVariant::BatchRestore { .. } => t!("tui.trash.restore_button").to_string(),
+        ConfirmVariant::BatchHardDelete { .. } => {
+            t!("tui.trash.permanent_delete_title").to_string()
+        }
         ConfirmVariant::TagDelete { .. } => t!("tui.tag.confirm_delete_tag").to_string(),
         ConfirmVariant::Restore { .. } => t!("tui.trash.restore_button").to_string(),
     }
@@ -210,6 +217,68 @@ fn build_dialog_parts(
             }
             (
                 format!(" {} ", t!("tui.overlay.confirm_button")),
+                lines,
+                confirm_label_for(variant),
+            )
+        }
+
+        ConfirmVariant::BatchRestore { record_names, .. } => {
+            let count = record_names.len();
+            let mut lines = vec![Line::from(Span::styled(
+                t!("tui.batch.batch_restore_body", count = count),
+                Style::default().fg(theme::TEXT),
+            ))];
+            lines.push(Line::from(""));
+            for name in record_names.iter().take(5) {
+                lines.push(Line::from(Span::styled(
+                    format!("  - {}", name),
+                    Style::default().fg(theme::TEXT_SECONDARY),
+                )));
+            }
+            if record_names.len() > 5 {
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "  {}",
+                        t!("tui.batch.more_items", count = record_names.len())
+                    ),
+                    Style::default().fg(theme::TEXT_MUTED),
+                )));
+            }
+            (
+                format!(" {} ", t!("tui.trash.restore_title")),
+                lines,
+                confirm_label_for(variant),
+            )
+        }
+
+        ConfirmVariant::BatchHardDelete { record_names, .. } => {
+            let count = record_names.len();
+            let mut lines = vec![Line::from(Span::styled(
+                t!("tui.batch.batch_hard_delete_body", count = count),
+                Style::default().fg(theme::TEXT),
+            ))];
+            lines.push(Line::from(Span::styled(
+                t!("tui.trash.permanent_delete_warn").to_string(),
+                Style::default().fg(theme::WARNING),
+            )));
+            lines.push(Line::from(""));
+            for name in record_names.iter().take(5) {
+                lines.push(Line::from(Span::styled(
+                    format!("  - {}", name),
+                    Style::default().fg(theme::TEXT_SECONDARY),
+                )));
+            }
+            if record_names.len() > 5 {
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "  {}",
+                        t!("tui.batch.more_items", count = record_names.len())
+                    ),
+                    Style::default().fg(theme::TEXT_MUTED),
+                )));
+            }
+            (
+                format!(" {} ", t!("tui.overlay.warning_title")),
                 lines,
                 confirm_label_for(variant),
             )

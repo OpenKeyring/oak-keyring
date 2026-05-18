@@ -105,6 +105,8 @@ pub trait Vault: Send {
     // ------------------------------------------------------------------------
 
     fn batch_soft_delete(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError>;
+    fn batch_restore(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError>;
+    fn batch_hard_delete(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError>;
     fn empty_trash(&mut self) -> Result<usize, VaultError>;
 
     // ------------------------------------------------------------------------
@@ -294,6 +296,12 @@ impl Vault for Box<dyn Vault> {
     }
     fn batch_soft_delete(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError> {
         (**self).batch_soft_delete(record_ids)
+    }
+    fn batch_restore(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError> {
+        (**self).batch_restore(record_ids)
+    }
+    fn batch_hard_delete(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError> {
+        (**self).batch_hard_delete(record_ids)
     }
     fn empty_trash(&mut self) -> Result<usize, VaultError> {
         (**self).empty_trash()
@@ -524,6 +532,14 @@ impl Vault for VaultServiceImpl {
 
     fn batch_soft_delete(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError> {
         VaultServiceImpl::batch_soft_delete(self, record_ids)
+    }
+
+    fn batch_restore(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError> {
+        VaultServiceImpl::batch_restore(self, record_ids)
+    }
+
+    fn batch_hard_delete(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError> {
+        VaultServiceImpl::batch_hard_delete(self, record_ids)
     }
 
     fn empty_trash(&mut self) -> Result<usize, VaultError> {

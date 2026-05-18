@@ -181,6 +181,119 @@ impl VaultServiceImpl {
 
         Ok(affected)
     }
+
+    /// Batch restore multiple soft-deleted records.
+    ///
+    /// Pre-filters to only soft-deleted records. Captures names before the mutation
+    /// so audit entries are accurate.
+    ///
+    /// Returns the number of records restored.
+    ///
+    /// Returns `VaultError::NotUnlocked` if the vault is locked.
+    pub fn batch_restore(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        if record_ids.is_empty() {
+            return Ok(0);
+        }
+
+        // Pre-filter: capture names only for soft-deleted records
+        let deleted_with_names: Vec<(Uuid, String)> = record_ids
+            .iter()
+            .filter_map(|id| {
+                let stored = self.get_stored_record(*id).ok()?;
+                if !stored.deleted {
+                    return None;
+                }
+                let aad = format!("record:{}", stored.id);
+                let name = payload::decrypt_name_only(
+                    &self.crypto,
+                    &stored.encrypted_data,
+                    &stored.nonce,
+                    aad.as_bytes(),
+                    stored.dek_version,
+                )
+                .ok()
+                .unwrap_or_else(|| "<unknown>".to_string());
+                Some((*id, name))
+            })
+            .collect();
+
+        let affected =
+            queries::batch_restore_records(&self.conn, record_ids).map_err(db_error_to_vault)?;
+
+        for (id, name) in &deleted_with_names {
+            queries::insert_audit_entry(
+                &self.conn,
+                AuditOperation::RecordRestore,
+                Some(id),
+                Some(name),
+                None,
+            )
+            .map_err(db_error_to_vault)?;
+        }
+
+        Ok(affected)
+    }
+
+    /// Batch hard-delete multiple soft-deleted records (permanently).
+    ///
+    /// Pre-filters to only soft-deleted records. Captures names before deletion
+    /// so audit entries are accurate.
+    ///
+    /// Returns the number of records destroyed.
+    ///
+    /// Returns `VaultError::NotUnlocked` if the vault is locked.
+    pub fn batch_hard_delete(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        if record_ids.is_empty() {
+            return Ok(0);
+        }
+
+        // Pre-filter: capture names before deletion, only for soft-deleted records
+        let deleted_with_names: Vec<(Uuid, String)> = record_ids
+            .iter()
+            .filter_map(|id| {
+                let stored = self.get_stored_record(*id).ok()?;
+                if !stored.deleted {
+                    return None;
+                }
+                let aad = format!("record:{}", stored.id);
+                let name = payload::decrypt_name_only(
+                    &self.crypto,
+                    &stored.encrypted_data,
+                    &stored.nonce,
+                    aad.as_bytes(),
+                    stored.dek_version,
+                )
+                .ok()
+                .unwrap_or_else(|| "<unknown>".to_string());
+                Some((*id, name))
+            })
+            .collect();
+
+        let affected = queries::batch_hard_delete_records(&self.conn, record_ids)
+            .map_err(db_error_to_vault)?;
+
+        // Audit with captured names
+        for (id, name) in &deleted_with_names {
+            queries::insert_audit_entry(
+                &self.conn,
+                AuditOperation::RecordDestroy,
+                Some(id),
+                Some(name),
+                None,
+            )
+            .map_err(db_error_to_vault)?;
+        }
+
+        Ok(affected)
+    }
 }
 
 #[cfg(test)]
@@ -552,5 +665,243 @@ mod tests {
             before.len(),
             "no audit entries written for empty batch"
         );
+    }
+
+    // =========================================================================
+    // batch_restore tests
+    // =========================================================================
+
+    #[test]
+    fn batch_restore_returns_not_unlocked_when_locked() {
+        let conn = init_db_in_memory();
+        let mut svc = VaultService::new(conn);
+
+        let result = svc.batch_restore(&[Uuid::new_v4()]);
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), VaultError::NotUnlocked),
+            "expected NotUnlocked"
+        );
+    }
+
+    #[test]
+    fn batch_restore_restores_soft_deleted_records() {
+        let mut svc = setup_unlocked_vault();
+        let id1 = create_login(&mut svc, "Del1");
+        let id2 = create_login(&mut svc, "Del2");
+
+        svc.soft_delete_record(id1)
+            .expect("soft_delete must succeed");
+        svc.soft_delete_record(id2)
+            .expect("soft_delete must succeed");
+
+        let count = svc
+            .batch_restore(&[id1, id2])
+            .expect("batch_restore must succeed");
+        assert_eq!(count, 2, "both records should be restored");
+
+        let stored1 = svc.get_stored_record(id1).unwrap();
+        assert!(!stored1.deleted, "id1 should be active");
+
+        let stored2 = svc.get_stored_record(id2).unwrap();
+        assert!(!stored2.deleted, "id2 should be active");
+    }
+
+    #[test]
+    fn batch_restore_only_affects_deleted_records() {
+        let mut svc = setup_unlocked_vault();
+        let id_active = create_login(&mut svc, "Active");
+        let id_deleted = create_login(&mut svc, "Deleted");
+
+        svc.soft_delete_record(id_deleted)
+            .expect("soft_delete must succeed");
+
+        // Request both — only the deleted one should be restored
+        let count = svc
+            .batch_restore(&[id_active, id_deleted])
+            .expect("batch_restore must succeed");
+        assert_eq!(count, 1, "only deleted record restored");
+    }
+
+    #[test]
+    fn batch_restore_writes_audit_with_names() {
+        let mut svc = setup_unlocked_vault();
+        let id1 = create_login(&mut svc, "AuditRestore1");
+        let id2 = create_login(&mut svc, "AuditRestore2");
+
+        svc.soft_delete_record(id1)
+            .expect("soft_delete must succeed");
+        svc.soft_delete_record(id2)
+            .expect("soft_delete must succeed");
+
+        svc.batch_restore(&[id1, id2])
+            .expect("batch_restore must succeed");
+
+        let entries = q::list_audit_entries(&svc.conn, 20, 0).unwrap();
+        let restore_entries: Vec<_> = entries
+            .iter()
+            .filter(|e| e.operation == AuditOperation::RecordRestore)
+            .collect();
+        assert_eq!(restore_entries.len(), 2, "two RecordRestore audit entries");
+
+        // Verify names were captured
+        for entry in &restore_entries {
+            assert!(
+                entry.record_name.is_some(),
+                "audit entry should have record name"
+            );
+        }
+    }
+
+    #[test]
+    fn batch_restore_skips_audit_for_non_deleted() {
+        let mut svc = setup_unlocked_vault();
+        let id_active = create_login(&mut svc, "Active");
+        let _id_deleted = create_login(&mut svc, "Deleted");
+
+        // Request active record — no audit should be written
+        svc.batch_restore(&[id_active])
+            .expect("batch_restore must succeed");
+
+        let entries = q::list_audit_entries(&svc.conn, 20, 0).unwrap();
+        let restore_entries: Vec<_> = entries
+            .iter()
+            .filter(|e| e.operation == AuditOperation::RecordRestore)
+            .collect();
+        assert_eq!(restore_entries.len(), 0, "no audit for non-deleted record");
+    }
+
+    #[test]
+    fn batch_restore_with_empty_ids_returns_zero() {
+        let mut svc = setup_unlocked_vault();
+        let count = svc
+            .batch_restore(&[])
+            .expect("batch_restore with empty must succeed");
+        assert_eq!(count, 0);
+    }
+
+    // =========================================================================
+    // batch_hard_delete tests
+    // =========================================================================
+
+    #[test]
+    fn batch_hard_delete_returns_not_unlocked_when_locked() {
+        let conn = init_db_in_memory();
+        let mut svc = VaultService::new(conn);
+
+        let result = svc.batch_hard_delete(&[Uuid::new_v4()]);
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), VaultError::NotUnlocked),
+            "expected NotUnlocked"
+        );
+    }
+
+    #[test]
+    fn batch_hard_delete_destroys_soft_deleted_records() {
+        let mut svc = setup_unlocked_vault();
+        let id1 = create_login(&mut svc, "Destroy1");
+        let id2 = create_login(&mut svc, "Destroy2");
+
+        svc.soft_delete_record(id1)
+            .expect("soft_delete must succeed");
+        svc.soft_delete_record(id2)
+            .expect("soft_delete must succeed");
+
+        let count = svc
+            .batch_hard_delete(&[id1, id2])
+            .expect("batch_hard_delete must succeed");
+        assert_eq!(count, 2, "both records should be destroyed");
+
+        // Records are gone entirely
+        assert!(
+            q::get_record(&svc.conn, &id1).unwrap().is_none(),
+            "id1 should be gone"
+        );
+        assert!(
+            q::get_record(&svc.conn, &id2).unwrap().is_none(),
+            "id2 should be gone"
+        );
+    }
+
+    #[test]
+    fn batch_hard_delete_only_affects_deleted_records() {
+        let mut svc = setup_unlocked_vault();
+        let id_active = create_login(&mut svc, "Active");
+        let id_deleted = create_login(&mut svc, "Deleted");
+
+        svc.soft_delete_record(id_deleted)
+            .expect("soft_delete must succeed");
+
+        let count = svc
+            .batch_hard_delete(&[id_active, id_deleted])
+            .expect("batch_hard_delete must succeed");
+        assert_eq!(count, 1, "only deleted record destroyed");
+
+        // Active record is untouched
+        let active = svc.get_stored_record(id_active).unwrap();
+        assert!(!active.deleted, "active record should remain active");
+    }
+
+    #[test]
+    fn batch_hard_delete_writes_audit_with_names() {
+        let mut svc = setup_unlocked_vault();
+        let id1 = create_login(&mut svc, "AuditDestroy1");
+        let id2 = create_login(&mut svc, "AuditDestroy2");
+
+        svc.soft_delete_record(id1)
+            .expect("soft_delete must succeed");
+        svc.soft_delete_record(id2)
+            .expect("soft_delete must succeed");
+
+        svc.batch_hard_delete(&[id1, id2])
+            .expect("batch_hard_delete must succeed");
+
+        let entries = q::list_audit_entries(&svc.conn, 20, 0).unwrap();
+        let destroy_entries: Vec<_> = entries
+            .iter()
+            .filter(|e| e.operation == AuditOperation::RecordDestroy)
+            .collect();
+        assert_eq!(destroy_entries.len(), 2, "two RecordDestroy audit entries");
+
+        // Verify names were captured before deletion
+        let names: Vec<&str> = destroy_entries
+            .iter()
+            .filter_map(|e| e.record_name.as_deref())
+            .collect();
+        assert!(
+            names.contains(&"AuditDestroy1"),
+            "audit should contain name AuditDestroy1"
+        );
+        assert!(
+            names.contains(&"AuditDestroy2"),
+            "audit should contain name AuditDestroy2"
+        );
+    }
+
+    #[test]
+    fn batch_hard_delete_skips_audit_for_non_deleted() {
+        let mut svc = setup_unlocked_vault();
+        let id_active = create_login(&mut svc, "Active");
+
+        // Request active record — no audit should be written
+        svc.batch_hard_delete(&[id_active])
+            .expect("batch_hard_delete must succeed");
+
+        let entries = q::list_audit_entries(&svc.conn, 20, 0).unwrap();
+        let destroy_entries: Vec<_> = entries
+            .iter()
+            .filter(|e| e.operation == AuditOperation::RecordDestroy)
+            .collect();
+        assert_eq!(destroy_entries.len(), 0, "no audit for non-deleted record");
+    }
+
+    #[test]
+    fn batch_hard_delete_with_empty_ids_returns_zero() {
+        let mut svc = setup_unlocked_vault();
+        let count = svc
+            .batch_hard_delete(&[])
+            .expect("batch_hard_delete with empty must succeed");
+        assert_eq!(count, 0);
     }
 }

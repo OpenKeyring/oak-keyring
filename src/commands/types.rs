@@ -242,6 +242,14 @@ pub enum ConfirmVariant {
         record_ids: Vec<Uuid>,
         record_names: Vec<String>,
     },
+    BatchRestore {
+        record_ids: Vec<Uuid>,
+        record_names: Vec<String>,
+    },
+    BatchHardDelete {
+        record_ids: Vec<Uuid>,
+        record_names: Vec<String>,
+    },
     TagDelete {
         tag_name: String,
         affected_count: usize,

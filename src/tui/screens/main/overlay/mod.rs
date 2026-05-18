@@ -310,10 +310,12 @@ fn default_confirm_button(variant: &ConfirmVariant) -> ConfirmButton {
         // Irreversible actions — default to Cancel for safety.
         ConfirmVariant::HardDelete { .. }
         | ConfirmVariant::EmptyTrash { .. }
-        | ConfirmVariant::TagDelete { .. } => ConfirmButton::Cancel,
+        | ConfirmVariant::TagDelete { .. }
+        | ConfirmVariant::BatchHardDelete { .. } => ConfirmButton::Cancel,
         // Reversible actions — default to Confirm.
         ConfirmVariant::SoftDelete { .. }
         | ConfirmVariant::BatchSoftDelete { .. }
+        | ConfirmVariant::BatchRestore { .. }
         | ConfirmVariant::Restore { .. } => ConfirmButton::Confirm,
     }
 }
