@@ -89,7 +89,7 @@ fn create_params(i: usize) -> CreateRecordParams {
         credential_type: CredentialType::Login,
         payload: login_payload(&format!("bench-login-{i:06}"), &format!("secret-{i:06}")),
         tags: vec!["bench".to_string(), format!("bucket-{}", i % 10)],
-        is_favorite: i % 11 == 0,
+        is_favorite: i.is_multiple_of(11),
         expires_at: None,
     }
 }
@@ -233,6 +233,7 @@ fn run_workload(vault: &mut VaultServiceImpl, count: usize) -> Result<BenchRow> 
             .context("search benchmark records")
     });
     let search_records = search_result?;
+    #[allow(clippy::single_range_in_vec_init)]
     let expected_search_count = expected_search_count_for_ranges(&[0..count]);
     validate_search_records(&search_records, expected_search_count)
         .context("validate search benchmark result")?;
@@ -360,6 +361,7 @@ fn validate_sqlcipher_export(
     let search_records = vault
         .list_records(&RecordFilter::Search(SEARCH_QUERY.to_string()), &sort())
         .context("search exported SQLCipher records")?;
+    #[allow(clippy::single_range_in_vec_init)]
     let expected_search_count = expected_search_count_for_ranges(&[0..expected_count]);
     validate_search_records(&search_records, expected_search_count)
         .context("validate exported SQLCipher search records")?;

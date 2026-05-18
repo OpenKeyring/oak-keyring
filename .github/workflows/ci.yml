@@ -1,17 +1,28 @@
 name: CI
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [develop, master]
+  pull_request:
+    branches: [develop]
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    environment: GoogleOAuth2
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: "1.93.0"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
-      - run: cargo clippy -- -D warnings
+      - run: cargo clippy --all-targets -- -D warnings
+        env:
+          OAK_GOOGLE_CLIENT_ID: ${{ secrets.OAK_GOOGLE_CLIENT_ID }}
+          OAK_GOOGLE_CLIENT_SECRET: ${{ secrets.OAK_GOOGLE_CLIENT_SECRET }}
       - run: cargo test
+        env:
+          OAK_GOOGLE_CLIENT_ID: ${{ secrets.OAK_GOOGLE_CLIENT_ID }}
+          OAK_GOOGLE_CLIENT_SECRET: ${{ secrets.OAK_GOOGLE_CLIENT_SECRET }}
