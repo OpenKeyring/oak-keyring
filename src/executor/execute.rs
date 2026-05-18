@@ -202,6 +202,10 @@ impl CommandExecutor {
             Command::BatchSoftDelete { record_ids } => {
                 record::handle_batch_soft_delete(self, record_ids)
             }
+            Command::BatchRestore { record_ids } => record::handle_batch_restore(self, record_ids),
+            Command::BatchHardDelete { record_ids } => {
+                record::handle_batch_hard_delete(self, record_ids)
+            }
             Command::EmptyTrash => record::handle_empty_trash(self),
 
             // ── Password Generation ───────────────────────

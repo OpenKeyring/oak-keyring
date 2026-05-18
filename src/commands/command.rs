@@ -143,6 +143,12 @@ pub enum Command {
     BatchSoftDelete {
         record_ids: Vec<Uuid>,
     },
+    BatchRestore {
+        record_ids: Vec<Uuid>,
+    },
+    BatchHardDelete {
+        record_ids: Vec<Uuid>,
+    },
 
     EmptyTrash,
 
@@ -308,6 +314,8 @@ mod exhaustive_tests {
                 Command::BatchRemoveTag { .. } => {}
                 // Batch Operations
                 Command::BatchSoftDelete { .. } => {}
+                Command::BatchRestore { .. } => {}
+                Command::BatchHardDelete { .. } => {}
                 Command::EmptyTrash => {}
                 // Password Generation
                 Command::GeneratePassword { .. } => {}

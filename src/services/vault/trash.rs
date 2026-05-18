@@ -181,6 +181,84 @@ impl VaultServiceImpl {
 
         Ok(affected)
     }
+
+    /// Batch restore multiple soft-deleted records.
+    ///
+    /// Returns the number of records restored.
+    ///
+    /// Returns `VaultError::NotUnlocked` if the vault is locked.
+    pub fn batch_restore(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        if record_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let affected =
+            queries::batch_restore_records(&self.conn, record_ids).map_err(db_error_to_vault)?;
+
+        for id in record_ids {
+            let record_name = self
+                .get_stored_record(*id)
+                .ok()
+                .and_then(|stored| {
+                    let aad = format!("record:{}", stored.id);
+                    payload::decrypt_name_only(
+                        &self.crypto,
+                        &stored.encrypted_data,
+                        &stored.nonce,
+                        aad.as_bytes(),
+                        stored.dek_version,
+                    )
+                    .ok()
+                })
+                .unwrap_or_else(|| "<unknown>".to_string());
+
+            queries::insert_audit_entry(
+                &self.conn,
+                AuditOperation::RecordRestore,
+                Some(id),
+                Some(&record_name),
+                None,
+            )
+            .map_err(db_error_to_vault)?;
+        }
+
+        Ok(affected)
+    }
+
+    /// Batch hard-delete multiple records (permanently).
+    ///
+    /// Returns the number of records destroyed.
+    ///
+    /// Returns `VaultError::NotUnlocked` if the vault is locked.
+    pub fn batch_hard_delete(&mut self, record_ids: &[Uuid]) -> Result<usize, VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        if record_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let affected = queries::batch_hard_delete_records(&self.conn, record_ids)
+            .map_err(db_error_to_vault)?;
+
+        for id in record_ids {
+            queries::insert_audit_entry(
+                &self.conn,
+                AuditOperation::RecordDestroy,
+                Some(id),
+                None,
+                None,
+            )
+            .map_err(db_error_to_vault)?;
+        }
+
+        Ok(affected)
+    }
 }
 
 #[cfg(test)]

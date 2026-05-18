@@ -438,6 +438,40 @@ pub fn handle_batch_soft_delete(
 }
 
 #[tracing::instrument(skip_all)]
+pub fn handle_batch_restore(
+    executor: &mut CommandExecutor,
+    record_ids: Vec<Uuid>,
+) -> CommandResult {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.batch_restore(&record_ids))
+    {
+        Ok(count) => {
+            schedule_health_scan(executor);
+            CommandResult::BatchRestored { count }
+        }
+        Err(e) => vault_error(e, "Failed to batch restore records"),
+    }
+}
+
+#[tracing::instrument(skip_all)]
+pub fn handle_batch_hard_delete(
+    executor: &mut CommandExecutor,
+    record_ids: Vec<Uuid>,
+) -> CommandResult {
+    match executor
+        .vault_mut()
+        .and_then(|v| v.batch_hard_delete(&record_ids))
+    {
+        Ok(count) => {
+            schedule_health_scan(executor);
+            CommandResult::BatchDestroyed { count }
+        }
+        Err(e) => vault_error(e, "Failed to batch destroy records"),
+    }
+}
+
+#[tracing::instrument(skip_all)]
 pub fn handle_empty_trash(executor: &mut CommandExecutor) -> CommandResult {
     match executor.vault_mut().and_then(|v| v.empty_trash()) {
         Ok(count) => CommandResult::TrashEmptied { count },

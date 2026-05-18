@@ -1008,6 +1008,29 @@ impl Screen for MainScreenState {
                         });
                         ScreenResult::Continue
                     }
+                    // Handle BatchRestored — exit visual, reload list/tags/counts
+                    CommandResult::BatchRestored { count: _ } => {
+                        let removed_ids = self.list.visual_selected_ids();
+                        self.list.cleanup_after_batch(&removed_ids);
+                        self.detail.clear();
+                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    // Handle BatchDestroyed — exit visual, reload list
+                    CommandResult::BatchDestroyed { count: _ } => {
+                        let removed_ids = self.list.visual_selected_ids();
+                        self.list.cleanup_after_batch(&removed_ids);
+                        self.detail.clear();
+                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
                     // Handle TrashEmptied — clear list and detail, reload counts
                     CommandResult::TrashEmptied { count: _ } => {
                         self.list.records.clear();
@@ -1443,6 +1466,12 @@ impl MainScreenState {
                     }
                     ConfirmVariant::BatchSoftDelete { record_ids, .. } => {
                         ScreenResult::Command(Box::new(Command::BatchSoftDelete { record_ids }))
+                    }
+                    ConfirmVariant::BatchRestore { record_ids, .. } => {
+                        ScreenResult::Command(Box::new(Command::BatchRestore { record_ids }))
+                    }
+                    ConfirmVariant::BatchHardDelete { record_ids, .. } => {
+                        ScreenResult::Command(Box::new(Command::BatchHardDelete { record_ids }))
                     }
                     ConfirmVariant::EmptyTrash { .. } => {
                         ScreenResult::Command(Box::new(Command::EmptyTrash))
