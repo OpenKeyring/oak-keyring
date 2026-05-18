@@ -236,7 +236,6 @@ mod tests {
         let protections = ProcessProtections {
             core_dump_disabled: true,
             dumpable_disabled: true,
-            ..Default::default()
         };
 
         let display = format!("{}", protections);
