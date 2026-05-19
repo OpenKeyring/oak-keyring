@@ -1,0 +1,87 @@
+// =============================================================================
+// Global Zeroize-on-Crash Registry
+// =============================================================================
+//
+// This module provides a global registry for tracking all locked memory regions
+// that contain sensitive data (keys, passwords). The registry is used by crash
+// handlers to zeroize all secrets before the process exits.
+//
+// Key design decisions:
+// - Uses spin::Mutex (not std::sync::Mutex) because crash handlers must be
+//   async-signal-safe and cannot block
+// - zeroize_all() uses try_lock() to avoid blocking in signal context
+// - Registry tracks (ptr, len) tuples for raw memory zeroization
+//
+// This is part of OKI-0006 (macOS Crash Dump Protection Hardening).
+
+#[cfg(unix)]
+mod registry {
+    use spin::Mutex;
+
+    struct Region {
+        ptr: *mut u8,
+        len: usize,
+    }
+
+    // SAFETY: Region is Send because we only access it from the crash handler
+    // which runs in a single-threaded context. The Mutex ensures mutual exclusion
+    // for registration/unregistration during normal operation.
+    //
+    // Race with Drop: a concurrent Drop::unregister() may modify the Vec while
+    // zeroize_all() iterates it. try_lock() prevents deadlock but does NOT
+    // prevent the race. This is acceptable because:
+    // (a) If Drop holds the lock, zeroize_all skips entirely (try_lock fails).
+    // (b) If zeroize_all holds the lock, Drop blocks until iteration finishes.
+    // (c) In crash context we _exit(0) immediately after, so stale entries are
+    //     harmless — we either zeroize them (best case) or skip them.
+    unsafe impl Send for Region {}
+
+    static REGISTRY: Mutex<Vec<Region>> = Mutex::new(Vec::new());
+
+    pub fn register(ptr: *mut u8, len: usize) {
+        REGISTRY.lock().push(Region { ptr, len });
+    }
+
+    pub fn unregister(ptr: *mut u8) {
+        REGISTRY.lock().retain(|r| r.ptr != ptr);
+    }
+
+    /// Zeroize all registered secrets. Called from crash handler.
+    /// Uses try_lock() to avoid blocking in signal context.
+    ///
+    /// Re-entry safety: if `write_bytes` triggers SIGSEGV on an already-freed
+    /// page, the Mach exception handler re-enters zeroize_all(). try_lock()
+    /// returns None on the second call (lock already held), so the re-entrant
+    /// call is a no-op and the original handler proceeds to _exit(0). This
+    /// benign re-entry path is intentional and self-terminating.
+    pub fn zeroize_all() {
+        if let Some(registry) = REGISTRY.try_lock() {
+            for region in registry.iter() {
+                // SAFETY: ptr and len were valid when registered. In crash context
+                // the memory should still be mapped. Edge cases where memory was
+                // already freed or munmap'd by Drop are acceptable: we're about to
+                // _exit(0) anyway, so writing to stale pages either succeeds (best
+                // case) or causes a no-op fault that the handler already catches.
+                // try_lock() ensures we never block; if the registry is locked
+                // during a concurrent Drop, we skip zeroization rather than deadlock.
+                unsafe {
+                    core::ptr::write_bytes(region.ptr, 0, region.len);
+                    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+                }
+            }
+        }
+    }
+}
+
+// Public re-exports (Unix: real implementation, non-Unix: no-ops)
+#[cfg(unix)]
+pub use registry::{register, unregister, zeroize_all};
+
+#[cfg(not(unix))]
+pub fn register(_ptr: *mut u8, _len: usize) {}
+
+#[cfg(not(unix))]
+pub fn unregister(_ptr: *mut u8) {}
+
+#[cfg(not(unix))]
+pub fn zeroize_all() {}
