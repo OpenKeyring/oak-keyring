@@ -54,6 +54,15 @@ mod registry {
     }
 }
 
-// Public re-exports
+// Public re-exports (Unix: real implementation, non-Unix: no-ops)
 #[cfg(unix)]
 pub use registry::{register, unregister, zeroize_all};
+
+#[cfg(not(unix))]
+pub fn register(_ptr: *mut u8, _len: usize) {}
+
+#[cfg(not(unix))]
+pub fn unregister(_ptr: *mut u8) {}
+
+#[cfg(not(unix))]
+pub fn zeroize_all() {}
