@@ -14,6 +14,7 @@ cargo run
 cargo test
 cargo fmt
 cargo clippy -- -D warnings
+cargo audit
 ```
 
 ## Architecture Map
