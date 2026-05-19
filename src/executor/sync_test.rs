@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 /// `sync: None` and a cancelled token still exercises the cancellation path.
 #[tokio::test]
 async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
-    let conn = crate::db::schema::init_db_in_memory();
+    let conn = crate::db::schema::init_db_in_memory().unwrap();
     let vault = VaultServiceImpl::new(conn);
     let (result_tx, _) = mpsc::channel(64);
 
@@ -44,7 +44,7 @@ async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
 async fn trigger_sync_returns_cancelled_when_shutdown_token_cancelled() {
     let shutdown_token = CancellationToken::new();
 
-    let conn = crate::db::schema::init_db_in_memory();
+    let conn = crate::db::schema::init_db_in_memory().unwrap();
     let vault = VaultServiceImpl::new(conn);
     let (result_tx, _) = mpsc::channel(64);
 

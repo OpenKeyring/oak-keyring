@@ -102,7 +102,7 @@ impl OnboardingScreen {
                         let cmd = Command::CopyRawToClipboard {
                             value: words.to_phrase_secure(),
                         };
-                        let _ = ctx.command_tx.try_send(cmd);
+                        ctx.send_system_command(cmd);
                         self.clipboard_copied = true;
                         self.clipboard_clear_seconds = ctx.config.general.clipboard_clear_seconds;
                     }
@@ -346,7 +346,7 @@ impl OnboardingScreen {
                     path: std::path::PathBuf::from(&self.import_file_path),
                     password,
                 };
-                let _ = ctx.command_tx.try_send(cmd);
+                ctx.send_system_command(cmd);
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
@@ -387,7 +387,7 @@ impl OnboardingScreen {
                     column_mapping: None,
                     import_as_notes: self.import_as_notes,
                 };
-                let _ = ctx.command_tx.try_send(cmd);
+                ctx.send_system_command(cmd);
                 ScreenResult::Continue
             }
             KeyCode::Esc => {

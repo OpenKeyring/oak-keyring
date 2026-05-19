@@ -87,11 +87,11 @@ pub fn init_db(path: &Path) -> Result<Connection, InitDbError> {
     Ok(conn)
 }
 
-pub fn init_db_in_memory() -> Connection {
-    let conn = Connection::open_in_memory().expect("failed to open in-memory db");
-    apply_pragmas(&conn).expect("failed to apply pragmas");
-    migrations::run_migrations(&conn).expect("migration failed");
-    conn
+pub fn init_db_in_memory() -> Result<Connection, InitDbError> {
+    let conn = Connection::open_in_memory()?;
+    apply_pragmas(&conn)?;
+    migrations::run_migrations(&conn)?;
+    Ok(conn)
 }
 
 /// Runs `work` against `conn`, snapshotting the database to `backup_path` first

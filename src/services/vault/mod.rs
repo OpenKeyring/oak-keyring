@@ -757,7 +757,7 @@ mod tests {
 
     /// Helper: create an in-memory VaultService with schema ready.
     fn setup_service() -> VaultService {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         VaultService::new(conn)
     }
 
@@ -817,7 +817,7 @@ mod shutdown_tests {
 
     #[test]
     fn checkpoint_wal_delegates_to_database_layer() {
-        let conn = crate::db::schema::init_db_in_memory();
+        let conn = crate::db::schema::init_db_in_memory().unwrap();
         let vault = VaultService::new(conn);
 
         vault.checkpoint_wal().unwrap();

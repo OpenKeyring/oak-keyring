@@ -572,7 +572,7 @@ mod tests {
 
     /// Create a basic unlocked executor with no records.
     fn make_unlocked_executor() -> CommandExecutor {
-        let conn = crate::db::schema::init_db_in_memory();
+        let conn = crate::db::schema::init_db_in_memory().unwrap();
         let mut vault = VaultServiceImpl::new(conn);
         let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
         vault
@@ -895,5 +895,114 @@ mod tests {
 
         let strength = compute_password_strength(&record);
         assert!(strength.is_none());
+    }
+
+    // =========================================================================
+    // CRUD sync-pending dynamic tests
+    // =========================================================================
+
+    #[test]
+    fn created_record_appears_in_sync_vault_data() {
+        let mut executor = make_unlocked_executor();
+        let id = create_login_record(&mut executor, "sync-test", "P@ssw0rd!");
+
+        let data = super::super::sync::build_sync_vault_data(&executor);
+        assert!(data.is_some(), "sync vault data must be buildable");
+        let data = data.unwrap();
+
+        let found = data.uploads.iter().any(|r| r.id == id.to_string());
+        assert!(
+            found,
+            "newly created record must appear in sync uploads (id={})",
+            id
+        );
+    }
+
+    #[test]
+    fn updated_record_appears_in_sync_vault_data() {
+        let mut executor = make_unlocked_executor();
+        let id = create_login_record(&mut executor, "sync-test", "OldP@ss!");
+
+        let result = handle_update_record(
+            &mut executor,
+            id,
+            EncryptedPayload::Login {
+                name: "sync-test-updated".to_string(),
+                username: "user_sync-test".to_string(),
+                password: SecureStr::new("NewP@ss1!".to_string()),
+                url: None,
+                notes: None,
+            },
+            vec![],
+            false,
+            None,
+            1,
+        );
+        assert!(
+            matches!(result, CommandResult::RecordUpdated { .. }),
+            "update must succeed"
+        );
+
+        let data = super::super::sync::build_sync_vault_data(&executor);
+        assert!(data.is_some());
+        let data = data.unwrap();
+
+        let found = data.uploads.iter().any(|r| r.id == id.to_string());
+        assert!(
+            found,
+            "updated record must appear in sync uploads (id={})",
+            id
+        );
+    }
+
+    #[test]
+    fn soft_deleted_record_not_in_active_sync_uploads() {
+        let mut executor = make_unlocked_executor();
+        let id = create_login_record(&mut executor, "sync-del", "P@ssw0rd!");
+
+        let result = handle_soft_delete_record(&mut executor, id);
+        assert!(
+            matches!(result, CommandResult::RecordDeleted { .. }),
+            "soft delete must succeed"
+        );
+
+        let data = super::super::sync::build_sync_vault_data(&executor);
+        assert!(data.is_some());
+        let data = data.unwrap();
+
+        // Soft-deleted records are excluded from list_all_stored_records
+        // and thus not in sync uploads — they are synced as deletions during
+        // the detect phase of the sync pipeline.
+        let found = data.uploads.iter().any(|r| r.id == id.to_string());
+        assert!(
+            !found,
+            "soft-deleted record should NOT appear in active sync uploads (id={})",
+            id
+        );
+    }
+
+    #[test]
+    fn hard_deleted_record_not_in_sync_vault_data() {
+        let mut executor = make_unlocked_executor();
+        let id = create_login_record(&mut executor, "sync-destroy", "P@ssw0rd!");
+
+        // Soft delete first, then hard delete
+        handle_soft_delete_record(&mut executor, id);
+        let result = handle_hard_delete_record(&mut executor, id);
+        assert!(
+            matches!(result, CommandResult::RecordDestroyed { .. }),
+            "hard delete must succeed"
+        );
+
+        let data = super::super::sync::build_sync_vault_data(&executor);
+        assert!(data.is_some());
+        let data = data.unwrap();
+
+        let found = data.uploads.iter().any(|r| r.id == id.to_string());
+        assert!(
+            !found,
+            "hard-deleted record must NOT appear in sync uploads (id={})",
+            id
+        );
     }
 }

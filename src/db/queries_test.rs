@@ -10,7 +10,7 @@ use crate::types::health::RecordHealthState;
 use crate::types::record::StoredRecord;
 
 fn fresh_db() -> Connection {
-    init_db_in_memory()
+    init_db_in_memory().unwrap()
 }
 
 /// Build a minimal `StoredRecord` with sensible defaults for testing.

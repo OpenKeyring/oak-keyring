@@ -140,7 +140,7 @@ mod tests {
     use chrono::Utc;
 
     fn setup_vault() -> VaultServiceImpl {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         VaultServiceImpl::new(conn)
     }
 

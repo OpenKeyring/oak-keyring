@@ -360,8 +360,7 @@ impl SyncServiceImpl {
     /// Returns `SyncError` if timeout (60s) expires before `AllConflictsResolved` event.
     ///
     /// # Returns
-    /// Returns `Ok(0)` — the exact count of resolved conflicts is not available
-    /// from the event.
+    /// Returns `Ok(count)` with the number of successfully resolved conflicts.
     pub async fn resolve_all_conflicts(
         &mut self,
         strategy: ResolutionStrategy,
@@ -374,13 +373,17 @@ impl SyncServiceImpl {
                 message: "failed to send ResolveAllConflicts command".to_string(),
             })?;
 
-        let _event = self
+        let event = self
             .wait_for_event(SYNC_TIMEOUT, |event| {
-                matches!(event, SyncEvent::AllConflictsResolved)
+                matches!(event, SyncEvent::AllConflictsResolved { .. })
             })
             .await?;
 
-        Ok(0)
+        if let SyncEvent::AllConflictsResolved { count } = event {
+            Ok(count)
+        } else {
+            unreachable!()
+        }
     }
 
     /// Downloads and deserializes cloud metadata.
@@ -767,18 +770,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_conflict_sends_command() {
+    async fn resolve_conflict_rejects_unknown_record() {
         let storage = create_test_storage();
         let mut svc = SyncServiceImpl::new(storage);
 
+        // No pending conflicts in a fresh SyncTask, so resolve should fail
         let result = svc
-            .resolve_conflict("test-record-id".to_string(), ResolutionStrategy::KeepLocal)
+            .resolve_conflict(Uuid::new_v4().to_string(), ResolutionStrategy::KeepLocal)
             .await;
 
-        // Expect Ok since SyncTask handles ResolveConflict by immediately emitting ConflictResolved
         assert!(
-            result.is_ok(),
-            "resolve_conflict should return Ok, got: {:?}",
+            result.is_err(),
+            "resolve_conflict should fail for unknown record, got: {:?}",
             result
         );
 
@@ -787,7 +790,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_all_sends_command() {
+    async fn resolve_all_returns_zero_when_no_conflicts() {
         let storage = create_test_storage();
         let mut svc = SyncServiceImpl::new(storage);
 
@@ -795,11 +798,16 @@ mod tests {
             .resolve_all_conflicts(ResolutionStrategy::KeepRemote)
             .await;
 
-        // Expect Ok(0) since SyncTask handles ResolveAllConflicts by immediately emitting AllConflictsResolved
+        // No pending conflicts → Ok(0)
         assert!(
             result.is_ok(),
             "resolve_all_conflicts should return Ok, got: {:?}",
             result
+        );
+        assert_eq!(
+            result.unwrap(),
+            0,
+            "count should be 0 with no pending conflicts"
         );
 
         // Clean shutdown

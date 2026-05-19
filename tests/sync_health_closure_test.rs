@@ -45,7 +45,7 @@ fn create_test_checkpoint() -> SyncCheckpoint {
 
 /// Create a VaultService backed by an in-memory database with pre-inserted records.
 fn setup_vault_with_records(record_ids: &[Uuid], version: u64) -> VaultService {
-    let conn = init_db_in_memory();
+    let conn = init_db_in_memory().unwrap();
     for &id in record_ids {
         let record = StoredRecord {
             id,

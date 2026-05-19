@@ -285,7 +285,7 @@ mod tests {
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
 
-        let conn = crate::db::schema::init_db_in_memory();
+        let conn = crate::db::schema::init_db_in_memory().unwrap();
         let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
 
@@ -309,7 +309,7 @@ mod tests {
         use tokio::sync::mpsc;
         use tokio_util::sync::CancellationToken;
 
-        let conn = crate::db::schema::init_db_in_memory();
+        let conn = crate::db::schema::init_db_in_memory().unwrap();
         let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
 

@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::cloud::{CloudMetadata, CloudRecord, CloudStorage};
 use crate::errors::mapping::sync::SyncError;
 use crate::sync::checkpoint::SyncCheckpoint;
-use crate::sync::conflict::ResolutionStrategy;
+use crate::sync::conflict::{ConflictItem, ResolutionStrategy};
 use crate::sync::pipeline::{
     HealthSyncAdapter, LocalRecordInfo, PipelineContext, PipelineResult, SyncPipeline,
 };
@@ -80,8 +80,8 @@ pub enum SyncEvent {
     Failed { error: String, state: SyncState },
     /// A single conflict was resolved.
     ConflictResolved { record_id: String },
-    /// All pending conflicts were resolved.
-    AllConflictsResolved,
+    /// All pending conflicts were resolved with the given count.
+    AllConflictsResolved { count: usize },
     /// State machine transitioned to a new state.
     StateChanged { from: SyncState, to: SyncState },
     /// Metadata was atomically pushed.
@@ -134,6 +134,8 @@ pub struct SyncTask {
     next_retry: Option<Instant>,
     /// Vault data for the current sync cycle (set before pipeline execution).
     vault_data: Option<Box<SyncVaultData>>,
+    /// Conflict items stored from the last pipeline execution for resolution.
+    pending_conflicts: Vec<ConflictItem>,
 }
 
 impl SyncTask {
@@ -155,6 +157,7 @@ impl SyncTask {
             paused: false,
             next_retry: None,
             vault_data: None,
+            pending_conflicts: Vec::new(),
         }
     }
 
@@ -337,22 +340,135 @@ impl SyncTask {
     }
 
     /// Handles ResolveConflict command.
-    async fn handle_resolve_conflict(&mut self, record_id: &str, _strategy: ResolutionStrategy) {
-        // For a single conflict resolution, we just emit the event
-        // The actual resolution logic would be handled by the conflict manager
-        let _ = self
-            .event_tx
-            .send(SyncEvent::ConflictResolved {
-                record_id: record_id.to_string(),
-            })
-            .await;
+    async fn handle_resolve_conflict(&mut self, record_id: &str, strategy: ResolutionStrategy) {
+        let record_uuid = match Uuid::parse_str(record_id) {
+            Ok(id) => id,
+            Err(_) => {
+                let _ = self
+                    .event_tx
+                    .send(SyncEvent::Failed {
+                        error: format!("invalid record_id: {record_id}"),
+                        state: self.state_machine.current_state().clone(),
+                    })
+                    .await;
+                return;
+            }
+        };
+
+        let item = self
+            .pending_conflicts
+            .iter()
+            .find(|c| c.record_id == record_uuid);
+
+        let Some(item) = item else {
+            let _ = self
+                .event_tx
+                .send(SyncEvent::Failed {
+                    error: format!("no pending conflict for record {record_id}"),
+                    state: self.state_machine.current_state().clone(),
+                })
+                .await;
+            return;
+        };
+
+        let result = match strategy {
+            ResolutionStrategy::KeepLocal => {
+                self.conflict_manager
+                    .resolve_keep_local(item.current_version);
+                // Upload local version with bumped version to cloud
+                if let Some(cloud_record) = self
+                    .vault_data
+                    .as_ref()
+                    .and_then(|d| d.uploads.iter().find(|r| r.id == record_id))
+                {
+                    let mut resolved = cloud_record.clone();
+                    resolved.version = item.current_version + 1;
+                    if let Err(e) = self.storage.upload_record(record_id, &resolved).await {
+                        tracing::warn!(record_id, error = %e, "failed to upload resolved record");
+                    }
+                }
+                Ok(())
+            }
+            ResolutionStrategy::KeepRemote => self
+                .conflict_manager
+                .resolve_keep_remote(&item.conflict_data)
+                .map(|_| ()),
+        };
+
+        match result {
+            Ok(()) => {
+                self.pending_conflicts
+                    .retain(|c| c.record_id != record_uuid);
+                let _ = self
+                    .event_tx
+                    .send(SyncEvent::ConflictResolved {
+                        record_id: record_id.to_string(),
+                    })
+                    .await;
+            }
+            Err(e) => {
+                let _ = self
+                    .event_tx
+                    .send(SyncEvent::Failed {
+                        error: e.to_string(),
+                        state: self.state_machine.current_state().clone(),
+                    })
+                    .await;
+            }
+        }
     }
 
     /// Handles ResolveAllConflicts command.
-    async fn handle_resolve_all(&mut self, _strategy: ResolutionStrategy) {
-        // Batch resolve all conflicts
-        // For now, just emit the AllConflictsResolved event
-        let _ = self.event_tx.send(SyncEvent::AllConflictsResolved).await;
+    async fn handle_resolve_all(&mut self, strategy: ResolutionStrategy) {
+        let items: Vec<ConflictItem> = self.pending_conflicts.drain(..).collect();
+        let total = items.len();
+
+        if total == 0 {
+            let _ = self
+                .event_tx
+                .send(SyncEvent::AllConflictsResolved { count: 0 })
+                .await;
+            return;
+        }
+
+        let outcomes = self.conflict_manager.resolve_all_batch(&items, strategy);
+        let mut succeeded = 0usize;
+
+        for (outcome, item) in outcomes.into_iter().zip(items) {
+            if outcome.result.is_ok() {
+                succeeded += 1;
+                if strategy == ResolutionStrategy::KeepLocal {
+                    let record_id_str = item.record_id.to_string();
+                    if let Some(cloud_record) = self
+                        .vault_data
+                        .as_ref()
+                        .and_then(|d| d.uploads.iter().find(|r| r.id == record_id_str))
+                    {
+                        let mut resolved = cloud_record.clone();
+                        resolved.version = item.current_version + 1;
+                        if let Err(e) = self.storage.upload_record(&record_id_str, &resolved).await
+                        {
+                            tracing::warn!(
+                                record_id = %record_id_str,
+                                error = %e,
+                                "failed to upload resolved record in batch"
+                            );
+                        }
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    record_id = %item.record_id,
+                    "conflict resolution failed, keeping in pending list"
+                );
+                self.pending_conflicts.push(item);
+            }
+        }
+
+        let _ = self
+            .event_tx
+            .send(SyncEvent::AllConflictsResolved { count: succeeded })
+            .await;
     }
 
     /// Handles Pause command.
@@ -488,6 +604,24 @@ impl SyncTask {
         let downloaded_records: Vec<CloudRecord> =
             context.downloads.drain().map(|(_, v)| v).collect();
         let adapter = context.take_health_adapter();
+
+        // Store conflict items for later resolution
+        if !context.conflicts.is_empty() {
+            self.pending_conflicts = context
+                .conflicts
+                .iter()
+                .filter_map(|id| {
+                    let conflict_data = context.conflict_data_map.get(id)?.clone();
+                    let local_record = context.local_records.iter().find(|r| r.record_id == *id)?;
+                    let record_uuid = Uuid::parse_str(id).ok()?;
+                    Some(ConflictItem {
+                        record_id: record_uuid,
+                        conflict_data,
+                        current_version: local_record.version,
+                    })
+                })
+                .collect();
+        }
 
         (
             result,
@@ -806,56 +940,125 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_conflict_event() {
+    async fn resolve_conflict_with_pending_item() {
         let (cmd_tx, cmd_rx) = mpsc::channel(16);
         let (event_tx, mut event_rx) = mpsc::channel(16);
         let storage = create_test_storage();
         let mut task = SyncTask::new(storage, cmd_rx, event_tx, SyncStateMachine::new(5));
 
-        // Run task in background
+        let record_id = Uuid::new_v4();
+        let record_id_str = record_id.to_string();
+
+        // Pre-populate pending conflict with valid conflict data
+        let cloud_record = CloudRecord {
+            id: record_id_str.clone(),
+            version: 2,
+            encrypted_data: base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                b"test",
+            ),
+            nonce: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 24]),
+            dek_version: 1,
+            aad: crate::cloud::record::AadFields {
+                record_id: record_id_str.clone(),
+                dek_version: 1,
+            },
+            metadata: crate::cloud::record::RecordMetadata {
+                name: "conflict-record".to_string(),
+                tags: vec![],
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                health: None,
+                ..Default::default()
+            },
+            deleted: None,
+            deleted_at: None,
+        };
+        let checksum = cloud_record.compute_checksum().unwrap();
+        let conflict_data = crate::sync::ConflictManager::new()
+            .store_conflict(&cloud_record, &checksum)
+            .unwrap();
+
+        task.pending_conflicts.push(ConflictItem {
+            record_id,
+            conflict_data,
+            current_version: 1,
+        });
+
         let handle = tokio::spawn(async move {
             task.run().await;
         });
 
-        // Send ResolveConflict
+        // Send ResolveConflict with KeepLocal
         cmd_tx
             .send(SyncCommand::ResolveConflict {
-                record_id: "test-record-id".to_string(),
+                record_id: record_id_str.clone(),
                 strategy: ResolutionStrategy::KeepLocal,
             })
             .await
             .unwrap();
 
-        // Receive ConflictResolved event
         let event = timeout(Duration::from_secs(2), event_rx.recv())
             .await
             .unwrap()
             .unwrap();
 
         assert!(
-            matches!(event, SyncEvent::ConflictResolved { ref record_id } if record_id == "test-record-id"),
+            matches!(event, SyncEvent::ConflictResolved { ref record_id } if record_id == &record_id_str),
             "Expected ConflictResolved, got {:?}",
             event
         );
 
-        // Send shutdown
         cmd_tx.send(SyncCommand::Shutdown).await.unwrap();
         let _ = handle.await;
     }
 
     #[tokio::test]
-    async fn resolve_all_event() {
+    async fn resolve_conflict_rejects_unknown_record() {
         let (cmd_tx, cmd_rx) = mpsc::channel(16);
         let (event_tx, mut event_rx) = mpsc::channel(16);
         let storage = create_test_storage();
         let mut task = SyncTask::new(storage, cmd_rx, event_tx, SyncStateMachine::new(5));
 
-        // Run task in background
         let handle = tokio::spawn(async move {
             task.run().await;
         });
 
-        // Send ResolveAllConflicts
+        // No pending conflicts — should get Failed
+        cmd_tx
+            .send(SyncCommand::ResolveConflict {
+                record_id: Uuid::new_v4().to_string(),
+                strategy: ResolutionStrategy::KeepLocal,
+            })
+            .await
+            .unwrap();
+
+        let event = timeout(Duration::from_secs(2), event_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            matches!(event, SyncEvent::Failed { .. }),
+            "Expected Failed for unknown record, got {:?}",
+            event
+        );
+
+        cmd_tx.send(SyncCommand::Shutdown).await.unwrap();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn resolve_all_with_no_pending_conflicts() {
+        let (cmd_tx, cmd_rx) = mpsc::channel(16);
+        let (event_tx, mut event_rx) = mpsc::channel(16);
+        let storage = create_test_storage();
+        let mut task = SyncTask::new(storage, cmd_rx, event_tx, SyncStateMachine::new(5));
+
+        let handle = tokio::spawn(async move {
+            task.run().await;
+        });
+
+        // No pending conflicts — should get AllConflictsResolved { count: 0 }
         cmd_tx
             .send(SyncCommand::ResolveAllConflicts {
                 strategy: ResolutionStrategy::KeepRemote,
@@ -863,19 +1066,17 @@ mod tests {
             .await
             .unwrap();
 
-        // Receive AllConflictsResolved event
         let event = timeout(Duration::from_secs(2), event_rx.recv())
             .await
             .unwrap()
             .unwrap();
 
         assert!(
-            matches!(event, SyncEvent::AllConflictsResolved),
-            "Expected AllConflictsResolved, got {:?}",
+            matches!(event, SyncEvent::AllConflictsResolved { count: 0 }),
+            "Expected AllConflictsResolved {{ count: 0 }}, got {:?}",
             event
         );
 
-        // Send shutdown
         cmd_tx.send(SyncCommand::Shutdown).await.unwrap();
         let _ = handle.await;
     }

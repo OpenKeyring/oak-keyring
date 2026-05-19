@@ -551,7 +551,7 @@ impl ImportExportScreen {
             path: PathBuf::from(&self.file_path),
             password,
         };
-        let _ = ctx.command_tx.try_send(cmd);
+        ctx.send_system_command(cmd);
 
         // Store column_mapping for later use in ExecuteImport
         self.import_step = ImportStep::Preview;
@@ -588,7 +588,7 @@ impl ImportExportScreen {
                     column_mapping,
                     import_as_notes: false,
                 };
-                let _ = ctx.command_tx.try_send(cmd);
+                ctx.send_system_command(cmd);
                 self.import_step = ImportStep::Importing;
                 ScreenResult::Continue
             }
@@ -772,7 +772,7 @@ impl ImportExportScreen {
                     export_password: export_pw,
                     master_password: master_pw,
                 };
-                let _ = ctx.command_tx.try_send(cmd);
+                ctx.send_system_command(cmd);
                 self.export_step = ExportStep::Exporting;
                 ScreenResult::Continue
             }

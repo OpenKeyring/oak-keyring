@@ -670,9 +670,9 @@ impl Screen for EditRecordScreen {
         if let Some(id) = self.record_id {
             self.form = FormState::new_edit(id, self.form.credential_type);
             self.all_tags.clear();
-            let _ = ctx.command_tx.try_send(Command::LoadRecordForEdit { id });
+            ctx.send_system_command(Command::LoadRecordForEdit { id });
         }
-        let _ = ctx.command_tx.try_send(Command::LoadTags);
+        ctx.send_system_command(Command::LoadTags);
     }
 
     fn on_unmount(&mut self) {

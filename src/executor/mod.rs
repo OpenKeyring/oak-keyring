@@ -220,7 +220,7 @@ impl CommandExecutor {
                     info!(
                         "using in-memory database until vault database is explicitly initialized"
                     );
-                    init_db_in_memory()
+                    init_db_in_memory()?
                 }
             };
 
@@ -236,7 +236,7 @@ impl CommandExecutor {
             }
             DbStartupMode::DeferredInMemory => {
                 info!("using in-memory database until vault database is explicitly initialized");
-                let conn = init_db_in_memory();
+                let conn = init_db_in_memory()?;
                 let vault = Box::new(VaultServiceImpl::new(conn)) as Box<dyn Vault>;
                 runtime::VaultRuntime::open(vault)
             }

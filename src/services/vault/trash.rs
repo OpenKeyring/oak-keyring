@@ -308,7 +308,7 @@ mod tests {
 
     /// Helper: create an in-memory VaultService with schema initialized and unlocked.
     fn setup_unlocked_vault() -> VaultService {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let mut svc = VaultService::new(conn);
         let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
         svc.crypto
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn list_trash_returns_not_unlocked_when_locked() {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let svc = VaultService::new(conn);
         assert!(!svc.is_unlocked());
 
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn empty_trash_returns_not_unlocked_when_locked() {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let mut svc = VaultService::new(conn);
 
         let result = svc.empty_trash();
@@ -506,7 +506,7 @@ mod tests {
 
     #[test]
     fn cleanup_expired_trash_returns_not_unlocked_when_locked() {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let mut svc = VaultService::new(conn);
 
         let result = svc.cleanup_expired_trash(30);
@@ -579,7 +579,7 @@ mod tests {
 
     #[test]
     fn batch_soft_delete_returns_not_unlocked_when_locked() {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let mut svc = VaultService::new(conn);
 
         let result = svc.batch_soft_delete(&[Uuid::new_v4()]);
@@ -673,7 +673,7 @@ mod tests {
 
     #[test]
     fn batch_restore_returns_not_unlocked_when_locked() {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let mut svc = VaultService::new(conn);
 
         let result = svc.batch_restore(&[Uuid::new_v4()]);
@@ -786,7 +786,7 @@ mod tests {
 
     #[test]
     fn batch_hard_delete_returns_not_unlocked_when_locked() {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let mut svc = VaultService::new(conn);
 
         let result = svc.batch_hard_delete(&[Uuid::new_v4()]);

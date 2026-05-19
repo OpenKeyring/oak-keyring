@@ -4,7 +4,7 @@ use super::models::{AuditLogRow, RecordRow, SyncStateRow, TagRow};
 use super::schema::init_db_in_memory;
 
 fn fresh_db() -> Connection {
-    init_db_in_memory()
+    init_db_in_memory().unwrap()
 }
 
 /// Helper: insert a minimal record with all fields populated.

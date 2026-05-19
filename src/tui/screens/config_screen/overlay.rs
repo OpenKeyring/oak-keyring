@@ -73,7 +73,7 @@ impl ConfigScreen {
                         ConfirmButton::Cancel => ScreenResult::Continue,
                         ConfirmButton::Confirm => {
                             let config = self.state.to_app_config();
-                            let _ = ctx.command_tx.try_send(Command::SaveConfig { config });
+                            ctx.send_system_command(Command::SaveConfig { config });
                             ScreenResult::NavigateTo(ScreenEnum::Main)
                         }
                     }

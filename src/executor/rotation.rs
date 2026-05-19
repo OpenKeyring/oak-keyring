@@ -84,6 +84,11 @@ async fn execute_rotation_protocol<F>(
 where
     F: FnOnce(&mut RotationService, u64) -> Result<RotationResult, RotationError>,
 {
+    // 0. Cancellation gate
+    if executor.cancel_token().is_cancelled() {
+        return CommandResult::cancelled("rotation");
+    }
+
     // 1. Sync Mutex: Pause sync pipeline
     if let Some(sync_svc) = &mut executor.sync {
         if let Err(e) = sync_svc.pause().await {
@@ -352,7 +357,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     fn setup_vault_unlocked() -> Box<dyn Vault> {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let mut vault =
             Box::new(crate::services::vault::VaultServiceImpl::new(conn)) as Box<dyn Vault>;
         let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
@@ -631,5 +636,79 @@ mod tests {
             }
             _ => panic!("expected RotationTriggerChecked, got {:?}", result),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Rotation cancellation tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn trigger_rotation_returns_cancelled_when_token_already_cancelled() {
+        let mut executor = setup_executor();
+        executor.cancel_token().cancel();
+
+        let result = handle_trigger_rotation(&mut executor).await;
+        assert!(
+            matches!(result, CommandResult::Cancelled { ref operation, .. } if operation == "rotation"),
+            "Expected Cancelled, got {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_rotation_returns_cancelled_when_token_already_cancelled() {
+        let mut executor = setup_executor();
+
+        // Write a checkpoint so handle_resume_rotation proceeds past the
+        // no_pending_checkpoint early-return to the cancellation gate.
+        let checkpoint = RotationCheckpoint {
+            trigger: RotationTrigger::Manual,
+            old_dek_version: 1,
+            new_dek_version: 2,
+            total_records: 0,
+            migrated_records: 0,
+            last_migrated_record_id: None,
+            started_at: chrono::Utc::now(),
+            cloud_metadata_revision: "0".to_string(),
+        };
+        save_checkpoint(&mut *executor.vault_mut().unwrap(), &checkpoint).unwrap();
+
+        executor.cancel_token().cancel();
+
+        let result = handle_resume_rotation(&mut executor).await;
+        assert!(
+            matches!(result, CommandResult::Cancelled { ref operation, .. } if operation == "rotation"),
+            "Expected Cancelled, got {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn trigger_rotation_returns_cancelled_on_shutdown() {
+        let shutdown_token = CancellationToken::new();
+
+        let vault = setup_vault_unlocked();
+        let (result_tx, _) = mpsc::channel(64);
+        let clipboard = Arc::new(ClipboardService::with_backend(
+            Box::new(MockBackend::new()),
+            30,
+        )) as Arc<dyn Clipboard>;
+
+        let mut executor = CommandExecutor::builder(":memory:".into(), ":memory:".into())
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(shutdown_token)
+            .clipboard(clipboard)
+            .build();
+
+        executor.shutdown_token.cancel();
+
+        let result = handle_trigger_rotation(&mut executor).await;
+        assert!(
+            matches!(result, CommandResult::Cancelled { .. }),
+            "Expected Cancelled on shutdown, got {:?}",
+            result
+        );
     }
 }

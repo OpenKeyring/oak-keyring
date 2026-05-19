@@ -158,7 +158,7 @@ use oak_keyring::services::vault::VaultService;
 use oak_keyring::types::health::RecordHealthState;
 
 fn setup_vault() -> VaultService {
-    let conn = init_db_in_memory();
+    let conn = init_db_in_memory().unwrap();
     VaultService::new(conn)
 }
 
