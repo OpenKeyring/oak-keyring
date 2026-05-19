@@ -11,6 +11,7 @@ mod main_pipeline_test;
 mod okb_sample_file_test;
 mod okb_serialization_roundtrip_test;
 mod rotation_test;
+mod smoke_test;
 #[cfg(feature = "sqlcipher")]
 mod sqlcipher_poc_test;
 #[cfg(feature = "sqlcipher")]
