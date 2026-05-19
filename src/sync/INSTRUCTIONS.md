@@ -55,6 +55,14 @@ PullMetadata → Detect → Push → Resolve
 
 ## Conflict Resolution
 
+冲突检测与解决由 `conflict.rs` (ConflictManager) 负责，提供无状态冲突管理操作。
+
+**核心类型**:
+- `ConflictAction` — 检测结果: Conflict/DownloadOnly/UploadOnly/NoAction
+- `ResolutionAction` — 解决策略: KeepLocal (上传本地, version+1) / KeepRemote (用远程覆盖本地)
+- `ConflictItem` — 单项冲突条目 (用于批量解决)
+- `ResolvedConflict` / `KeepRemoteData` — 解决后的数据
+
 **检测规则** (基于 local_sync_status + version 对比):
 - **Conflict**: Pending AND remote > local → 双方都修改了
 - **DownloadOnly**: Synced AND remote > local → 仅远程更新

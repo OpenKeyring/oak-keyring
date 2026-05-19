@@ -37,6 +37,14 @@ pub fn derive_index_key(kek: &[u8; 32]) -> Result<[u8; 32], CryptoError> {
     Ok(okm)
 }
 
+pub fn derive_db_page_key(kek: &[u8; 32]) -> Result<[u8; 32], CryptoError> {
+    let hkdf = Hkdf::<Sha256>::new(Some(b"open-keyring-db-page"), kek);
+    let mut okm = [0u8; 32];
+    hkdf.expand(b"sqlcipher-db-page-key-v1", &mut okm)
+        .map_err(|_| CryptoError::DerivationFailed)?;
+    Ok(okm)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,6 +111,33 @@ mod tests {
         let ik1 = derive_index_key(&kek).unwrap();
         let ik2 = derive_index_key(&kek).unwrap();
         assert_eq!(ik1, ik2, "Index Key derivation must be deterministic");
+    }
+
+    #[test]
+    fn test_derive_db_page_key_determinism() {
+        let kek = [44u8; 32];
+        let key1 = derive_db_page_key(&kek).unwrap();
+        let key2 = derive_db_page_key(&kek).unwrap();
+        assert_eq!(key1, key2, "same KEK must produce same DB page key");
+    }
+
+    #[test]
+    fn test_derive_db_page_key_is_separated_from_other_keys() {
+        let kek = [88u8; 32];
+        let db_page_key = derive_db_page_key(&kek).unwrap();
+        let dek = derive_dek(&kek, 1).unwrap();
+        let device_key = derive_device_key(&kek, "device-alpha").unwrap();
+        let index_key = derive_index_key(&kek).unwrap();
+
+        assert_ne!(db_page_key, dek, "DB page key must differ from DEK");
+        assert_ne!(
+            db_page_key, device_key,
+            "DB page key must differ from DeviceKey"
+        );
+        assert_ne!(
+            db_page_key, index_key,
+            "DB page key must differ from IndexKey"
+        );
     }
 
     #[test]

@@ -1,9 +1,16 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "sqlcipher")]
+use std::time::Duration;
 
+#[cfg(feature = "sqlcipher")]
+use rusqlite::backup::Backup;
 use rusqlite::Connection;
 
 use crate::db::migrations::{self, MigrationError};
+
+#[cfg(feature = "sqlcipher")]
+use crate::crypto::db_page_key::DbPageKey;
 
 pub fn apply_pragmas(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
@@ -15,7 +22,7 @@ pub fn apply_pragmas(conn: &Connection) -> Result<(), rusqlite::Error> {
     )
 }
 
-fn run_quick_check(conn: &Connection) -> Result<(), InitDbError> {
+pub(crate) fn run_quick_check(conn: &Connection) -> Result<(), InitDbError> {
     let result: String = conn.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
     if result.eq_ignore_ascii_case("ok") {
         Ok(())
@@ -24,7 +31,7 @@ fn run_quick_check(conn: &Connection) -> Result<(), InitDbError> {
     }
 }
 
-fn run_foreign_key_check(conn: &Connection) -> Result<(), InitDbError> {
+pub(crate) fn run_foreign_key_check(conn: &Connection) -> Result<(), InitDbError> {
     let mut stmt = conn.prepare("PRAGMA foreign_key_check")?;
     let mut rows = stmt.query([])?;
     if let Some(row) = rows.next()? {
@@ -80,11 +87,11 @@ pub fn init_db(path: &Path) -> Result<Connection, InitDbError> {
     Ok(conn)
 }
 
-pub fn init_db_in_memory() -> Connection {
-    let conn = Connection::open_in_memory().expect("failed to open in-memory db");
-    apply_pragmas(&conn).expect("failed to apply pragmas");
-    migrations::run_migrations(&conn).expect("migration failed");
-    conn
+pub fn init_db_in_memory() -> Result<Connection, InitDbError> {
+    let conn = Connection::open_in_memory()?;
+    apply_pragmas(&conn)?;
+    migrations::run_migrations(&conn)?;
+    Ok(conn)
 }
 
 /// Runs `work` against `conn`, snapshotting the database to `backup_path` first
@@ -105,7 +112,39 @@ where
     F: FnOnce(&Connection) -> Result<(), MigrationError>,
 {
     backup_database(&conn, backup_path)?;
+    run_with_existing_backup(conn, db_path, backup_path, work)
+}
 
+/// SQLCipher PoC-only variant of `run_with_backup`.
+///
+/// `key` must match the already-open source connection. The destination backup
+/// connection is keyed before `Backup::new` so the retained backup file is also
+/// SQLCipher-encrypted.
+#[cfg(feature = "sqlcipher")]
+pub fn run_with_encrypted_backup<F>(
+    conn: Connection,
+    db_path: &Path,
+    backup_path: &Path,
+    key: &DbPageKey,
+    work: F,
+) -> Result<Connection, InitDbError>
+where
+    F: FnOnce(&Connection) -> Result<(), MigrationError>,
+{
+    remove_backup_files(backup_path)?;
+    backup_encrypted_database(&conn, backup_path, key)?;
+    run_with_existing_backup(conn, db_path, backup_path, work)
+}
+
+fn run_with_existing_backup<F>(
+    conn: Connection,
+    db_path: &Path,
+    backup_path: &Path,
+    work: F,
+) -> Result<Connection, InitDbError>
+where
+    F: FnOnce(&Connection) -> Result<(), MigrationError>,
+{
     match work(&conn) {
         Ok(()) => {
             if let Err(e) = std::fs::remove_file(backup_path) {
@@ -137,13 +176,37 @@ fn backup_database(src: &Connection, dst_path: &Path) -> Result<(), MigrationErr
     // Connection::backup opens the destination as a SQLite database. If a stale
     // .bak from a prior run exists, opening it would merge with that file's pages
     // rather than producing a fresh snapshot.
+    remove_backup_files(dst_path)?;
+
+    src.backup(rusqlite::DatabaseName::Main, dst_path, None)
+        .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))
+}
+
+fn remove_backup_files(dst_path: &Path) -> Result<(), MigrationError> {
     for sidecar in [None, Some("-wal"), Some("-shm")] {
         let p = sidecar.map_or_else(|| dst_path.to_path_buf(), |s| with_suffix(dst_path, s));
         if p.exists() {
             std::fs::remove_file(&p).map_err(MigrationError::BackupFailed)?;
         }
     }
-    src.backup(rusqlite::DatabaseName::Main, dst_path, None)
+    Ok(())
+}
+
+#[cfg(feature = "sqlcipher")]
+fn backup_encrypted_database(
+    src: &Connection,
+    dst_path: &Path,
+    key: &DbPageKey,
+) -> Result<(), MigrationError> {
+    let mut dst = Connection::open(dst_path)
+        .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))?;
+    crate::db::sqlcipher::apply_key(&dst, key)
+        .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))?;
+
+    let backup = Backup::new(src, &mut dst)
+        .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))?;
+    backup
+        .run_to_completion(100, Duration::from_millis(0), None)
         .map_err(|e| MigrationError::BackupFailed(std::io::Error::other(e)))
 }
 

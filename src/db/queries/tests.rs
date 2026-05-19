@@ -11,7 +11,7 @@ use crate::types::record::StoredRecord;
 
 /// Create an in-memory database with schema initialized.
 fn setup_db() -> Connection {
-    schema::init_db_in_memory()
+    schema::init_db_in_memory().unwrap()
 }
 
 /// Build a test `StoredRecord` with sensible defaults.
@@ -268,7 +268,119 @@ fn batch_soft_delete_records_updates_deleted_by() {
 }
 
 // -----------------------------------------------------------------------
-// 9. list_audit_entries_filtered
+// 9. batch_restore_records
+// -----------------------------------------------------------------------
+
+#[test]
+fn batch_restore_records_restores_soft_deleted() {
+    let conn = setup_db();
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
+    let id3 = Uuid::new_v4();
+
+    insert_record(&conn, &make_test_record(&id1, 1)).unwrap();
+    insert_record(&conn, &make_test_record(&id2, 1)).unwrap();
+    insert_record(&conn, &make_test_record(&id3, 1)).unwrap();
+
+    batch_soft_delete_records(&conn, &[id1, id2, id3], "admin").unwrap();
+
+    let affected = batch_restore_records(&conn, &[id1, id2]).unwrap();
+    assert_eq!(affected, 2);
+
+    // id1 and id2 are now active
+    let active = list_active_records(&conn).unwrap();
+    assert_eq!(active.len(), 2);
+
+    // id3 is still deleted
+    let deleted = list_deleted_records(&conn).unwrap();
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(deleted[0].id, id3);
+}
+
+#[test]
+fn batch_restore_records_only_affects_deleted() {
+    let conn = setup_db();
+    let id_active = Uuid::new_v4();
+    let id_deleted = Uuid::new_v4();
+
+    insert_record(&conn, &make_test_record(&id_active, 1)).unwrap();
+    insert_record(&conn, &make_test_record(&id_deleted, 1)).unwrap();
+    batch_soft_delete_records(&conn, &[id_deleted], "admin").unwrap();
+
+    // Request both IDs — only the deleted one should be restored
+    let affected = batch_restore_records(&conn, &[id_active, id_deleted]).unwrap();
+    assert_eq!(affected, 1);
+
+    let active = list_active_records(&conn).unwrap();
+    assert_eq!(active.len(), 2);
+}
+
+#[test]
+fn batch_restore_records_handles_empty_ids() {
+    let conn = setup_db();
+    let affected = batch_restore_records(&conn, &[]).unwrap();
+    assert_eq!(affected, 0);
+}
+
+// -----------------------------------------------------------------------
+// 10. batch_hard_delete_records
+// -----------------------------------------------------------------------
+
+#[test]
+fn batch_hard_delete_records_deletes_soft_deleted() {
+    let conn = setup_db();
+    let id1 = Uuid::new_v4();
+    let id2 = Uuid::new_v4();
+    let id3 = Uuid::new_v4();
+
+    insert_record(&conn, &make_test_record(&id1, 1)).unwrap();
+    insert_record(&conn, &make_test_record(&id2, 1)).unwrap();
+    insert_record(&conn, &make_test_record(&id3, 1)).unwrap();
+
+    batch_soft_delete_records(&conn, &[id1, id2, id3], "admin").unwrap();
+
+    let affected = batch_hard_delete_records(&conn, &[id1, id2]).unwrap();
+    assert_eq!(affected, 2);
+
+    // id3 is still in trash
+    let deleted = list_deleted_records(&conn).unwrap();
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(deleted[0].id, id3);
+
+    // id1 and id2 are gone entirely
+    let all = list_active_records(&conn).unwrap();
+    assert_eq!(all.len(), 0);
+}
+
+#[test]
+fn batch_hard_delete_records_only_affects_deleted() {
+    let conn = setup_db();
+    let id_active = Uuid::new_v4();
+    let id_deleted = Uuid::new_v4();
+
+    insert_record(&conn, &make_test_record(&id_active, 1)).unwrap();
+    insert_record(&conn, &make_test_record(&id_deleted, 1)).unwrap();
+    batch_soft_delete_records(&conn, &[id_deleted], "admin").unwrap();
+
+    // Request both IDs — only the deleted one should be hard-deleted
+    let affected = batch_hard_delete_records(&conn, &[id_active, id_deleted]).unwrap();
+    assert_eq!(affected, 1);
+
+    // Active record is untouched
+    let active = list_active_records(&conn).unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].id, id_active);
+}
+
+#[test]
+fn batch_hard_delete_records_handles_empty_ids() {
+    let conn = setup_db();
+    let affected = batch_hard_delete_records(&conn, &[]).unwrap();
+    assert_eq!(affected, 0);
+}
+
+// -----------------------------------------------------------------------
+// 11. list_audit_entries_filtered
 // -----------------------------------------------------------------------
 
 #[test]

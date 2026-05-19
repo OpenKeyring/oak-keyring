@@ -170,7 +170,24 @@ impl ClipboardBackend for MockBackend {
 }
 
 // ---------------------------------------------------------------------------
-// ClipboardService
+// Clipboard Trait
+// ---------------------------------------------------------------------------
+
+/// Executor-facing clipboard capability.
+///
+/// High-level clipboard operations for copy/clear with auto-clear timer support.
+#[cfg_attr(test, mockall::automock)]
+pub trait Clipboard: Send + Sync {
+    fn copy(&self, text: &str) -> Result<u64, ClipboardError>;
+    fn clear(&self) -> Result<(), ClipboardError>;
+    fn smart_clear(&self) -> Result<bool, ClipboardError>;
+    fn set_clear_timeout(&self, seconds: u64);
+    fn clear_timeout(&self) -> u64;
+    fn cancel_timer(&self);
+}
+
+// ---------------------------------------------------------------------------
+// ClipboardServiceImpl
 // ---------------------------------------------------------------------------
 
 /// System clipboard service with async auto-clear timer and smart-clear.
@@ -199,14 +216,17 @@ impl ClipboardBackend for MockBackend {
 /// - The only stored value is a SHA-256 hash (one-way, no plaintext recovery)
 ///
 /// Plaintext zeroize is the caller's (S5 Executor) responsibility via `SecureStr::drop`.
-pub struct ClipboardService {
+pub struct ClipboardServiceImpl {
     backend: Arc<dyn ClipboardBackend>,
     clear_timeout: AtomicU64,
     active_timer: Mutex<Option<AbortHandle>>,
     last_hash: Mutex<Option<String>>,
 }
 
-impl ClipboardService {
+/// Type alias for backward compatibility.
+pub type ClipboardService = ClipboardServiceImpl;
+
+impl ClipboardServiceImpl {
     pub fn with_backend(backend: Box<dyn ClipboardBackend>, clear_timeout: u64) -> Self {
         Self {
             backend: Arc::from(backend),
@@ -425,6 +445,152 @@ impl ClipboardService {
     }
 }
 
+impl Clipboard for ClipboardServiceImpl {
+    fn copy(&self, text: &str) -> Result<u64, ClipboardError> {
+        // Delegate to inherent impl
+        let byte_len = text.len();
+        if byte_len > MAX_CONTENT_BYTES {
+            return Err(ClipboardError::ContentTooLong {
+                max_bytes: MAX_CONTENT_BYTES,
+                actual_bytes: byte_len,
+            });
+        }
+
+        // Call cancel_timer from inherent impl
+        let handle = {
+            let mut timer = match self.active_timer.lock() {
+                Ok(t) => t,
+                Err(_) => return Err(ClipboardError::LockPoisoned),
+            };
+            timer.take()
+        };
+        if let Some(h) = handle {
+            h.abort();
+            debug!("Previous clipboard timer cancelled");
+        }
+
+        let hash = hash_content(text);
+        {
+            let mut last_hash = self
+                .last_hash
+                .lock()
+                .map_err(|_| ClipboardError::LockPoisoned)?;
+            *last_hash = Some(hash);
+        }
+
+        self.backend.set_text(text)?;
+        let timeout = self.clear_timeout.load(Ordering::Relaxed);
+        info!(timeout_secs = timeout, "Copied to clipboard with tracking");
+
+        if timeout > 0 {
+            self.start_clear_timer();
+        }
+
+        Ok(timeout)
+    }
+
+    fn clear(&self) -> Result<(), ClipboardError> {
+        // Cancel timer then clear
+        let handle = {
+            let mut timer = match self.active_timer.lock() {
+                Ok(t) => t,
+                Err(_) => return Err(ClipboardError::LockPoisoned),
+            };
+            timer.take()
+        };
+        if let Some(h) = handle {
+            h.abort();
+        }
+
+        self.backend.set_text("")?;
+        info!("Clipboard force-cleared");
+        Ok(())
+    }
+
+    fn smart_clear(&self) -> Result<bool, ClipboardError> {
+        let expected_hash = {
+            let last_hash = self
+                .last_hash
+                .lock()
+                .map_err(|_| ClipboardError::LockPoisoned)?;
+            last_hash.clone()
+        };
+
+        let expected_hash = match expected_hash {
+            Some(h) => h,
+            None => {
+                debug!("No tracked content — skipping smart clear");
+                return Ok(false);
+            }
+        };
+
+        let current_content = self.backend.get_text()?;
+        let current_hash = hash_content(&current_content);
+
+        if current_hash == expected_hash {
+            self.backend.set_text("")?;
+            {
+                let mut last_hash = self
+                    .last_hash
+                    .lock()
+                    .map_err(|_| ClipboardError::LockPoisoned)?;
+                *last_hash = None;
+            }
+            info!("Smart clear: clipboard cleared (content matched)");
+            Ok(true)
+        } else {
+            warn!("Smart clear: skipping — content changed since last copy");
+            {
+                let mut last_hash = self
+                    .last_hash
+                    .lock()
+                    .map_err(|_| ClipboardError::LockPoisoned)?;
+                *last_hash = None;
+            }
+            Ok(false)
+        }
+    }
+
+    fn set_clear_timeout(&self, seconds: u64) {
+        self.clear_timeout.store(seconds, Ordering::Relaxed);
+        let has_tracked = self.last_hash.lock().map(|h| h.is_some()).unwrap_or(false);
+        if has_tracked {
+            // Cancel timer
+            let handle = {
+                let mut timer = match self.active_timer.lock() {
+                    Ok(t) => t,
+                    Err(_) => return,
+                };
+                timer.take()
+            };
+            if let Some(h) = handle {
+                h.abort();
+            }
+            if seconds > 0 {
+                self.start_clear_timer();
+            }
+        }
+    }
+
+    fn clear_timeout(&self) -> u64 {
+        self.clear_timeout.load(Ordering::Relaxed)
+    }
+
+    fn cancel_timer(&self) {
+        let handle = {
+            let mut timer = match self.active_timer.lock() {
+                Ok(t) => t,
+                Err(_) => return,
+            };
+            timer.take()
+        };
+        if let Some(h) = handle {
+            h.abort();
+            debug!("Previous clipboard timer cancelled");
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shared helper
 // ---------------------------------------------------------------------------
@@ -444,9 +610,9 @@ fn hash_content(content: &str) -> String {
 mod service_tests {
     use super::*;
 
-    fn make_service(timeout: u64) -> ClipboardService {
+    fn make_service(timeout: u64) -> ClipboardServiceImpl {
         let backend = Box::new(MockBackend::new());
-        ClipboardService::with_backend(backend, timeout)
+        ClipboardServiceImpl::with_backend(backend, timeout)
     }
 
     #[tokio::test]

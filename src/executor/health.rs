@@ -150,10 +150,10 @@ pub fn persist_health_report(
     evaluated_at: DateTime<Utc>,
 ) -> Result<Vec<HealthStateDelta>, VaultError> {
     // Fetch all active records for projection.
-    let records = executor.vault.list_all_stored_records()?;
+    let records = executor.vault_mut()?.list_all_stored_records()?;
 
     // Fetch existing health states to compute deltas.
-    let old_states = executor.vault.list_record_health_states()?;
+    let old_states = executor.vault_mut()?.list_record_health_states()?;
     let old_map: HashMap<Uuid, RecordHealthState> =
         old_states.into_iter().map(|s| (s.record_id, s)).collect();
 
@@ -182,7 +182,9 @@ pub fn persist_health_report(
         .collect();
 
     // Transactional batch replace.
-    executor.vault.replace_record_health_states(&new_states)?;
+    executor
+        .vault_mut()?
+        .replace_record_health_states(&new_states)?;
 
     Ok(deltas)
 }
@@ -205,7 +207,9 @@ pub fn schedule_health_resync_for_records(
     let record_ids: Vec<Uuid> = deltas.iter().map(|d| d.record_id).collect();
 
     // Mark sync_state = Pending for the next sync cycle.
-    executor.vault.mark_records_pending_sync(&record_ids)?;
+    executor
+        .vault_mut()?
+        .mark_records_pending_sync(&record_ids)?;
 
     tracing::info!(
         count = record_ids.len(),
@@ -238,7 +242,7 @@ pub fn schedule_health_resync_for_records(
 pub fn load_cached_health_report(
     executor: &mut CommandExecutor,
 ) -> Result<Option<HealthReport>, VaultError> {
-    let states = executor.vault.list_record_health_states()?;
+    let states = executor.vault_mut()?.list_record_health_states()?;
 
     if states.is_empty() {
         return Ok(None);
@@ -305,7 +309,18 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor, force: bool) -> C
     }
 
     // Step 1: Fetch all active stored records (fast, local)
-    let records = match executor.vault.list_all_stored_records() {
+    let records = match executor.vault_mut() {
+        Ok(v) => v.list_all_stored_records(),
+        Err(e) => {
+            return CommandResult::Error {
+                code: e.to_error_code(),
+                context: e.to_error_context(),
+                message_key: "error.vault_not_available",
+                fallback: format!("Vault is not available: {}", e),
+            };
+        }
+    };
+    let records = match records {
         Ok(r) => r,
         Err(e) => {
             let err: &dyn ServiceError = &e;
@@ -328,8 +343,8 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor, force: bool) -> C
     let mut entries = Vec::with_capacity(login_records.len());
     for record in &login_records {
         match executor
-            .vault
-            .decrypt_field(record.id, FieldSelector::Password)
+            .vault_mut()
+            .and_then(|v| v.decrypt_field(record.id, FieldSelector::Password))
         {
             Ok(password) => entries.push(PasswordEntry {
                 id: record.id,
@@ -353,10 +368,10 @@ pub fn handle_run_health_check(executor: &mut CommandExecutor, force: bool) -> C
     // Records where compromised == true AND record_version matches can skip
     // the HIBP call (spec section 8.2). We separate them before spawning
     // the background task so the async closure does not need DB access.
-    let health_states = executor
-        .vault
-        .list_record_health_states()
-        .unwrap_or_default();
+    let health_states = match executor.vault_mut() {
+        Ok(v) => v.list_record_health_states().unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
     let health_map: HashMap<Uuid, RecordHealthState> = health_states
         .into_iter()
         .map(|s| (s.record_id, s))
@@ -471,8 +486,8 @@ pub async fn handle_check_hibp(executor: &mut CommandExecutor, record_id: Uuid) 
 
     // Step 1: Decrypt the record's password
     let password = match executor
-        .vault
-        .decrypt_field(record_id, FieldSelector::Password)
+        .vault_mut()
+        .and_then(|v| v.decrypt_field(record_id, FieldSelector::Password))
     {
         Ok(s) => s,
         Err(e) => {

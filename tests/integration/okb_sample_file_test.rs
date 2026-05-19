@@ -9,6 +9,7 @@
 //! parse → map → create in Vault → verify records
 
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 use oak_keyring::commands::types::{ImportSource, RecordFilter, RecordSort};
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
@@ -16,7 +17,7 @@ use oak_keyring::db::schema::init_db_in_memory;
 use oak_keyring::services::import_export::duplicate::ExistingRecordKey;
 use oak_keyring::services::import_export::parser::{FormatParser, ParsedItem};
 use oak_keyring::services::import_export::parsers::okb::OkbParser;
-use oak_keyring::services::import_export::ImportExportService;
+use oak_keyring::services::import_export::{ImportExportService, ImportParams};
 use oak_keyring::services::vault::VaultService;
 use oak_keyring::types::credential::EncryptedPayload;
 use oak_keyring::types::record::CreateRecordParams;
@@ -353,7 +354,7 @@ fn test_okb_wrong_password_rejected() {
 
 /// Set up an in-memory vault for testing.
 fn setup_vault() -> VaultService {
-    let conn = init_db_in_memory();
+    let conn = init_db_in_memory().unwrap();
     let mut svc = VaultService::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
     svc.unlock_with_mnemonic(&mnemonic).unwrap();
@@ -407,7 +408,7 @@ fn test_okb_basic_full_import() {
         return;
     }
 
-    let mut vault = setup_vault();
+    let vault = Arc::new(Mutex::new(setup_vault()));
     let mut svc = ImportExportService::new();
 
     let session_id = svc
@@ -426,32 +427,38 @@ fn test_okb_basic_full_import() {
     assert_eq!(preview.failed, 0, "no validation failures");
 
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
-    let result = svc
-        .execute_import(
-            session_id,
-            existing_keys,
-            |cred_type, fields, tags| {
-                let payload = fields_to_payload(cred_type, &fields);
-                vault
-                    .create_record(CreateRecordParams {
-                        credential_type: cred_type,
-                        payload,
-                        tags,
-                        is_favorite: false,
-                        expires_at: None,
-                    })
-                    .map_err(|e| e.to_string())
-            },
-            None::<fn(usize, usize, &str)>,
-        )
-        .expect("execute import");
+    let params = ImportParams {
+        session_id,
+        existing_keys,
+        import_as_notes: false,
+        progress_fn: None,
+    };
+    let (result, importable_records) = svc.execute_import(params).expect("execute import");
 
     assert_eq!(result.imported, 3, "should import 3 records");
     assert_eq!(result.failed, 0, "no failures");
     assert_eq!(result.validation_failed, 0, "no validation failures");
 
+    // Create vault records from returned importable records
+    for record in &importable_records {
+        let payload = fields_to_payload(record.credential_type, &record.fields);
+        vault
+            .lock()
+            .unwrap()
+            .create_record(CreateRecordParams {
+                credential_type: record.credential_type,
+                payload,
+                tags: record.tags.clone(),
+                is_favorite: false,
+                expires_at: None,
+            })
+            .unwrap();
+    }
+
     // Verify records in vault
     let records = vault
+        .lock()
+        .unwrap()
         .list_records(&RecordFilter::All, &default_sort())
         .unwrap();
     assert_eq!(records.len(), 3, "vault should have 3 records");
@@ -469,7 +476,7 @@ fn test_okb_mixed_types_full_import() {
         return;
     }
 
-    let mut vault = setup_vault();
+    let vault = Arc::new(Mutex::new(setup_vault()));
     let mut svc = ImportExportService::new();
 
     let session_id = svc
@@ -484,30 +491,36 @@ fn test_okb_mixed_types_full_import() {
 
     svc.validate_import_file(session_id).expect("validate");
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
-    let result = svc
-        .execute_import(
-            session_id,
-            existing_keys,
-            |cred_type, fields, tags| {
-                let payload = fields_to_payload(cred_type, &fields);
-                vault
-                    .create_record(CreateRecordParams {
-                        credential_type: cred_type,
-                        payload,
-                        tags,
-                        is_favorite: false,
-                        expires_at: None,
-                    })
-                    .map_err(|e| e.to_string())
-            },
-            None::<fn(usize, usize, &str)>,
-        )
-        .expect("execute import");
+    let params = ImportParams {
+        session_id,
+        existing_keys,
+        import_as_notes: false,
+        progress_fn: None,
+    };
+    let (result, importable_records) = svc.execute_import(params).expect("execute import");
+
+    // Create vault records from returned importable records
+    for record in &importable_records {
+        let payload = fields_to_payload(record.credential_type, &record.fields);
+        vault
+            .lock()
+            .unwrap()
+            .create_record(CreateRecordParams {
+                credential_type: record.credential_type,
+                payload,
+                tags: record.tags.clone(),
+                is_favorite: false,
+                expires_at: None,
+            })
+            .unwrap();
+    }
 
     assert_eq!(result.imported, 3, "should import 3 records");
     assert_eq!(result.validation_failed, 0);
 
     let records = vault
+        .lock()
+        .unwrap()
         .list_records(&RecordFilter::All, &default_sort())
         .unwrap();
     assert_eq!(records.len(), 3);
@@ -529,7 +542,7 @@ fn test_okb_edge_cases_full_import() {
         return;
     }
 
-    let mut vault = setup_vault();
+    let vault = Arc::new(Mutex::new(setup_vault()));
     let mut svc = ImportExportService::new();
 
     let session_id = svc
@@ -544,30 +557,36 @@ fn test_okb_edge_cases_full_import() {
 
     svc.validate_import_file(session_id).expect("validate");
     let existing_keys: HashSet<ExistingRecordKey> = HashSet::new();
-    let result = svc
-        .execute_import(
-            session_id,
-            existing_keys,
-            |cred_type, fields, tags| {
-                let payload = fields_to_payload(cred_type, &fields);
-                vault
-                    .create_record(CreateRecordParams {
-                        credential_type: cred_type,
-                        payload,
-                        tags,
-                        is_favorite: false,
-                        expires_at: None,
-                    })
-                    .map_err(|e| e.to_string())
-            },
-            None::<fn(usize, usize, &str)>,
-        )
-        .expect("execute import");
+    let params = ImportParams {
+        session_id,
+        existing_keys,
+        import_as_notes: false,
+        progress_fn: None,
+    };
+    let (result, importable_records) = svc.execute_import(params).expect("execute import");
+
+    // Create vault records from returned importable records
+    for record in &importable_records {
+        let payload = fields_to_payload(record.credential_type, &record.fields);
+        vault
+            .lock()
+            .unwrap()
+            .create_record(CreateRecordParams {
+                credential_type: record.credential_type,
+                payload,
+                tags: record.tags.clone(),
+                is_favorite: false,
+                expires_at: None,
+            })
+            .unwrap();
+    }
 
     assert_eq!(result.imported, 4, "should import 4 records");
     assert_eq!(result.validation_failed, 0);
 
     let records = vault
+        .lock()
+        .unwrap()
         .list_records(&RecordFilter::All, &default_sort())
         .unwrap();
     assert_eq!(records.len(), 4);

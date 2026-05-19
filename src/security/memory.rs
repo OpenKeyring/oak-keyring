@@ -205,6 +205,11 @@ impl LockedSecretBytes {
         }
 
         let (ptr, cap) = allocate_locked_pages(len)?;
+
+        // Register for crash-time zeroization
+        #[cfg(unix)]
+        crate::security::crash_handler::register(ptr, cap);
+
         Ok(Self { ptr, len, cap })
     }
 
@@ -225,6 +230,27 @@ impl LockedSecretBytes {
         }
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
+
+    /// Sets memory protection for the underlying page(s).
+    ///
+    /// On Unix, this calls `mprotect` with the given protection flags.
+    /// On non-Unix, this is a no-op.
+    #[cfg(unix)]
+    fn set_prot(&self, prot: libc::c_int) {
+        if self.cap == 0 {
+            return;
+        }
+        // SAFETY: ptr is page-aligned (from mmap), cap is a multiple of
+        // page size. mprotect only changes page protection bits.
+        let result = unsafe { libc::mprotect(self.ptr as *mut libc::c_void, self.cap, prot) };
+        if result != 0 {
+            tracing::warn!("mprotect failed: {}", std::io::Error::last_os_error());
+        }
+    }
+
+    /// Sets memory protection (no-op on non-Unix).
+    #[cfg(not(unix))]
+    fn set_prot(&self, _prot: i32) {}
 }
 
 impl Drop for LockedSecretBytes {
@@ -233,9 +259,18 @@ impl Drop for LockedSecretBytes {
             return;
         }
 
+        // Unregister from crash handler registry
+        #[cfg(unix)]
+        crate::security::crash_handler::unregister(self.ptr);
+
         // Zeroize the used portion before unlocking and freeing pages.
         use zeroize::Zeroize;
         self.expose_mut().zeroize();
+
+        // Set PROT_NONE so XNU skips these pages in any core dump
+        // generated during or after Drop. Pages are already zeroized.
+        #[cfg(unix)]
+        self.set_prot(libc::PROT_NONE);
 
         // Free the allocated locked pages (this also unlocks them).
         free_locked_pages(self.ptr, self.cap);
@@ -298,6 +333,37 @@ impl LockedKey32 {
     pub fn expose(&self) -> &[u8; 32] {
         // SAFETY: LockedKey32 always stores exactly 32 bytes
         self.bytes.expose().try_into().unwrap()
+    }
+
+    /// Exposes the key for the duration of the closure with automatic
+    /// memory protection. On Unix, the page is set to PROT_READ during
+    /// the closure and PROT_NONE after.
+    pub fn with_exposed<R>(&self, f: impl FnOnce(&[u8; 32]) -> R) -> R {
+        #[cfg(unix)]
+        self.bytes.set_prot(libc::PROT_READ);
+
+        let result = f(self.expose());
+
+        #[cfg(unix)]
+        self.bytes.set_prot(libc::PROT_NONE);
+
+        result
+    }
+
+    /// Exposes the key mutably for the duration of the closure with
+    /// automatic memory protection.
+    pub fn with_exposed_mut<R>(&mut self, f: impl FnOnce(&mut [u8; 32]) -> R) -> R {
+        #[cfg(unix)]
+        self.bytes.set_prot(libc::PROT_READ | libc::PROT_WRITE);
+
+        // SAFETY: LockedKey32 always stores exactly 32 bytes
+        let key: &mut [u8; 32] = self.bytes.expose_mut().try_into().unwrap();
+        let result = f(key);
+
+        #[cfg(unix)]
+        self.bytes.set_prot(libc::PROT_NONE);
+
+        result
     }
 
     /// Generates a key using the provided function.

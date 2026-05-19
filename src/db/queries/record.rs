@@ -290,3 +290,45 @@ pub fn batch_soft_delete_records(
     let affected = conn.execute(&sql, rusqlite::params_from_iter(params))?;
     Ok(affected)
 }
+
+/// Batch restore multiple soft-deleted records.
+///
+/// Only restores records where `deleted = 1`. Returns the number of affected rows.
+pub fn batch_restore_records(conn: &Connection, ids: &[Uuid]) -> Result<usize> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
+    let sql = format!(
+        "UPDATE records SET deleted = 0, deleted_at = NULL WHERE id IN ({}) AND deleted = 1",
+        placeholders.join(", ")
+    );
+
+    let params: Vec<Box<dyn rusqlite::types::ToSql>> =
+        ids.iter().map(|id| Box::new(id.to_string()) as _).collect();
+
+    let affected = conn.execute(&sql, rusqlite::params_from_iter(params))?;
+    Ok(affected)
+}
+
+/// Batch hard-delete multiple soft-deleted records (and cascading record_tags via FK).
+///
+/// Only deletes records where `deleted = 1`. Returns the number of affected rows.
+pub fn batch_hard_delete_records(conn: &Connection, ids: &[Uuid]) -> Result<usize> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
+    let sql = format!(
+        "DELETE FROM records WHERE id IN ({}) AND deleted = 1",
+        placeholders.join(", ")
+    );
+
+    let params: Vec<Box<dyn rusqlite::types::ToSql>> =
+        ids.iter().map(|id| Box::new(id.to_string()) as _).collect();
+
+    let affected = conn.execute(&sql, rusqlite::params_from_iter(params))?;
+    Ok(affected)
+}

@@ -46,7 +46,7 @@ impl WidthTier {
 /// Recommended sidebar width based on the terminal width tier.
 pub fn sidebar_width(tier: WidthTier) -> u16 {
     match tier {
-        WidthTier::Full => 50,
+        WidthTier::Full => 36,
         WidthTier::Medium => 40,
         WidthTier::Minimum => 30,
         WidthTier::TooSmall => 0,
@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn sidebar_width_values() {
-        assert_eq!(sidebar_width(WidthTier::Full), 50);
+        assert_eq!(sidebar_width(WidthTier::Full), 36);
         assert_eq!(sidebar_width(WidthTier::Medium), 40);
         assert_eq!(sidebar_width(WidthTier::Minimum), 30);
         assert_eq!(sidebar_width(WidthTier::TooSmall), 0);

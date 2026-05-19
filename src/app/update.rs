@@ -374,7 +374,14 @@ fn handle_message(
                     start_screen_in_transition(&mut app.state);
                 }
                 ScreenResult::Command(cmd) => {
-                    let _ = app.command_tx.try_send(*cmd);
+                    if let Err(e) = app.command_tx.try_send(*cmd) {
+                        tracing::warn!(error = %e, "failed to send screen command");
+                        app.state.shared.notification.enqueue(
+                            crate::tui::state::notification::StatusMessage::error(
+                                "Action failed: command queue full".into(),
+                            ),
+                        );
+                    }
                 }
                 ScreenResult::ExitApp => {
                     app.phase = AppPhase::ShuttingDown;
@@ -419,7 +426,14 @@ fn handle_message(
                     start_screen_in_transition(&mut app.state);
                 }
                 ScreenResult::Command(cmd) => {
-                    let _ = app.command_tx.try_send(*cmd);
+                    if let Err(e) = app.command_tx.try_send(*cmd) {
+                        tracing::warn!(error = %e, "failed to send screen command");
+                        app.state.shared.notification.enqueue(
+                            crate::tui::state::notification::StatusMessage::error(
+                                "Action failed: command queue full".into(),
+                            ),
+                        );
+                    }
                 }
                 ScreenResult::ExitApp => {
                     app.phase = AppPhase::ShuttingDown;
@@ -652,9 +666,15 @@ mod tests {
 
     #[test]
     fn set_password_context_from_key_recovery_is_captured_before_unmount() {
-        let mut state = crate::tui::state::AppState::default();
-        state.current_screen = Screen::KeyRecovery;
-        state.screens.key_recovery.origin = KeyRecoveryOrigin::StartupDbOnly;
+        let mut state = crate::tui::state::AppState {
+            current_screen: Screen::KeyRecovery,
+            screens: {
+                let mut screens = crate::tui::state::ScreenStates::default();
+                screens.key_recovery.origin = KeyRecoveryOrigin::StartupDbOnly;
+                screens
+            },
+            ..crate::tui::state::AppState::default()
+        };
         for word in &mut state.screens.key_recovery.words.words {
             word.push_str("abandon");
         }
@@ -689,14 +709,20 @@ mod tests {
 
     #[test]
     fn set_password_context_from_onboarding_create_captures_recovery_words() {
-        let mut state = crate::tui::state::AppState::default();
-        state.current_screen = Screen::Onboarding;
-        state.screens.onboarding.selected_path =
-            Some(crate::tui::screens::onboarding::OnboardingPath::CreateNew);
-        state.screens.onboarding.recovery_words = Some(
-            crate::types::RecoveryWords::new((0..24).map(|i| format!("word{i}")).collect())
-                .unwrap(),
-        );
+        let mut state = crate::tui::state::AppState {
+            current_screen: Screen::Onboarding,
+            screens: {
+                let mut screens = crate::tui::state::ScreenStates::default();
+                screens.onboarding.selected_path =
+                    Some(crate::tui::screens::onboarding::OnboardingPath::CreateNew);
+                screens.onboarding.recovery_words = Some(
+                    crate::types::RecoveryWords::new((0..24).map(|i| format!("word{i}")).collect())
+                        .unwrap(),
+                );
+                screens
+            },
+            ..crate::tui::state::AppState::default()
+        };
 
         assert!(prepare_set_password_context_for_navigation(
             &mut state,

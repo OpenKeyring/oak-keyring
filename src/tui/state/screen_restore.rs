@@ -159,9 +159,15 @@ mod tests {
 
     #[test]
     fn navigate_to_pushes_full_snapshot_without_parallel_stack() {
-        let mut state = AppState::default();
-        state.current_screen = Screen::Main;
-        state.shared.focus.focused_panel = PanelId::Detail;
+        let mut state = AppState {
+            current_screen: Screen::Main,
+            shared: {
+                let mut shared = crate::tui::state::SharedState::default();
+                shared.focus.focused_panel = PanelId::Detail;
+                shared
+            },
+            ..AppState::default()
+        };
 
         state.navigate_to(Screen::Config);
 
@@ -173,9 +179,15 @@ mod tests {
 
     #[test]
     fn go_back_restores_screen_from_snapshot() {
-        let mut state = AppState::default();
-        state.current_screen = Screen::Main;
-        state.shared.focus.focused_panel = PanelId::List;
+        let mut state = AppState {
+            current_screen: Screen::Main,
+            shared: {
+                let mut shared = crate::tui::state::SharedState::default();
+                shared.focus.focused_panel = PanelId::List;
+                shared
+            },
+            ..AppState::default()
+        };
         state.navigate_to(Screen::Config);
         state.shared.focus.focused_panel = PanelId::Sidebar;
 
@@ -198,11 +210,17 @@ mod tests {
     fn config_audit_log_back_restores_view_audit_sub_item() {
         use crate::tui::state::config_state::ConfigTab;
 
-        let mut state = AppState::default();
-        state.current_screen = Screen::Config;
-        state.screens.config.state.active_tab = ConfigTab::Security;
-        state.screens.config.state.focused_item = 3;
-        state.screens.config.state.sub_item_focus = Some(1);
+        let mut state = AppState {
+            current_screen: Screen::Config,
+            screens: {
+                let mut screens = crate::tui::state::ScreenStates::default();
+                screens.config.state.active_tab = ConfigTab::Security;
+                screens.config.state.focused_item = 3;
+                screens.config.state.sub_item_focus = Some(1);
+                screens
+            },
+            ..AppState::default()
+        };
         state.screens.config.state.scroll_offset = 2;
 
         state.navigate_to(Screen::AuditLog);

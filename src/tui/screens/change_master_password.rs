@@ -442,7 +442,7 @@ impl ChangeMasterPasswordScreen {
         match key.code {
             KeyCode::Esc => {
                 // Clear cached verified password if user cancels the flow
-                let _ = ctx.command_tx.try_send(Command::ClearVerifiedPassword);
+                ctx.send_system_command(Command::ClearVerifiedPassword);
                 ScreenResult::PopScreen
             }
 
@@ -480,7 +480,7 @@ impl ChangeMasterPasswordScreen {
                     current_password: None,
                     new_password: new_pw,
                 };
-                let _ = ctx.command_tx.try_send(cmd);
+                ctx.send_system_command(cmd);
                 ScreenResult::Continue
             }
 

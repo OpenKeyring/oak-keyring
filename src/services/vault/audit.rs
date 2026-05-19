@@ -1,5 +1,8 @@
 // Audit log (query_audit_log, cleanup_audit_log, sync/DEK audit helpers)
 
+#[cfg(test)]
+use crate::services::vault::VaultService;
+use crate::services::vault::VaultServiceImpl;
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 
@@ -8,12 +11,10 @@ use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 use crate::types::audit::{AuditEntry, AuditOperation};
 
-use super::VaultService;
-
 // Default page size for audit log queries.
 const DEFAULT_AUDIT_PAGE_SIZE: i64 = 50;
 
-impl VaultService {
+impl VaultServiceImpl {
     /// Internal helper: write an audit log entry.
     ///
     /// Thin wrapper around `queries::insert_audit_entry` that maps
@@ -164,7 +165,7 @@ mod tests {
 
     /// Helper: create an in-memory VaultService with schema initialized.
     fn setup_service() -> VaultService {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         VaultService::new(conn)
     }
 

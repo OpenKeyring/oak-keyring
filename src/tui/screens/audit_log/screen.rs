@@ -361,6 +361,9 @@ impl AuditLogScreen {
                 }
                 ScreenResult::Continue
             }
+            CommandResult::RecordDetailLoaded { record, .. } => {
+                ScreenResult::NavigateTo(ScreenEnum::EditRecord { id: record.id() })
+            }
             CommandResult::Error { fallback, .. } => {
                 self.state.hint_message = Some(fallback);
                 ScreenResult::Continue

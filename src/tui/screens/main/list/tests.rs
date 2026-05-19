@@ -125,6 +125,27 @@ fn make_record_with_duplicate(id: Uuid, name: &str, group_size: usize) -> TuiRec
     }
 }
 
+fn make_record_with_expired(id: Uuid, name: &str) -> TuiRecord {
+    TuiRecord {
+        id,
+        credential_type: CredentialType::Login,
+        name: name.to_string(),
+        subtitle: String::new(),
+        is_favorite: false,
+        is_expired: true,
+        expires_at: Some(Utc::now() - chrono::Duration::try_days(30).unwrap()),
+        has_weak_password: false,
+        is_compromised: false,
+        duplicate_group_size: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        deleted: false,
+        deleted_at: None,
+        tags: Vec::new(),
+        sync_status: None,
+    }
+}
+
 /// Render into a TestBackend and return the buffer as a string snapshot.
 fn render_snapshot(
     state: &ListPanelState,
@@ -166,6 +187,7 @@ fn render_empty_state_search_no_results() {
         mode: ListMode::Search(SearchState {
             query: "nonexistent".to_string(),
             cursor: 11,
+            pre_search: None,
         }),
         ..Default::default()
     };
@@ -222,6 +244,7 @@ fn render_search_mode_bar() {
         mode: ListMode::Search(SearchState {
             query: "git".to_string(),
             cursor: 3,
+            pre_search: None,
         }),
         ..Default::default()
     };
@@ -483,7 +506,8 @@ fn build_record_item_visual_selected() {
 
 #[test]
 fn highlight_match_basic() {
-    let spans = ListPanel::highlight_match("GitHub", "git");
+    let terms: Vec<String> = vec!["git".to_string()];
+    let spans = ListPanel::highlight_match("GitHub", &terms);
     // Should produce two spans: "Git" (highlighted) + "Hub" (normal)
     assert_eq!(spans.len(), 2);
     assert_eq!(spans[0].content.as_ref(), "Git");
@@ -497,7 +521,8 @@ fn highlight_match_basic() {
 
 #[test]
 fn highlight_match_multi_occurrence() {
-    let spans = ListPanel::highlight_match("test_test_test", "test");
+    let terms: Vec<String> = vec!["test".to_string()];
+    let spans = ListPanel::highlight_match("test_test_test", &terms);
     // Should produce alternating: match + "_" + match + "_" + match
     assert_eq!(spans.len(), 5);
     assert_eq!(spans[0].content.as_ref(), "test"); // highlighted
@@ -514,7 +539,8 @@ fn highlight_match_multi_occurrence() {
 
 #[test]
 fn highlight_match_empty_query() {
-    let spans = ListPanel::highlight_match("GitHub", "");
+    let terms: Vec<String> = vec![];
+    let spans = ListPanel::highlight_match("GitHub", &terms);
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].content.as_ref(), "GitHub");
     assert!(spans[0].style.fg == Some(theme::TEXT));
@@ -522,7 +548,8 @@ fn highlight_match_empty_query() {
 
 #[test]
 fn highlight_match_case_insensitive() {
-    let spans = ListPanel::highlight_match("MyGitRepo", "git");
+    let terms: Vec<String> = vec!["git".to_string()];
+    let spans = ListPanel::highlight_match("MyGitRepo", &terms);
     assert_eq!(spans.len(), 3);
     assert_eq!(spans[0].content.as_ref(), "My");
     assert_eq!(spans[1].content.as_ref(), "Git"); // highlighted
@@ -532,7 +559,8 @@ fn highlight_match_case_insensitive() {
 
 #[test]
 fn highlight_match_no_match() {
-    let spans = ListPanel::highlight_match("GitHub", "xyz");
+    let terms: Vec<String> = vec!["xyz".to_string()];
+    let spans = ListPanel::highlight_match("GitHub", &terms);
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].content.as_ref(), "GitHub");
     assert!(spans[0].style.fg == Some(theme::TEXT));
@@ -649,6 +677,7 @@ fn build_empty_state_variant_search_mode_overrides_filter() {
         mode: ListMode::Search(SearchState {
             query: "mysearch".to_string(),
             cursor: 8,
+            pre_search: None,
         }),
         ..Default::default()
     };
@@ -717,8 +746,19 @@ fn health_badge_duplicate_ascii() {
 
 #[test]
 fn health_badge_expired() {
-    let result = health_badge(Some(&HealthIssue::Expired), true);
-    assert!(result.is_none());
+    let span = health_badge(Some(&HealthIssue::Expired), true).unwrap();
+    let text = span.content.as_ref();
+    assert!(text.contains('\u{2717}')); // ✗
+    assert!(text.contains("Expired") || text.contains("expired"));
+    assert!(span.style.fg == Some(theme::INFO));
+}
+
+#[test]
+fn health_badge_expired_ascii() {
+    let span = health_badge(Some(&HealthIssue::Expired), false).unwrap();
+    let text = span.content.as_ref();
+    assert!(text.contains('x'));
+    assert!(span.style.fg == Some(theme::INFO));
 }
 
 #[test]
@@ -743,6 +783,17 @@ fn render_duplicate_badge_in_list() {
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
     assert!(!result.is_empty());
+}
+
+#[test]
+fn render_expired_badge_in_list() {
+    let record = make_record_with_expired(Uuid::new_v4(), "OldSite");
+    let state = ListPanelState::with_records(vec![record]);
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(
+        result.contains("Expired"),
+        "expired badge should be visible in list"
+    );
 }
 
 #[test]
@@ -772,6 +823,69 @@ fn render_duplicate_group_size_one_no_badge() {
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
     assert!(!result.is_empty());
+}
+
+#[test]
+fn render_compromised_takes_priority_over_expired() {
+    let mut record = make_record_with_compromised(Uuid::new_v4(), "HackedOld");
+    record.is_expired = true;
+    let state = ListPanelState::with_records(vec![record]);
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(
+        result.contains("Leaked"),
+        "compromised badge should be visible"
+    );
+    assert!(
+        !result.contains("Expired"),
+        "expired badge should be suppressed when compromised is present"
+    );
+}
+
+#[test]
+fn render_weak_takes_priority_over_expired() {
+    let mut record = make_record_with_weak(Uuid::new_v4(), "WeakOld");
+    record.is_expired = true;
+    let state = ListPanelState::with_records(vec![record]);
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(result.contains("Weak"), "weak badge should be visible");
+    assert!(
+        !result.contains("Expired"),
+        "expired badge should be suppressed when weak is present"
+    );
+}
+
+#[test]
+fn render_duplicate_takes_priority_over_expired() {
+    let mut record = make_record_with_duplicate(Uuid::new_v4(), "DupOld", 3);
+    record.is_expired = true;
+    let state = ListPanelState::with_records(vec![record]);
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(result.contains("3"), "duplicate count should be visible");
+    assert!(
+        !result.contains("Expired"),
+        "expired badge should be suppressed when duplicate is present"
+    );
+}
+
+#[test]
+fn render_visual_selected_weak_and_expired_uses_weak_color() {
+    // Weak + expired record in visual-selected mode: badge should use Weak (orange),
+    // not Expired (blue), because Weak has higher priority.
+    let id = Uuid::new_v4();
+    let mut record = make_record_with_weak(id, "WeakOld");
+    record.is_expired = true;
+    let mut state = ListPanelState::with_records(vec![record]);
+    let mut selected = HashSet::new();
+    selected.insert(id);
+    state.mode = ListMode::Visual(VisualState {
+        selected_ids: selected,
+    });
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(result.contains("Weak"), "weak badge should be visible");
+    assert!(
+        !result.contains("Expired"),
+        "expired badge should be suppressed when weak is present"
+    );
 }
 
 #[test]
@@ -930,6 +1044,7 @@ fn acceptance_trash_search_mode_in_list() {
     state.mode = ListMode::Search(SearchState {
         query: "git".to_string(),
         cursor: 3,
+        pre_search: None,
     });
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::Trash);
     assert!(!result.is_empty());
@@ -975,4 +1090,123 @@ fn trash_item_3_lines_at_full_width() {
     let item = build_trash_item(&record, false, false, true, true, 120, 30);
     // Should have 3 lines at full width: title, metadata, separator
     assert_eq!(item.height(), 3);
+}
+
+// ---------------------------------------------------------------------------
+// highlight_match Unicode tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn highlight_chinese_text_does_not_panic() {
+    let terms: Vec<String> = vec!["密码".to_string()];
+    // Must not panic on multi-byte UTF-8
+    let spans = ListPanel::highlight_match("我的密码管理器", &terms);
+    assert!(!spans.is_empty());
+    // Verify highlighted span exists with WARNING color
+    let has_highlight = spans
+        .iter()
+        .any(|s| s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100)));
+    assert!(has_highlight, "Chinese search term should be highlighted");
+}
+
+#[test]
+fn highlight_mixed_ascii_cjk() {
+    let terms: Vec<String> = vec!["test".to_string()];
+    let spans = ListPanel::highlight_match("test密码test", &terms);
+    // Should have 3 spans: highlighted "test", normal "密码", highlighted "test"
+    assert!(spans.len() >= 3, "Expected at least 3 spans for mixed text");
+}
+
+#[test]
+fn highlight_empty_terms_returns_plain_span() {
+    let spans = ListPanel::highlight_match("任何文本", &[]);
+    assert_eq!(spans.len(), 1);
+}
+
+#[test]
+fn highlight_no_match_returns_single_span() {
+    let terms: Vec<String> = vec!["不存在".to_string()];
+    let spans = ListPanel::highlight_match("密码管理器", &terms);
+    assert_eq!(spans.len(), 1);
+}
+
+#[test]
+fn highlight_multi_term_chinese() {
+    let terms: Vec<String> = vec!["密码".to_string(), "管理".to_string()];
+    let spans = ListPanel::highlight_match("密码管理器", &terms);
+    // Both terms should be highlighted (adjacent, merged into one span)
+    let has_highlight = spans
+        .iter()
+        .any(|s| s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100)));
+    assert!(has_highlight, "Multi-term Chinese search should highlight");
+}
+
+// ── Minimum-width and responsive snapshot tests ──────────────────────────────
+
+#[test]
+fn render_at_minimum_terminal_width_80() {
+    let r1 = make_record(Uuid::new_v4(), "GitHub", "user@github.com");
+    let r2 = make_record_with_type(Uuid::new_v4(), "AWS", CredentialType::Api);
+    let state = ListPanelState::with_records(vec![r1, r2]);
+    let result = render_snapshot(&state, 80, 24, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+    // Record names must be present in the rendered buffer
+    assert!(
+        result.contains("GitHub"),
+        "record name should be visible at minimum width"
+    );
+}
+
+#[test]
+fn render_at_medium_width_100() {
+    let record = make_record(Uuid::new_v4(), "TestRecord", "user@test.com");
+    let state = ListPanelState::with_records(vec![record]);
+    let result = render_snapshot(&state, 100, 24, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+    assert!(result.contains("TestRecord"));
+}
+
+#[test]
+fn render_narrow_width_30() {
+    let record = make_record(Uuid::new_v4(), "Short", "x@y.com");
+    let state = ListPanelState::with_records(vec![record]);
+    // Should not panic even at very narrow widths
+    let result = render_snapshot(&state, 30, 10, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_single_row_height() {
+    let record = make_record(Uuid::new_v4(), "Test", "sub");
+    let state = ListPanelState::with_records(vec![record]);
+    // Should not panic at minimal height
+    let result = render_snapshot(&state, 50, 1, true, true, RecordFilter::All);
+    // Even if content is truncated, rendering should succeed
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_many_records_small_area() {
+    // Simulate many records in a small visible area — tests scroll/clipping
+    let records: Vec<TuiRecord> = (0..50)
+        .map(|i| make_record(Uuid::new_v4(), &format!("Rec{}", i), ""))
+        .collect();
+    let state = ListPanelState::with_records(records);
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_empty_state_at_minimum_width() {
+    let state = ListPanelState::default();
+    let result = render_snapshot(&state, 80, 24, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_trash_at_minimum_width() {
+    let r1 = make_trash_record(Uuid::new_v4(), "DeletedSite", 5);
+    let state = ListPanelState::with_records(vec![r1]);
+    let result = render_snapshot(&state, 80, 24, true, true, RecordFilter::Trash);
+    assert!(!result.is_empty());
 }

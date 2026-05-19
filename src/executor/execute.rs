@@ -56,7 +56,7 @@ impl CommandExecutor {
                 | Command::ValidateRestoredDatabase
         );
 
-        if needs_unlock && !self.vault.is_unlocked() {
+        if needs_unlock && self.vault().map(|v| !v.is_unlocked()).unwrap_or(true) {
             return Some(CommandResult::Error {
                 code: ErrorCode::ExecutorVaultLocked,
                 context: crate::errors::ErrorContext::default(),
@@ -201,6 +201,10 @@ impl CommandExecutor {
             // ── Batch Operations ──────────────────────────
             Command::BatchSoftDelete { record_ids } => {
                 record::handle_batch_soft_delete(self, record_ids)
+            }
+            Command::BatchRestore { record_ids } => record::handle_batch_restore(self, record_ids),
+            Command::BatchHardDelete { record_ids } => {
+                record::handle_batch_hard_delete(self, record_ids)
             }
             Command::EmptyTrash => record::handle_empty_trash(self),
 
@@ -347,11 +351,13 @@ pub fn handle_internal_health_check_completed(
                 );
             }
 
-            if let Err(e) = executor.vault.set_last_health_check_at(evaluated_at) {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to persist last_health_check_at"
-                );
+            if let Ok(vault) = executor.vault_mut() {
+                if let Err(e) = vault.set_last_health_check_at(evaluated_at) {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to persist last_health_check_at"
+                    );
+                }
             }
         }
         Err(e) => {

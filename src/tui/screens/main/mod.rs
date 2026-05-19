@@ -241,7 +241,78 @@ impl MainScreen {
 
         match focused_panel {
             PanelId::List => {
-                // Trash mode takes priority
+                // v — visual mode toggle (works in all views including trash)
+                if key.code == KeyCode::Char('v') {
+                    if state.list.is_visual() {
+                        state.list.exit_visual();
+                        messages.push(Message::ExitVisualMode);
+                    } else if !state.list.is_searching() {
+                        state.list.enter_visual();
+                        messages.push(Message::EnterVisualMode);
+                    }
+                    return MainKeyResult {
+                        messages,
+                        overlay: None,
+                        command: None,
+                        focused_panel: None,
+                    };
+                }
+
+                // Esc — exit visual mode or search (all views)
+                if key.code == KeyCode::Esc {
+                    if state.list.is_visual() {
+                        state.list.exit_visual();
+                        messages.push(Message::ExitVisualMode);
+                    } else if state.list.is_searching() {
+                        state.list.exit_search();
+                    }
+                    return MainKeyResult {
+                        messages,
+                        overlay: None,
+                        command: None,
+                        focused_panel: None,
+                    };
+                }
+
+                // Visual mode selection keys (Space, a) — work in all views
+                if state.list.is_visual() {
+                    match key.code {
+                        KeyCode::Char(' ') => {
+                            state.list.toggle_select_current();
+                            messages.push(Message::ToggleSelectRecord {
+                                id: state
+                                    .list
+                                    .selected_record()
+                                    .map(|r| r.id)
+                                    .unwrap_or_default(),
+                            });
+                            return MainKeyResult {
+                                messages,
+                                overlay: None,
+                                command: None,
+                                focused_panel: None,
+                            };
+                        }
+                        KeyCode::Char('a') => {
+                            if state.list.visual_selected_ids().len() == state.list.records.len() {
+                                state.list.deselect_all();
+                                messages.push(Message::DeselectAll);
+                            } else {
+                                state.list.select_all();
+                                messages.push(Message::SelectAll);
+                            }
+                            return MainKeyResult {
+                                messages,
+                                overlay: None,
+                                command: None,
+                                focused_panel: None,
+                            };
+                        }
+                        _ => {} // fall through to view-specific handling
+                    }
+                }
+
+                // Trash mode — visual-aware dispatch for r/D/a/navigation
                 if matches!(state.current_filter, RecordFilter::Trash) {
                     return Self::handle_trash_keys(key, state);
                 }
@@ -250,34 +321,6 @@ impl MainScreen {
                 let mut focused_panel_result: Option<PanelId> = None;
 
                 match key.code {
-                    KeyCode::Char('v') => {
-                        if state.list.is_visual() {
-                            state.list.exit_visual();
-                            messages.push(Message::ExitVisualMode);
-                        } else if !state.list.is_searching() {
-                            state.list.enter_visual();
-                            messages.push(Message::EnterVisualMode);
-                        }
-                    }
-                    KeyCode::Char(' ') if state.list.is_visual() => {
-                        state.list.toggle_select_current();
-                        messages.push(Message::ToggleSelectRecord {
-                            id: state
-                                .list
-                                .selected_record()
-                                .map(|r| r.id)
-                                .unwrap_or_default(),
-                        });
-                    }
-                    KeyCode::Char('a') if state.list.is_visual() => {
-                        if state.list.visual_selected_ids().len() == state.list.records.len() {
-                            state.list.deselect_all();
-                            messages.push(Message::DeselectAll);
-                        } else {
-                            state.list.select_all();
-                            messages.push(Message::SelectAll);
-                        }
-                    }
                     KeyCode::Char('d') if state.list.is_visual() => {
                         let ids = state.list.visual_selected_ids();
                         if !ids.is_empty() {
@@ -369,16 +412,33 @@ impl MainScreen {
                     KeyCode::Char('k') | KeyCode::Up => {
                         state.list.move_up();
                     }
-                    KeyCode::Esc => {
-                        if state.list.is_visual() {
-                            state.list.exit_visual();
-                            messages.push(Message::ExitVisualMode);
-                        } else if state.list.is_searching() {
-                            state.list.exit_search();
-                        }
-                    }
-                    KeyCode::Char('s') if !state.list.is_visual() => {
+                    KeyCode::Char('s') if !state.list.is_visual() && !state.list.is_searching() => {
                         state.list.toggle_sort_direction();
+                        state.current_sort.direction = state.list.sort.direction;
+                        let cmd = Box::new(Command::LoadRecordList {
+                            filter: state.current_filter.clone(),
+                            sort: state.current_sort.clone(),
+                        });
+                        return MainKeyResult {
+                            messages,
+                            overlay,
+                            command: Some(cmd),
+                            focused_panel: None,
+                        };
+                    }
+                    KeyCode::Char('S') if !state.list.is_visual() && !state.list.is_searching() => {
+                        state.list.cycle_sort_field();
+                        state.current_sort.field = state.list.sort.field;
+                        let cmd = Box::new(Command::LoadRecordList {
+                            filter: state.current_filter.clone(),
+                            sort: state.current_sort.clone(),
+                        });
+                        return MainKeyResult {
+                            messages,
+                            overlay,
+                            command: Some(cmd),
+                            focused_panel: None,
+                        };
                     }
                     _ => {}
                 }
@@ -540,14 +600,35 @@ impl MainScreen {
     }
 
     /// Handle trash-specific key bindings (r/D/a + navigation).
+    ///
+    /// Visual mode keys (v, Space, a) are handled before this function is called.
+    /// Here, r and D dispatch to single or batch operations based on visual state.
     fn handle_trash_keys(key: KeyEvent, state: &mut MainScreenState) -> MainKeyResult {
         let messages = Vec::new();
         let mut overlay = None;
 
         match key.code {
-            // r — restore from trash
+            // r — restore (single or batch)
             KeyCode::Char('r') => {
-                if let Some(record) = state.list.selected_record() {
+                if state.list.is_visual() {
+                    let ids = state.list.visual_selected_ids();
+                    if !ids.is_empty() {
+                        let names: Vec<String> = state
+                            .list
+                            .records
+                            .iter()
+                            .filter(|r| ids.contains(&r.id))
+                            .map(|r| r.name.clone())
+                            .collect();
+                        overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
+                            variant: ConfirmVariant::BatchRestore {
+                                record_ids: ids,
+                                record_names: names,
+                            },
+                            focused_button: ConfirmButton::Confirm,
+                        }));
+                    }
+                } else if let Some(record) = state.list.selected_record() {
                     let record_id = record.id;
                     let record_name = record.name.clone();
                     overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
@@ -559,9 +640,27 @@ impl MainScreen {
                     }));
                 }
             }
-            // D (Shift+D) — permanent delete
+            // D (Shift+D) — hard delete (single or batch)
             KeyCode::Char('D') => {
-                if let Some(record) = state.list.selected_record() {
+                if state.list.is_visual() {
+                    let ids = state.list.visual_selected_ids();
+                    if !ids.is_empty() {
+                        let names: Vec<String> = state
+                            .list
+                            .records
+                            .iter()
+                            .filter(|r| ids.contains(&r.id))
+                            .map(|r| r.name.clone())
+                            .collect();
+                        overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
+                            variant: ConfirmVariant::BatchHardDelete {
+                                record_ids: ids,
+                                record_names: names,
+                            },
+                            focused_button: ConfirmButton::Cancel,
+                        }));
+                    }
+                } else if let Some(record) = state.list.selected_record() {
                     let record_id = record.id;
                     let record_name = record.name.clone();
                     overlay = Some(Overlay::ConfirmDialog(ConfirmDialogState {
@@ -573,7 +672,7 @@ impl MainScreen {
                     }));
                 }
             }
-            // a — empty all trash
+            // a — empty all trash (only in non-visual mode; visual 'a' handled above)
             KeyCode::Char('a') => {
                 let count = state.list.records.len();
                 if count > 0 {
@@ -583,12 +682,28 @@ impl MainScreen {
                     }));
                 }
             }
-            // Navigation still works in trash
+            // Navigation loads detail for the newly selected trash record
             KeyCode::Char('j') | KeyCode::Down => {
                 state.list.move_down();
+                if let Some(record) = state.list.selected_record() {
+                    return MainKeyResult {
+                        messages,
+                        overlay,
+                        command: Some(Box::new(Command::LoadRecordDetail { id: record.id })),
+                        focused_panel: None,
+                    };
+                }
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 state.list.move_up();
+                if let Some(record) = state.list.selected_record() {
+                    return MainKeyResult {
+                        messages,
+                        overlay,
+                        command: Some(Box::new(Command::LoadRecordDetail { id: record.id })),
+                        focused_panel: None,
+                    };
+                }
             }
             _ => {}
         }
@@ -1048,6 +1163,231 @@ mod tests {
 
         screen.handle_key_event(make_key(KeyCode::Char('k')), &mut state, PanelId::List);
         assert_eq!(state.list.selected_index, Some(0));
+    }
+
+    #[test]
+    fn trash_j_sends_load_record_detail() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let ids: Vec<_> = records.iter().map(|r| r.id).collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('j')), &mut state, PanelId::List);
+        assert_eq!(state.list.selected_index, Some(1));
+        assert!(
+            result.command.is_some(),
+            "trash j should send LoadRecordDetail"
+        );
+        match result.command {
+            Some(cmd) => {
+                assert!(
+                    matches!(cmd.as_ref(), Command::LoadRecordDetail { id } if *id == ids[1]),
+                    "expected LoadRecordDetail with id of second record"
+                );
+            }
+            None => panic!("trash j should send LoadRecordDetail command"),
+        }
+    }
+
+    #[test]
+    fn trash_k_sends_load_record_detail() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let ids: Vec<_> = records.iter().map(|r| r.id).collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.list.move_down();
+        assert_eq!(state.list.selected_index, Some(1));
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('k')), &mut state, PanelId::List);
+        assert_eq!(state.list.selected_index, Some(0));
+        assert!(
+            result.command.is_some(),
+            "trash k should send LoadRecordDetail"
+        );
+        match result.command {
+            Some(cmd) => {
+                assert!(
+                    matches!(cmd.as_ref(), Command::LoadRecordDetail { id } if *id == ids[0]),
+                    "expected LoadRecordDetail with id of first record"
+                );
+            }
+            None => panic!("trash k should send LoadRecordDetail command"),
+        }
+    }
+
+    // ── Trash visual mode tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn trash_v_enters_visual_mode() {
+        let records = vec![make_test_record("Deleted")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('v')), &mut state, PanelId::List);
+        assert!(state.list.is_visual());
+        assert!(result
+            .messages
+            .iter()
+            .any(|m| matches!(m, Message::EnterVisualMode)));
+    }
+
+    #[test]
+    fn trash_v_exits_visual_mode() {
+        let records = vec![make_test_record("Deleted")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.list.enter_visual();
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('v')), &mut state, PanelId::List);
+        assert!(!state.list.is_visual());
+        assert!(result
+            .messages
+            .iter()
+            .any(|m| matches!(m, Message::ExitVisualMode)));
+    }
+
+    #[test]
+    fn trash_esc_exits_visual_mode() {
+        let records = vec![make_test_record("Deleted")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.list.enter_visual();
+
+        let screen = MainScreen::new();
+        let _ = screen.handle_key_event(make_key(KeyCode::Esc), &mut state, PanelId::List);
+        assert!(!state.list.is_visual());
+    }
+
+    #[test]
+    fn trash_space_toggles_selection_in_visual() {
+        let records = vec![make_test_record("Deleted")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.list.enter_visual();
+
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Char(' ')), &mut state, PanelId::List);
+        assert_eq!(state.list.visual_selected_ids().len(), 1);
+    }
+
+    #[test]
+    fn trash_a_selects_all_in_visual() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.list.enter_visual();
+
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Char('a')), &mut state, PanelId::List);
+        assert_eq!(state.list.visual_selected_ids().len(), 3);
+    }
+
+    #[test]
+    fn trash_visual_r_opens_batch_restore_confirm() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.list.enter_visual();
+        state.list.select_all();
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('r')), &mut state, PanelId::List);
+        assert!(result.overlay.is_some());
+        match result.overlay {
+            Some(Overlay::ConfirmDialog(ref dlg)) => {
+                assert!(matches!(dlg.variant, ConfirmVariant::BatchRestore { .. }));
+            }
+            _ => panic!("Expected batch restore confirm dialog"),
+        }
+    }
+
+    #[test]
+    fn trash_visual_shift_d_opens_batch_hard_delete_confirm() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.list.enter_visual();
+        state.list.select_all();
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('D')), &mut state, PanelId::List);
+        assert!(result.overlay.is_some());
+        match result.overlay {
+            Some(Overlay::ConfirmDialog(ref dlg)) => {
+                assert!(matches!(
+                    dlg.variant,
+                    ConfirmVariant::BatchHardDelete { .. }
+                ));
+            }
+            _ => panic!("Expected batch hard delete confirm dialog"),
+        }
+    }
+
+    #[test]
+    fn trash_visual_a_not_empty_trash() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.list.enter_visual();
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('a')), &mut state, PanelId::List);
+        // In visual mode, 'a' selects all — NOT empty trash
+        assert!(result.overlay.is_none());
+        assert_eq!(state.list.visual_selected_ids().len(), 3);
+    }
+
+    #[test]
+    fn trash_visual_navigation_works() {
+        let records: Vec<TuiRecord> = (0..3)
+            .map(|i| make_test_record(&format!("R{}", i)))
+            .collect();
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.list.enter_visual();
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('j')), &mut state, PanelId::List);
+        assert_eq!(state.list.selected_index, Some(1));
+        assert!(
+            result.command.is_some(),
+            "trash visual j should send LoadRecordDetail"
+        );
     }
 
     // ── Tag sorting tests ───────────────────────────────────────────────────────

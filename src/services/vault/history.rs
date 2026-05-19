@@ -1,5 +1,8 @@
 // Password history (get_password_history, decrypt_history_password, save_conflict_history)
 
+#[cfg(test)]
+use crate::services::vault::VaultService;
+use crate::services::vault::VaultServiceImpl;
 use uuid::Uuid;
 
 use crate::db::queries;
@@ -9,9 +12,7 @@ use crate::types::credential::CredentialType;
 use crate::types::history::PasswordHistory;
 use crate::types::sensitive::SecureStr;
 
-use super::VaultService;
-
-impl VaultService {
+impl VaultServiceImpl {
     /// Retrieve password history for a record.
     ///
     /// Returns up to 10 entries ordered by `changed_at` descending (newest first).
@@ -172,7 +173,7 @@ mod tests {
 
     /// Helper: create an in-memory VaultService with schema initialized.
     fn setup_service() -> VaultService {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         VaultService::new(conn)
     }
 

@@ -14,6 +14,15 @@ trait ProviderAdapter: Send + Sync {
 }
 ```
 
+## Adapter 文件与 Provider 映射
+
+| Adapter 文件 | 覆盖的 Provider |
+|-------------|----------------|
+| `s3_compatible.rs` | S3, Aliyun OSS, Tencent COS, Huawei OBS (通过不同 endpoint 配置) |
+| `oauth2.rs` | Google Drive, Dropbox (OAuth2 PKCE / client credentials) |
+| `icloud.rs` | iCloud Drive (本地文件系统 ~/Library/Mobile Documents) |
+| `sftp.rs` | SFTP (SSH key 认证) |
+
 ## Adapter 支持状态
 
 | Adapter | 状态 | 认证方式 |

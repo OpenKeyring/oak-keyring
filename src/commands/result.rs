@@ -96,6 +96,12 @@ pub enum CommandResult {
     BatchDeleted {
         count: usize,
     },
+    BatchRestored {
+        count: usize,
+    },
+    BatchDestroyed {
+        count: usize,
+    },
     TrashEmptied {
         count: usize,
     },
@@ -313,6 +319,8 @@ mod exhaustive_tests {
                 CommandResult::BatchTagRemoved { .. } => {}
                 // Batch Results
                 CommandResult::BatchDeleted { .. } => {}
+                CommandResult::BatchRestored { .. } => {}
+                CommandResult::BatchDestroyed { .. } => {}
                 CommandResult::TrashEmptied { .. } => {}
                 // Password Generation Results
                 CommandResult::PasswordGenerated { .. } => {}

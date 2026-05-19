@@ -11,7 +11,9 @@ pub mod validation;
 #[cfg(test)]
 mod validation_test;
 
-pub use service::ImportExportService;
+pub use service::{
+    ExportParams, ImportExport, ImportExportService, ImportExportServiceImpl, ImportParams,
+};
 
 #[cfg(test)]
 pub mod tests;

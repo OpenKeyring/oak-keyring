@@ -543,6 +543,49 @@ impl MainScreenState {
         Self::default()
     }
 
+    /// Apply client-side search filter: replace displayed records with
+    /// filtered subset from the pre-search snapshot.
+    /// Apply client-side search filter and return the currently selected record ID.
+    /// Returns `None` when not in search mode, no snapshot, or no record selected.
+    fn apply_search_filter_to_records(&mut self) -> Option<Uuid> {
+        if let ListMode::Search(ref search_state) = self.list.mode {
+            if let Some(ref snapshot) = search_state.pre_search {
+                let filtered = self.list.apply_search_filter(snapshot.records.clone());
+                let prev_selected_id = self
+                    .list
+                    .selected_index
+                    .and_then(|idx| self.list.records.get(idx))
+                    .map(|r| r.id);
+                self.list.records = filtered;
+                // Recover selection by record id
+                match prev_selected_id {
+                    Some(prev_id) => {
+                        if let Some(idx) = self.list.records.iter().position(|r| r.id == prev_id) {
+                            self.list.selected_index = Some(idx);
+                        } else {
+                            // Previously selected record filtered out — select first
+                            self.list.selected_index = if self.list.records.is_empty() {
+                                None
+                            } else {
+                                Some(0)
+                            };
+                        }
+                    }
+                    None => {
+                        self.list.selected_index = if self.list.records.is_empty() {
+                            None
+                        } else {
+                            Some(0)
+                        };
+                    }
+                }
+                self.list.adjust_scroll();
+                return self.list.selected_record().map(|r| r.id);
+            }
+        }
+        None
+    }
+
     /// Sync render-only fields from AppState-level shared state.
     /// Called by the screen router before dispatching to update/view.
     pub fn sync_from_app(&mut self, focused_panel: PanelId, unicode_capable: bool) {
@@ -651,7 +694,7 @@ impl Screen for MainScreenState {
                     CommandResult::RecordCreated { .. } => {
                         // Auto-select the first record (newly created) when list reloads
                         self.list_auto_select = true;
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -660,7 +703,7 @@ impl Screen for MainScreenState {
                     CommandResult::RecordUpdated { id } => {
                         let was_showing_detail =
                             self.detail.record.as_ref().is_some_and(|r| r.id == id);
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -674,7 +717,12 @@ impl Screen for MainScreenState {
                         ScreenResult::Continue
                     }
                     CommandResult::RecordListLoaded { records, total } => {
-                        let prev_selected_index = self.list.selected_index;
+                        // Save previous selected record id for id-based recovery
+                        let prev_selected_id = self
+                            .list
+                            .selected_index
+                            .and_then(|idx| self.list.records.get(idx))
+                            .map(|r| r.id);
                         self.list.records = records;
                         self.list.total_count = total;
                         self.status_bar.record_count = total;
@@ -685,29 +733,55 @@ impl Screen for MainScreenState {
                             self.list.scroll_offset = 0;
                             self.list_auto_select = false;
                             let id = self.list.records[0].id;
-                            let _ = ctx.command_tx.try_send(Command::LoadRecordDetail { id });
+                            ctx.send_system_command(Command::LoadRecordDetail { id });
                         } else if self.list.records.is_empty() {
                             self.list.selected_index = None;
                             self.list.scroll_offset = 0;
                             self.detail.clear();
                             self.list_auto_select = false;
                         } else {
-                            // Cursor recovery: keep selected_index, clamp if OOB
-                            match prev_selected_index {
-                                Some(idx) if idx < self.list.records.len() => {
-                                    self.list.selected_index = Some(idx);
-                                }
-                                Some(_) => {
-                                    // OOB — clamp to last
-                                    self.list.selected_index = Some(self.list.records.len() - 1);
+                            // Record-id selection recovery
+                            let recovered = match prev_selected_id {
+                                Some(prev_id) => {
+                                    // Try to find same record by id
+                                    match self.list.records.iter().position(|r| r.id == prev_id) {
+                                        Some(idx) => Some((idx, false)), // same id, no detail reload needed
+                                        None => {
+                                            // Id disappeared — fall back to first row
+                                            Some((0, true))
+                                        }
+                                    }
                                 }
                                 None => {
-                                    // No previous selection (initial load) — keep None
+                                    // No previous selection — keep None
+                                    None
+                                }
+                            };
+                            match recovered {
+                                Some((idx, _needs_reload)) => {
+                                    self.list.selected_index = Some(idx);
+                                }
+                                None => {
                                     self.list.selected_index = None;
                                 }
                             }
                             self.list.adjust_scroll();
                             self.list_auto_select = false;
+
+                            // If selection changed (different record id or cleared), reload detail
+                            let new_selected_id = self
+                                .list
+                                .selected_index
+                                .and_then(|idx| self.list.records.get(idx))
+                                .map(|r| r.id);
+                            if new_selected_id != prev_selected_id {
+                                if let Some(id) = new_selected_id {
+                                    let _ =
+                                        ctx.command_tx.try_send(Command::LoadRecordDetail { id });
+                                } else {
+                                    self.detail.clear();
+                                }
+                            }
                         }
 
                         // Handle pending detail refresh from RecordUpdated.
@@ -732,7 +806,7 @@ impl Screen for MainScreenState {
                         self.list.records.retain(|r| r.id != id);
                         self.list.cleanup_after_batch(&[id]);
                         // Reload to get accurate counts
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -745,16 +819,20 @@ impl Screen for MainScreenState {
                         }
                         self.list.records.retain(|r| r.id != id);
                         // Reload list after restore
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
                         ScreenResult::Continue
                     }
                     CommandResult::RecordDestroyed { id } => {
+                        // Clear detail immediately if it shows the destroyed record
+                        if self.detail.record.as_ref().is_some_and(|r| r.id == id) {
+                            self.detail.clear();
+                        }
                         self.list.records.retain(|r| r.id != id);
                         // Reload list after permanent delete
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -875,9 +953,9 @@ impl Screen for MainScreenState {
                     }
                     // Handle TagRenamed — reload tags and record list
                     CommandResult::TagRenamed { .. } => {
-                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadTags);
                         // Also reload record list in case tag filter is active
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -885,22 +963,96 @@ impl Screen for MainScreenState {
                     }
                     // Handle TagDeleted — reload tags and record list
                     CommandResult::TagDeleted { .. } => {
-                        let _ = ctx.command_tx.try_send(Command::LoadTags);
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
                         ScreenResult::Continue
                     }
-                    // Handle BatchTagAdded — reload tags
+                    // Handle BatchTagAdded — reload tags and list, exit visual, clear selection
                     CommandResult::BatchTagAdded { .. } => {
-                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        if self.list.is_visual() {
+                            self.list.exit_visual();
+                        }
+                        ctx.send_system_command(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        self.detail.clear();
                         ScreenResult::Continue
                     }
-                    // Handle BatchTagRemoved — reload tags
+                    // Handle BatchTagRemoved — reload tags and list, exit visual, clear selection
                     CommandResult::BatchTagRemoved { .. } => {
-                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        if self.list.is_visual() {
+                            self.list.exit_visual();
+                        }
+                        ctx.send_system_command(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        self.detail.clear();
                         ScreenResult::Continue
+                    }
+                    // Handle BatchDeleted — exit visual, reload list/tags/counts
+                    CommandResult::BatchDeleted { count: _ } => {
+                        let removed_ids = self.list.visual_selected_ids();
+                        self.list.cleanup_after_batch(&removed_ids);
+                        self.detail.clear();
+                        ctx.send_system_command(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    // Handle BatchRestored — exit visual, reload list/tags/counts
+                    CommandResult::BatchRestored { count: _ } => {
+                        let removed_ids = self.list.visual_selected_ids();
+                        self.list.cleanup_after_batch(&removed_ids);
+                        self.detail.clear();
+                        ctx.send_system_command(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    // Handle BatchDestroyed — exit visual, reload list
+                    CommandResult::BatchDestroyed { count: _ } => {
+                        let removed_ids = self.list.visual_selected_ids();
+                        self.list.cleanup_after_batch(&removed_ids);
+                        self.detail.clear();
+                        ctx.send_system_command(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    // Handle TrashEmptied — clear list and detail, reload counts
+                    CommandResult::TrashEmptied { count: _ } => {
+                        self.list.records.clear();
+                        self.list.selected_index = None;
+                        self.list.scroll_offset = 0;
+                        self.detail.clear();
+                        ctx.send_system_command(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        ScreenResult::Continue
+                    }
+                    CommandResult::VaultLocked => {
+                        // Security: clear all sensitive state on vault lock.
+                        self.list.mode = ListMode::Normal;
+                        self.list.records.clear();
+                        self.list.selected_index = None;
+                        self.list.scroll_offset = 0;
+                        self.detail.clear();
+                        self.overlay_manager.close();
+                        self.status_bar.record_count = 0;
+                        ScreenResult::NavigateTo(ScreenEnum::Unlock)
                     }
                     _ => ScreenResult::Continue,
                 }
@@ -929,12 +1081,12 @@ impl Screen for MainScreenState {
             self.status_bar.health_check_phase = HealthCheckPhase::Skipped;
         }
         // Load initial record list
-        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+        ctx.send_system_command(Command::LoadRecordList {
             filter: self.current_filter.clone(),
             sort: self.current_sort.clone(),
         });
         // Load tags for sidebar
-        let _ = ctx.command_tx.try_send(Command::LoadTags);
+        ctx.send_system_command(Command::LoadTags);
     }
 
     fn on_unmount(&mut self) {
@@ -953,8 +1105,21 @@ impl MainScreenState {
         // Layer 1.5: Search mode captures all keys before global shortcuts
         if self.focused_panel == PanelId::List && self.list.is_searching() {
             match key.code {
-                KeyCode::Esc | KeyCode::Enter => {
+                KeyCode::Enter => {
+                    // Confirm search: exit search and load selected record detail
+                    if let Some(record) = self.list.selected_record() {
+                        let id = record.id;
+                        self.list.exit_search();
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
+                    }
                     self.list.exit_search();
+                    return ScreenResult::Continue;
+                }
+                KeyCode::Esc => {
+                    // Cancel search: restore pre-search snapshot and reload detail
+                    if let Some(id) = self.list.cancel_search_restore() {
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
+                    }
                     return ScreenResult::Continue;
                 }
                 KeyCode::Backspace => {
@@ -962,6 +1127,12 @@ impl MainScreenState {
                         let mut new_query = s.query.clone();
                         new_query.pop();
                         self.list.update_search_query(new_query);
+                        if let Some(id) = self.apply_search_filter_to_records() {
+                            return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                                id,
+                            }));
+                        }
+                        self.detail.clear();
                     }
                     return ScreenResult::Continue;
                 }
@@ -976,7 +1147,33 @@ impl MainScreenState {
                     if let ListMode::Search(ref s) = self.list.mode {
                         let new_query = format!("{}{}", s.query, c);
                         self.list.update_search_query(new_query);
+                        if let Some(id) = self.apply_search_filter_to_records() {
+                            return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                                id,
+                            }));
+                        }
+                        self.detail.clear();
                     }
+                    return ScreenResult::Continue;
+                }
+                KeyCode::Down => {
+                    self.list.move_down();
+                    if let Some(record) = self.list.selected_record() {
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                            id: record.id,
+                        }));
+                    }
+                    self.detail.clear();
+                    return ScreenResult::Continue;
+                }
+                KeyCode::Up => {
+                    self.list.move_up();
+                    if let Some(record) = self.list.selected_record() {
+                        return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
+                            id: record.id,
+                        }));
+                    }
+                    self.detail.clear();
                     return ScreenResult::Continue;
                 }
                 _ => return ScreenResult::Continue, // consume all other keys
@@ -1188,8 +1385,10 @@ impl MainScreenState {
             KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ScreenResult::Command(Box::new(Command::TriggerSync))
             }
-            KeyCode::Char('n') => ScreenResult::NavigateTo(ScreenEnum::CreateRecord),
-            KeyCode::Char('e') => {
+            KeyCode::Char('n') if self.current_filter != RecordFilter::Trash => {
+                ScreenResult::NavigateTo(ScreenEnum::CreateRecord)
+            }
+            KeyCode::Char('e') if self.current_filter != RecordFilter::Trash => {
                 match self.focused_panel {
                     PanelId::Detail => {
                         if let Some(record) = self.detail.record.as_ref() {
@@ -1267,6 +1466,12 @@ impl MainScreenState {
                     }
                     ConfirmVariant::BatchSoftDelete { record_ids, .. } => {
                         ScreenResult::Command(Box::new(Command::BatchSoftDelete { record_ids }))
+                    }
+                    ConfirmVariant::BatchRestore { record_ids, .. } => {
+                        ScreenResult::Command(Box::new(Command::BatchRestore { record_ids }))
+                    }
+                    ConfirmVariant::BatchHardDelete { record_ids, .. } => {
+                        ScreenResult::Command(Box::new(Command::BatchHardDelete { record_ids }))
                     }
                     ConfirmVariant::EmptyTrash { .. } => {
                         ScreenResult::Command(Box::new(Command::EmptyTrash))

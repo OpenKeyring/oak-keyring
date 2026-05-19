@@ -14,43 +14,74 @@ use crate::tui::theme;
 use super::ListPanel;
 
 impl ListPanel {
-    /// Highlight matching portions of `text` that match `query` (case-insensitive).
+    /// Highlight matching portions of `text` that match `search_terms` (case-insensitive).
     ///
-    /// Returns a vector of `Span`s where matching substrings are rendered in
-    /// yellow bold (`theme::WARNING` + `Modifier::BOLD`) and non-matching
-    /// portions in the default text color.
-    pub(super) fn highlight_match(text: &str, query: &str) -> Vec<Span<'static>> {
-        if query.is_empty() {
+    /// Each term in `search_terms` is highlighted independently using
+    /// `theme::WARNING` + `Modifier::BOLD`. This aligns with the multi-term
+    /// AND filter logic in `ListPanelState::apply_search_filter`.
+    pub(super) fn highlight_match(text: &str, search_terms: &[String]) -> Vec<Span<'static>> {
+        if search_terms.is_empty() {
             return vec![Span::styled(
                 text.to_string(),
                 Style::default().fg(theme::TEXT),
             )];
         }
-        let query_lower = query.to_lowercase();
-        let text_lower = text.to_lowercase();
-        let mut spans = Vec::new();
-        let mut last_end = 0;
 
-        while let Some(pos) = text_lower[last_end..].find(&query_lower) {
-            let abs_pos = last_end + pos;
-            if abs_pos > last_end {
-                spans.push(Span::styled(
-                    text[last_end..abs_pos].to_string(),
-                    Style::default().fg(theme::TEXT),
-                ));
+        // Character-level matching to handle multi-byte UTF-8 correctly.
+        let chars: Vec<char> = text.chars().collect();
+        let char_count = chars.len();
+        let chars_lower: Vec<char> = text.to_lowercase().chars().collect();
+
+        // If case folding changed char count, we can't safely map positions back.
+        if chars.len() != chars_lower.len() {
+            return vec![Span::styled(
+                text.to_string(),
+                Style::default().fg(theme::TEXT),
+            )];
+        }
+
+        let mut matched = vec![false; char_count];
+        for term in search_terms {
+            let term_chars: Vec<char> = term.to_lowercase().chars().collect();
+            let term_len = term_chars.len();
+            if term_len == 0 || term_len > char_count {
+                continue;
+            }
+            let mut start = 0;
+            while start + term_len <= char_count {
+                if chars_lower[start..start + term_len] == term_chars[..] {
+                    for m in &mut matched[start..start + term_len] {
+                        *m = true;
+                    }
+                    start += term_len;
+                } else {
+                    start += 1;
+                }
+            }
+        }
+
+        // Map char indices to byte offsets for valid string slicing.
+        // byte_off[i] = byte position of char i; byte_off[char_count] = text.len()
+        let mut byte_off: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+        byte_off.push(text.len());
+
+        let mut spans = Vec::new();
+        let mut i = 0;
+        while i < char_count {
+            let start = i;
+            let is_match = matched[i];
+            while i < char_count && matched[i] == is_match {
+                i += 1;
             }
             spans.push(Span::styled(
-                text[abs_pos..abs_pos + query.len()].to_string(),
-                Style::default()
-                    .fg(theme::WARNING)
-                    .add_modifier(Modifier::BOLD),
-            ));
-            last_end = abs_pos + query.len();
-        }
-        if last_end < text.len() {
-            spans.push(Span::styled(
-                text[last_end..].to_string(),
-                Style::default().fg(theme::TEXT),
+                text[byte_off[start]..byte_off[i]].to_string(),
+                if is_match {
+                    Style::default()
+                        .fg(theme::WARNING)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme::TEXT)
+                },
             ));
         }
         spans
@@ -63,17 +94,17 @@ impl ListPanel {
 
 /// Build a styled health badge span for a given `HealthIssue`.
 ///
-/// Returns `None` for `Expired` (shown only in the detail panel) or when
-/// `issue` is `None`.
+/// Priority: Compromised (red) > Weak (orange) > Duplicate (orange) > Expired (blue).
+/// Returns `None` when `issue` is `None`.
 pub(super) fn health_badge(issue: Option<&HealthIssue>, unicode: bool) -> Option<Span<'static>> {
-    issue.and_then(|i| match i {
+    issue.map(|i| match i {
         HealthIssue::Compromised => {
             let icon = if unicode { "\u{1F534}" } else { "!" }; // 🔴 / !
             let label = t!("tui.password_list.health_leaked");
-            Some(Span::styled(
+            Span::styled(
                 format!(" {}{}", icon, label),
                 Style::default().fg(theme::ERROR),
-            ))
+            )
         }
         HealthIssue::Weak => {
             let icon = if unicode {
@@ -82,10 +113,10 @@ pub(super) fn health_badge(issue: Option<&HealthIssue>, unicode: bool) -> Option
                 theme::ascii::ICON_WARNING
             };
             let label = t!("tui.password_list.health_weak");
-            Some(Span::styled(
+            Span::styled(
                 format!(" {}{}", icon, label),
                 Style::default().fg(theme::WARNING),
-            ))
+            )
         }
         HealthIssue::Duplicate { group_size } => {
             let icon = if unicode {
@@ -94,12 +125,23 @@ pub(super) fn health_badge(issue: Option<&HealthIssue>, unicode: bool) -> Option
                 theme::ascii::ICON_WARNING
             };
             let label = t!("tui.health.duplicate_label", count = group_size);
-            Some(Span::styled(
+            Span::styled(
                 format!(" {}{}", icon, label),
                 Style::default().fg(theme::WARNING),
-            ))
+            )
         }
-        HealthIssue::Expired => None, // Shown in detail panel, not list badge
+        HealthIssue::Expired => {
+            let icon = if unicode {
+                theme::ICON_ERROR
+            } else {
+                theme::ascii::ICON_ERROR
+            };
+            let label = t!("tui.password_list.health_expired");
+            Span::styled(
+                format!(" {}{}", icon, label),
+                Style::default().fg(theme::INFO),
+            )
+        }
     })
 }
 
@@ -131,7 +173,7 @@ pub(super) fn build_record_item<'a>(
     // Build name spans: prefix (plain) + highlighted name (if search active)
     let prefix_str = format!("  {}", type_prefix);
 
-    // Priority: Compromised > Weak > Duplicate (matches S3 spec)
+    // Priority: Compromised > Weak > Duplicate > Expired (matches S3 spec)
     let badge = if is_min_width {
         None // hide badge at minimum width
     } else if record.is_compromised {
@@ -144,6 +186,8 @@ pub(super) fn build_record_item<'a>(
         } else {
             None
         }
+    } else if record.is_expired {
+        health_badge(Some(&HealthIssue::Expired), unicode)
     } else {
         None
     };
@@ -174,12 +218,9 @@ pub(super) fn build_record_item<'a>(
     // Determine badge span style (override for visual-selected context)
     let badge_span = badge.map(|span| {
         if is_visual_selected {
-            // Preserve original badge color for visual-selected override
-            let badge_fg = if record.is_compromised {
-                theme::ERROR
-            } else {
-                theme::WARNING
-            };
+            // Derive color from the chosen badge, not from record flags,
+            // so the visual-selected color matches the priority-derived badge.
+            let badge_fg = span.style.fg.unwrap_or(theme::TEXT);
             Span::styled(
                 span.content,
                 Style::default()
@@ -195,7 +236,12 @@ pub(super) fn build_record_item<'a>(
     // Build title spans with optional search highlighting
     let mut title_spans = vec![Span::styled(prefix_str, base_style)];
     if let Some(query) = search_query {
-        title_spans.extend(ListPanel::highlight_match(&record.name, query));
+        let terms: Vec<String> = query
+            .to_lowercase()
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        title_spans.extend(ListPanel::highlight_match(&record.name, &terms));
     } else {
         title_spans.push(Span::styled(record.name.clone(), base_style));
     }
@@ -224,8 +270,13 @@ pub(super) fn build_record_item<'a>(
     // Build subtitle with optional search highlighting
     let subtitle_prefix = "  ";
     let subtitle_line = if let Some(query) = search_query {
+        let terms: Vec<String> = query
+            .to_lowercase()
+            .split_whitespace()
+            .map(String::from)
+            .collect();
         let mut sub_spans = vec![Span::styled(subtitle_prefix, subtitle_style)];
-        sub_spans.extend(ListPanel::highlight_match(&record.subtitle, query));
+        sub_spans.extend(ListPanel::highlight_match(&record.subtitle, &terms));
         Line::from(sub_spans)
     } else {
         Line::from(Span::styled(

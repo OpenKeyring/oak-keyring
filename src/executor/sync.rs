@@ -1,14 +1,9 @@
-use std::future::Future;
-use std::pin::Pin;
-
 use uuid::Uuid;
 
-use crate::cloud::CloudMetadata;
 use crate::commands::types::ConflictResolution;
 use crate::commands::CommandResult;
-use crate::errors::mapping::sync::SyncError;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
-use crate::services::vault::VaultService;
+use crate::services::vault::VaultServiceImpl;
 use crate::sync::conflict::ResolutionStrategy;
 use crate::sync::task::SyncVaultData;
 use crate::types::{SecureStr, SyncStats};
@@ -21,19 +16,28 @@ use super::CommandExecutor;
 /// (with health metadata pre-attached), the vault identity token, and the
 /// current metadata version. Returns `None` if the vault is locked or a
 /// required read fails.
-fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData>> {
+pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData>> {
     use crate::cloud::record::build_cloud_record;
     use crate::sync::pipeline::LocalRecordInfo;
     use base64::Engine;
 
+    // Get vault reference or return None if runtime is not open
+    let vault = match executor.vault() {
+        Ok(v) => v,
+        Err(_) => {
+            tracing::warn!("Cannot build sync vault data: vault runtime not open");
+            return None;
+        }
+    };
+
     // Check vault is unlocked
-    if !executor.vault.is_unlocked() {
+    if !vault.is_unlocked() {
         tracing::warn!("Cannot build sync vault data: vault is locked");
         return None;
     }
 
     // Read local stored records
-    let stored_records = match executor.vault.list_all_stored_records() {
+    let stored_records = match vault.list_all_stored_records() {
         Ok(records) => records,
         Err(e) => {
             tracing::warn!(error = %e, "Failed to list stored records for sync");
@@ -42,7 +46,7 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
     };
 
     // Read sync status map
-    let sync_status_map = executor.vault.load_sync_status_map();
+    let sync_status_map = vault.load_sync_status_map();
 
     // Build LocalRecordInfo per active record
     let local_records: Vec<LocalRecordInfo> = stored_records
@@ -61,7 +65,7 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
         .collect();
 
     // Read health states for attaching to upload CloudRecords
-    let health_states = match executor.vault.list_record_health_states() {
+    let health_states = match vault.list_record_health_states() {
         Ok(list) => list
             .into_iter()
             .map(|s| (s.record_id, s))
@@ -82,7 +86,7 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
                 == crate::types::sync::SyncStatus::Pending
         })
         .filter_map(|r| {
-            let name = match executor.vault.decrypt_record_name_for_sync(r) {
+            let name = match vault.decrypt_record_name_for_sync(r) {
                 Ok(n) => n,
                 Err(e) => {
                     tracing::warn!(
@@ -131,16 +135,14 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
         .collect();
 
     // Read metadata version and vault token
-    let metadata_version = executor
-        .vault
+    let metadata_version = vault
         .get_metadata("metadata_version")
         .ok()
         .flatten()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(0);
 
-    let vault_token = executor
-        .vault
+    let vault_token = vault
         .get_metadata("vault_identity_token")
         .ok()
         .flatten()
@@ -154,25 +156,8 @@ fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData
     }))
 }
 
-type SyncFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-#[cfg_attr(test, mockall::automock)]
-trait CloudRestoreMetadataSource: Send {
-    fn download_metadata<'a>(
-        &'a mut self,
-    ) -> SyncFuture<'a, Result<Option<CloudMetadata>, SyncError>>;
-}
-
-impl CloudRestoreMetadataSource for crate::services::sync::SyncService {
-    fn download_metadata<'a>(
-        &'a mut self,
-    ) -> SyncFuture<'a, Result<Option<CloudMetadata>, SyncError>> {
-        Box::pin(async move { crate::services::sync::SyncService::download_metadata(self).await })
-    }
-}
-
-async fn ensure_cloud_restore_has_records(
-    metadata_source: &mut dyn CloudRestoreMetadataSource,
+pub(super) async fn ensure_cloud_restore_has_records(
+    metadata_source: &mut dyn crate::services::sync::SyncService,
 ) -> Result<(), CommandResult> {
     match metadata_source.download_metadata().await {
         Ok(Some(metadata)) if !metadata.records.is_empty() => Ok(()),
@@ -215,26 +200,26 @@ trait CloudRestoreLocalTarget {
     ) -> Result<(), crate::errors::mapping::vault::VaultError>;
 }
 
-impl CloudRestoreLocalTarget for VaultService {
+impl CloudRestoreLocalTarget for VaultServiceImpl {
     fn apply_downloaded_cloud_record(
         &mut self,
         record: &crate::cloud::CloudRecord,
     ) -> Result<bool, crate::errors::mapping::vault::VaultError> {
-        VaultService::apply_downloaded_cloud_record(self, record)
+        VaultServiceImpl::apply_downloaded_cloud_record(self, record)
     }
 
     fn upsert_record_health_state(
         &mut self,
         state: &crate::types::health::RecordHealthState,
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        VaultService::upsert_record_health_state(self, state)
+        VaultServiceImpl::upsert_record_health_state(self, state)
     }
 
     fn delete_record_health_states(
         &mut self,
         record_ids: &[uuid::Uuid],
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        VaultService::delete_record_health_states(self, record_ids)
+        VaultServiceImpl::delete_record_health_states(self, record_ids)
     }
 
     fn set_metadata(
@@ -242,7 +227,7 @@ impl CloudRestoreLocalTarget for VaultService {
         key: &str,
         value: &str,
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        VaultService::set_metadata(self, key, value)
+        VaultServiceImpl::set_metadata(self, key, value)
     }
 }
 
@@ -373,7 +358,10 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
             // Apply downloaded CloudRecords to local vault before health states,
             // so FK constraints on record_health_state.record_id are satisfied.
             for record in &sync_result.downloaded_records {
-                if let Err(e) = executor.vault.apply_downloaded_cloud_record(record) {
+                if let Err(e) = executor
+                    .vault_mut()
+                    .and_then(|v| v.apply_downloaded_cloud_record(record))
+                {
                     tracing::warn!(
                         record_id = %record.id,
                         error = %e,
@@ -384,7 +372,10 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
 
             // Apply downloaded health states to local vault
             for state in &sync_result.downloaded_health_states {
-                if let Err(e) = executor.vault.upsert_record_health_state(state) {
+                if let Err(e) = executor
+                    .vault_mut()
+                    .and_then(|v| v.upsert_record_health_state(state))
+                {
                     tracing::warn!(
                         record_id = %state.record_id,
                         error = %e,
@@ -393,10 +384,9 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
                 }
             }
             if !sync_result.downloaded_health_deleted.is_empty() {
-                if let Err(e) = executor
-                    .vault
-                    .delete_record_health_states(&sync_result.downloaded_health_deleted)
-                {
+                if let Err(e) = executor.vault_mut().and_then(|v| {
+                    v.delete_record_health_states(&sync_result.downloaded_health_deleted)
+                }) {
                     tracing::warn!(
                         error = %e,
                         "Failed to delete stale health states after sync"
@@ -529,7 +519,7 @@ pub async fn handle_restore_database_from_cloud(
     master_password: Option<SecureStr>,
 ) -> CommandResult {
     let sync = match executor.sync.as_mut() {
-        Some(s) => s,
+        Some(s) => s.as_mut(),
         None => return CommandResult::DatabaseRestoreNeedsOAuth,
     };
     if let Err(result) = ensure_cloud_restore_has_records(sync).await {
@@ -553,7 +543,45 @@ pub async fn handle_restore_database_from_cloud(
         };
     // Create a pending file-backed vault.db. If unlock or sync fails, dropping
     // the guard removes the uncommitted database files.
-    let mut pending = match executor.begin_file_backed_vault_db() {
+    // The match { } pattern is required for borrow-checker compatibility with
+    // PendingFileBackedVaultDb — a named let binding would extend the mutable
+    // borrow lifetime past restore_cache_on_failure calls in the Err arm.
+    #[allow(clippy::blocks_in_conditions)]
+    let mut pending = match {
+        #[cfg(feature = "sqlcipher")]
+        {
+            let keystore = match crate::crypto::keystore::KeyStore::unlock(
+                &executor.vault_dir,
+                master_password.password(),
+            ) {
+                Ok(ks) => ks,
+                Err(_) => {
+                    return CommandResult::Error {
+                        code: ErrorCode::CryptoEncryptionFailed,
+                        context: ErrorContext::default(),
+                        message_key: "error.keystore_unlock_failed",
+                        fallback: "Failed to unlock keystore for restore.".to_string(),
+                    };
+                }
+            };
+            let db_page_key = match keystore.db_page_key() {
+                Ok(key) => key,
+                Err(e) => {
+                    return CommandResult::Error {
+                        code: ErrorCode::CryptoKeyDerivationFailed,
+                        context: ErrorContext::default(),
+                        message_key: "error.db_key_derivation_failed",
+                        fallback: format!("Failed to derive database page key: {}", e),
+                    };
+                }
+            };
+            executor.begin_file_backed_vault_db(&db_page_key)
+        }
+        #[cfg(not(feature = "sqlcipher"))]
+        {
+            executor.begin_file_backed_vault_db()
+        }
+    } {
         Ok(pending) => pending,
         Err(e) => {
             return CommandResult::Error {
@@ -618,25 +646,24 @@ mod restore_password_tests {
     use crate::commands::CommandResult;
     use crate::config::AppConfig;
     use crate::db::schema::init_db_in_memory;
-    use crate::executor::config_impl::ServiceNotificationImpl;
     use crate::executor::CommandExecutor;
     use crate::services::clipboard::{ClipboardService, MockBackend};
-    use crate::services::health::HealthService;
-    use crate::services::import_export::ImportExportService;
-    use crate::services::sync::SyncResult;
-    use crate::services::sync::SyncService;
-    use crate::services::vault::VaultService;
+    use crate::services::sync::{SyncResult, SyncServiceImpl};
+    use crate::services::vault::VaultServiceImpl;
     use crate::sync::task::SyncReport;
     use crate::types::SecureStr;
     use std::sync::Arc;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
-    fn create_test_sync_service() -> SyncService {
+    fn create_test_sync_service() -> Box<dyn crate::services::sync::SyncService> {
         let op = opendal::Operator::new(opendal::services::Memory::default())
             .unwrap()
             .finish();
-        SyncService::new(crate::cloud::CloudStorage::new(op, "memory".to_string()))
+        Box::new(SyncServiceImpl::new(crate::cloud::CloudStorage::new(
+            op,
+            "memory".to_string(),
+        ))) as Box<dyn crate::services::sync::SyncService>
     }
 
     #[test]
@@ -719,8 +746,8 @@ mod restore_password_tests {
 
     #[test]
     fn restored_cloud_data_fails_closed_before_metadata_persist_on_record_apply_error() {
-        let conn = init_db_in_memory();
-        let mut vault = VaultService::new(conn);
+        let conn = init_db_in_memory().unwrap();
+        let mut vault = VaultServiceImpl::new(conn);
         let result = restore_test_result_with_invalid_record();
 
         let err = persist_restored_cloud_data(&mut vault, &result).unwrap_err();
@@ -735,8 +762,8 @@ mod restore_password_tests {
         let mut cached = Some(SecureStr::new("cached-password".to_string()));
         let selected = take_restore_master_password(None, &mut cached)
             .expect("cached password should be selected");
-        let conn = init_db_in_memory();
-        let mut vault = VaultService::new(conn);
+        let conn = init_db_in_memory().unwrap();
+        let mut vault = VaultServiceImpl::new(conn);
         let result = restore_test_result_with_invalid_record();
 
         let local_apply_result = persist_restored_cloud_data(&mut vault, &result);
@@ -755,39 +782,22 @@ mod restore_password_tests {
         let vault_dir = temp.path().join("vault");
         std::fs::create_dir_all(&vault_dir).unwrap();
         std::fs::write(vault_dir.join("wrapped_secret_key.json"), "{not-json").unwrap();
-        let conn = init_db_in_memory();
-        let vault = VaultService::new(conn);
+        let conn = init_db_in_memory().unwrap();
+        let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
 
-        let mut executor = CommandExecutor {
-            vault,
-            vault_db_file_backed: false,
-            sync: Some(create_test_sync_service()),
-            health: HealthService::new(),
-            clipboard: Arc::new(ClipboardService::with_backend(
+        let mut executor = CommandExecutor::builder(vault_dir.clone(), temp.path().join("config"))
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(Arc::new(ClipboardService::with_backend(
                 Box::new(MockBackend::new()),
                 30,
-            )),
-            import_export: ImportExportService::new(),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                temp.path().join("config"),
-            ),
-            config_notifier: ServiceNotificationImpl::new(),
-            vault_dir,
-            config_dir: temp.path().join("config"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-            verified_master_password: Some(SecureStr::new("cached-password".to_string())),
-        };
+            )))
+            .sync(Some(create_test_sync_service()))
+            .verified_master_password(SecureStr::new("cached-password".to_string()))
+            .build();
 
         let result = handle_restore_database_from_cloud(&mut executor, None).await;
 
@@ -807,39 +817,21 @@ mod restore_password_tests {
         let vault_dir = temp.path().join("vault");
         std::fs::create_dir_all(&vault_dir).unwrap();
         std::fs::write(vault_dir.join("wrapped_secret_key.json"), "{not-json").unwrap();
-        let conn = init_db_in_memory();
-        let vault = VaultService::new(conn);
+        let conn = init_db_in_memory().unwrap();
+        let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
-        let (internal_tx, internal_rx) = mpsc::channel(64);
 
-        let mut executor = CommandExecutor {
-            vault,
-            vault_db_file_backed: false,
-            sync: Some(create_test_sync_service()),
-            health: HealthService::new(),
-            clipboard: Arc::new(ClipboardService::with_backend(
+        let mut executor = CommandExecutor::builder(vault_dir.clone(), temp.path().join("config"))
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(Arc::new(ClipboardService::with_backend(
                 Box::new(MockBackend::new()),
                 30,
-            )),
-            import_export: ImportExportService::new(),
-            config: crate::executor::config_impl::ConfigManagerImpl::new(
-                AppConfig::default(),
-                temp.path().join("config"),
-            ),
-            config_notifier: ServiceNotificationImpl::new(),
-            vault_dir,
-            config_dir: temp.path().join("config"),
-            health_report: None,
-            last_health_check_time: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token: CancellationToken::new(),
-            operation_cancel_token: CancellationToken::new(),
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-            verified_master_password: None,
-        };
+            )))
+            .sync(Some(create_test_sync_service()))
+            .build();
 
         let result = handle_restore_database_from_cloud(
             &mut executor,
@@ -855,7 +847,9 @@ mod restore_password_tests {
 #[cfg(test)]
 mod cloud_restore_metadata_tests {
     use super::*;
+    use crate::cloud::CloudMetadata;
     use crate::cloud::RecordVersionInfo;
+    use crate::errors::mapping::sync::SyncError;
 
     fn metadata_with_record() -> CloudMetadata {
         let mut metadata = CloudMetadata::new("test-vault-token".to_string());
@@ -874,7 +868,7 @@ mod cloud_restore_metadata_tests {
 
     #[tokio::test]
     async fn cloud_restore_preflight_rejects_missing_metadata() {
-        let mut mock = MockCloudRestoreMetadataSource::new();
+        let mut mock = crate::services::sync::MockSyncService::new();
         mock.expect_download_metadata()
             .once()
             .returning(|| Box::pin(async { Ok(None) }));
@@ -893,7 +887,7 @@ mod cloud_restore_metadata_tests {
 
     #[tokio::test]
     async fn cloud_restore_preflight_rejects_metadata_without_records() {
-        let mut mock = MockCloudRestoreMetadataSource::new();
+        let mut mock = crate::services::sync::MockSyncService::new();
         mock.expect_download_metadata().once().returning(|| {
             Box::pin(async { Ok(Some(CloudMetadata::new("test-vault-token".to_string()))) })
         });
@@ -912,7 +906,7 @@ mod cloud_restore_metadata_tests {
 
     #[tokio::test]
     async fn cloud_restore_preflight_rejects_metadata_download_failure() {
-        let mut mock = MockCloudRestoreMetadataSource::new();
+        let mut mock = crate::services::sync::MockSyncService::new();
         mock.expect_download_metadata().once().returning(|| {
             Box::pin(async {
                 Err(SyncError::ProviderError {
@@ -936,7 +930,7 @@ mod cloud_restore_metadata_tests {
 
     #[tokio::test]
     async fn cloud_restore_preflight_accepts_metadata_with_records() {
-        let mut mock = MockCloudRestoreMetadataSource::new();
+        let mut mock = crate::services::sync::MockSyncService::new();
         mock.expect_download_metadata()
             .once()
             .returning(|| Box::pin(async { Ok(Some(metadata_with_record())) }));

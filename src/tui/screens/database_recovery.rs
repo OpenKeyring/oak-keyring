@@ -110,7 +110,7 @@ impl DatabaseRecoveryScreen {
                     self.error = None;
                 } else {
                     self.mode = DatabaseRecoveryMode::CloudSyncing;
-                    let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromCloud {
+                    ctx.send_system_command(Command::RestoreDatabaseFromCloud {
                         master_password: None,
                     });
                 }
@@ -175,7 +175,7 @@ impl DatabaseRecoveryScreen {
                     } else {
                         let path = std::path::PathBuf::from(self.okb_path.trim());
                         let password = self.okb_password.take_secure();
-                        let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromOkb {
+                        ctx.send_system_command(Command::RestoreDatabaseFromOkb {
                             path,
                             password,
                             master_password: None,
@@ -218,7 +218,7 @@ impl DatabaseRecoveryScreen {
                     self.error = None;
                     self.mode = DatabaseRecoveryMode::CloudSyncing;
                     let master_password = self.master_password.take_secure();
-                    let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromCloud {
+                    ctx.send_system_command(Command::RestoreDatabaseFromCloud {
                         master_password: Some(master_password),
                     });
                 }
@@ -259,7 +259,7 @@ impl DatabaseRecoveryScreen {
                     let path = std::path::PathBuf::from(self.okb_path.trim());
                     let password = self.okb_password.take_secure();
                     let master_password = self.master_password.take_secure();
-                    let _ = ctx.command_tx.try_send(Command::RestoreDatabaseFromOkb {
+                    ctx.send_system_command(Command::RestoreDatabaseFromOkb {
                         path,
                         password,
                         master_password: Some(master_password),
@@ -417,7 +417,7 @@ impl ScreenTrait for DatabaseRecoveryScreen {
                         KeyCode::Enter
                             if matches!(self.mode, DatabaseRecoveryMode::CloudNeedsOAuth) =>
                         {
-                            let _ = ctx.command_tx.try_send(Command::OAuth2AuthorizeGoogleDrive);
+                            ctx.send_system_command(Command::OAuth2AuthorizeGoogleDrive);
                             ScreenResult::Continue
                         }
                         KeyCode::Enter

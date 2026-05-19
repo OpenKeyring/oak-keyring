@@ -1,7 +1,7 @@
-//! Health sync adapter that bridges VaultService to the sync pipeline.
+//! Health sync adapter that bridges Vault to the sync pipeline.
 //!
 //! Provides a concrete `HealthSyncAdapter` implementation backed by
-//! `VaultService`. Because the sync pipeline runs stages sequentially and
+//! the Vault trait. Because the sync pipeline runs stages sequentially and
 //! does not need concurrent DB access, the adapter reads the current snapshot
 //! of health states at construction time and buffers writes that are flushed
 //! back to the database when `flush()` is called.
@@ -12,11 +12,11 @@ use std::sync::Mutex;
 use uuid::Uuid;
 
 use crate::errors::mapping::vault::VaultError;
-use crate::services::vault::VaultService;
+use crate::services::vault::Vault;
 use crate::sync::pipeline::HealthSyncAdapter;
 use crate::types::health::RecordHealthState;
 
-/// Adapter that connects the sync pipeline to VaultService for health state
+/// Adapter that connects the sync pipeline to Vault for health state
 /// read/write operations.
 ///
 /// # Lifecycle
@@ -40,7 +40,7 @@ impl VaultHealthSyncAdapter {
     ///
     /// Returns an adapter with an empty snapshot if reading from the database
     /// fails (graceful degradation for sync scenarios).
-    pub fn new(vault: &VaultService) -> Self {
+    pub fn new(vault: &dyn Vault) -> Self {
         let states = match vault.list_record_health_states() {
             Ok(list) => list.into_iter().map(|s| (s.record_id, s)).collect(),
             Err(e) => {
@@ -64,7 +64,7 @@ impl VaultHealthSyncAdapter {
     /// Must be called after the pipeline completes to persist:
     /// - Upserted health states (from download path)
     /// - Deleted health states (for records with no cloud health metadata)
-    pub fn flush(&self, vault: &VaultService) -> Result<(), VaultError> {
+    pub fn flush(&self, vault: &dyn Vault) -> Result<(), VaultError> {
         let upserts = self.pending_upserts.lock().unwrap();
         for state in upserts.iter() {
             vault.upsert_record_health_state(state)?;
@@ -134,19 +134,19 @@ mod tests {
     use super::*;
     use crate::db::queries;
     use crate::db::schema::init_db_in_memory;
-    use crate::services::vault::VaultService;
+    use crate::services::vault::VaultServiceImpl;
     use crate::types::credential::CredentialType;
     use crate::types::record::StoredRecord;
     use chrono::Utc;
 
-    fn setup_vault() -> VaultService {
-        let conn = init_db_in_memory();
-        VaultService::new(conn)
+    fn setup_vault() -> VaultServiceImpl {
+        let conn = init_db_in_memory().unwrap();
+        VaultServiceImpl::new(conn)
     }
 
     /// Insert a bare-minimum StoredRecord so FK constraints on
     /// `record_health_state.record_id` are satisfied.
-    fn insert_stub_record(vault: &VaultService, id: Uuid) {
+    fn insert_stub_record(vault: &VaultServiceImpl, id: Uuid) {
         let record = StoredRecord {
             id,
             credential_type: CredentialType::Login,

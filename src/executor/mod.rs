@@ -1,3 +1,4 @@
+pub mod builder;
 pub mod clipboard;
 pub mod config;
 pub mod config_impl;
@@ -6,9 +7,12 @@ pub mod health;
 pub mod import_export;
 pub mod record;
 pub mod rotation;
+pub mod runtime;
 pub mod sync;
 pub mod timer;
 pub mod vault;
+
+pub use builder::ExecutorBuilder;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,15 +28,15 @@ use crate::commands::types::HealthReport;
 use crate::commands::{Command, InternalCommand, Message};
 use crate::config::sync::{ProviderConfig, SyncProvider};
 use crate::config::{AppConfig, ConfigManager};
-use crate::db::schema::{init_db, init_db_in_memory};
-use crate::services::clipboard::ClipboardService;
-use crate::services::health::HealthService;
-use crate::services::import_export::ImportExportService;
-use crate::services::vault::VaultService;
+#[cfg(not(feature = "sqlcipher"))]
+use crate::db::schema::init_db;
+use crate::db::schema::init_db_in_memory;
+use crate::services::clipboard::{Clipboard, ClipboardService};
+use crate::services::health::Health;
+use crate::services::vault::{Vault, VaultServiceImpl};
 use crate::types::SecureStr;
 
-use crate::config::notification::ServiceNotification;
-use config_impl::{ClipboardConfigAdapter, ServiceNotificationImpl};
+use config_impl::ServiceNotificationImpl;
 
 #[cfg(test)]
 mod health_test;
@@ -45,6 +49,9 @@ mod vault_test;
 
 #[cfg(test)]
 mod sync_test;
+
+#[cfg(test)]
+mod mock_orchestration_test;
 
 const SYNC_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -128,20 +135,20 @@ impl ShutdownStepStatus {
 /// to the appropriate handler. The run loop receives commands via
 /// an mpsc channel and sends results back through a separate channel.
 pub struct CommandExecutor {
-    /// S1: Vault service — SQLite CRUD + encryption.
-    vault: VaultService,
-    /// True when `vault` wraps an on-disk vault.db rather than recovery-only memory state.
+    /// S1: Vault service — SQLite CRUD + encryption, tracked by runtime state.
+    vault_runtime: runtime::VaultRuntime,
+    /// True when `vault_runtime` wraps an on-disk vault.db rather than recovery-only memory state.
     vault_db_file_backed: bool,
     /// S2: Sync service — cloud sync (None when no provider configured).
-    sync: Option<crate::services::sync::SyncService>,
+    sync: Option<Box<dyn crate::services::sync::SyncService>>,
     /// S3: Health service — password security analysis.
-    health: HealthService,
+    health: Arc<dyn Health>,
     /// S4: Clipboard service — system clipboard with auto-clear.
     #[allow(dead_code)]
-    clipboard: Arc<ClipboardService>,
+    clipboard: Arc<dyn Clipboard>,
     /// S6: Import/Export service — file parsing and vault export.
     #[allow(dead_code)]
-    import_export: ImportExportService,
+    import_export: Box<dyn crate::services::import_export::ImportExport>,
     /// Application configuration manager.
     config: config_impl::ConfigManagerImpl,
     /// Notifier that dispatches config changes to registered services.
@@ -203,28 +210,37 @@ impl CommandExecutor {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), ?db_startup_mode, "initializing CommandExecutor");
 
-        let conn = match db_startup_mode {
-            DbStartupMode::FileBacked => init_db(&vault_dir)?,
-            DbStartupMode::DeferredInMemory => {
-                info!("using in-memory database until vault database is explicitly initialized");
-                init_db_in_memory()
-            }
+        let vault_db_file_backed = matches!(db_startup_mode, DbStartupMode::FileBacked);
+
+        #[cfg(not(feature = "sqlcipher"))]
+        let vault_runtime = {
+            let conn = match db_startup_mode {
+                DbStartupMode::FileBacked => init_db(&vault_dir)?,
+                DbStartupMode::DeferredInMemory => {
+                    info!(
+                        "using in-memory database until vault database is explicitly initialized"
+                    );
+                    init_db_in_memory()?
+                }
+            };
+
+            let vault = Box::new(VaultServiceImpl::new(conn)) as Box<dyn Vault>;
+            runtime::VaultRuntime::open(vault)
         };
 
-        // Create service instances.
-        let vault = VaultService::new(conn);
-        let health = HealthService::new();
-        let import_export = ImportExportService::new();
-
-        // Clipboard degrades to a disabled backend in headless/CI environments.
-        let clipboard_clear_seconds = config.general.clipboard_clear_seconds;
-        let clipboard = Arc::new(ClipboardService::new_safe(clipboard_clear_seconds)?);
-
-        // Register clipboard service for config-change notifications.
-        let mut config_notifier = ServiceNotificationImpl::new();
-        config_notifier.register_service(Box::new(ClipboardConfigAdapter::new(Arc::clone(
-            &clipboard,
-        ))));
+        #[cfg(feature = "sqlcipher")]
+        let vault_runtime = match db_startup_mode {
+            DbStartupMode::FileBacked => {
+                // Production SQLCipher: start locked. Unlock must provide the key.
+                runtime::VaultRuntime::locked()
+            }
+            DbStartupMode::DeferredInMemory => {
+                info!("using in-memory database until vault database is explicitly initialized");
+                let conn = init_db_in_memory()?;
+                let vault = Box::new(VaultServiceImpl::new(conn)) as Box<dyn Vault>;
+                runtime::VaultRuntime::open(vault)
+            }
+        };
 
         // Load OAuth2 tokens from TokenStore (runtime-only, not in config.toml).
         load_oauth2_tokens_into_config(&mut config, &config_dir);
@@ -232,7 +248,10 @@ impl CommandExecutor {
         let sync = match create_cloud_storage(&config.sync) {
             Ok(storage) => {
                 info!("SyncService initialized for {:?}", config.sync.provider);
-                Some(crate::services::sync::SyncService::new(storage))
+                Some(
+                    Box::new(crate::services::sync::SyncServiceImpl::new(storage))
+                        as Box<dyn crate::services::sync::SyncService>,
+                )
             }
             Err(e) => {
                 info!(error = %e, "SyncService not initialized — sync features disabled");
@@ -240,42 +259,42 @@ impl CommandExecutor {
             }
         };
 
-        // Create internal signaling channel
-        let (internal_tx, internal_rx) = mpsc::channel(64);
+        let clipboard_clear_seconds = config.general.clipboard_clear_seconds;
+        let clipboard =
+            Arc::new(ClipboardService::new_safe(clipboard_clear_seconds)?) as Arc<dyn Clipboard>;
 
         info!("CommandExecutor initialized successfully");
 
-        let operation_cancel_token = shutdown_token.child_token();
-
-        let vault_db_file_backed = matches!(db_startup_mode, DbStartupMode::FileBacked);
-
-        Ok(Self {
-            vault,
-            vault_db_file_backed,
-            sync,
-            health,
-            clipboard,
-            import_export,
-            config: config_impl::ConfigManagerImpl::new(config, config_dir.clone()),
-            config_notifier,
-            vault_dir,
-            config_dir,
-            health_report: None,
-            last_health_check_time: None,
-            verified_master_password: None,
-            result_tx,
-            internal_tx,
-            internal_rx: Some(internal_rx),
-            shutdown_token,
-            operation_cancel_token,
-            timer_rebuild_pending: false,
-            oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        })
+        Ok(Self::builder(vault_dir.clone(), config_dir.clone())
+            .vault_runtime(vault_runtime)
+            .vault_db_file_backed(vault_db_file_backed)
+            .sync(sync)
+            .config(config)
+            .result_tx(result_tx)
+            .shutdown_token(shutdown_token)
+            .clipboard(clipboard)
+            .build())
     }
 
     /// Check whether the vault is currently unlocked.
     pub fn is_unlocked(&self) -> bool {
-        self.vault.is_unlocked()
+        self.vault_runtime.is_open() && self.vault().map(|v| v.is_unlocked()).unwrap_or(false)
+    }
+
+    /// Get a reference to the vault (read-only operations).
+    ///
+    /// Returns an error if the vault runtime is not `Open`.
+    pub(super) fn vault(&self) -> Result<&dyn Vault, crate::errors::mapping::vault::VaultError> {
+        Ok(self.vault_runtime.open_vault()?)
+    }
+
+    /// Get a mutable reference to the vault (read-write operations).
+    ///
+    /// Returns an error if the vault runtime is not `Open`.
+    pub(super) fn vault_mut(
+        &mut self,
+    ) -> Result<&mut dyn Vault, crate::errors::mapping::vault::VaultError> {
+        Ok(self.vault_runtime.open_vault_mut()?)
     }
 
     /// Get a reference to the operation cancellation token.
@@ -392,15 +411,16 @@ impl CommandExecutor {
 
     // execute(), pre_check(), post_hook(), and dispatch() are defined in execute.rs
 
-    /// Replace the sync service with a pre-built instance.
+    /// Create an [`ExecutorBuilder`] for constructing a CommandExecutor.
     ///
-    /// # Note
-    ///
-    /// This method is intended for testing purposes only, allowing injection of
-    /// mock sync services. In production, the sync service is configured during
-    /// executor construction.
-    pub fn set_sync_service(&mut self, sync: Option<crate::services::sync::SyncService>) {
-        self.sync = sync;
+    /// This is the primary method for test fixtures and custom construction scenarios.
+    /// Production code should use [`CommandExecutor::new`] instead.
+    #[must_use]
+    pub fn builder(
+        vault_dir: std::path::PathBuf,
+        config_dir: std::path::PathBuf,
+    ) -> ExecutorBuilder {
+        ExecutorBuilder::new(vault_dir, config_dir)
     }
 
     pub(crate) async fn shutdown_gracefully(&mut self) -> ShutdownReport {
@@ -410,7 +430,7 @@ impl CommandExecutor {
 
         if let Some(sync) = self.sync.take() {
             report.sync_shutdown =
-                match tokio::time::timeout(SYNC_SHUTDOWN_TIMEOUT, sync.shutdown()).await {
+                match tokio::time::timeout(SYNC_SHUTDOWN_TIMEOUT, sync.shutdown_box()).await {
                     Ok(Ok(())) => ShutdownStepStatus::Completed,
                     Ok(Err(e)) => ShutdownStepStatus::Failed(e.to_string()),
                     Err(_) => ShutdownStepStatus::TimedOut,
@@ -418,27 +438,59 @@ impl CommandExecutor {
         }
 
         if self.vault_db_file_backed {
-            report.wal_checkpoint = match self.vault.checkpoint_wal() {
-                Ok(()) => ShutdownStepStatus::Completed,
-                Err(e) => ShutdownStepStatus::Failed(e.to_string()),
+            report.wal_checkpoint = match self.vault() {
+                Ok(vault) => match vault.checkpoint_wal() {
+                    Ok(()) => ShutdownStepStatus::Completed,
+                    Err(e) => ShutdownStepStatus::Failed(e.to_string()),
+                },
+                Err(_) => ShutdownStepStatus::NotApplicable,
             };
         }
+        self.vault_runtime = crate::executor::runtime::VaultRuntime::locked();
+        self.vault_db_file_backed = false;
 
         tracing::info!(?report, "executor graceful shutdown completed");
         report
     }
 
-    /// Open a speculative file-backed vault database.
+    /// Open a speculative file-backed vault database encrypted with SQLCipher.
     ///
     /// The returned guard must be committed after the restore/init flow has
     /// fully validated and applied data. Dropping it rolls back newly created
     /// database artifacts while preserving artifacts that existed beforehand.
-    pub(super) fn begin_file_backed_vault_db(
+    #[cfg(feature = "sqlcipher")]
+    pub fn begin_file_backed_vault_db(
+        &mut self,
+        key: &crate::crypto::db_page_key::DbPageKey,
+    ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
+        let existed_before = vault_db_paths(&self.vault_dir).map(|path| artifact_exists(&path));
+        let conn =
+            crate::db::vault_db::VaultDbFactory::create_sqlcipher_vault(&self.vault_dir, key)?;
+        self.vault_runtime = runtime::VaultRuntime::open(Box::new(
+            crate::services::vault::VaultServiceImpl::new(conn),
+        ));
+        info!("opened pending file-backed SQLCipher vault database");
+        Ok(PendingFileBackedVaultDb {
+            executor: self,
+            committed: false,
+            existed_before,
+        })
+    }
+
+    /// Open a speculative file-backed vault database (plain SQLite).
+    ///
+    /// The returned guard must be committed after the restore/init flow has
+    /// fully validated and applied data. Dropping it rolls back newly created
+    /// database artifacts while preserving artifacts that existed beforehand.
+    #[cfg(not(feature = "sqlcipher"))]
+    pub fn begin_file_backed_vault_db(
         &mut self,
     ) -> Result<PendingFileBackedVaultDb<'_>, Box<dyn std::error::Error + Send + Sync>> {
         let existed_before = vault_db_paths(&self.vault_dir).map(|path| artifact_exists(&path));
         let conn = init_db(&self.vault_dir)?;
-        self.vault = crate::services::vault::VaultService::new(conn);
+        self.vault_runtime = runtime::VaultRuntime::open(Box::new(
+            crate::services::vault::VaultServiceImpl::new(conn),
+        ));
         info!("opened pending file-backed vault database");
         Ok(PendingFileBackedVaultDb {
             executor: self,
@@ -448,7 +500,7 @@ impl CommandExecutor {
     }
 }
 
-pub(super) struct PendingFileBackedVaultDb<'a> {
+pub struct PendingFileBackedVaultDb<'a> {
     executor: &'a mut CommandExecutor,
     committed: bool,
     existed_before: [bool; 4],
@@ -459,37 +511,42 @@ impl PendingFileBackedVaultDb<'_> {
         &mut self,
         master_password: &crate::types::SecureStr,
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
+        let vault_dir = self.executor.vault_dir.clone();
         self.executor
-            .vault
-            .unlock(&self.executor.vault_dir, master_password)
+            .vault_mut()?
+            .unlock(&vault_dir, master_password)
     }
 
     pub(super) fn create_record(
         &mut self,
         params: crate::types::record::CreateRecordParams,
     ) -> Result<uuid::Uuid, crate::errors::mapping::vault::VaultError> {
-        self.executor.vault.create_record(params)
+        self.executor.vault_mut()?.create_record(params)
     }
 
     pub(super) fn apply_downloaded_cloud_record(
         &mut self,
         record: &crate::cloud::CloudRecord,
     ) -> Result<bool, crate::errors::mapping::vault::VaultError> {
-        self.executor.vault.apply_downloaded_cloud_record(record)
+        self.executor
+            .vault_mut()?
+            .apply_downloaded_cloud_record(record)
     }
 
     pub(super) fn upsert_record_health_state(
         &mut self,
         state: &crate::types::health::RecordHealthState,
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        self.executor.vault.upsert_record_health_state(state)
+        self.executor.vault_mut()?.upsert_record_health_state(state)
     }
 
     pub(super) fn delete_record_health_states(
         &mut self,
         record_ids: &[uuid::Uuid],
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        self.executor.vault.delete_record_health_states(record_ids)
+        self.executor
+            .vault_mut()?
+            .delete_record_health_states(record_ids)
     }
 
     pub(super) async fn restore_pull_only(
@@ -509,13 +566,51 @@ impl PendingFileBackedVaultDb<'_> {
         key: &str,
         value: &str,
     ) -> Result<(), crate::errors::mapping::vault::VaultError> {
-        self.executor.vault.set_metadata(key, value)
+        self.executor.vault_mut()?.set_metadata(key, value)
     }
 
     pub(super) fn commit(mut self) {
         self.committed = true;
         self.executor.vault_db_file_backed = true;
         info!("committed file-backed vault database");
+    }
+}
+
+#[cfg(feature = "sqlcipher")]
+impl PendingFileBackedVaultDb<'_> {
+    /// Explicitly roll back this pending guard, removing any newly created
+    /// database artifacts and returning the executor to a locked state.
+    ///
+    /// Returns `DbRollbackFailed` if any file removal fails. The error carries
+    /// the path of the file that could not be removed.
+    pub(super) fn rollback(mut self) -> Result<(), crate::db::vault_db::VaultDbError> {
+        self.committed = true; // skip duplicate cleanup in Drop
+        self.executor.vault_runtime = runtime::VaultRuntime::locked();
+        self.executor.vault_db_file_backed = false;
+
+        let mut first_error: Option<(std::path::PathBuf, std::io::Error)> = None;
+        for (path, existed_before) in vault_db_paths(&self.executor.vault_dir)
+            .into_iter()
+            .zip(self.existed_before)
+        {
+            if existed_before {
+                continue;
+            }
+            if let Err(e) = std::fs::remove_file(&path) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::error!(path = %path.display(), error = %e, "rollback: failed to remove uncommitted file");
+                    first_error.get_or_insert((path, e));
+                }
+            }
+        }
+        if let Some((path, error)) = first_error {
+            Err(crate::db::vault_db::VaultDbError::DbRollbackFailed(
+                format!("{}: {}", path.display(), error),
+            ))
+        } else {
+            info!("rolled back uncommitted file-backed vault database");
+            Ok(())
+        }
     }
 }
 
@@ -528,10 +623,9 @@ impl Drop for PendingFileBackedVaultDb<'_> {
         // Pending file-backed databases are speculative recovery outputs. If a
         // restore/init path returns before commit(), leaving those files on disk
         // would make the next startup treat an empty or partial database as a
-        // real vault. Roll back to the in-memory placeholder first so the
-        // executor cannot keep using a connection to files we are about to
-        // remove.
-        self.executor.vault = crate::services::vault::VaultService::new(init_db_in_memory());
+        // real vault. Drop the open vault runtime first so the executor cannot
+        // keep using a connection to files we are about to remove.
+        self.executor.vault_runtime = runtime::VaultRuntime::locked();
         self.executor.vault_db_file_backed = false;
 
         for (path, existed_before) in vault_db_paths(&self.executor.vault_dir)
@@ -645,5 +739,49 @@ mod db_startup_mode_tests {
             }),
             DbStartupMode::DeferredInMemory
         );
+    }
+}
+
+#[cfg(all(test, feature = "sqlcipher"))]
+mod rollback_tests {
+    use super::*;
+    use crate::crypto::db_page_key::test_db_page_key;
+    use crate::db::vault_db::VaultDbError;
+
+    #[test]
+    fn rollback_reports_database_rollback_failed_when_file_removal_fails() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let mut executor = CommandExecutor::new(
+            crate::config::AppConfig::default_config(),
+            tx,
+            tokio_util::sync::CancellationToken::new(),
+            dir.path().to_path_buf(),
+            dir.path().to_path_buf(),
+            DbStartupMode::DeferredInMemory,
+        )
+        .expect("executor");
+
+        let key = test_db_page_key([0xee; 32]);
+        let guard = executor
+            .begin_file_backed_vault_db(&key)
+            .expect("begin pending");
+
+        // Replace vault.db with a directory so std::fs::remove_file fails
+        // (it cannot remove directories). This forces rollback() to surface
+        // DbRollbackFailed.
+        let vault_db = dir.path().join("vault.db");
+        std::fs::remove_file(&vault_db).expect("remove vault.db");
+        std::fs::create_dir(&vault_db).expect("create dir in place of vault.db");
+
+        let result = guard.rollback();
+        assert!(
+            matches!(result, Err(VaultDbError::DbRollbackFailed(_))),
+            "rollback must return DbRollbackFailed, got {:?}",
+            result
+        );
+
+        // Clean up
+        std::fs::remove_dir(&vault_db).ok();
     }
 }

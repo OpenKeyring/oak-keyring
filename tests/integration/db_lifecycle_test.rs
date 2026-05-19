@@ -41,7 +41,7 @@ fn make_record(id: &str, ct: CredentialType) -> StoredRecord {
 
 #[test]
 fn full_record_lifecycle() {
-    let conn = init_db_in_memory();
+    let conn = init_db_in_memory().unwrap();
     let id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
 
     // -- Create a Login record --
@@ -124,7 +124,7 @@ fn full_record_lifecycle() {
 
 #[test]
 fn multiple_record_types_coexist() {
-    let conn = init_db_in_memory();
+    let conn = init_db_in_memory().unwrap();
 
     let recs = [
         make_record(

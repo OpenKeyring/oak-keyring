@@ -13,12 +13,9 @@ use crate::commands::types::HealthReport;
 use crate::commands::{CommandResult, Message};
 use crate::config::AppConfig;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-use crate::db::queries;
-use crate::executor::config_impl::ServiceNotificationImpl;
 use crate::services::clipboard::{ClipboardService, MockBackend};
-use crate::services::health::{HealthService, PasswordEntry};
-use crate::services::import_export::ImportExportService;
-use crate::services::vault::VaultService;
+use crate::services::health::PasswordEntry;
+use crate::services::vault::VaultServiceImpl;
 use crate::types::health::{HealthStateDelta, RecordHealthState};
 use crate::types::record::StoredRecord;
 use crate::types::sync::SyncStatus;
@@ -32,8 +29,8 @@ use tokio_util::sync::CancellationToken;
 // ---------------------------------------------------------------------------
 
 fn make_executor_with_one_login() -> CommandExecutor {
-    let conn = crate::db::schema::init_db_in_memory();
-    let mut vault = VaultService::new(conn);
+    let conn = crate::db::schema::init_db_in_memory().unwrap();
+    let mut vault = VaultServiceImpl::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
     vault
         .unlock_with_mnemonic(&mnemonic)
@@ -55,84 +52,47 @@ fn make_executor_with_one_login() -> CommandExecutor {
         .expect("record");
 
     let (result_tx, _) = mpsc::channel(64);
-    let (internal_tx, internal_rx) = mpsc::channel(64);
 
-    CommandExecutor {
-        vault,
-        vault_db_file_backed: false,
-        sync: None,
-        health: HealthService::new(),
-        clipboard: Arc::new(ClipboardService::with_backend(
+    CommandExecutor::builder(":memory:".into(), ":memory:".into())
+        .vault(Box::new(vault))
+        .config(AppConfig::default())
+        .result_tx(result_tx)
+        .shutdown_token(CancellationToken::new())
+        .clipboard(Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
-        )),
-        import_export: ImportExportService::new(),
-        config: crate::executor::config_impl::ConfigManagerImpl::new(
-            AppConfig::default(),
-            std::path::PathBuf::from(":memory:"),
-        ),
-        config_notifier: ServiceNotificationImpl::new(),
-        vault_dir: std::path::PathBuf::from(":memory:"),
-        config_dir: std::path::PathBuf::from(":memory:"),
-        health_report: None,
-        last_health_check_time: None,
-        result_tx,
-        internal_tx,
-        internal_rx: Some(internal_rx),
-        shutdown_token: CancellationToken::new(),
-        operation_cancel_token: CancellationToken::new(),
-        timer_rebuild_pending: false,
-        oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        verified_master_password: None,
-    }
+        )))
+        .build()
 }
 
 /// Helper: create an executor with an unlocked vault (no records).
 fn make_executor_no_records() -> CommandExecutor {
-    let conn = crate::db::schema::init_db_in_memory();
-    let mut vault = VaultService::new(conn);
+    let conn = crate::db::schema::init_db_in_memory().unwrap();
+    let mut vault = VaultServiceImpl::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
     vault
         .unlock_with_mnemonic(&mnemonic)
         .expect("unlock with mnemonic");
 
     let (result_tx, _) = mpsc::channel(64);
-    let (internal_tx, internal_rx) = mpsc::channel(64);
 
-    CommandExecutor {
-        vault,
-        vault_db_file_backed: false,
-        sync: None,
-        health: HealthService::new(),
-        clipboard: Arc::new(ClipboardService::with_backend(
+    CommandExecutor::builder(":memory:".into(), ":memory:".into())
+        .vault(Box::new(vault))
+        .config(AppConfig::default())
+        .result_tx(result_tx)
+        .shutdown_token(CancellationToken::new())
+        .clipboard(Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
-        )),
-        import_export: ImportExportService::new(),
-        config: crate::executor::config_impl::ConfigManagerImpl::new(
-            AppConfig::default(),
-            std::path::PathBuf::from(":memory:"),
-        ),
-        config_notifier: ServiceNotificationImpl::new(),
-        vault_dir: std::path::PathBuf::from(":memory:"),
-        config_dir: std::path::PathBuf::from(":memory:"),
-        health_report: None,
-        last_health_check_time: None,
-        result_tx,
-        internal_tx,
-        internal_rx: Some(internal_rx),
-        shutdown_token: CancellationToken::new(),
-        operation_cancel_token: CancellationToken::new(),
-        timer_rebuild_pending: false,
-        oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        verified_master_password: None,
-    }
+        )))
+        .build()
 }
 
 /// Helper: create a Login record and return its UUID.
 fn create_login_record(executor: &mut CommandExecutor, name: &str) -> Uuid {
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .create_record(crate::types::record::CreateRecordParams {
             credential_type: CredentialType::Login,
             payload: EncryptedPayload::Login {
@@ -152,7 +112,8 @@ fn create_login_record(executor: &mut CommandExecutor, name: &str) -> Uuid {
 /// Helper: insert a health state via the VaultService wrapper.
 fn insert_health_state(executor: &mut CommandExecutor, state: RecordHealthState) {
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .upsert_record_health_state(&state)
         .expect("insert health state");
 }
@@ -374,7 +335,11 @@ fn persist_writes_states_to_db_and_returns_deltas_for_new_evaluations() {
     assert_eq!(deltas.len(), 2);
 
     // Verify DB was written.
-    let states = executor.vault.list_record_health_states().expect("list");
+    let states = executor
+        .vault_mut()
+        .unwrap()
+        .list_record_health_states()
+        .expect("list");
     assert_eq!(states.len(), 2);
 
     let s1 = states.iter().find(|s| s.record_id == id1).expect("id1");
@@ -612,7 +577,7 @@ fn schedule_resync_marks_records_pending_in_sync_state() {
     schedule_health_resync_for_records(&mut executor, &deltas).expect("schedule");
 
     // Verify sync_state entries by checking the DB directly.
-    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    let sync_map = executor.vault_mut().unwrap().load_sync_status_map();
     assert_eq!(sync_map.len(), 2);
     assert_eq!(sync_map.get(&id1.to_string()), Some(&SyncStatus::Pending));
     assert_eq!(sync_map.get(&id2.to_string()), Some(&SyncStatus::Pending));
@@ -636,12 +601,14 @@ fn schedule_resync_does_not_bump_version_for_changed_records() {
 
     // Capture versions before.
     let v1_before = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_stored_record(id1)
         .expect("get id1")
         .version;
     let v2_before = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_stored_record(id2)
         .expect("get id2")
         .version;
@@ -657,12 +624,14 @@ fn schedule_resync_does_not_bump_version_for_changed_records() {
 
     // Neither id1 nor id2 should have version changed.
     let v1_after = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_stored_record(id1)
         .expect("get id1")
         .version;
     let v2_after = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_stored_record(id2)
         .expect("get id2")
         .version;
@@ -679,7 +648,11 @@ fn schedule_resync_marks_pending_sync_without_changing_record() {
     let mut executor = make_executor_no_records();
     let id = create_login_record(&mut executor, "rec");
 
-    let rec_before = executor.vault.get_stored_record(id).expect("get");
+    let rec_before = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id)
+        .expect("get");
     let version_before = rec_before.version;
     let updated_at_before = rec_before.updated_at;
     let updated_by_before = rec_before.updated_by.clone();
@@ -691,7 +664,11 @@ fn schedule_resync_marks_pending_sync_without_changing_record() {
     }];
     schedule_health_resync_for_records(&mut executor, &deltas).expect("schedule");
 
-    let rec_after = executor.vault.get_stored_record(id).expect("get");
+    let rec_after = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id)
+        .expect("get");
 
     // Record fields should be completely unchanged.
     assert_eq!(
@@ -708,7 +685,7 @@ fn schedule_resync_marks_pending_sync_without_changing_record() {
     );
 
     // But sync state should be pending.
-    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    let sync_map = executor.vault_mut().unwrap().load_sync_status_map();
     assert_eq!(
         sync_map.get(&id.to_string()),
         Some(&SyncStatus::Pending),
@@ -721,12 +698,22 @@ fn no_version_bump_when_no_health_deltas() {
     let mut executor = make_executor_no_records();
     let id = create_login_record(&mut executor, "rec");
 
-    let version_before = executor.vault.get_stored_record(id).expect("get").version;
+    let version_before = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id)
+        .expect("get")
+        .version;
 
     // Empty deltas — no changes.
     schedule_health_resync_for_records(&mut executor, &[]).expect("schedule");
 
-    let version_after = executor.vault.get_stored_record(id).expect("get").version;
+    let version_after = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id)
+        .expect("get")
+        .version;
 
     assert_eq!(
         version_after, version_before,
@@ -755,12 +742,14 @@ fn full_writeback_does_not_bump_version_but_marks_pending_sync() {
     );
 
     let v1_before = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_stored_record(id1)
         .expect("get id1")
         .version;
     let v2_before = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_stored_record(id2)
         .expect("get id2")
         .version;
@@ -782,12 +771,14 @@ fn full_writeback_does_not_bump_version_but_marks_pending_sync() {
 
     // Neither id1 nor id2 version should change.
     let v1_after = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_stored_record(id1)
         .expect("get id1")
         .version;
     let v2_after = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_stored_record(id2)
         .expect("get id2")
         .version;
@@ -796,7 +787,7 @@ fn full_writeback_does_not_bump_version_but_marks_pending_sync() {
     assert_eq!(v2_after, v2_before, "id2 version unchanged");
 
     // Sync state: only id1 is Pending.
-    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    let sync_map = executor.vault_mut().unwrap().load_sync_status_map();
     assert_eq!(
         sync_map.get(&id1.to_string()),
         Some(&SyncStatus::Pending),
@@ -1296,7 +1287,8 @@ fn simulate_health_check_completed(
 
     // Update last_health_check_at metadata
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .set_last_health_check_at(evaluated_at)
         .expect("set last_health_check_at");
 
@@ -1310,7 +1302,8 @@ fn health_check_completed_writes_last_health_check_at_to_db() {
 
     // Verify no last_health_check_at initially
     let before = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_last_health_check_at()
         .expect("get metadata");
     assert!(
@@ -1330,7 +1323,8 @@ fn health_check_completed_writes_last_health_check_at_to_db() {
 
     // Verify last_health_check_at is now persisted
     let after = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_last_health_check_at()
         .expect("get metadata");
     assert!(
@@ -1348,7 +1342,11 @@ fn health_check_completed_persists_record_health_states_to_db() {
     let id2 = create_login_record(&mut executor, "rec2");
 
     // Verify no health states initially
-    let states_before = executor.vault.list_record_health_states().expect("list");
+    let states_before = executor
+        .vault_mut()
+        .unwrap()
+        .list_record_health_states()
+        .expect("list");
     assert!(states_before.is_empty(), "no health states initially");
 
     // Simulate health check completing
@@ -1362,7 +1360,11 @@ fn health_check_completed_persists_record_health_states_to_db() {
     simulate_health_check_completed(&mut executor, &report);
 
     // Verify health states are persisted
-    let states_after = executor.vault.list_record_health_states().expect("list");
+    let states_after = executor
+        .vault_mut()
+        .unwrap()
+        .list_record_health_states()
+        .expect("list");
     assert_eq!(
         states_after.len(),
         2,
@@ -1425,7 +1427,7 @@ fn health_check_completed_marks_changed_records_as_pending_sync() {
     );
 
     // Verify sync state: id1 should be Pending, id2 should not
-    let sync_map = queries::load_sync_status_map(executor.vault.conn_ref());
+    let sync_map = executor.vault_mut().unwrap().load_sync_status_map();
     assert_eq!(
         sync_map.get(&id1.to_string()),
         Some(&SyncStatus::Pending),
@@ -1449,7 +1451,8 @@ fn health_check_completed_overwrites_previous_states_on_rerun() {
     simulate_health_check_completed(&mut executor, &report1);
 
     let state1 = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .list_record_health_states()
         .expect("list")
         .into_iter()
@@ -1468,7 +1471,8 @@ fn health_check_completed_overwrites_previous_states_on_rerun() {
     simulate_health_check_completed(&mut executor, &report2);
 
     let state2 = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .list_record_health_states()
         .expect("list")
         .into_iter()
@@ -1519,7 +1523,8 @@ fn full_roundtrip_unlock_schedule_persist_restore() {
     // Phase 3: Simulate second unlock (within daily window)
     // Re-read metadata to verify it was persisted
     let last_check = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_last_health_check_at()
         .expect("get")
         .expect("should exist");
@@ -1588,7 +1593,11 @@ fn health_report_restores_after_simulated_restart() {
 
     // Set last_health_check_at to a recent time
     let ts = Utc::now() - chrono::Duration::hours(1);
-    executor.vault.set_last_health_check_at(ts).expect("set");
+    executor
+        .vault_mut()
+        .unwrap()
+        .set_last_health_check_at(ts)
+        .expect("set");
 
     // Simulate "restart": clear in-memory state
     executor.health_report = None;
@@ -1641,14 +1650,26 @@ fn delete_record_cleans_up_health_state() {
     );
 
     // Verify health state exists
-    let states_before = executor.vault.list_record_health_states().expect("list");
+    let states_before = executor
+        .vault_mut()
+        .unwrap()
+        .list_record_health_states()
+        .expect("list");
     assert_eq!(states_before.len(), 1);
 
     // Soft delete the record — should cascade to health state
-    executor.vault.soft_delete_record(id).expect("soft delete");
+    executor
+        .vault_mut()
+        .unwrap()
+        .soft_delete_record(id)
+        .expect("soft delete");
 
     // Verify health state is cleaned up
-    let states_after = executor.vault.list_record_health_states().expect("list");
+    let states_after = executor
+        .vault_mut()
+        .unwrap()
+        .list_record_health_states()
+        .expect("list");
     assert!(
         states_after.is_empty(),
         "health state should be removed after record deletion"
@@ -1858,7 +1879,12 @@ fn hibp_skip_after_full_scan_and_persist() {
     let mut executor = make_executor_no_records();
     let id = create_login_record(&mut executor, "rec");
 
-    let version = executor.vault.get_stored_record(id).expect("get").version;
+    let version = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id)
+        .expect("get")
+        .version;
 
     // Simulate first health check: record is compromised.
     let report = HealthReport {
@@ -1871,7 +1897,12 @@ fn hibp_skip_after_full_scan_and_persist() {
     simulate_health_check_completed(&mut executor, &report);
 
     // Verify version was NOT bumped by health write-back.
-    let version_after = executor.vault.get_stored_record(id).expect("get").version;
+    let version_after = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id)
+        .expect("get")
+        .version;
     assert_eq!(
         version_after, version,
         "health write-back must NOT bump version"
@@ -1879,7 +1910,8 @@ fn hibp_skip_after_full_scan_and_persist() {
 
     // Load the persisted health state and verify should_skip_hibp returns true.
     let health_state = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_record_health_state(&id)
         .expect("get state");
     let state = health_state.expect("health state should exist");
@@ -1899,8 +1931,18 @@ fn health_writeback_does_not_change_record_version() {
     let id1 = create_login_record(&mut executor, "rec1");
     let id2 = create_login_record(&mut executor, "rec2");
 
-    let v1_before = executor.vault.get_stored_record(id1).expect("get").version;
-    let v2_before = executor.vault.get_stored_record(id2).expect("get").version;
+    let v1_before = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id1)
+        .expect("get")
+        .version;
+    let v2_before = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id2)
+        .expect("get")
+        .version;
 
     // Report: id1 is compromised, id2 is clean.
     let report = HealthReport {
@@ -1912,8 +1954,18 @@ fn health_writeback_does_not_change_record_version() {
     };
     simulate_health_check_completed(&mut executor, &report);
 
-    let v1_after = executor.vault.get_stored_record(id1).expect("get").version;
-    let v2_after = executor.vault.get_stored_record(id2).expect("get").version;
+    let v1_after = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id1)
+        .expect("get")
+        .version;
+    let v2_after = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id2)
+        .expect("get")
+        .version;
 
     assert_eq!(
         v1_after, v1_before,
@@ -1932,7 +1984,12 @@ fn password_change_deletes_health_state_and_hibp_not_skipped() {
     let mut executor = make_executor_no_records();
     let id = create_login_record(&mut executor, "rec");
 
-    let version = executor.vault.get_stored_record(id).expect("get").version;
+    let version = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id)
+        .expect("get")
+        .version;
 
     // Simulate first health check: record is compromised.
     let report = HealthReport {
@@ -1946,7 +2003,8 @@ fn password_change_deletes_health_state_and_hibp_not_skipped() {
 
     // Verify health state exists.
     let state_before = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_record_health_state(&id)
         .expect("get state");
     assert!(
@@ -1957,13 +2015,15 @@ fn password_change_deletes_health_state_and_hibp_not_skipped() {
     // Simulate password change: delete health state (this is what VaultService
     // does when the password changes).
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .delete_record_health_state(&id)
         .expect("delete");
 
     // Verify health state is gone.
     let state_after = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_record_health_state(&id)
         .expect("get state");
     assert!(
@@ -1985,7 +2045,12 @@ fn cosmetic_update_carries_health_state_and_hibp_skip_works() {
     let mut executor = make_executor_no_records();
     let id = create_login_record(&mut executor, "rec");
 
-    let version = executor.vault.get_stored_record(id).expect("get").version;
+    let version = executor
+        .vault_mut()
+        .unwrap()
+        .get_stored_record(id)
+        .expect("get")
+        .version;
 
     // Simulate first health check: record is compromised.
     let report = HealthReport {
@@ -2000,13 +2065,15 @@ fn cosmetic_update_carries_health_state_and_hibp_skip_works() {
     // Simulate cosmetic update: bump record version and copy health state.
     let new_version = version + 1;
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .copy_health_state_to_version(&id, new_version)
         .expect("copy health state");
 
     // Load health state at new version.
     let state = executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .get_record_health_state(&id)
         .expect("get state")
         .expect("should exist");

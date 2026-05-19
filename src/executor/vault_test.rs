@@ -6,62 +6,41 @@ use tokio_util::sync::CancellationToken;
 use crate::config::security::HealthCheckFrequency;
 use crate::config::AppConfig;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
-use crate::executor::config_impl::ServiceNotificationImpl;
 use crate::executor::vault::schedule_health_check_after_unlock;
 use crate::executor::CommandExecutor;
 use crate::services::clipboard::{ClipboardService, MockBackend};
-use crate::services::health::HealthService;
-use crate::services::import_export::ImportExportService;
-use crate::services::vault::VaultService;
+use crate::services::vault::VaultServiceImpl;
 use crate::types::health::RecordHealthState;
 use crate::types::{CredentialType, EncryptedPayload, SecureStr};
 
 /// Create a basic unlocked executor with no records.
 fn make_unlocked_executor() -> CommandExecutor {
-    let conn = crate::db::schema::init_db_in_memory();
-    let mut vault = VaultService::new(conn);
+    let conn = crate::db::schema::init_db_in_memory().unwrap();
+    let mut vault = VaultServiceImpl::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
     vault
         .unlock_with_mnemonic(&mnemonic)
         .expect("unlock with mnemonic");
 
     let (result_tx, _) = mpsc::channel(64);
-    let (internal_tx, internal_rx) = mpsc::channel(64);
 
-    CommandExecutor {
-        vault,
-        vault_db_file_backed: false,
-        sync: None,
-        health: HealthService::new(),
-        clipboard: Arc::new(ClipboardService::with_backend(
+    CommandExecutor::builder(":memory:".into(), ":memory:".into())
+        .vault(Box::new(vault))
+        .config(AppConfig::default())
+        .result_tx(result_tx)
+        .shutdown_token(CancellationToken::new())
+        .clipboard(Arc::new(ClipboardService::with_backend(
             Box::new(MockBackend::new()),
             30,
-        )),
-        import_export: ImportExportService::new(),
-        config: crate::executor::config_impl::ConfigManagerImpl::new(
-            AppConfig::default(),
-            std::path::PathBuf::from(":memory:"),
-        ),
-        config_notifier: ServiceNotificationImpl::new(),
-        vault_dir: std::path::PathBuf::from(":memory:"),
-        config_dir: std::path::PathBuf::from(":memory:"),
-        health_report: None,
-        last_health_check_time: None,
-        result_tx,
-        internal_tx,
-        internal_rx: Some(internal_rx),
-        shutdown_token: CancellationToken::new(),
-        operation_cancel_token: CancellationToken::new(),
-        timer_rebuild_pending: false,
-        oauth2_token_store: Arc::new(tokio::sync::Mutex::new(None)),
-        verified_master_password: None,
-    }
+        )))
+        .build()
 }
 
 /// Helper: create a Login record and return its UUID.
 fn create_login_record(executor: &mut CommandExecutor, name: &str) -> uuid::Uuid {
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .create_record(crate::types::record::CreateRecordParams {
             credential_type: CredentialType::Login,
             payload: EncryptedPayload::Login {
@@ -81,7 +60,8 @@ fn create_login_record(executor: &mut CommandExecutor, name: &str) -> uuid::Uuid
 /// Helper: insert a health state via the VaultService wrapper.
 fn insert_health_state(executor: &mut CommandExecutor, state: RecordHealthState) {
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .upsert_record_health_state(&state)
         .expect("insert health state");
 }
@@ -130,7 +110,8 @@ fn loads_cached_report_when_check_not_due() {
     });
     let recent = chrono::Utc::now() - chrono::Duration::hours(1);
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .set_last_health_check_at(recent)
         .expect("set last health check");
 
@@ -229,7 +210,8 @@ fn loads_empty_cache_when_no_health_states() {
     });
     let recent = chrono::Utc::now() - chrono::Duration::minutes(30);
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .set_last_health_check_at(recent)
         .expect("set last health check");
 
@@ -260,7 +242,8 @@ fn schedules_check_when_daily_frequency_expired() {
     // Set last check to 2 days ago (> 24h)
     let two_days_ago = chrono::Utc::now() - chrono::Duration::days(2);
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .set_last_health_check_at(two_days_ago)
         .expect("set last health check");
 
@@ -287,7 +270,8 @@ fn loads_cached_report_with_multiple_categories() {
     });
     let recent = chrono::Utc::now() - chrono::Duration::hours(6);
     executor
-        .vault
+        .vault_mut()
+        .unwrap()
         .set_last_health_check_at(recent)
         .expect("set last health check");
 
