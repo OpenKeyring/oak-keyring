@@ -26,6 +26,14 @@ mod registry {
     // SAFETY: Region is Send because we only access it from the crash handler
     // which runs in a single-threaded context. The Mutex ensures mutual exclusion
     // for registration/unregistration during normal operation.
+    //
+    // Race with Drop: a concurrent Drop::unregister() may modify the Vec while
+    // zeroize_all() iterates it. try_lock() prevents deadlock but does NOT
+    // prevent the race. This is acceptable because:
+    // (a) If Drop holds the lock, zeroize_all skips entirely (try_lock fails).
+    // (b) If zeroize_all holds the lock, Drop blocks until iteration finishes.
+    // (c) In crash context we _exit(0) immediately after, so stale entries are
+    //     harmless — we either zeroize them (best case) or skip them.
     unsafe impl Send for Region {}
 
     static REGISTRY: Mutex<Vec<Region>> = Mutex::new(Vec::new());
@@ -40,6 +48,12 @@ mod registry {
 
     /// Zeroize all registered secrets. Called from crash handler.
     /// Uses try_lock() to avoid blocking in signal context.
+    ///
+    /// Re-entry safety: if `write_bytes` triggers SIGSEGV on an already-freed
+    /// page, the Mach exception handler re-enters zeroize_all(). try_lock()
+    /// returns None on the second call (lock already held), so the re-entrant
+    /// call is a no-op and the original handler proceeds to _exit(0). This
+    /// benign re-entry path is intentional and self-terminating.
     pub fn zeroize_all() {
         if let Some(registry) = REGISTRY.try_lock() {
             for region in registry.iter() {

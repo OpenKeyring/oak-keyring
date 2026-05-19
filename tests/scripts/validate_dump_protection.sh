@@ -40,7 +40,10 @@ fi
 
 # --- macOS artifact locations ---
 CORES_DIR="/cores"
-REPORTS_DIR="$HOME/Library/Logs/DiagnosticReports"
+REPORTS_DIRS=(
+    "$HOME/Library/Logs/DiagnosticReports"
+    "/Library/Logs/DiagnosticReports"
+)
 RESULT_FILE="$HOME/oak_dump_validation_result_$(date '+%Y%m%d_%H%M%S').txt"
 
 # --- Helper functions ---
@@ -81,7 +84,9 @@ list_harness_artifacts() {
     PRE_CORES_FILE="$(mktemp)"
     PRE_REPORTS_FILE="$(mktemp)"
     ls -1 "$CORES_DIR" 2>/dev/null > "$PRE_CORES_FILE" || true
-    list_harness_artifacts "$REPORTS_DIR" > "$PRE_REPORTS_FILE" || true
+    for dir in "${REPORTS_DIRS[@]}"; do
+        list_harness_artifacts "$dir" >> "$PRE_REPORTS_FILE" || true
+    done
     PRE_CORE_COUNT="$(wc -l < "$PRE_CORES_FILE" | tr -d ' ')"
     PRE_REPORT_COUNT="$(wc -l < "$PRE_REPORTS_FILE" | tr -d ' ')"
     log "Pre-existing cores in $CORES_DIR: $PRE_CORE_COUNT"
@@ -108,7 +113,9 @@ list_harness_artifacts() {
     POST_CORES_FILE="$(mktemp)"
     POST_REPORTS_FILE="$(mktemp)"
     ls -1 "$CORES_DIR" 2>/dev/null > "$POST_CORES_FILE" || true
-    list_harness_artifacts "$REPORTS_DIR" > "$POST_REPORTS_FILE" || true
+    for dir in "${REPORTS_DIRS[@]}"; do
+        list_harness_artifacts "$dir" >> "$POST_REPORTS_FILE" || true
+    done
 
     NEW_ARTIFACTS_FILE="$(mktemp)"
     comm -13 "$PRE_CORES_FILE" "$POST_CORES_FILE" | while read -r f; do
