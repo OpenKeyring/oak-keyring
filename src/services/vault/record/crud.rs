@@ -4,11 +4,16 @@ use crate::services::vault::VaultServiceImpl;
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::cloud::{
+    AadFields, CloudPrivateMetadata, CloudRecord, EncryptedRecordMetadata, RecordHealthMetadata,
+    RecordMetadata,
+};
 use crate::crypto::payload;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
+use crate::types::health::RecordHealthState;
 use crate::types::record::{CreateRecordParams, DecryptedRecord, StoredRecord, UpdateRecordParams};
 
 use super::helpers::{
@@ -16,6 +21,100 @@ use super::helpers::{
 };
 
 impl VaultServiceImpl {
+    /// Build a sync upload record with private metadata encrypted for cloud.
+    pub fn build_cloud_record_for_sync(
+        &self,
+        record: &StoredRecord,
+        health: Option<RecordHealthState>,
+    ) -> Result<CloudRecord, VaultError> {
+        use base64::Engine;
+
+        let name = self.decrypt_record_name_for_sync(record)?;
+        let encrypted_data_base64 =
+            base64::engine::general_purpose::STANDARD.encode(&record.encrypted_data);
+        let nonce_base64 = base64::engine::general_purpose::STANDARD.encode(record.nonce);
+        let private_metadata = CloudPrivateMetadata {
+            name,
+            tags: record.tags.clone(),
+            credential_type: Some(record.credential_type),
+            is_favorite: Some(record.is_favorite),
+            expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
+            updated_by: Some(record.updated_by.clone()),
+            health: health.as_ref().map(RecordHealthMetadata::from_state),
+        };
+        let private_json = serde_json::to_vec(&private_metadata)
+            .map_err(|e| VaultError::CryptoError(e.to_string()))?;
+        let metadata_aad = format!("cloud-metadata:{}", record.id);
+        let (private_encrypted, private_nonce) = self
+            .crypto
+            .encrypt(&private_json, metadata_aad.as_bytes())
+            .map_err(VaultError::CryptoError)?;
+
+        Ok(CloudRecord {
+            id: record.id.to_string(),
+            version: record.version,
+            encrypted_data: encrypted_data_base64,
+            nonce: nonce_base64,
+            dek_version: record.dek_version,
+            aad: AadFields {
+                record_id: record.id.to_string(),
+                dek_version: record.dek_version,
+            },
+            metadata: RecordMetadata {
+                name: "encrypted".to_string(),
+                tags: Vec::new(),
+                updated_at: record.updated_at.to_rfc3339(),
+                encrypted_metadata: Some(EncryptedRecordMetadata {
+                    encrypted_data: base64::engine::general_purpose::STANDARD
+                        .encode(private_encrypted),
+                    nonce: base64::engine::general_purpose::STANDARD.encode(private_nonce),
+                    dek_version: self.crypto.current_dek_version(),
+                }),
+                ..Default::default()
+            },
+            deleted: if record.deleted { Some(true) } else { None },
+            deleted_at: record.deleted_at.map(|dt| dt.to_rfc3339()),
+        })
+    }
+
+    fn decrypt_cloud_private_metadata(
+        &self,
+        cloud_record: &CloudRecord,
+    ) -> Result<Option<CloudPrivateMetadata>, VaultError> {
+        use base64::Engine;
+
+        let Some(encrypted_metadata) = cloud_record.metadata.encrypted_metadata.as_ref() else {
+            return Ok(None);
+        };
+
+        let encrypted_data = base64::engine::general_purpose::STANDARD
+            .decode(&encrypted_metadata.encrypted_data)
+            .map_err(|e| {
+                VaultError::CryptoError(format!("invalid encrypted_metadata base64: {}", e))
+            })?;
+        let nonce_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&encrypted_metadata.nonce)
+            .map_err(|e| {
+                VaultError::CryptoError(format!("invalid encrypted_metadata nonce base64: {}", e))
+            })?;
+        let nonce: [u8; 24] = nonce_bytes.try_into().map_err(|_| {
+            VaultError::CryptoError("encrypted_metadata nonce must be 24 bytes".to_string())
+        })?;
+        let metadata_aad = format!("cloud-metadata:{}", cloud_record.id);
+        let plaintext = self
+            .crypto
+            .decrypt(
+                &encrypted_data,
+                &nonce,
+                metadata_aad.as_bytes(),
+                encrypted_metadata.dek_version,
+            )
+            .map_err(VaultError::CryptoError)?;
+        serde_json::from_slice(&plaintext)
+            .map(Some)
+            .map_err(|e| VaultError::CryptoError(format!("invalid encrypted_metadata json: {}", e)))
+    }
+
     /// Create a new vault record with encryption, tags, and audit logging.
     ///
     /// Returns the UUID of the newly created record.
@@ -507,24 +606,36 @@ impl VaultServiceImpl {
             None
         };
 
-        // Preserve record attributes from cloud metadata; use safe defaults for
-        // older cloud records that don't carry these fields (backward compat).
-        let credential_type = cloud_record
-            .metadata
-            .credential_type
+        let private_metadata = self.decrypt_cloud_private_metadata(cloud_record)?;
+
+        // Preserve record attributes from encrypted private metadata when
+        // present; fall back to plaintext legacy metadata for older clients.
+        let credential_type = private_metadata
+            .as_ref()
+            .and_then(|m| m.credential_type)
+            .or(cloud_record.metadata.credential_type)
             .unwrap_or(crate::types::credential::CredentialType::Login);
-        let is_favorite = cloud_record.metadata.is_favorite.unwrap_or(false);
-        let expires_at = cloud_record
-            .metadata
-            .expires_at
-            .as_deref()
+        let is_favorite = private_metadata
+            .as_ref()
+            .and_then(|m| m.is_favorite)
+            .or(cloud_record.metadata.is_favorite)
+            .unwrap_or(false);
+        let expires_at_raw = private_metadata
+            .as_ref()
+            .and_then(|m| m.expires_at.as_deref())
+            .or(cloud_record.metadata.expires_at.as_deref());
+        let expires_at = expires_at_raw
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&chrono::Utc));
-        let updated_by = cloud_record
-            .metadata
-            .updated_by
-            .clone()
+        let updated_by = private_metadata
+            .as_ref()
+            .and_then(|m| m.updated_by.clone())
+            .or_else(|| cloud_record.metadata.updated_by.clone())
             .unwrap_or_else(|| "sync".to_string());
+        let tags = private_metadata
+            .as_ref()
+            .map(|m| m.tags.clone())
+            .unwrap_or_else(|| cloud_record.metadata.tags.clone());
 
         let stored = crate::types::record::StoredRecord {
             id,
@@ -541,7 +652,7 @@ impl VaultServiceImpl {
             version: cloud_record.version,
             deleted,
             deleted_at,
-            tags: cloud_record.metadata.tags.clone(),
+            tags,
         };
 
         if is_new {
@@ -550,6 +661,17 @@ impl VaultServiceImpl {
             let local_version = existing.as_ref().map_or(0, |r| r.version);
             crate::db::queries::update_record(&self.conn, &stored, local_version)
                 .map_err(db_error_to_vault)?;
+        }
+
+        if let Some(private_metadata) = private_metadata {
+            if let Some(health) = private_metadata.health {
+                let health_state = health.to_state(id, cloud_record.version);
+                crate::db::queries::upsert_record_health_state(&self.conn, &health_state)
+                    .map_err(db_error_to_vault)?;
+            } else {
+                crate::db::queries::delete_record_health_state(&self.conn, &id)
+                    .map_err(db_error_to_vault)?;
+            }
         }
 
         Ok(is_new)

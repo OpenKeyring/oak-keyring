@@ -3,6 +3,7 @@
 //! Manages the sync state machine, coordinates with the sync pipeline,
 //! handles commands, and emits events.
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
@@ -75,6 +76,9 @@ pub enum SyncEvent {
         Vec<RecordHealthState>,
         Vec<Uuid>,
         Vec<CloudRecord>,
+        Vec<String>,
+        HashMap<String, Vec<u8>>,
+        Option<CloudMetadata>,
     ),
     /// Sync cycle failed with an error and current state.
     Failed { error: String, state: SyncState },
@@ -274,14 +278,25 @@ impl SyncTask {
 
         // Execute the sync pipeline
         let start = Instant::now();
-        let (result, health_adapter, health_states, health_deleted, downloaded) =
-            self.execute_pipeline().await;
+        let (
+            result,
+            health_adapter,
+            health_states,
+            health_deleted,
+            downloaded,
+            uploaded_ids,
+            conflict_data,
+            final_metadata,
+        ) = self.execute_pipeline().await;
         self.handle_pipeline_result(
             result,
             health_adapter,
             health_states,
             health_deleted,
             downloaded,
+            uploaded_ids,
+            conflict_data,
+            final_metadata,
             start,
         )
         .await;
@@ -326,14 +341,25 @@ impl SyncTask {
 
         // Execute the sync pipeline (same as trigger sync for now)
         let start = Instant::now();
-        let (result, health_adapter, health_states, health_deleted, downloaded) =
-            self.execute_pipeline().await;
+        let (
+            result,
+            health_adapter,
+            health_states,
+            health_deleted,
+            downloaded,
+            uploaded_ids,
+            conflict_data,
+            final_metadata,
+        ) = self.execute_pipeline().await;
         self.handle_pipeline_result(
             result,
             health_adapter,
             health_states,
             health_deleted,
             downloaded,
+            uploaded_ids,
+            conflict_data,
+            final_metadata,
             start,
         )
         .await;
@@ -581,6 +607,9 @@ impl SyncTask {
         Vec<RecordHealthState>,
         Vec<Uuid>,
         Vec<CloudRecord>,
+        Vec<String>,
+        HashMap<String, Vec<u8>>,
+        Option<CloudMetadata>,
     ) {
         let checkpoint = SyncCheckpoint::new(std::env::temp_dir());
 
@@ -616,6 +645,9 @@ impl SyncTask {
         let downloaded_health_deleted = std::mem::take(&mut context.downloaded_health_deleted);
         let downloaded_records: Vec<CloudRecord> =
             context.downloads.drain().map(|(_, v)| v).collect();
+        let uploaded_ids = std::mem::take(&mut context.uploaded_ids);
+        let conflict_data = std::mem::take(&mut context.conflict_data_map);
+        let final_metadata = context.final_metadata.clone();
         let adapter = context.take_health_adapter();
 
         // Store conflict items for later resolution
@@ -624,7 +656,7 @@ impl SyncTask {
                 .conflicts
                 .iter()
                 .filter_map(|id| {
-                    let conflict_data = context.conflict_data_map.get(id)?.clone();
+                    let conflict_data = conflict_data.get(id)?.clone();
                     let local_record = context.local_records.iter().find(|r| r.record_id == *id)?;
                     let record_uuid = Uuid::parse_str(id).ok()?;
                     Some(ConflictItem {
@@ -642,6 +674,9 @@ impl SyncTask {
             downloaded_health_states,
             downloaded_health_deleted,
             downloaded_records,
+            uploaded_ids,
+            conflict_data,
+            final_metadata,
         )
     }
 
@@ -653,19 +688,19 @@ impl SyncTask {
         downloaded_health_states: Vec<RecordHealthState>,
         downloaded_health_deleted: Vec<Uuid>,
         downloaded_records: Vec<CloudRecord>,
+        uploaded_ids: Vec<String>,
+        conflict_data: HashMap<String, Vec<u8>>,
+        final_metadata: Option<CloudMetadata>,
         start: Instant,
     ) {
         let duration_ms = start.elapsed().as_millis() as u64;
-        let uploaded_count = self
-            .vault_data
-            .as_ref()
-            .map_or(0, |d| d.uploads.len() as u32);
+        let uploaded_count = uploaded_ids.len() as u32;
         let downloaded_count = downloaded_records.len() as u32;
 
         match result {
             PipelineResult::Completed => {
                 let from_state = self.state_machine.current_state().clone();
-                let _ = self.state_machine.transition(SyncTrigger::ReportCompleted);
+                self.state_machine.reset();
                 let to_state = self.state_machine.current_state().clone();
                 let _ = self
                     .event_tx
@@ -689,12 +724,15 @@ impl SyncTask {
                         downloaded_health_states,
                         downloaded_health_deleted,
                         downloaded_records,
+                        uploaded_ids,
+                        conflict_data,
+                        final_metadata,
                     ))
                     .await;
             }
             PipelineResult::NoChanges => {
                 let from_state = self.state_machine.current_state().clone();
-                let _ = self.state_machine.transition(SyncTrigger::ReportCompleted);
+                self.state_machine.reset();
                 let to_state = self.state_machine.current_state().clone();
                 let _ = self
                     .event_tx
@@ -718,14 +756,15 @@ impl SyncTask {
                         downloaded_health_states,
                         downloaded_health_deleted,
                         downloaded_records,
+                        uploaded_ids,
+                        conflict_data,
+                        final_metadata,
                     ))
                     .await;
             }
             PipelineResult::ConflictsDetected { conflict_ids } => {
                 let from_state = self.state_machine.current_state().clone();
-                let _ = self.state_machine.transition(SyncTrigger::PushCompleted {
-                    has_conflicts: true,
-                });
+                self.state_machine.reset();
                 let to_state = self.state_machine.current_state().clone();
                 let _ = self
                     .event_tx
@@ -749,6 +788,9 @@ impl SyncTask {
                         downloaded_health_states,
                         downloaded_health_deleted,
                         downloaded_records,
+                        uploaded_ids,
+                        conflict_data,
+                        final_metadata,
                     ))
                     .await;
             }
@@ -1179,8 +1221,16 @@ mod tests {
         // both Completed and Failed. The key invariant is that the pipeline ran
         // with vault data (the event was emitted without panic).
         match final_event {
-            Some(SyncEvent::Completed(report, health_states, health_deleted, _downloaded)) => {
-                assert_eq!(report.uploaded, 2);
+            Some(SyncEvent::Completed(
+                report,
+                health_states,
+                health_deleted,
+                _downloaded,
+                uploaded_ids,
+                _conflict_data,
+                _final_metadata,
+            )) => {
+                assert_eq!(report.uploaded, uploaded_ids.len() as u32);
                 assert!(health_states.is_empty());
                 assert!(health_deleted.is_empty());
             }

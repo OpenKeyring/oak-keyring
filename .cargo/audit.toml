@@ -1,0 +1,8 @@
+[advisories]
+# Accepted while upstream OpenDAL-related dependency chains are being retired or
+# fixed upstream. The default Google Drive build no longer pulls these crates;
+# keep the ignores as an explicit policy for non-default experiments.
+ignore = [
+    "RUSTSEC-2023-0071", # rsa: Marvin attack timing sidechannel
+    "RUSTSEC-2024-0384", # instant: unmaintained
+]

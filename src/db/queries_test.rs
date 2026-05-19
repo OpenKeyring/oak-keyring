@@ -8,6 +8,7 @@ use crate::types::audit::AuditOperation;
 use crate::types::credential::CredentialType;
 use crate::types::health::RecordHealthState;
 use crate::types::record::StoredRecord;
+use crate::types::sync::SyncStatus;
 
 fn fresh_db() -> Connection {
     init_db_in_memory().unwrap()
@@ -84,6 +85,48 @@ fn get_nonexistent_record_returns_none() {
         result.is_none(),
         "should return None for nonexistent record"
     );
+}
+
+#[test]
+fn sync_state_can_transition_pending_conflict_and_synced() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    insert_record(&db, &sample_record(id)).unwrap();
+
+    upsert_sync_state_pending(&db, &id).unwrap();
+    let statuses = load_sync_status_map(&db);
+    assert_eq!(statuses.get(&id.to_string()), Some(&SyncStatus::Pending));
+
+    mark_sync_state_conflict(&db, &id, b"remote-conflict").unwrap();
+    let states = load_sync_states(&db).unwrap();
+    let conflict = states.get(&id.to_string()).unwrap();
+    assert_eq!(conflict.sync_status, SyncStatus::Conflict);
+    assert_eq!(
+        conflict.conflict_data.as_deref(),
+        Some(&b"remote-conflict"[..])
+    );
+
+    mark_sync_state_synced(&db, &id).unwrap();
+    let states = load_sync_states(&db).unwrap();
+    let synced = states.get(&id.to_string()).unwrap();
+    assert_eq!(synced.sync_status, SyncStatus::Synced);
+    assert!(synced.conflict_data.is_none());
+    assert!(synced.cloud_updated_at.is_some());
+}
+
+#[test]
+fn update_record_version_sets_exact_version_without_reencrypting() {
+    let db = fresh_db();
+    let id = Uuid::new_v4();
+    let original = sample_record(id);
+    let original_encrypted = original.encrypted_data.clone();
+    insert_record(&db, &original).unwrap();
+
+    update_record_version(&db, &id, 9).unwrap();
+
+    let fetched = get_record(&db, &id).unwrap().unwrap();
+    assert_eq!(fetched.version, 9);
+    assert_eq!(fetched.encrypted_data, original_encrypted);
 }
 
 // ---------------------------------------------------------------------------

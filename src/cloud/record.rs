@@ -66,6 +66,37 @@ impl RecordHealthMetadata {
     }
 }
 
+/// Encrypted private metadata attached to a cloud record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EncryptedRecordMetadata {
+    pub encrypted_data: String,
+    pub nonce: String,
+    pub dek_version: u32,
+}
+
+/// Private record metadata that must not be stored as plaintext in cloud JSON.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CloudPrivateMetadata {
+    pub name: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "ser_optional_credential_type",
+        deserialize_with = "de_optional_credential_type"
+    )]
+    pub credential_type: Option<crate::types::credential::CredentialType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_favorite: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<RecordHealthMetadata>,
+}
+
 /// Metadata associated with a cloud record.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RecordMetadata {
@@ -88,6 +119,8 @@ pub struct RecordMetadata {
     pub updated_by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health: Option<RecordHealthMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encrypted_metadata: Option<EncryptedRecordMetadata>,
 }
 
 fn ser_optional_credential_type<S>(
@@ -253,6 +286,12 @@ impl CloudRecord {
             .as_ref()
             .map(|h| h.to_state(Uuid::parse_str(&self.id).unwrap_or_default(), self.version))
     }
+
+    /// Returns true when private metadata is encrypted and must be decrypted by
+    /// the vault before deriving local attributes or health state.
+    pub fn has_encrypted_private_metadata(&self) -> bool {
+        self.metadata.encrypted_metadata.is_some()
+    }
 }
 
 /// Build a `CloudRecord` from a `StoredRecord` with optional health state.
@@ -292,6 +331,7 @@ pub fn build_cloud_record(
             expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
             updated_by: Some(record.updated_by.clone()),
             health: health.map(RecordHealthMetadata::from_state),
+            encrypted_metadata: None,
         },
         deleted: if record.deleted { Some(true) } else { None },
         deleted_at: record.deleted_at.map(|dt| dt.to_rfc3339()),

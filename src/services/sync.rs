@@ -3,6 +3,7 @@
 //! A thin wrapper around SyncTask's channel-based command interface.
 //! Provides async methods that send commands and wait for corresponding events.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
@@ -96,6 +97,8 @@ pub struct SyncResult {
     pub downloaded_health_states: Vec<RecordHealthState>,
     pub downloaded_health_deleted: Vec<Uuid>,
     pub downloaded_records: Vec<CloudRecord>,
+    pub uploaded_ids: Vec<String>,
+    pub conflict_data: HashMap<String, Vec<u8>>,
     pub remote_metadata: Option<CloudMetadata>,
 }
 
@@ -200,15 +203,23 @@ impl SyncServiceImpl {
             .await?;
 
         match event {
-            SyncEvent::Completed(report, health_states, health_deleted, records) => {
-                Ok(SyncResult {
-                    report,
-                    downloaded_health_states: health_states,
-                    downloaded_health_deleted: health_deleted,
-                    downloaded_records: records,
-                    remote_metadata: None,
-                })
-            }
+            SyncEvent::Completed(
+                report,
+                health_states,
+                health_deleted,
+                records,
+                uploaded_ids,
+                conflict_data,
+                remote_metadata,
+            ) => Ok(SyncResult {
+                report,
+                downloaded_health_states: health_states,
+                downloaded_health_deleted: health_deleted,
+                downloaded_records: records,
+                uploaded_ids,
+                conflict_data,
+                remote_metadata,
+            }),
             SyncEvent::Failed { error, state: _ } => Err(SyncError::ProviderError {
                 provider: "sync".to_string(),
                 message: error,
@@ -276,8 +287,10 @@ impl SyncServiceImpl {
 
                     if let Some(health_state) = record.to_health_state() {
                         downloaded_health_states.push(health_state);
-                    } else if let Ok(uuid) = Uuid::parse_str(&record_id) {
-                        downloaded_health_deleted.push(uuid);
+                    } else if !record.has_encrypted_private_metadata() {
+                        if let Ok(uuid) = Uuid::parse_str(&record_id) {
+                            downloaded_health_deleted.push(uuid);
+                        }
                     }
                     downloaded_records.push(record);
                 }
@@ -298,6 +311,8 @@ impl SyncServiceImpl {
             downloaded_health_states,
             downloaded_health_deleted,
             downloaded_records,
+            uploaded_ids: Vec::new(),
+            conflict_data: HashMap::new(),
             remote_metadata: Some(metadata),
         })
     }
@@ -726,6 +741,7 @@ mod tests {
                 expires_at: None,
                 updated_by: Some("test-device".to_string()),
                 health: None,
+                encrypted_metadata: None,
             },
             deleted: Some(false),
             deleted_at: None,

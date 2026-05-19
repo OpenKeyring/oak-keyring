@@ -18,8 +18,8 @@ pub use adapters::{
 pub use metadata::{CloudMetadata, DeviceInfo, RecordVersionInfo};
 pub use provider::{create_cloud_storage, provider_name, ProviderAdapter};
 pub use record::{
-    build_cloud_record, AadFields, CloudRecord, ConflictPayload, RecordHealthMetadata,
-    RecordMetadata,
+    build_cloud_record, AadFields, CloudPrivateMetadata, CloudRecord, ConflictPayload,
+    EncryptedRecordMetadata, RecordHealthMetadata, RecordMetadata,
 };
 pub use schema::*;
 pub use storage::CloudStorage;

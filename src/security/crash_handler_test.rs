@@ -17,8 +17,12 @@ mod tests {
     }
 
     /// Verify zeroize_all() actually clears memory.
-    /// Uses `--test-threads=1` annotation to avoid parallel registry conflicts.
+    ///
+    /// This touches the process-global crash registry and can wipe secrets
+    /// owned by unrelated parallel tests, so it must not run in the default
+    /// in-process test suite.
     #[test]
+    #[ignore = "process-global zeroize_all can corrupt unrelated parallel tests"]
     fn zeroize_all_clears_registered_memory() {
         #[cfg(unix)]
         {
@@ -47,6 +51,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "process-global zeroize_all can corrupt unrelated parallel tests"]
     fn zeroize_all_handles_empty_registry() {
         #[cfg(unix)]
         crate::security::crash_handler::zeroize_all();

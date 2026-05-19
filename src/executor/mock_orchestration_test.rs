@@ -453,6 +453,8 @@ async fn trigger_sync_calls_sync_service() {
                     downloaded_health_states: vec![],
                     downloaded_health_deleted: vec![],
                     downloaded_records: vec![],
+                    uploaded_ids: vec![],
+                    conflict_data: std::collections::HashMap::new(),
                     remote_metadata: None,
                 })
             })

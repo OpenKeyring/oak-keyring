@@ -111,6 +111,10 @@ pub struct PipelineContext {
     pub uploads: Vec<CloudRecord>,
     /// Downloaded records from remote.
     pub downloads: HashMap<String, CloudRecord>,
+    /// IDs of records successfully uploaded during Push stage.
+    pub uploaded_ids: Vec<String>,
+    /// Metadata that should be persisted locally after the sync completes.
+    pub final_metadata: Option<CloudMetadata>,
     /// Conflict data stored for resolution.
     pub conflict_data_map: HashMap<String, Vec<u8>>,
     /// Local records info for conflict detection.
@@ -142,6 +146,7 @@ impl fmt::Debug for PipelineContext {
             .field("failed_ids", &self.failed_ids.len())
             .field("uploads", &self.uploads.len())
             .field("downloads", &self.downloads.len())
+            .field("uploaded_ids", &self.uploaded_ids.len())
             .field(
                 "downloaded_health_states",
                 &self.downloaded_health_states.len(),
@@ -200,6 +205,8 @@ impl PipelineContext {
             failed_ids: Vec::new(),
             uploads: Vec::new(),
             downloads: HashMap::new(),
+            uploaded_ids: Vec::new(),
+            final_metadata: None,
             conflict_data_map: HashMap::new(),
             local_records: Vec::new(),
             downloaded_health_states: Vec::new(),
@@ -255,7 +262,24 @@ impl SyncStage for PullMetadataStage {
     async fn execute(&self, context: &mut PipelineContext) -> StageOutcome {
         match context.storage.download_metadata().await {
             Ok(Some(remote_metadata)) => {
-                if remote_metadata.metadata_version == context.local_metadata_version {
+                let has_pending_uploads = context
+                    .local_records
+                    .iter()
+                    .any(|record| record.sync_status == SyncStatus::Pending);
+                let local_record_ids = context
+                    .local_records
+                    .iter()
+                    .map(|record| record.record_id.as_str())
+                    .collect::<std::collections::HashSet<_>>();
+                let has_missing_remote_records = remote_metadata
+                    .records
+                    .iter()
+                    .any(|(id, info)| !info.deleted && !local_record_ids.contains(id.as_str()));
+
+                if remote_metadata.metadata_version == context.local_metadata_version
+                    && !has_pending_uploads
+                    && !has_missing_remote_records
+                {
                     return StageOutcome::NoChanges;
                 }
 
@@ -266,6 +290,7 @@ impl SyncStage for PullMetadataStage {
                     }));
                 }
 
+                context.final_metadata = Some(remote_metadata.clone());
                 context.remote_metadata = Some(remote_metadata);
                 StageOutcome::Continue
             }
@@ -310,6 +335,11 @@ impl SyncStage for DetectStage {
 
         let remote_metadata = context.remote_metadata.as_ref().unwrap();
         let remote_records = &remote_metadata.records;
+        let local_record_ids = context
+            .local_records
+            .iter()
+            .map(|record| record.record_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
 
         for local in &context.local_records {
             let remote_info = remote_records.get(&local.record_id);
@@ -341,6 +371,13 @@ impl SyncStage for DetectStage {
                 }
                 ConflictAction::NoAction => {}
             }
+        }
+
+        for (remote_id, remote_info) in remote_records {
+            if remote_info.deleted || local_record_ids.contains(remote_id.as_str()) {
+                continue;
+            }
+            context.to_download.push(remote_id.clone());
         }
 
         if !context.conflicts.is_empty() {
@@ -379,7 +416,16 @@ impl SyncStage for PushStage {
     async fn execute(&self, context: &mut PipelineContext) -> StageOutcome {
         // Upload path: attach health states from the adapter to CloudRecords
         // that do not already carry health metadata.
+        let to_upload = context
+            .to_upload
+            .iter()
+            .map(String::as_str)
+            .collect::<std::collections::HashSet<_>>();
+
         for record in &mut context.uploads {
+            if !to_upload.contains(record.id.as_str()) {
+                continue;
+            }
             if record.metadata.health.is_none() {
                 if let Ok(id) = Uuid::parse_str(&record.id) {
                     if let Some(state) = context.health_adapter.get_health_state(&id) {
@@ -390,9 +436,14 @@ impl SyncStage for PushStage {
             }
         }
 
-        for record in &context.uploads {
+        for record in context
+            .uploads
+            .iter()
+            .filter(|record| to_upload.contains(record.id.as_str()))
+        {
             match context.storage.upload_record(&record.id, record).await {
                 Ok(()) => {
+                    context.uploaded_ids.push(record.id.clone());
                     if let Ok(id) = Uuid::parse_str(&record.id) {
                         context.checkpoint.record_push_done(id);
                     }
@@ -458,10 +509,13 @@ impl SyncStage for PushStage {
                         // Extract health metadata from the downloaded record.
                         if let Some(health_state) = record.to_health_state() {
                             context.downloaded_health_states.push(health_state);
-                        } else if let Ok(id) = Uuid::parse_str(&record_id) {
+                        } else if !record.has_encrypted_private_metadata() {
                             // Remote has no health metadata — schedule local deletion
-                            // so stale health data doesn't linger.
-                            context.downloaded_health_deleted.push(id);
+                            // so stale health data doesn't linger. Encrypted
+                            // private metadata is decoded later by the vault.
+                            if let Ok(id) = Uuid::parse_str(&record_id) {
+                                context.downloaded_health_deleted.push(id);
+                            }
                         }
 
                         context.downloads.insert(record_id, record);
@@ -529,9 +583,12 @@ impl SyncStage for PushStage {
         }
 
         // Update remote metadata so other devices can detect uploaded records.
-        if !context.uploads.is_empty() {
-            if let Err(e) = Self::push_updated_metadata(context).await {
-                return StageOutcome::Error(Box::new(e));
+        if !context.uploaded_ids.is_empty() {
+            match Self::push_updated_metadata(context).await {
+                Ok(updated) => {
+                    context.final_metadata = Some(updated);
+                }
+                Err(e) => return StageOutcome::Error(Box::new(e)),
             }
         }
 
@@ -548,7 +605,9 @@ impl SyncStage for PushStage {
 impl PushStage {
     /// Build updated CloudMetadata from successfully uploaded records and push
     /// atomically so remote devices can detect the new versions.
-    async fn push_updated_metadata(context: &mut PipelineContext) -> Result<(), SyncError> {
+    async fn push_updated_metadata(
+        context: &mut PipelineContext,
+    ) -> Result<CloudMetadata, SyncError> {
         use crate::cloud::RecordVersionInfo;
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -564,7 +623,7 @@ impl PushStage {
 
         // Add successfully uploaded records to metadata
         for record in &context.uploads {
-            if context.failed_ids.contains(&record.id) {
+            if !context.uploaded_ids.contains(&record.id) {
                 continue;
             }
             let checksum = compute_checksum(&record.encrypted_data)?;
@@ -585,7 +644,9 @@ impl PushStage {
         context
             .storage
             .push_metadata_atomic(&updated_meta, expected_version)
-            .await
+            .await?;
+
+        Ok(updated_meta)
     }
 }
 

@@ -17,9 +17,7 @@ use super::CommandExecutor;
 /// current metadata version. Returns `None` if the vault is locked or a
 /// required read fails.
 pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData>> {
-    use crate::cloud::record::build_cloud_record;
     use crate::sync::pipeline::LocalRecordInfo;
-    use base64::Engine;
 
     // Get vault reference or return None if runtime is not open
     let vault = match executor.vault() {
@@ -74,8 +72,8 @@ pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<Sy
     };
 
     // Build upload CloudRecords for records with pending sync status.
-    // Decrypt each record's name so that CloudRecord::validate() passes on
-    // the remote side. Records whose name cannot be decrypted are skipped.
+    // Vault owns this step because it has both the decrypt and encrypt
+    // capabilities needed for cloud private metadata.
     let uploads: Vec<crate::cloud::CloudRecord> = stored_records
         .iter()
         .filter(|r| {
@@ -86,33 +84,18 @@ pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<Sy
                 == crate::types::sync::SyncStatus::Pending
         })
         .filter_map(|r| {
-            let name = match vault.decrypt_record_name_for_sync(r) {
-                Ok(n) => n,
+            let health = health_states.get(&r.id).cloned();
+            match vault.build_cloud_record_for_sync(r, health) {
+                Ok(record) => Some(record),
                 Err(e) => {
                     tracing::warn!(
                         record_id = %r.id,
                         error = %e,
-                        "Failed to decrypt record name for sync upload, skipping"
+                        "Failed to build cloud record for sync upload, skipping"
                     );
-                    return None;
+                    None
                 }
-            };
-            let encrypted_base64 =
-                base64::engine::general_purpose::STANDARD.encode(&r.encrypted_data);
-            let nonce_base64 = base64::engine::general_purpose::STANDARD.encode(r.nonce);
-            let aad = crate::cloud::record::AadFields {
-                record_id: r.id.to_string(),
-                dek_version: r.dek_version,
-            };
-            let health = health_states.get(&r.id);
-            Some(build_cloud_record(
-                r,
-                &name,
-                &encrypted_base64,
-                &nonce_base64,
-                aad,
-                health,
-            ))
+            }
         })
         .collect();
 
@@ -146,6 +129,7 @@ pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<Sy
         .get_metadata("vault_identity_token")
         .ok()
         .flatten()
+        .or_else(|| vault.get_metadata("vault_id").ok().flatten())
         .unwrap_or_default();
 
     Some(Box::new(SyncVaultData {
@@ -368,6 +352,70 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
                         "Failed to apply downloaded record"
                     );
                 }
+
+                match Uuid::parse_str(&record.id) {
+                    Ok(record_id) => {
+                        if let Err(e) = executor
+                            .vault()
+                            .and_then(|v| v.mark_record_synced(&record_id))
+                        {
+                            tracing::warn!(
+                                record_id = %record.id,
+                                error = %e,
+                                "Failed to mark downloaded record as synced"
+                            );
+                        }
+                    }
+                    Err(e) => tracing::warn!(
+                        record_id = %record.id,
+                        error = %e,
+                        "Downloaded record has invalid UUID"
+                    ),
+                }
+            }
+
+            for record_id in &sync_result.uploaded_ids {
+                match Uuid::parse_str(record_id) {
+                    Ok(record_uuid) => {
+                        if let Err(e) = executor
+                            .vault()
+                            .and_then(|v| v.mark_record_synced(&record_uuid))
+                        {
+                            tracing::warn!(
+                                record_id = %record_id,
+                                error = %e,
+                                "Failed to mark uploaded record as synced"
+                            );
+                        }
+                    }
+                    Err(e) => tracing::warn!(
+                        record_id = %record_id,
+                        error = %e,
+                        "Uploaded record id is not a UUID"
+                    ),
+                }
+            }
+
+            for (record_id, conflict_data) in &sync_result.conflict_data {
+                match Uuid::parse_str(record_id) {
+                    Ok(record_uuid) => {
+                        if let Err(e) = executor
+                            .vault()
+                            .and_then(|v| v.mark_record_conflict(&record_uuid, conflict_data))
+                        {
+                            tracing::warn!(
+                                record_id = %record_id,
+                                error = %e,
+                                "Failed to persist sync conflict state"
+                            );
+                        }
+                    }
+                    Err(e) => tracing::warn!(
+                        record_id = %record_id,
+                        error = %e,
+                        "Conflict record id is not a UUID"
+                    ),
+                }
             }
 
             // Apply downloaded health states to local vault
@@ -391,6 +439,15 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
                         error = %e,
                         "Failed to delete stale health states after sync"
                     );
+                }
+            }
+
+            if let Some(metadata) = sync_result.remote_metadata.as_ref() {
+                if let Err(e) = executor.vault_mut().and_then(|v| {
+                    v.set_metadata("metadata_version", &metadata.metadata_version.to_string())?;
+                    v.set_metadata("vault_identity_token", &metadata.vault_identity_token)
+                }) {
+                    tracing::warn!(error = %e, "Failed to persist sync metadata");
                 }
             }
 
@@ -736,10 +793,13 @@ mod restore_password_tests {
                     expires_at: None,
                     updated_by: Some("test-device".to_string()),
                     health: None,
+                    encrypted_metadata: None,
                 },
                 deleted: Some(false),
                 deleted_at: None,
             }],
+            uploaded_ids: Vec::new(),
+            conflict_data: std::collections::HashMap::new(),
             remote_metadata: Some(metadata),
         }
     }
