@@ -8,7 +8,7 @@
 // Platform-specific implementation:
 // - Unix (macOS, Linux): uses setrlimit(RLIMIT_CORE, 0)
 // - Linux: additionally uses prctl(PR_SET_DUMPABLE, 0)
-// - macOS: additionally uses ptrace(PT_DENY_ATTACH, 0, 0, 0)
+// - macOS: additionally uses Mach exception ports + SIGABRT handler
 // - Windows: no protections implemented in this spec
 //
 // All protections are best-effort - failures log warnings but don't crash.
@@ -27,9 +27,13 @@ pub struct ProcessProtections {
     #[cfg(target_os = "linux")]
     pub dumpable_disabled: bool,
 
-    /// Debugger attach disabled via ptrace(PT_DENY_ATTACH) on macOS.
+    /// Mach exception port installed for hardware exceptions (SIGSEGV, SIGBUS, etc.) on macOS.
     #[cfg(target_os = "macos")]
-    pub debugger_attach_disabled: bool,
+    pub mach_exception_installed: bool,
+
+    /// SIGABRT signal handler installed on macOS.
+    #[cfg(target_os = "macos")]
+    pub sigabrt_handler_installed: bool,
 }
 
 impl fmt::Display for ProcessProtections {
@@ -46,8 +50,13 @@ impl fmt::Display for ProcessProtections {
         }
 
         #[cfg(target_os = "macos")]
-        if self.debugger_attach_disabled {
-            enabled.push("debugger attach disabled");
+        {
+            if self.mach_exception_installed {
+                enabled.push("Mach exception port");
+            }
+            if self.sigabrt_handler_installed {
+                enabled.push("SIGABRT handler");
+            }
         }
 
         if enabled.is_empty() {
@@ -73,8 +82,8 @@ impl fmt::Display for ProcessProtections {
 ///   core dumps.
 /// - **Linux**: Additionally calls `prctl(PR_SET_DUMPABLE, 0)` to prevent
 ///   the process from being dumped by ptrace.
-/// - **macOS**: Additionally calls `ptrace(PT_DENY_ATTACH, 0, 0, 0)` to
-///   prevent debugger attachment (may not be available in all libc versions).
+/// - **macOS**: Additionally installs Mach exception ports and a SIGABRT
+///   signal handler to prevent CrashReporter from generating crash logs.
 /// - **Windows**: No protections are applied in this implementation.
 ///
 /// # Examples
@@ -105,7 +114,9 @@ pub fn apply_process_protections() -> ProcessProtections {
     // Apply additional macOS-specific protection
     #[cfg(target_os = "macos")]
     {
-        protections.debugger_attach_disabled = disable_debugger_attach();
+        let (mach_installed, sigabrt_installed) = install_crash_handlers();
+        protections.mach_exception_installed = mach_installed;
+        protections.sigabrt_handler_installed = sigabrt_installed;
     }
 
     protections
@@ -163,35 +174,19 @@ fn disable_dumpable() -> bool {
     }
 }
 
-/// Disables debugger attach via ptrace(PT_DENY_ATTACH, 0, 0, 0).
+/// Installs Mach exception ports and SIGABRT handler on macOS.
 #[cfg(target_os = "macos")]
-fn disable_debugger_attach() -> bool {
-    unsafe {
-        // SAFETY: ptrace is a POSIX system call for process tracing.
-        // PT_DENY_ATTACH is a macOS-specific request that prevents
-        // debugger attachment. This is a safe operation with no
-        // adverse effects beyond preventing debugging.
-        //
-        // Note: PT_DENY_ATTACH may not be available in all libc versions.
-        // If the symbol is not available at link time, this will fail
-        // to compile. We handle this by making the entire function
-        // platform-specific.
+fn install_crash_handlers() -> (bool, bool) {
+    use crate::security::mach_exception::install_crash_handlers;
 
-        // PT_DENY_ATTACH is 0x1E on macOS (ARM64 and x86_64)
-        // This value is from <sys/ptrace.h>
-        const PT_DENY_ATTACH: libc::c_int = 0x1E;
-
-        let result = libc::ptrace(PT_DENY_ATTACH, 0, std::ptr::null_mut(), 0);
-
-        if result != 0 {
-            let err = std::io::Error::last_os_error();
+    match install_crash_handlers() {
+        Ok((mach, sigabrt)) => (mach, sigabrt),
+        Err(e) => {
             tracing::warn!(
-                error = %err,
-                "Failed to disable debugger attach via ptrace(PT_DENY_ATTACH)"
+                error = %e,
+                "Failed to install Mach exception handlers"
             );
-            false
-        } else {
-            true
+            (false, false)
         }
     }
 }
@@ -209,7 +204,10 @@ mod tests {
         assert!(!protections.dumpable_disabled);
 
         #[cfg(target_os = "macos")]
-        assert!(!protections.debugger_attach_disabled);
+        {
+            assert!(!protections.mach_exception_installed);
+            assert!(!protections.sigabrt_handler_installed);
+        }
     }
 
     #[test]
@@ -248,12 +246,14 @@ mod tests {
     fn process_protections_display_with_all_macos() {
         let protections = ProcessProtections {
             core_dump_disabled: true,
-            debugger_attach_disabled: true,
+            mach_exception_installed: true,
+            sigabrt_handler_installed: true,
         };
 
         let display = format!("{}", protections);
         assert!(display.contains("core dump disabled"));
-        assert!(display.contains("debugger attach disabled"));
+        assert!(display.contains("Mach exception port"));
+        assert!(display.contains("SIGABRT handler"));
     }
 
     #[test]
