@@ -6,6 +6,8 @@
 // Gap addressed: existing unit tests only cover KeyStore::change_cmk and
 // screen state in isolation. These tests prove the wiring works end-to-end.
 
+use std::time::Duration;
+
 use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
 use oak_keyring::executor::{CommandExecutor, DbStartupMode};
@@ -16,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 struct Harness {
     command_tx: mpsc::Sender<Command>,
     result_rx: mpsc::Receiver<Message>,
+    handle: tokio::task::JoinHandle<()>,
     _temp: tempfile::TempDir,
 }
 
@@ -33,17 +36,18 @@ impl Harness {
             AppConfig::default(),
             result_tx,
             CancellationToken::new(),
-            data_dir.clone(),
+            data_dir,
             config_dir,
             DbStartupMode::FileBacked,
         )
         .unwrap();
 
-        tokio::spawn(async move { executor.run(command_rx).await });
+        let handle = tokio::spawn(async move { executor.run(command_rx).await });
 
         Harness {
             command_tx,
             result_rx,
+            handle,
             _temp: temp,
         }
     }
@@ -54,16 +58,13 @@ impl Harness {
 
     async fn recv_result(&mut self) -> CommandResult {
         loop {
-            let msg = self.result_rx.recv().await.expect("result channel closed");
+            let msg = tokio::time::timeout(Duration::from_secs(10), self.result_rx.recv())
+                .await
+                .expect("timeout waiting for result — executor may have panicked")
+                .expect("result channel closed");
             match msg {
                 Message::CommandCompleted(result) => {
-                    // Skip background health-check results injected by unlock.
-                    if matches!(
-                        result,
-                        CommandResult::HealthCheckStarted
-                            | CommandResult::HealthCheckCompleted { .. }
-                            | CommandResult::Cancelled { .. }
-                    ) {
+                    if is_background_result(&result) {
                         continue;
                     }
                     return result;
@@ -72,6 +73,22 @@ impl Harness {
             }
         }
     }
+
+    async fn shutdown(self) {
+        drop(self.command_tx);
+        self.handle.await.expect("executor task panicked");
+    }
+}
+
+fn is_background_result(result: &CommandResult) -> bool {
+    matches!(
+        result,
+        CommandResult::HealthCheckStarted
+            | CommandResult::HealthCheckCompleted { .. }
+            | CommandResult::HealthCheckSkipped
+            | CommandResult::HibpCheckCompleted { .. }
+            | CommandResult::Cancelled { .. }
+    )
 }
 
 async fn init_and_unlock(harness: &mut Harness, password: &str) {
@@ -98,6 +115,15 @@ async fn init_and_unlock(harness: &mut Harness, password: &str) {
     assert!(
         matches!(result, CommandResult::VaultUnlocked),
         "expected VaultUnlocked, got: {result:?}"
+    );
+}
+
+async fn lock(harness: &mut Harness) {
+    harness.send(Command::LockVault).await;
+    let result = harness.recv_result().await;
+    assert!(
+        matches!(result, CommandResult::VaultLocked),
+        "expected VaultLocked, got: {result:?}"
     );
 }
 
@@ -136,12 +162,7 @@ async fn verify_then_change_master_password_pipeline_succeeds() {
     );
 
     // 4. Unlock with the new password must succeed.
-    h.send(Command::LockVault).await;
-    let lock_result = h.recv_result().await;
-    assert!(
-        matches!(lock_result, CommandResult::VaultLocked),
-        "expected VaultLocked, got: {lock_result:?}"
-    );
+    lock(&mut h).await;
 
     h.send(Command::UnlockVault {
         master_password: SecureStr::new(new_pw.to_string()),
@@ -155,12 +176,7 @@ async fn verify_then_change_master_password_pipeline_succeeds() {
     );
 
     // 5. Unlock with the old password must fail.
-    h.send(Command::LockVault).await;
-    let lock_result = h.recv_result().await;
-    assert!(
-        matches!(lock_result, CommandResult::VaultLocked),
-        "expected VaultLocked, got: {lock_result:?}"
-    );
+    lock(&mut h).await;
 
     h.send(Command::UnlockVault {
         master_password: SecureStr::new(old_pw.to_string()),
@@ -172,6 +188,8 @@ async fn verify_then_change_master_password_pipeline_succeeds() {
         matches!(result, CommandResult::VaultUnlockFailed { .. }),
         "unlocking with old password must fail, got: {result:?}"
     );
+
+    h.shutdown().await;
 }
 
 #[tokio::test]
@@ -196,8 +214,7 @@ async fn change_master_password_with_explicit_current_password() {
     );
 
     // Verify new password works.
-    h.send(Command::LockVault).await;
-    h.recv_result().await;
+    lock(&mut h).await;
 
     h.send(Command::UnlockVault {
         master_password: SecureStr::new(new_pw.to_string()),
@@ -209,6 +226,8 @@ async fn change_master_password_with_explicit_current_password() {
         matches!(result, CommandResult::VaultUnlocked),
         "new password must work after change, got: {result:?}"
     );
+
+    h.shutdown().await;
 }
 
 #[tokio::test]
@@ -227,9 +246,11 @@ async fn change_master_password_without_verified_password_fails() {
 
     let result = h.recv_result().await;
     assert!(
-        matches!(result, CommandResult::Error { .. }),
-        "expected error when no verified password cached, got: {result:?}"
+        matches!(&result, CommandResult::Error { fallback, .. } if fallback.contains("not available")),
+        "expected 'not available' error when no verified password cached, got: {result:?}"
     );
+
+    h.shutdown().await;
 }
 
 #[tokio::test]
@@ -246,9 +267,11 @@ async fn verify_master_password_rejects_wrong_password() {
 
     let result = h.recv_result().await;
     assert!(
-        matches!(result, CommandResult::Error { .. }),
-        "expected error for wrong password verification, got: {result:?}"
+        matches!(&result, CommandResult::Error { fallback, .. } if fallback.contains("verification failed")),
+        "expected 'verification failed' error for wrong password, got: {result:?}"
     );
+
+    h.shutdown().await;
 }
 
 #[tokio::test]
@@ -267,13 +290,12 @@ async fn change_master_password_wrong_old_password_fails() {
 
     let result = h.recv_result().await;
     assert!(
-        matches!(result, CommandResult::Error { .. }),
-        "expected error for wrong old password, got: {result:?}"
+        matches!(&result, CommandResult::Error { fallback, .. } if fallback.contains("change_password_failed") || fallback.contains("Failed to change")),
+        "expected change-password error for wrong old password, got: {result:?}"
     );
 
     // Original password should still work.
-    h.send(Command::LockVault).await;
-    h.recv_result().await;
+    lock(&mut h).await;
 
     h.send(Command::UnlockVault {
         master_password: SecureStr::new(old_pw.to_string()),
@@ -285,4 +307,6 @@ async fn change_master_password_wrong_old_password_fails() {
         matches!(result, CommandResult::VaultUnlocked),
         "original password must still work after failed change, got: {result:?}"
     );
+
+    h.shutdown().await;
 }
