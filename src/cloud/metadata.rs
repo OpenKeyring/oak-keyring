@@ -23,6 +23,8 @@ pub struct RecordVersionInfo {
     pub updated_at: String,
     pub updated_by: String,
     pub checksum: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_metadata_checksum: Option<String>,
     #[serde(default)]
     pub deleted: bool,
 }
@@ -204,6 +206,7 @@ mod tests {
                 updated_at: "2026-04-05T12:00:00Z".to_string(),
                 updated_by: "device-1".to_string(),
                 checksum: "abc123".to_string(),
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );
@@ -386,6 +389,7 @@ mod tests {
             updated_at: "2026-04-05T12:00:00Z".to_string(),
             updated_by: "device-1".to_string(),
             checksum: "checksum1".to_string(),
+            private_metadata_checksum: None,
             deleted: false,
         };
         metadata.upsert_record("record-1".to_string(), info1);
@@ -396,6 +400,7 @@ mod tests {
             updated_at: "2026-04-05T13:00:00Z".to_string(),
             updated_by: "device-1".to_string(),
             checksum: "checksum2".to_string(),
+            private_metadata_checksum: None,
             deleted: false,
         };
         metadata.upsert_record("record-1".to_string(), info2);

@@ -10,6 +10,8 @@ use crate::types::{SecureStr, SyncStats};
 
 use super::CommandExecutor;
 
+const REMOTE_METADATA_SNAPSHOT_KEY: &str = "remote_metadata_snapshot";
+
 /// Builds a SyncVaultData snapshot from the current vault state.
 ///
 /// Reads local records, their sync status, the pending upload CloudRecords
@@ -17,9 +19,7 @@ use super::CommandExecutor;
 /// current metadata version. Returns `None` if the vault is locked or a
 /// required read fails.
 pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData>> {
-    use crate::cloud::record::build_cloud_record;
     use crate::sync::pipeline::LocalRecordInfo;
-    use base64::Engine;
 
     // Get vault reference or return None if runtime is not open
     let vault = match executor.vault() {
@@ -74,8 +74,8 @@ pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<Sy
     };
 
     // Build upload CloudRecords for records with pending sync status.
-    // Decrypt each record's name so that CloudRecord::validate() passes on
-    // the remote side. Records whose name cannot be decrypted are skipped.
+    // Vault owns this step because it has both the decrypt and encrypt
+    // capabilities needed for cloud private metadata.
     let uploads: Vec<crate::cloud::CloudRecord> = stored_records
         .iter()
         .filter(|r| {
@@ -86,33 +86,18 @@ pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<Sy
                 == crate::types::sync::SyncStatus::Pending
         })
         .filter_map(|r| {
-            let name = match vault.decrypt_record_name_for_sync(r) {
-                Ok(n) => n,
+            let health = health_states.get(&r.id).cloned();
+            match vault.build_cloud_record_for_sync(r, health) {
+                Ok(record) => Some(record),
                 Err(e) => {
                     tracing::warn!(
                         record_id = %r.id,
                         error = %e,
-                        "Failed to decrypt record name for sync upload, skipping"
+                        "Failed to build cloud record for sync upload, skipping"
                     );
-                    return None;
+                    None
                 }
-            };
-            let encrypted_base64 =
-                base64::engine::general_purpose::STANDARD.encode(&r.encrypted_data);
-            let nonce_base64 = base64::engine::general_purpose::STANDARD.encode(r.nonce);
-            let aad = crate::cloud::record::AadFields {
-                record_id: r.id.to_string(),
-                dek_version: r.dek_version,
-            };
-            let health = health_states.get(&r.id);
-            Some(build_cloud_record(
-                r,
-                &name,
-                &encrypted_base64,
-                &nonce_base64,
-                aad,
-                health,
-            ))
+            }
         })
         .collect();
 
@@ -141,17 +126,35 @@ pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<Sy
         .flatten()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(0);
+    let last_remote_metadata = vault
+        .get_metadata(REMOTE_METADATA_SNAPSHOT_KEY)
+        .ok()
+        .flatten()
+        .and_then(
+            |json| match crate::cloud::metadata::deserialize_metadata(&json) {
+                Ok(metadata) => Some(metadata),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "Ignoring invalid persisted remote metadata snapshot"
+                    );
+                    None
+                }
+            },
+        );
 
     let vault_token = vault
         .get_metadata("vault_identity_token")
         .ok()
         .flatten()
+        .or_else(|| vault.get_metadata("vault_id").ok().flatten())
         .unwrap_or_default();
 
     Some(Box::new(SyncVaultData {
         local_records,
         uploads: valid_uploads,
         local_metadata_version: metadata_version,
+        last_remote_metadata,
         local_vault_token: vault_token,
     }))
 }
@@ -283,6 +286,9 @@ fn persist_restored_cloud_data(
     if let Some(metadata) = result.remote_metadata.as_ref() {
         target.set_metadata("metadata_version", &metadata.metadata_version.to_string())?;
         target.set_metadata("vault_identity_token", &metadata.vault_identity_token)?;
+        let metadata_json = crate::cloud::metadata::serialize_metadata(metadata)
+            .map_err(|e| crate::errors::mapping::vault::VaultError::CryptoError(e.to_string()))?;
+        target.set_metadata(REMOTE_METADATA_SNAPSHOT_KEY, &metadata_json)?;
     }
 
     Ok(())
@@ -368,6 +374,70 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
                         "Failed to apply downloaded record"
                     );
                 }
+
+                match Uuid::parse_str(&record.id) {
+                    Ok(record_id) => {
+                        if let Err(e) = executor
+                            .vault()
+                            .and_then(|v| v.mark_record_synced(&record_id))
+                        {
+                            tracing::warn!(
+                                record_id = %record.id,
+                                error = %e,
+                                "Failed to mark downloaded record as synced"
+                            );
+                        }
+                    }
+                    Err(e) => tracing::warn!(
+                        record_id = %record.id,
+                        error = %e,
+                        "Downloaded record has invalid UUID"
+                    ),
+                }
+            }
+
+            for record_id in &sync_result.uploaded_ids {
+                match Uuid::parse_str(record_id) {
+                    Ok(record_uuid) => {
+                        if let Err(e) = executor
+                            .vault()
+                            .and_then(|v| v.mark_record_synced(&record_uuid))
+                        {
+                            tracing::warn!(
+                                record_id = %record_id,
+                                error = %e,
+                                "Failed to mark uploaded record as synced"
+                            );
+                        }
+                    }
+                    Err(e) => tracing::warn!(
+                        record_id = %record_id,
+                        error = %e,
+                        "Uploaded record id is not a UUID"
+                    ),
+                }
+            }
+
+            for (record_id, conflict_data) in &sync_result.conflict_data {
+                match Uuid::parse_str(record_id) {
+                    Ok(record_uuid) => {
+                        if let Err(e) = executor
+                            .vault()
+                            .and_then(|v| v.mark_record_conflict(&record_uuid, conflict_data))
+                        {
+                            tracing::warn!(
+                                record_id = %record_id,
+                                error = %e,
+                                "Failed to persist sync conflict state"
+                            );
+                        }
+                    }
+                    Err(e) => tracing::warn!(
+                        record_id = %record_id,
+                        error = %e,
+                        "Conflict record id is not a UUID"
+                    ),
+                }
             }
 
             // Apply downloaded health states to local vault
@@ -391,6 +461,20 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
                         error = %e,
                         "Failed to delete stale health states after sync"
                     );
+                }
+            }
+
+            if let Some(metadata) = sync_result.remote_metadata.as_ref() {
+                if let Err(e) = executor.vault_mut().and_then(|v| {
+                    v.set_metadata("metadata_version", &metadata.metadata_version.to_string())?;
+                    v.set_metadata("vault_identity_token", &metadata.vault_identity_token)?;
+                    let metadata_json = crate::cloud::metadata::serialize_metadata(metadata)
+                        .map_err(|e| {
+                            crate::errors::mapping::vault::VaultError::CryptoError(e.to_string())
+                        })?;
+                    v.set_metadata(REMOTE_METADATA_SNAPSHOT_KEY, &metadata_json)
+                }) {
+                    tracing::warn!(error = %e, "Failed to persist sync metadata");
                 }
             }
 
@@ -736,10 +820,13 @@ mod restore_password_tests {
                     expires_at: None,
                     updated_by: Some("test-device".to_string()),
                     health: None,
+                    encrypted_metadata: None,
                 },
                 deleted: Some(false),
                 deleted_at: None,
             }],
+            uploaded_ids: Vec::new(),
+            conflict_data: std::collections::HashMap::new(),
             remote_metadata: Some(metadata),
         }
     }
@@ -797,7 +884,8 @@ mod restore_password_tests {
             )))
             .sync(Some(create_test_sync_service()))
             .verified_master_password(SecureStr::new("cached-password".to_string()))
-            .build();
+            .build()
+            .expect("executor should build");
 
         let result = handle_restore_database_from_cloud(&mut executor, None).await;
 
@@ -831,7 +919,8 @@ mod restore_password_tests {
                 30,
             )))
             .sync(Some(create_test_sync_service()))
-            .build();
+            .build()
+            .expect("executor should build");
 
         let result = handle_restore_database_from_cloud(
             &mut executor,
@@ -860,6 +949,7 @@ mod cloud_restore_metadata_tests {
                 updated_at: "2026-05-14T00:00:00Z".to_string(),
                 updated_by: "test-device".to_string(),
                 checksum: "checksum".to_string(),
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );

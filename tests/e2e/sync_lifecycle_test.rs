@@ -9,7 +9,7 @@
 
 use oak_keyring::cloud::metadata::{serialize_metadata, CloudMetadata};
 use oak_keyring::cloud::schema::METADATA_FILENAME;
-use oak_keyring::commands::types::ConflictResolution;
+use oak_keyring::commands::types::{ConflictResolution, RecordFilter, RecordSort};
 use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
@@ -21,6 +21,7 @@ use oak_keyring::services::sync::SyncServiceImpl;
 use oak_keyring::services::vault::VaultServiceImpl;
 use oak_keyring::types::credential::EncryptedPayload;
 use oak_keyring::types::sensitive::SecureStr;
+use oak_keyring::types::SyncStatus;
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -71,7 +72,10 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
     .expect("executor construction should succeed");
 
     tokio::spawn(async move {
-        executor.run(command_rx).await;
+        executor
+            .run(command_rx)
+            .await
+            .expect("executor run should succeed");
     });
 
     (command_tx, result_rx)
@@ -134,6 +138,7 @@ fn build_executor_with_sync(
         .shutdown_token(cancel_token)
         .clipboard(clipboard)
         .build()
+        .expect("executor should build")
 }
 
 async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
@@ -159,7 +164,10 @@ async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     );
 
     tokio::spawn(async move {
-        executor.run(command_rx).await;
+        executor
+            .run(command_rx)
+            .await
+            .expect("executor run should succeed");
     });
 
     SyncTestContext {
@@ -198,7 +206,10 @@ async fn setup_key_only_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     );
 
     tokio::spawn(async move {
-        executor.run(command_rx).await;
+        executor
+            .run(command_rx)
+            .await
+            .expect("executor run should succeed");
     });
 
     SyncTestContext {
@@ -236,6 +247,17 @@ async fn create_login_record(
     username: &str,
     password: &str,
 ) -> Uuid {
+    create_login_record_with_tags(command_tx, result_rx, name, username, password, vec![]).await
+}
+
+async fn create_login_record_with_tags(
+    command_tx: &mpsc::Sender<Command>,
+    result_rx: &mut mpsc::Receiver<Message>,
+    name: &str,
+    username: &str,
+    password: &str,
+    tags: Vec<String>,
+) -> Uuid {
     command_tx
         .send(Command::CreateRecord {
             credential_type: oak_keyring::types::credential::CredentialType::Login,
@@ -246,7 +268,7 @@ async fn create_login_record(
                 url: None,
                 notes: None,
             },
-            tags: vec![],
+            tags,
             is_favorite: false,
             expires_at: None,
         })
@@ -258,6 +280,21 @@ async fn create_login_record(
         CommandResult::RecordCreated { id } => id,
         other => panic!("Expected RecordCreated, got {:?}", other),
     }
+}
+
+fn read_uploaded_cloud_record_json(ctx: &SyncTestContext) -> String {
+    let records_dir = ctx.cloud_dir.path().join("records");
+    let mut entries = std::fs::read_dir(&records_dir)
+        .expect("records dir should exist")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("record entries should be readable");
+    entries.sort_by_key(|entry| entry.path());
+    assert_eq!(
+        entries.len(),
+        1,
+        "expected exactly one uploaded cloud record"
+    );
+    std::fs::read_to_string(entries[0].path()).expect("cloud record should be readable")
 }
 
 async fn rebuild_keyfile_from_recovery(ctx: &mut SyncTestContext) {
@@ -314,6 +351,20 @@ async fn recv_command_result(result_rx: &mut mpsc::Receiver<Message>) -> Command
                 }
             }
             return result;
+        }
+    }
+}
+
+async fn drain_background_results(result_rx: &mut mpsc::Receiver<Message>) {
+    loop {
+        match tokio::time::timeout(Duration::from_millis(100), result_rx.recv()).await {
+            Ok(Some(Message::CommandCompleted(
+                CommandResult::HealthCheckStarted
+                | CommandResult::HealthCheckCompleted { .. }
+                | CommandResult::HealthCheckSkipped,
+            ))) => continue,
+            Ok(Some(_)) => continue,
+            Ok(None) | Err(_) => break,
         }
     }
 }
@@ -464,6 +515,145 @@ async fn sync_uploads_pending_records_to_cloud() {
         }
         other => panic!("Expected SyncCompleted, got {:?}", other),
     }
+
+    ctx.command_tx
+        .send(Command::LoadRecordList {
+            filter: RecordFilter::All,
+            sort: RecordSort::default(),
+        })
+        .await
+        .expect("send should succeed");
+
+    let result = recv_command_result(&mut ctx.result_rx).await;
+    match result {
+        CommandResult::RecordListLoaded { records, .. } => {
+            assert_eq!(records.len(), 2);
+            assert!(
+                records
+                    .iter()
+                    .all(|record| record.sync_status == Some(SyncStatus::Synced)),
+                "uploaded records must be marked Synced locally"
+            );
+        }
+        other => panic!("Expected RecordListLoaded, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn sync_upload_encrypts_private_cloud_metadata() {
+    let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
+    let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+
+    create_login_record_with_tags(
+        &ctx.command_tx,
+        &mut ctx.result_rx,
+        "Sensitive Payroll",
+        "payroll@example.com",
+        "password123",
+        vec!["finance-secret".to_string()],
+    )
+    .await;
+
+    ctx.command_tx
+        .send(Command::TriggerSync)
+        .await
+        .expect("send should succeed");
+
+    let result = recv_command_result(&mut ctx.result_rx).await;
+    assert!(
+        matches!(result, CommandResult::SyncCompleted { .. }),
+        "Expected SyncCompleted, got {:?}",
+        result
+    );
+
+    let cloud_json = read_uploaded_cloud_record_json(&ctx);
+    assert!(
+        cloud_json.contains("encrypted_metadata"),
+        "cloud record should carry encrypted private metadata"
+    );
+    assert!(
+        !cloud_json.contains("Sensitive Payroll"),
+        "record name must not be plaintext in cloud record"
+    );
+    assert!(
+        !cloud_json.contains("finance-secret"),
+        "tags must not be plaintext in cloud record"
+    );
+    assert!(
+        !cloud_json.contains("\"credential_type\""),
+        "credential type must not be plaintext in cloud record"
+    );
+}
+
+#[tokio::test]
+async fn sync_download_restores_encrypted_private_cloud_metadata() {
+    let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
+    let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+
+    let record_id = create_login_record_with_tags(
+        &ctx.command_tx,
+        &mut ctx.result_rx,
+        "Download Secret",
+        "download@example.com",
+        "password123",
+        vec!["restore-private".to_string()],
+    )
+    .await;
+
+    ctx.command_tx
+        .send(Command::TriggerSync)
+        .await
+        .expect("send should succeed");
+    assert!(
+        matches!(
+            recv_command_result(&mut ctx.result_rx).await,
+            CommandResult::SyncCompleted { .. }
+        ),
+        "initial upload should complete"
+    );
+
+    ctx.command_tx
+        .send(Command::HardDeleteRecord { id: record_id })
+        .await
+        .expect("send should succeed");
+    assert!(
+        matches!(
+            recv_command_result(&mut ctx.result_rx).await,
+            CommandResult::RecordDestroyed { .. }
+        ),
+        "local hard delete should complete"
+    );
+    drain_background_results(&mut ctx.result_rx).await;
+
+    ctx.command_tx
+        .send(Command::TriggerSync)
+        .await
+        .expect("send should succeed");
+    let second_sync = recv_command_result(&mut ctx.result_rx).await;
+    assert!(
+        matches!(second_sync, CommandResult::SyncCompleted { .. }),
+        "remote-only download should complete, got {:?}",
+        second_sync
+    );
+
+    ctx.command_tx
+        .send(Command::LoadRecordList {
+            filter: RecordFilter::All,
+            sort: RecordSort::default(),
+        })
+        .await
+        .expect("send should succeed");
+
+    let result = recv_command_result(&mut ctx.result_rx).await;
+    match result {
+        CommandResult::RecordListLoaded { records, .. } => {
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].name, "Download Secret");
+            assert_eq!(records[0].tags, vec!["restore-private".to_string()]);
+            assert_eq!(records[0].sync_status, Some(SyncStatus::Synced));
+        }
+        other => panic!("Expected RecordListLoaded, got {:?}", other),
+    }
 }
 
 // ==================== Test 6: Locked Vault Skips Uploads ====================
@@ -537,7 +727,10 @@ async fn sync_cancellation_returns_cancelled() {
     let op_cancel = executor.cancel_token().clone();
 
     tokio::spawn(async move {
-        executor.run(command_rx).await;
+        executor
+            .run(command_rx)
+            .await
+            .expect("executor run should succeed");
     });
 
     let password = SecureStr::new("test_password_123".to_string());
@@ -648,6 +841,7 @@ async fn restore_database_from_cloud_with_valid_records_creates_vault_db() {
             updated_at: now,
             updated_by: "test-device".to_string(),
             checksum,
+            private_metadata_checksum: record.compute_private_metadata_checksum().unwrap(),
             deleted: false,
         },
     );

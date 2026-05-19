@@ -91,6 +91,30 @@ impl VaultServiceImpl {
         Ok(())
     }
 
+    /// Mark a single record as fully synchronized with cloud state.
+    pub fn mark_record_synced(&self, record_id: &Uuid) -> Result<(), VaultError> {
+        queries::mark_sync_state_synced(&self.conn, record_id).map_err(db_error_to_vault)
+    }
+
+    /// Mark a single record as conflicted and persist its remote conflict payload.
+    pub fn mark_record_conflict(
+        &self,
+        record_id: &Uuid,
+        conflict_data: &[u8],
+    ) -> Result<(), VaultError> {
+        queries::mark_sync_state_conflict(&self.conn, record_id, conflict_data)
+            .map_err(db_error_to_vault)
+    }
+
+    /// Update only the local record version after sync accepted a cloud version.
+    pub fn update_record_version_for_sync(
+        &self,
+        record_id: &Uuid,
+        version: u64,
+    ) -> Result<(), VaultError> {
+        queries::update_record_version(&self.conn, record_id, version).map_err(db_error_to_vault)
+    }
+
     /// Get a reference to the underlying connection for testing purposes.
     #[cfg(test)]
     pub fn conn_ref(&self) -> &rusqlite::Connection {

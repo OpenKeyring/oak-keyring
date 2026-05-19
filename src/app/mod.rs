@@ -120,9 +120,7 @@ impl App {
                 crate::executor::DbStartupMode::from_vault_state(self.vault_state),
             )?;
 
-            executor_handle = Some(tokio::spawn(async move {
-                executor.run(command_rx).await;
-            }));
+            executor_handle = Some(tokio::spawn(async move { executor.run(command_rx).await }));
         }
 
         // Terminal setup.
@@ -160,6 +158,9 @@ impl App {
             let ok = rt.block_on(wait_for_executor_shutdown(handle));
             if !ok {
                 tracing::error!("executor did not shut down cleanly");
+                return Err(Box::new(std::io::Error::other(
+                    "executor did not shut down cleanly",
+                )));
             }
         }
 
@@ -167,9 +168,15 @@ impl App {
     }
 }
 
-async fn wait_for_executor_shutdown(handle: JoinHandle<()>) -> bool {
+async fn wait_for_executor_shutdown(
+    handle: JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+) -> bool {
     match tokio::time::timeout(EXECUTOR_SHUTDOWN_TIMEOUT, handle).await {
-        Ok(Ok(())) => true,
+        Ok(Ok(Ok(()))) => true,
+        Ok(Ok(Err(e))) => {
+            tracing::warn!(error = %e, "executor returned an error during shutdown");
+            false
+        }
         Ok(Err(e)) => {
             tracing::warn!(error = %e, "executor task failed during shutdown");
             false
@@ -187,7 +194,7 @@ mod shutdown_tests {
 
     #[tokio::test]
     async fn wait_for_executor_shutdown_returns_true_when_task_finishes() {
-        let handle = tokio::spawn(async {});
+        let handle = tokio::spawn(async { Ok(()) });
 
         assert!(wait_for_executor_shutdown(handle).await);
     }
@@ -196,6 +203,7 @@ mod shutdown_tests {
     async fn wait_for_executor_shutdown_returns_false_when_task_times_out() {
         let handle = tokio::spawn(async {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            Ok(())
         });
 
         assert!(!wait_for_executor_shutdown(handle).await);

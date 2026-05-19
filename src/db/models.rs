@@ -15,10 +15,10 @@ use crate::types::tag::Tag;
 // ---------------------------------------------------------------------------
 
 /// Convert a Unix timestamp (seconds) to `DateTime<Utc>`.
-pub(crate) fn timestamp_to_datetime(ts: i64) -> DateTime<Utc> {
+pub(crate) fn timestamp_to_datetime(ts: i64) -> Result<DateTime<Utc>, DataError> {
     Utc.timestamp_opt(ts, 0)
         .single()
-        .expect("invalid timestamp")
+        .ok_or(DataError::InvalidTimestamp(ts))
 }
 
 /// Convert a `DateTime<Utc>` to a Unix timestamp (seconds).
@@ -94,13 +94,13 @@ impl RecordRow {
             dek_version: self.dek_version as u32,
             aad: self.aad.unwrap_or_default(),
             is_favorite: self.is_favorite != 0,
-            expires_at: self.expires_at.map(timestamp_to_datetime),
-            created_at: timestamp_to_datetime(self.created_at),
-            updated_at: timestamp_to_datetime(self.updated_at),
+            expires_at: self.expires_at.map(timestamp_to_datetime).transpose()?,
+            created_at: timestamp_to_datetime(self.created_at)?,
+            updated_at: timestamp_to_datetime(self.updated_at)?,
             updated_by: self.updated_by,
             version: self.version as u64,
             deleted: self.deleted != 0,
-            deleted_at: self.deleted_at.map(timestamp_to_datetime),
+            deleted_at: self.deleted_at.map(timestamp_to_datetime).transpose()?,
             tags,
         })
     }
@@ -176,7 +176,7 @@ impl AuditLogRow {
             record_id,
             record_name: self.record_name,
             detail: self.detail,
-            occurred_at: timestamp_to_datetime(self.occurred_at),
+            occurred_at: timestamp_to_datetime(self.occurred_at)?,
         })
     }
 }
@@ -222,8 +222,11 @@ impl SyncStateRow {
 
         Ok(SyncState {
             record_id,
-            cloud_updated_at: self.cloud_updated_at.map(timestamp_to_datetime),
-            local_updated_at: timestamp_to_datetime(self.local_updated_at),
+            cloud_updated_at: self
+                .cloud_updated_at
+                .map(timestamp_to_datetime)
+                .transpose()?,
+            local_updated_at: timestamp_to_datetime(self.local_updated_at)?,
             sync_status,
             conflict_data: self.conflict_data,
         })
@@ -268,7 +271,11 @@ impl RecordHealthStateRow {
         Ok(RecordHealthState {
             record_id,
             record_version: self.record_version as u64,
-            evaluated_at: self.evaluated_at.map(timestamp_to_datetime),
+            evaluated_at: self
+                .evaluated_at
+                .map(timestamp_to_datetime)
+                .transpose()
+                .map_err(DbError::Data)?,
             weak_password: self.weak_password.map(bool_from_int),
             duplicate_group_size: self.duplicate_group_size.map(|v| v as usize),
             compromised: self.compromised.map(bool_from_int),

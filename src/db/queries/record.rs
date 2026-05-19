@@ -212,6 +212,19 @@ pub fn update_record(
     Ok(affected > 0)
 }
 
+/// Update only the stored record version.
+///
+/// Used by sync conflict resolution when the local payload wins and the record
+/// version must be advanced to the version pushed to cloud without re-encrypting
+/// the unchanged payload.
+pub fn update_record_version(conn: &Connection, id: &Uuid, version: u64) -> Result<()> {
+    conn.execute(
+        "UPDATE records SET version = ?1 WHERE id = ?2",
+        rusqlite::params![version as i64, id.to_string()],
+    )?;
+    Ok(())
+}
+
 /// List all records (including soft-deleted) where `dek_version < target`.
 /// Used for DEK rotation migration.
 pub fn list_records_by_dek_version(

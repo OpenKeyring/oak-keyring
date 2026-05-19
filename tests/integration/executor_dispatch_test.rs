@@ -231,7 +231,7 @@ async fn restore_database_from_okb_rejects_empty_path() {
         result
     );
     drop(command_tx);
-    handle.await.unwrap();
+    handle.await.unwrap().expect("executor run should succeed");
 }
 
 #[tokio::test]
@@ -275,7 +275,7 @@ async fn restore_database_from_okb_rejects_missing_file() {
         result
     );
     drop(command_tx);
-    handle.await.unwrap();
+    handle.await.unwrap().expect("executor run should succeed");
 }
 
 #[tokio::test]
@@ -326,7 +326,7 @@ async fn restore_database_from_okb_wrong_password_does_not_create_vault_db() {
         "vault.db must not be created before .okb decrypt succeeds"
     );
     drop(command_tx);
-    handle.await.unwrap();
+    handle.await.unwrap().expect("executor run should succeed");
 }
 
 #[tokio::test]
@@ -378,7 +378,7 @@ async fn restore_database_from_malformed_okb_does_not_create_vault_db() {
         "vault.db must not be created before .okb parses successfully"
     );
     drop(command_tx);
-    handle.await.unwrap();
+    handle.await.unwrap().expect("executor run should succeed");
 }
 
 #[tokio::test]
@@ -430,7 +430,7 @@ async fn restore_database_from_empty_okb_does_not_create_vault_db() {
         "vault.db must not be created when .okb contains no records"
     );
     drop(command_tx);
-    handle.await.unwrap();
+    handle.await.unwrap().expect("executor run should succeed");
 }
 
 #[tokio::test]
@@ -481,7 +481,7 @@ async fn restore_database_from_okb_without_cached_master_password_does_not_creat
         "vault.db must not be created before restore has a cached master password"
     );
     drop(command_tx);
-    handle.await.unwrap();
+    handle.await.unwrap().expect("executor run should succeed");
 }
 
 fn valid_okb_payload() -> Vec<u8> {
@@ -572,7 +572,7 @@ async fn restore_database_from_okb_with_valid_records_creates_vault_db() {
         "vault.db must exist after successful OKB restore"
     );
     drop(command_tx);
-    handle.await.unwrap();
+    handle.await.unwrap().expect("executor run should succeed");
 }
 
 #[test]
@@ -666,7 +666,7 @@ async fn initialize_vault_creates_file_backed_database_after_empty_startup() {
     );
 
     drop(command_tx);
-    handle.await.unwrap();
+    handle.await.unwrap().expect("executor run should succeed");
 }
 
 #[cfg(unix)]
@@ -720,5 +720,5 @@ async fn initialize_vault_db_failure_removes_new_key_file() {
     );
 
     drop(command_tx);
-    handle.await.unwrap();
+    handle.await.unwrap().expect("executor run should succeed");
 }

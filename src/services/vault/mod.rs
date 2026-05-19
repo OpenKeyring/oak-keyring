@@ -1,6 +1,5 @@
 mod audit;
 mod health_state;
-pub mod health_sync;
 mod history;
 mod metadata;
 mod record;
@@ -169,6 +168,22 @@ pub trait Vault: Send {
         &mut self,
         record: &crate::cloud::CloudRecord,
     ) -> Result<bool, VaultError>;
+    fn mark_record_synced(&self, record_id: &Uuid) -> Result<(), VaultError>;
+    fn mark_record_conflict(
+        &self,
+        record_id: &Uuid,
+        conflict_data: &[u8],
+    ) -> Result<(), VaultError>;
+    fn update_record_version_for_sync(
+        &self,
+        record_id: &Uuid,
+        version: u64,
+    ) -> Result<(), VaultError>;
+    fn build_cloud_record_for_sync(
+        &self,
+        record: &StoredRecord,
+        health: Option<RecordHealthState>,
+    ) -> Result<crate::cloud::CloudRecord, VaultError>;
     fn decrypt_record_name_for_sync(&self, record: &StoredRecord) -> Result<String, VaultError>;
     fn load_sync_status_map(
         &self,
@@ -377,6 +392,30 @@ impl Vault for Box<dyn Vault> {
         record: &crate::cloud::CloudRecord,
     ) -> Result<bool, VaultError> {
         (**self).apply_downloaded_cloud_record(record)
+    }
+    fn mark_record_synced(&self, record_id: &Uuid) -> Result<(), VaultError> {
+        (**self).mark_record_synced(record_id)
+    }
+    fn mark_record_conflict(
+        &self,
+        record_id: &Uuid,
+        conflict_data: &[u8],
+    ) -> Result<(), VaultError> {
+        (**self).mark_record_conflict(record_id, conflict_data)
+    }
+    fn update_record_version_for_sync(
+        &self,
+        record_id: &Uuid,
+        version: u64,
+    ) -> Result<(), VaultError> {
+        (**self).update_record_version_for_sync(record_id, version)
+    }
+    fn build_cloud_record_for_sync(
+        &self,
+        record: &StoredRecord,
+        health: Option<RecordHealthState>,
+    ) -> Result<crate::cloud::CloudRecord, VaultError> {
+        (**self).build_cloud_record_for_sync(record, health)
     }
     fn decrypt_record_name_for_sync(&self, record: &StoredRecord) -> Result<String, VaultError> {
         (**self).decrypt_record_name_for_sync(record)
@@ -631,6 +670,34 @@ impl Vault for VaultServiceImpl {
         record: &crate::cloud::CloudRecord,
     ) -> Result<bool, VaultError> {
         VaultServiceImpl::apply_downloaded_cloud_record(self, record)
+    }
+
+    fn mark_record_synced(&self, record_id: &Uuid) -> Result<(), VaultError> {
+        VaultServiceImpl::mark_record_synced(self, record_id)
+    }
+
+    fn mark_record_conflict(
+        &self,
+        record_id: &Uuid,
+        conflict_data: &[u8],
+    ) -> Result<(), VaultError> {
+        VaultServiceImpl::mark_record_conflict(self, record_id, conflict_data)
+    }
+
+    fn update_record_version_for_sync(
+        &self,
+        record_id: &Uuid,
+        version: u64,
+    ) -> Result<(), VaultError> {
+        VaultServiceImpl::update_record_version_for_sync(self, record_id, version)
+    }
+
+    fn build_cloud_record_for_sync(
+        &self,
+        record: &crate::types::record::StoredRecord,
+        health: Option<RecordHealthState>,
+    ) -> Result<crate::cloud::CloudRecord, VaultError> {
+        VaultServiceImpl::build_cloud_record_for_sync(self, record, health)
     }
 
     fn decrypt_record_name_for_sync(

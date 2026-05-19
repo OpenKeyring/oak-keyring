@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::errors::mapping::sync::SyncError;
@@ -66,6 +67,37 @@ impl RecordHealthMetadata {
     }
 }
 
+/// Encrypted private metadata attached to a cloud record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EncryptedRecordMetadata {
+    pub encrypted_data: String,
+    pub nonce: String,
+    pub dek_version: u32,
+}
+
+/// Private record metadata that must not be stored as plaintext in cloud JSON.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CloudPrivateMetadata {
+    pub name: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "ser_optional_credential_type",
+        deserialize_with = "de_optional_credential_type"
+    )]
+    pub credential_type: Option<crate::types::credential::CredentialType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_favorite: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<RecordHealthMetadata>,
+}
+
 /// Metadata associated with a cloud record.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RecordMetadata {
@@ -88,6 +120,8 @@ pub struct RecordMetadata {
     pub updated_by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health: Option<RecordHealthMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encrypted_metadata: Option<EncryptedRecordMetadata>,
 }
 
 fn ser_optional_credential_type<S>(
@@ -236,6 +270,23 @@ impl CloudRecord {
         compute_checksum(&self.encrypted_data)
     }
 
+    /// Computes a checksum over encrypted private metadata transport fields.
+    ///
+    /// This is a sync-detection signal for private metadata changes such as
+    /// password-health state. It hashes encrypted transport fields, not
+    /// plaintext private metadata.
+    pub fn compute_private_metadata_checksum(&self) -> Result<Option<String>, SyncError> {
+        let Some(encrypted_metadata) = self.metadata.encrypted_metadata.as_ref() else {
+            return Ok(None);
+        };
+        let bytes =
+            serde_json::to_vec(encrypted_metadata).map_err(|e| SyncError::SerializationFailed {
+                message: format!("failed to serialize encrypted private metadata: {}", e),
+            })?;
+        let hash = Sha256::digest(&bytes);
+        Ok(Some(hex::encode(hash)))
+    }
+
     /// Extract the health metadata from this cloud record, if present.
     ///
     /// Returns `None` when the cloud record has no health metadata attached
@@ -252,6 +303,12 @@ impl CloudRecord {
             .health
             .as_ref()
             .map(|h| h.to_state(Uuid::parse_str(&self.id).unwrap_or_default(), self.version))
+    }
+
+    /// Returns true when private metadata is encrypted and must be decrypted by
+    /// the vault before deriving local attributes or health state.
+    pub fn has_encrypted_private_metadata(&self) -> bool {
+        self.metadata.encrypted_metadata.is_some()
     }
 }
 
@@ -292,6 +349,7 @@ pub fn build_cloud_record(
             expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
             updated_by: Some(record.updated_by.clone()),
             health: health.map(RecordHealthMetadata::from_state),
+            encrypted_metadata: None,
         },
         deleted: if record.deleted { Some(true) } else { None },
         deleted_at: record.deleted_at.map(|dt| dt.to_rfc3339()),

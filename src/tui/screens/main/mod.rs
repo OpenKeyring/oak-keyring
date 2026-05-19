@@ -178,48 +178,44 @@ impl MainScreen {
         if state.sidebar.is_tag_management() && state.sidebar.tag_management.is_renaming() {
             match key.code {
                 KeyCode::Char(c) => {
-                    state
-                        .sidebar
-                        .tag_management
-                        .inline_edit
-                        .as_mut()
-                        .unwrap()
-                        .insert_char(c);
+                    if let Some(edit) = state.sidebar.tag_management.inline_edit.as_mut() {
+                        edit.insert_char(c);
+                    }
                 }
                 KeyCode::Backspace => {
-                    state
-                        .sidebar
-                        .tag_management
-                        .inline_edit
-                        .as_mut()
-                        .unwrap()
-                        .backspace();
+                    if let Some(edit) = state.sidebar.tag_management.inline_edit.as_mut() {
+                        edit.backspace();
+                    }
                 }
                 KeyCode::Left => {
-                    state
-                        .sidebar
-                        .tag_management
-                        .inline_edit
-                        .as_mut()
-                        .unwrap()
-                        .cursor_left();
+                    if let Some(edit) = state.sidebar.tag_management.inline_edit.as_mut() {
+                        edit.cursor_left();
+                    }
                 }
                 KeyCode::Right => {
-                    state
-                        .sidebar
-                        .tag_management
-                        .inline_edit
-                        .as_mut()
-                        .unwrap()
-                        .cursor_right();
+                    if let Some(edit) = state.sidebar.tag_management.inline_edit.as_mut() {
+                        edit.cursor_right();
+                    }
                 }
                 KeyCode::Enter => {
                     let existing_tags: Vec<String> =
                         state.sidebar.tags.iter().map(|t| t.name.clone()).collect();
-                    let edit = state.sidebar.tag_management.inline_edit.as_mut().unwrap();
-                    edit.check_conflict(&existing_tags);
-                    if !edit.conflict && !edit.text.trim().is_empty() {
-                        let edit_state = state.sidebar.tag_management.take_rename().unwrap();
+                    let should_confirm =
+                        if let Some(edit) = state.sidebar.tag_management.inline_edit.as_mut() {
+                            edit.check_conflict(&existing_tags);
+                            !edit.conflict && !edit.text.trim().is_empty()
+                        } else {
+                            false
+                        };
+                    if should_confirm {
+                        let Some(edit_state) = state.sidebar.tag_management.take_rename() else {
+                            return MainKeyResult {
+                                messages,
+                                overlay,
+                                command: None,
+                                focused_panel: None,
+                            };
+                        };
                         let old_name = edit_state.original_name.clone();
                         let new_name = edit_state.confirm();
                         messages.push(Message::RenameTagConfirm { old_name, new_name });
@@ -752,6 +748,7 @@ fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
 /// Draws separator lines at the boundaries between sidebar|list and list|detail.
 fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas) {
     let sep_style = Style::default().fg(theme::BORDER);
+    let sep_char = PANEL_SEPARATOR.chars().next().unwrap_or('|');
 
     // Separator between sidebar and list
     if areas.sidebar.width > 0 && areas.list.width > 0 {
@@ -765,11 +762,7 @@ fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas
             1,
             areas.sidebar.height,
         );
-        let line: String = std::iter::repeat_n(
-            PANEL_SEPARATOR.chars().next().unwrap(),
-            sep_rect.height as usize,
-        )
-        .collect();
+        let line: String = std::iter::repeat_n(sep_char, sep_rect.height as usize).collect();
         let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
         frame.render_widget(paragraph, sep_rect);
     }
@@ -778,11 +771,7 @@ fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas
     if areas.list.width > 0 && areas.detail.width > 0 {
         let x = areas.list.x + areas.list.width;
         let sep_rect = Rect::new(x.saturating_sub(1), areas.list.y, 1, areas.list.height);
-        let line: String = std::iter::repeat_n(
-            PANEL_SEPARATOR.chars().next().unwrap(),
-            sep_rect.height as usize,
-        )
-        .collect();
+        let line: String = std::iter::repeat_n(sep_char, sep_rect.height as usize).collect();
         let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
         frame.render_widget(paragraph, sep_rect);
     }

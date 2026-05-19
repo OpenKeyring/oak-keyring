@@ -53,6 +53,7 @@ fn setup_executor() -> CommandExecutor {
         .result_tx(result_tx)
         .shutdown_token(CancellationToken::new())
         .build()
+        .expect("executor should build")
 }
 
 fn create_login(svc: &mut VaultService, name: &str, password: &str) -> uuid::Uuid {

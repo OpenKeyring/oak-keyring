@@ -87,28 +87,9 @@ impl DropboxAdapter {
 impl ProviderAdapter for DropboxAdapter {
     fn create_operator(&self, config: &ProviderConfig) -> Result<Operator, SyncError> {
         match config {
-            ProviderConfig::Dropbox(dropbox_config) => {
-                let mut builder = opendal::services::Dropbox::default()
-                    .client_id(&dropbox_config.client_id)
-                    .client_secret(&dropbox_config.client_secret);
-
-                if !dropbox_config.refresh_token.is_empty() {
-                    builder = builder.refresh_token(&dropbox_config.refresh_token);
-                }
-
-                if !dropbox_config.root_path.is_empty() {
-                    builder = builder.root(&dropbox_config.root_path);
-                }
-
-                let operator = Operator::new(builder)
-                    .map_err(|e| SyncError::ProviderError {
-                        provider: "dropbox".to_string(),
-                        message: format!("failed to create operator: {}", e),
-                    })?
-                    .finish();
-
-                Ok(operator)
-            }
+            ProviderConfig::Dropbox(_) => Err(SyncError::ProviderNotSupported {
+                provider: "dropbox".to_string(),
+            }),
             _ => Err(SyncError::ProviderError {
                 provider: "dropbox".to_string(),
                 message: "expected Dropbox config".to_string(),

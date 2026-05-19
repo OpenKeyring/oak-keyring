@@ -84,6 +84,7 @@ fn create_test_metadata_with_records(
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "device-1".to_string(),
                 checksum: "test_checksum".to_string(),
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );

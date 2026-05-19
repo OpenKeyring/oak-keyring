@@ -273,7 +273,7 @@ impl CommandExecutor {
             .result_tx(result_tx)
             .shutdown_token(shutdown_token)
             .clipboard(clipboard)
-            .build())
+            .build()?)
     }
 
     /// Check whether the vault is currently unlocked.
@@ -307,10 +307,17 @@ impl CommandExecutor {
     /// Receives commands from the UI layer and dispatches them to the
     /// appropriate handler. The loop exits when the command channel is
     /// closed or the cancellation token is triggered.
-    pub async fn run(mut self, mut command_rx: mpsc::Receiver<Command>) {
+    pub async fn run(
+        mut self,
+        mut command_rx: mpsc::Receiver<Command>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("CommandExecutor started");
 
-        let mut internal_rx = self.internal_rx.take().expect("internal_rx must be set");
+        let Some(mut internal_rx) = self.internal_rx.take() else {
+            return Err(Box::new(std::io::Error::other(
+                "CommandExecutor cannot run without internal_rx",
+            )));
+        };
         let mut timers = timer::ExecutorTimers::new(&self.config.get_config(), self.sync.is_some());
 
         loop {
@@ -386,6 +393,8 @@ impl CommandExecutor {
         } else {
             info!("CommandExecutor stopped");
         }
+
+        Ok(())
     }
 
     /// Execute an internal command from a background task.

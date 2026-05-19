@@ -1,6 +1,6 @@
 [package]
 name = "oak-keyring"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 description = "A terminal TUI password manager with TEA architecture and end-to-end encryption"
 license = "MIT"
@@ -92,8 +92,8 @@ tokio-util = { version = "0.7", features = ["rt"] }
 url = "2"
 
 # Sync
-opendal = { version = "0.55", features = ["services-memory", "services-fs", "services-webdav", "services-s3", "services-sftp", "services-gcs", "services-dropbox", "services-azblob", "services-oss", "services-gdrive"] }
-notify = "7"
+opendal = { version = "0.55", features = ["services-memory", "services-fs", "services-gdrive"] }
+notify = { version = "7", optional = true }
 
 # String obfuscation
 obfstr = "0.4"
@@ -125,6 +125,7 @@ sqlcipher = [
     "libsqlite3-sys/bundled-sqlcipher-vendored-openssl",
 ]
 test-helpers = []
+fs-watcher = ["dep:notify"]
 
 [build-dependencies]
 

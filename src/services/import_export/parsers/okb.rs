@@ -95,11 +95,10 @@ impl FormatParser for OkbParser {
         }
 
         // 1. Parse version (u32 little-endian).
-        let version = u32::from_le_bytes(
-            data[..SALT_OFFSET]
-                .try_into()
-                .expect("SALT_OFFSET == 4, always fits in [u8; 4]"),
-        );
+        let version_bytes: [u8; SALT_OFFSET] = data[..SALT_OFFSET]
+            .try_into()
+            .map_err(|_| ImportExportError::InvalidFormat("invalid .okb version header".into()))?;
+        let version = u32::from_le_bytes(version_bytes);
         if version != OKB_VERSION {
             return Err(ImportExportError::InvalidFormat(format!(
                 "unsupported .okb version {version}, expected {OKB_VERSION}"
@@ -109,12 +108,12 @@ impl FormatParser for OkbParser {
         // 2. Extract salt.
         let salt: [u8; SALT_LEN] = data[SALT_OFFSET..NONCE_OFFSET]
             .try_into()
-            .expect("salt slice is exactly SALT_LEN bytes");
+            .map_err(|_| ImportExportError::InvalidFormat("invalid .okb salt length".into()))?;
 
         // 3. Extract nonce.
         let nonce: [u8; NONCE_LEN] = data[NONCE_OFFSET..CIPHERTEXT_OFFSET]
             .try_into()
-            .expect("nonce slice is exactly NONCE_LEN bytes");
+            .map_err(|_| ImportExportError::InvalidFormat("invalid .okb nonce length".into()))?;
 
         // 4. Extract ciphertext.
         let ciphertext = &data[CIPHERTEXT_OFFSET..];
