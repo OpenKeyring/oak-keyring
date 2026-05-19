@@ -16,7 +16,7 @@ use super::CommandExecutor;
 /// (with health metadata pre-attached), the vault identity token, and the
 /// current metadata version. Returns `None` if the vault is locked or a
 /// required read fails.
-fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData>> {
+pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<SyncVaultData>> {
     use crate::cloud::record::build_cloud_record;
     use crate::sync::pipeline::LocalRecordInfo;
     use base64::Engine;
@@ -746,7 +746,7 @@ mod restore_password_tests {
 
     #[test]
     fn restored_cloud_data_fails_closed_before_metadata_persist_on_record_apply_error() {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let mut vault = VaultServiceImpl::new(conn);
         let result = restore_test_result_with_invalid_record();
 
@@ -762,7 +762,7 @@ mod restore_password_tests {
         let mut cached = Some(SecureStr::new("cached-password".to_string()));
         let selected = take_restore_master_password(None, &mut cached)
             .expect("cached password should be selected");
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let mut vault = VaultServiceImpl::new(conn);
         let result = restore_test_result_with_invalid_record();
 
@@ -782,7 +782,7 @@ mod restore_password_tests {
         let vault_dir = temp.path().join("vault");
         std::fs::create_dir_all(&vault_dir).unwrap();
         std::fs::write(vault_dir.join("wrapped_secret_key.json"), "{not-json").unwrap();
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
 
@@ -817,7 +817,7 @@ mod restore_password_tests {
         let vault_dir = temp.path().join("vault");
         std::fs::create_dir_all(&vault_dir).unwrap();
         std::fs::write(vault_dir.join("wrapped_secret_key.json"), "{not-json").unwrap();
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         let vault = VaultServiceImpl::new(conn);
         let (result_tx, _) = mpsc::channel(64);
 

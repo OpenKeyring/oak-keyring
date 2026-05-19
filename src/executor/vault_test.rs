@@ -15,7 +15,7 @@ use crate::types::{CredentialType, EncryptedPayload, SecureStr};
 
 /// Create a basic unlocked executor with no records.
 fn make_unlocked_executor() -> CommandExecutor {
-    let conn = crate::db::schema::init_db_in_memory();
+    let conn = crate::db::schema::init_db_in_memory().unwrap();
     let mut vault = VaultServiceImpl::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
     vault

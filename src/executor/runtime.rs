@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn open_runtime_accepts_vault_access() {
-        let conn = crate::db::schema::init_db_in_memory();
+        let conn = crate::db::schema::init_db_in_memory().unwrap();
         let vault = crate::services::vault::VaultServiceImpl::new(conn);
         let runtime = VaultRuntime::Open(Box::new(vault));
         assert!(runtime.open_vault().is_ok());
@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn is_open_returns_true_for_open() {
-        let conn = crate::db::schema::init_db_in_memory();
+        let conn = crate::db::schema::init_db_in_memory().unwrap();
         let vault = crate::services::vault::VaultServiceImpl::new(conn);
         let runtime = VaultRuntime::Open(Box::new(vault));
         assert!(runtime.is_open());
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn take_open_returns_vault_from_open_runtime() {
-        let conn = crate::db::schema::init_db_in_memory();
+        let conn = crate::db::schema::init_db_in_memory().unwrap();
         let vault = crate::services::vault::VaultServiceImpl::new(conn);
         let mut runtime = VaultRuntime::Open(Box::new(vault));
         assert!(runtime.take_open().is_some());

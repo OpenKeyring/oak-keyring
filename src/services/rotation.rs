@@ -558,7 +558,7 @@ mod service_tests {
     use crate::db::schema::init_db_in_memory;
 
     fn setup_vault() -> crate::services::vault::VaultService {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         crate::services::vault::VaultService::new(conn)
     }
 
@@ -607,7 +607,7 @@ mod migration_tests {
     use crate::db::schema::init_db_in_memory;
 
     fn setup_vault() -> crate::services::vault::VaultService {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         crate::services::vault::VaultService::new(conn)
     }
 
@@ -644,7 +644,7 @@ mod lazy_migration_tests {
     use crate::db::schema::init_db_in_memory;
 
     fn setup_vault() -> crate::services::vault::VaultService {
-        let conn = init_db_in_memory();
+        let conn = init_db_in_memory().unwrap();
         crate::services::vault::VaultService::new(conn)
     }
 

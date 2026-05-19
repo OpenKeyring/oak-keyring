@@ -30,7 +30,7 @@ use uuid::Uuid;
 
 /// Create an in-memory VaultService with schema initialized and crypto unlocked.
 fn setup_vault() -> VaultService {
-    let conn = init_db_in_memory();
+    let conn = init_db_in_memory().unwrap();
     let mut svc = VaultService::new(conn);
     let mnemonic = Passkey::generate(24, MnemonicLanguage::English).unwrap();
     svc.unlock_with_mnemonic(&mnemonic)

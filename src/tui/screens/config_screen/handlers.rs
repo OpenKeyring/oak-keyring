@@ -47,7 +47,7 @@ impl ConfigScreen {
             }
             (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
                 let config = self.state.to_app_config();
-                let _ = ctx.command_tx.try_send(Command::SaveConfig { config });
+                ctx.send_system_command(Command::SaveConfig { config });
                 ScreenResult::Continue
             }
             (KeyCode::Tab, _) => {
@@ -173,7 +173,7 @@ impl ConfigScreen {
                             ScreenResult::Continue
                         } else {
                             self.state.sync_status = SyncConnectionStatus::Testing;
-                            let _ = ctx.command_tx.try_send(Command::TestSyncConnection {
+                            ctx.send_system_command(Command::TestSyncConnection {
                                 provider_config: self.state.sync.provider_config.clone(),
                             });
                             ScreenResult::Continue
@@ -182,7 +182,7 @@ impl ConfigScreen {
                     4 => {
                         if is_gdrive {
                             self.state.sync_status = SyncConnectionStatus::Testing;
-                            let _ = ctx.command_tx.try_send(Command::TestSyncConnection {
+                            ctx.send_system_command(Command::TestSyncConnection {
                                 provider_config: self.state.sync.provider_config.clone(),
                             });
                         }
@@ -495,7 +495,7 @@ impl ConfigScreen {
             KeyCode::Enter => {
                 self.state.editing_length = false;
                 let config = self.state.to_app_config();
-                let _ = ctx.command_tx.try_send(Command::SaveConfig { config });
+                ctx.send_system_command(Command::SaveConfig { config });
                 ScreenResult::Continue
             }
             KeyCode::Esc => {

@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -41,7 +43,17 @@ pub enum AliyunDriveType {
     Resource,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// -- Provider configs with redacted Debug -----------------------------------
+
+fn redacted(len: usize) -> &'static str {
+    if len == 0 {
+        "<empty>"
+    } else {
+        "<redacted>"
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct GoogleDriveConfig {
     /// OAuth2 access token -- runtime only, NOT persisted to config.toml.
     #[serde(skip)]
@@ -62,6 +74,16 @@ pub struct GoogleDriveConfig {
     pub client_secret: String,
 }
 
+impl fmt::Debug for GoogleDriveConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GoogleDriveConfig")
+            .field("access_token", &redacted(self.access_token.len()))
+            .field("refresh_token", &redacted(self.refresh_token.len()))
+            .field("root_path", &self.root_path)
+            .finish()
+    }
+}
+
 fn default_gdrive_root() -> String {
     ".oak-keyring/".to_string()
 }
@@ -79,7 +101,7 @@ impl Default for GoogleDriveConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct DropboxConfig {
     pub client_id: String,
     pub client_secret: String,
@@ -88,7 +110,18 @@ pub struct DropboxConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+impl fmt::Debug for DropboxConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DropboxConfig")
+            .field("client_id", &redacted(self.client_id.len()))
+            .field("client_secret", &redacted(self.client_secret.len()))
+            .field("refresh_token", &redacted(self.refresh_token.len()))
+            .field("root_path", &self.root_path)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct OneDriveConfig {
     pub client_id: String,
     pub client_secret: String,
@@ -97,7 +130,18 @@ pub struct OneDriveConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+impl fmt::Debug for OneDriveConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OneDriveConfig")
+            .field("client_id", &redacted(self.client_id.len()))
+            .field("client_secret", &redacted(self.client_secret.len()))
+            .field("refresh_token", &redacted(self.refresh_token.len()))
+            .field("root_path", &self.root_path)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct WebDavConfig {
     pub endpoint: String,
     #[serde(default = "default_root")]
@@ -107,7 +151,25 @@ pub struct WebDavConfig {
     pub bearer_token: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for WebDavConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WebDavConfig")
+            .field("endpoint", &self.endpoint)
+            .field("root_path", &self.root_path)
+            .field("username", &self.username)
+            .field(
+                "password",
+                &self.password.as_ref().map(|s| redacted(s.len())),
+            )
+            .field(
+                "bearer_token",
+                &self.bearer_token.as_ref().map(|s| redacted(s.len())),
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct SftpConfig {
     pub server: String,
     #[serde(default = "default_root")]
@@ -117,7 +179,18 @@ pub struct SftpConfig {
     pub host_check: SftpHostCheck,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for SftpConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SftpConfig")
+            .field("server", &self.server)
+            .field("root_path", &self.root_path)
+            .field("ssh_key_path", &self.ssh_key_path)
+            .field("host_check", &self.host_check)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct S3Config {
     pub endpoint: Option<String>,
     pub bucket: String,
@@ -128,7 +201,20 @@ pub struct S3Config {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+impl fmt::Debug for S3Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("S3Config")
+            .field("endpoint", &self.endpoint)
+            .field("bucket", &self.bucket)
+            .field("region", &self.region)
+            .field("access_key_id", &redacted(self.access_key_id.len()))
+            .field("secret_access_key", &redacted(self.secret_access_key.len()))
+            .field("root_path", &self.root_path)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct AliyunDriveConfig {
     pub client_id: String,
     pub client_secret: String,
@@ -139,7 +225,19 @@ pub struct AliyunDriveConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for AliyunDriveConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AliyunDriveConfig")
+            .field("client_id", &redacted(self.client_id.len()))
+            .field("client_secret", &redacted(self.client_secret.len()))
+            .field("refresh_token", &redacted(self.refresh_token.len()))
+            .field("drive_type", &self.drive_type)
+            .field("root_path", &self.root_path)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct AliyunOssConfig {
     pub endpoint: String,
     pub bucket: String,
@@ -149,7 +247,19 @@ pub struct AliyunOssConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for AliyunOssConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AliyunOssConfig")
+            .field("endpoint", &self.endpoint)
+            .field("bucket", &self.bucket)
+            .field("access_key_id", &redacted(self.access_key_id.len()))
+            .field("access_key_secret", &redacted(self.access_key_secret.len()))
+            .field("root_path", &self.root_path)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct TencentCosConfig {
     pub endpoint: String,
     pub bucket: String,
@@ -159,7 +269,19 @@ pub struct TencentCosConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for TencentCosConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TencentCosConfig")
+            .field("endpoint", &self.endpoint)
+            .field("bucket", &self.bucket)
+            .field("secret_id", &redacted(self.secret_id.len()))
+            .field("secret_key", &redacted(self.secret_key.len()))
+            .field("root_path", &self.root_path)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct HuaweiObsConfig {
     pub endpoint: String,
     pub bucket: String,
@@ -169,13 +291,36 @@ pub struct HuaweiObsConfig {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for HuaweiObsConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HuaweiObsConfig")
+            .field("endpoint", &self.endpoint)
+            .field("bucket", &self.bucket)
+            .field("access_key_id", &redacted(self.access_key_id.len()))
+            .field("secret_access_key", &redacted(self.secret_access_key.len()))
+            .field("root_path", &self.root_path)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpyunConfig {
     pub bucket: String,
     pub operator: String,
     pub operator_password: String,
     #[serde(default = "default_root")]
     pub root_path: String,
+}
+
+impl fmt::Debug for UpyunConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpyunConfig")
+            .field("bucket", &self.bucket)
+            .field("operator", &self.operator)
+            .field("operator_password", &redacted(self.operator_password.len()))
+            .field("root_path", &self.root_path)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -252,5 +397,65 @@ mod tests {
         assert!(cfg.access_token.is_empty());
         assert!(cfg.refresh_token.is_empty());
         assert_eq!(cfg.root_path, ".oak-keyring/");
+    }
+
+    #[test]
+    fn provider_config_debug_redacts_secrets() {
+        let s3 = S3Config {
+            endpoint: Some("https://s3.amazonaws.com".to_string()),
+            bucket: "my-bucket".to_string(),
+            region: Some("us-east-1".to_string()),
+            access_key_id: "AKIAIOSFODNN7EXAMPLE".to_string(),
+            secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_string(),
+            root_path: "/".to_string(),
+        };
+        let debug_output = format!("{:?}", s3);
+        assert!(
+            !debug_output.contains("AKIAIOSFODNN7EXAMPLE"),
+            "Debug must not expose access_key_id"
+        );
+        assert!(
+            !debug_output.contains("wJalrXUtnFEMI"),
+            "Debug must not expose secret_access_key"
+        );
+        assert!(
+            debug_output.contains("<redacted>"),
+            "Debug must show <redacted> for secret fields"
+        );
+        assert!(
+            debug_output.contains("my-bucket"),
+            "Debug must show non-sensitive fields"
+        );
+    }
+
+    #[test]
+    fn webdav_config_debug_redacts_password() {
+        let cfg = WebDavConfig {
+            endpoint: "https://dav.example.com".to_string(),
+            root_path: "/".to_string(),
+            username: Some("user".to_string()),
+            password: Some("s3cret".to_string()),
+            bearer_token: None,
+        };
+        let debug_output = format!("{:?}", cfg);
+        assert!(
+            !debug_output.contains("s3cret"),
+            "Debug must not expose password"
+        );
+        assert!(debug_output.contains("user"), "Debug must show username");
+    }
+
+    #[test]
+    fn dropbox_config_debug_redacts_tokens() {
+        let cfg = DropboxConfig {
+            client_id: "cid".to_string(),
+            client_secret: "cs".to_string(),
+            refresh_token: "rt".to_string(),
+            root_path: "/".to_string(),
+        };
+        let debug_output = format!("{:?}", cfg);
+        assert!(!debug_output.contains("cid"));
+        assert!(!debug_output.contains("cs"));
+        assert!(!debug_output.contains("rt"));
     }
 }

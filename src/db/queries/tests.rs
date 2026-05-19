@@ -11,7 +11,7 @@ use crate::types::record::StoredRecord;
 
 /// Create an in-memory database with schema initialized.
 fn setup_db() -> Connection {
-    schema::init_db_in_memory()
+    schema::init_db_in_memory().unwrap()
 }
 
 /// Build a test `StoredRecord` with sensible defaults.

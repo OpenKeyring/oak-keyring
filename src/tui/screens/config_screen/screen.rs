@@ -56,7 +56,7 @@ impl Screen for ConfigScreen {
     }
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
-        let _ = ctx.command_tx.try_send(Command::LoadConfig);
+        ctx.send_system_command(Command::LoadConfig);
     }
 
     fn on_unmount(&mut self) {}

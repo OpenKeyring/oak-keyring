@@ -246,8 +246,23 @@ impl KeyStore {
         let content = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
         let data: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
 
+        let version = data["version"].as_u64().ok_or("missing version")?;
+        if version != 1 {
+            return Err(format!("unsupported keystore version: {version}"));
+        }
+        let algorithm = data["algorithm"].as_str().ok_or("missing algorithm")?;
+        if algorithm != "xchacha20-poly1305" {
+            return Err(format!("unsupported algorithm: {algorithm}"));
+        }
+
         let salt_str = data["kdf"]["salt"].as_str().ok_or("missing salt")?;
         let salt = base64_decode(salt_str)?;
+        if salt.len() != 16 {
+            return Err(format!(
+                "invalid salt length: expected 16 bytes, got {}",
+                salt.len()
+            ));
+        }
         let mut salt_arr = [0u8; 16];
         salt_arr.copy_from_slice(&salt);
 
@@ -272,6 +287,12 @@ impl KeyStore {
 
         let wrapped = base64_decode(data["wrapped_sk"].as_str().ok_or("missing wrapped_sk")?)?;
         let nonce = base64_decode(data["nonce"].as_str().ok_or("missing nonce")?)?;
+        if nonce.len() != 24 {
+            return Err(format!(
+                "invalid nonce length: expected 24 bytes, got {}",
+                nonce.len()
+            ));
+        }
         let mut nonce_arr = [0u8; 24];
         nonce_arr.copy_from_slice(&nonce);
 
@@ -282,7 +303,13 @@ impl KeyStore {
 
         let mnemonic_lang_str = data["mnemonic_language"].as_str().unwrap_or("en");
         let mnemonic_language = MnemonicLanguage::from_keystore_value(mnemonic_lang_str)
-            .unwrap_or(MnemonicLanguage::English);
+            .unwrap_or_else(|_| {
+                tracing::warn!(
+                    language = mnemonic_lang_str,
+                    "unrecognized mnemonic_language in keystore, falling back to English"
+                );
+                MnemonicLanguage::English
+            });
 
         Ok(Self {
             sk: Some(sk),
@@ -298,8 +325,23 @@ impl KeyStore {
         let content = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
         let data: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
 
+        let version = data["version"].as_u64().ok_or("missing version")?;
+        if version != 1 {
+            return Err(format!("unsupported keystore version: {version}"));
+        }
+        let algorithm = data["algorithm"].as_str().ok_or("missing algorithm")?;
+        if algorithm != "xchacha20-poly1305" {
+            return Err(format!("unsupported algorithm: {algorithm}"));
+        }
+
         let salt_str = data["kdf"]["salt"].as_str().ok_or("missing salt")?;
         let salt = base64_decode(salt_str)?;
+        if salt.len() != 16 {
+            return Err(format!(
+                "invalid salt length: expected 16 bytes, got {}",
+                salt.len()
+            ));
+        }
         let mut salt_arr = [0u8; 16];
         salt_arr.copy_from_slice(&salt);
 
@@ -324,6 +366,12 @@ impl KeyStore {
 
         let wrapped = base64_decode(data["wrapped_sk"].as_str().ok_or("missing wrapped_sk")?)?;
         let nonce_bytes = base64_decode(data["nonce"].as_str().ok_or("missing nonce")?)?;
+        if nonce_bytes.len() != 24 {
+            return Err(format!(
+                "invalid nonce length: expected 24 bytes, got {}",
+                nonce_bytes.len()
+            ));
+        }
         let mut nonce_arr = [0u8; 24];
         nonce_arr.copy_from_slice(&nonce_bytes);
 
@@ -340,8 +388,8 @@ impl KeyStore {
         let mnemonic_language_str = data["mnemonic_language"].as_str().unwrap_or("en");
 
         let new_json = serde_json::json!({
-            "version": data["version"].as_u64().unwrap_or(1),
-            "algorithm": data["algorithm"].as_str().unwrap_or("xchacha20-poly1305"),
+            "version": version,
+            "algorithm": algorithm,
             "wrapped_sk": base64_encode(&new_wrapped),
             "nonce": base64_encode(&new_nonce),
             "kdf": {
@@ -947,6 +995,174 @@ mod tests {
         assert!(
             KeyStore::vault_exists(dir.path()),
             "vault_exists must return true when wrapped_secret_key.json is present"
+        );
+    }
+
+    #[test]
+    fn test_unlock_rejects_wrong_salt_length() {
+        let dir = TempDir::new().unwrap();
+        let json = serde_json::json!({
+            "version": 1,
+            "algorithm": "xchacha20-poly1305",
+            "wrapped_sk": base64_encode(&[0u8; 48]),
+            "nonce": base64_encode(&[0u8; 24]),
+            "kdf": {
+                "algorithm": "argon2id",
+                "salt": base64_encode(&[0u8; 8]),  // wrong: 8 bytes instead of 16
+                "time_cost": 2,
+                "memory_cost": 65536,
+                "parallelism": 1,
+                "output_len": 32
+            },
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        });
+        std::fs::create_dir_all(dir.path()).unwrap();
+        std::fs::write(
+            dir.path().join("wrapped_secret_key.json"),
+            serde_json::to_string(&json).unwrap(),
+        )
+        .unwrap();
+
+        let result = KeyStore::unlock(dir.path(), &sec("any-password"));
+        assert!(result.is_err(), "unlock must reject wrong salt length");
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("invalid salt length"),
+            "error must mention invalid salt length, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_unlock_rejects_wrong_nonce_length() {
+        let dir = TempDir::new().unwrap();
+        let json = serde_json::json!({
+            "version": 1,
+            "algorithm": "xchacha20-poly1305",
+            "wrapped_sk": base64_encode(&[0u8; 48]),
+            "nonce": base64_encode(&[0u8; 12]),  // wrong: 12 bytes instead of 24
+            "kdf": {
+                "algorithm": "argon2id",
+                "salt": base64_encode(&[0u8; 16]),
+                "time_cost": 2,
+                "memory_cost": 65536,
+                "parallelism": 1,
+                "output_len": 32
+            },
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        });
+        std::fs::create_dir_all(dir.path()).unwrap();
+        std::fs::write(
+            dir.path().join("wrapped_secret_key.json"),
+            serde_json::to_string(&json).unwrap(),
+        )
+        .unwrap();
+
+        let result = KeyStore::unlock(dir.path(), &sec("any-password"));
+        assert!(result.is_err(), "unlock must reject wrong nonce length");
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("invalid nonce length"),
+            "error must mention invalid nonce length, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_unlock_rejects_unsupported_version() {
+        let dir = TempDir::new().unwrap();
+        let json = serde_json::json!({
+            "version": 99,
+            "algorithm": "xchacha20-poly1305",
+            "wrapped_sk": base64_encode(&[0u8; 48]),
+            "nonce": base64_encode(&[0u8; 24]),
+            "kdf": {
+                "algorithm": "argon2id",
+                "salt": base64_encode(&[0u8; 16]),
+                "time_cost": 2,
+                "memory_cost": 65536,
+                "parallelism": 1,
+                "output_len": 32
+            },
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        });
+        std::fs::create_dir_all(dir.path()).unwrap();
+        std::fs::write(
+            dir.path().join("wrapped_secret_key.json"),
+            serde_json::to_string(&json).unwrap(),
+        )
+        .unwrap();
+
+        let result = KeyStore::unlock(dir.path(), &sec("any-password"));
+        assert!(result.is_err(), "unlock must reject unsupported version");
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("unsupported keystore version"),
+            "error must mention unsupported version, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_unlock_rejects_unsupported_algorithm() {
+        let dir = TempDir::new().unwrap();
+        let json = serde_json::json!({
+            "version": 1,
+            "algorithm": "aes-256-gcm",
+            "wrapped_sk": base64_encode(&[0u8; 48]),
+            "nonce": base64_encode(&[0u8; 24]),
+            "kdf": {
+                "algorithm": "argon2id",
+                "salt": base64_encode(&[0u8; 16]),
+                "time_cost": 2,
+                "memory_cost": 65536,
+                "parallelism": 1,
+                "output_len": 32
+            },
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        });
+        std::fs::create_dir_all(dir.path()).unwrap();
+        std::fs::write(
+            dir.path().join("wrapped_secret_key.json"),
+            serde_json::to_string(&json).unwrap(),
+        )
+        .unwrap();
+
+        let result = KeyStore::unlock(dir.path(), &sec("any-password"));
+        assert!(result.is_err(), "unlock must reject unsupported algorithm");
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("unsupported algorithm"),
+            "error must mention unsupported algorithm, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_change_cmk_rejects_unsupported_version() {
+        let dir = TempDir::new().unwrap();
+        let json = serde_json::json!({
+            "version": 2,
+            "algorithm": "xchacha20-poly1305",
+            "wrapped_sk": base64_encode(&[0u8; 48]),
+            "nonce": base64_encode(&[0u8; 24]),
+            "kdf": {
+                "algorithm": "argon2id",
+                "salt": base64_encode(&[0u8; 16]),
+                "time_cost": 2,
+                "memory_cost": 65536,
+                "parallelism": 1,
+                "output_len": 32
+            },
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        });
+        std::fs::create_dir_all(dir.path()).unwrap();
+        std::fs::write(
+            dir.path().join("wrapped_secret_key.json"),
+            serde_json::to_string(&json).unwrap(),
+        )
+        .unwrap();
+
+        let result = KeyStore::change_cmk(dir.path(), &sec("any"), &sec("new"));
+        assert!(
+            result.is_err(),
+            "change_cmk must reject unsupported version"
         );
     }
 }

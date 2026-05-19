@@ -4,7 +4,7 @@ use super::schema::init_db_in_memory;
 
 /// Helper: create a fully-initialized in-memory database.
 fn fresh_db() -> Connection {
-    init_db_in_memory()
+    init_db_in_memory().unwrap()
 }
 
 /// Collect user-table names from sqlite_master, excluding SQLite internal tables
@@ -190,7 +190,7 @@ fn schema_version_is_one() {
 
 #[test]
 fn initialization_is_idempotent() {
-    let conn = init_db_in_memory();
+    let conn = init_db_in_memory().unwrap();
 
     let tables_after_first = table_names(&conn);
     let vault_id_first = metadata_value(&conn, "vault_id").unwrap();

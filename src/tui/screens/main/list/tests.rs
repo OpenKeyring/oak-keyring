@@ -1140,3 +1140,73 @@ fn highlight_multi_term_chinese() {
         .any(|s| s.style.fg == Some(ratatui::style::Color::Rgb(255, 158, 100)));
     assert!(has_highlight, "Multi-term Chinese search should highlight");
 }
+
+// ── Minimum-width and responsive snapshot tests ──────────────────────────────
+
+#[test]
+fn render_at_minimum_terminal_width_80() {
+    let r1 = make_record(Uuid::new_v4(), "GitHub", "user@github.com");
+    let r2 = make_record_with_type(Uuid::new_v4(), "AWS", CredentialType::Api);
+    let state = ListPanelState::with_records(vec![r1, r2]);
+    let result = render_snapshot(&state, 80, 24, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+    // Record names must be present in the rendered buffer
+    assert!(
+        result.contains("GitHub"),
+        "record name should be visible at minimum width"
+    );
+}
+
+#[test]
+fn render_at_medium_width_100() {
+    let record = make_record(Uuid::new_v4(), "TestRecord", "user@test.com");
+    let state = ListPanelState::with_records(vec![record]);
+    let result = render_snapshot(&state, 100, 24, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+    assert!(result.contains("TestRecord"));
+}
+
+#[test]
+fn render_narrow_width_30() {
+    let record = make_record(Uuid::new_v4(), "Short", "x@y.com");
+    let state = ListPanelState::with_records(vec![record]);
+    // Should not panic even at very narrow widths
+    let result = render_snapshot(&state, 30, 10, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_single_row_height() {
+    let record = make_record(Uuid::new_v4(), "Test", "sub");
+    let state = ListPanelState::with_records(vec![record]);
+    // Should not panic at minimal height
+    let result = render_snapshot(&state, 50, 1, true, true, RecordFilter::All);
+    // Even if content is truncated, rendering should succeed
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_many_records_small_area() {
+    // Simulate many records in a small visible area — tests scroll/clipping
+    let records: Vec<TuiRecord> = (0..50)
+        .map(|i| make_record(Uuid::new_v4(), &format!("Rec{}", i), ""))
+        .collect();
+    let state = ListPanelState::with_records(records);
+    let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_empty_state_at_minimum_width() {
+    let state = ListPanelState::default();
+    let result = render_snapshot(&state, 80, 24, true, true, RecordFilter::All);
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn render_trash_at_minimum_width() {
+    let r1 = make_trash_record(Uuid::new_v4(), "DeletedSite", 5);
+    let state = ListPanelState::with_records(vec![r1]);
+    let result = render_snapshot(&state, 80, 24, true, true, RecordFilter::Trash);
+    assert!(!result.is_empty());
+}

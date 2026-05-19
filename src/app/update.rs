@@ -374,7 +374,14 @@ fn handle_message(
                     start_screen_in_transition(&mut app.state);
                 }
                 ScreenResult::Command(cmd) => {
-                    let _ = app.command_tx.try_send(*cmd);
+                    if let Err(e) = app.command_tx.try_send(*cmd) {
+                        tracing::warn!(error = %e, "failed to send screen command");
+                        app.state.shared.notification.enqueue(
+                            crate::tui::state::notification::StatusMessage::error(
+                                "Action failed: command queue full".into(),
+                            ),
+                        );
+                    }
                 }
                 ScreenResult::ExitApp => {
                     app.phase = AppPhase::ShuttingDown;
@@ -419,7 +426,14 @@ fn handle_message(
                     start_screen_in_transition(&mut app.state);
                 }
                 ScreenResult::Command(cmd) => {
-                    let _ = app.command_tx.try_send(*cmd);
+                    if let Err(e) = app.command_tx.try_send(*cmd) {
+                        tracing::warn!(error = %e, "failed to send screen command");
+                        app.state.shared.notification.enqueue(
+                            crate::tui::state::notification::StatusMessage::error(
+                                "Action failed: command queue full".into(),
+                            ),
+                        );
+                    }
                 }
                 ScreenResult::ExitApp => {
                     app.phase = AppPhase::ShuttingDown;

@@ -694,7 +694,7 @@ impl Screen for MainScreenState {
                     CommandResult::RecordCreated { .. } => {
                         // Auto-select the first record (newly created) when list reloads
                         self.list_auto_select = true;
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -703,7 +703,7 @@ impl Screen for MainScreenState {
                     CommandResult::RecordUpdated { id } => {
                         let was_showing_detail =
                             self.detail.record.as_ref().is_some_and(|r| r.id == id);
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -733,7 +733,7 @@ impl Screen for MainScreenState {
                             self.list.scroll_offset = 0;
                             self.list_auto_select = false;
                             let id = self.list.records[0].id;
-                            let _ = ctx.command_tx.try_send(Command::LoadRecordDetail { id });
+                            ctx.send_system_command(Command::LoadRecordDetail { id });
                         } else if self.list.records.is_empty() {
                             self.list.selected_index = None;
                             self.list.scroll_offset = 0;
@@ -806,7 +806,7 @@ impl Screen for MainScreenState {
                         self.list.records.retain(|r| r.id != id);
                         self.list.cleanup_after_batch(&[id]);
                         // Reload to get accurate counts
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -819,7 +819,7 @@ impl Screen for MainScreenState {
                         }
                         self.list.records.retain(|r| r.id != id);
                         // Reload list after restore
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -832,7 +832,7 @@ impl Screen for MainScreenState {
                         }
                         self.list.records.retain(|r| r.id != id);
                         // Reload list after permanent delete
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -953,9 +953,9 @@ impl Screen for MainScreenState {
                     }
                     // Handle TagRenamed — reload tags and record list
                     CommandResult::TagRenamed { .. } => {
-                        let _ = ctx.command_tx.try_send(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadTags);
                         // Also reload record list in case tag filter is active
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -963,8 +963,8 @@ impl Screen for MainScreenState {
                     }
                     // Handle TagDeleted — reload tags and record list
                     CommandResult::TagDeleted { .. } => {
-                        let _ = ctx.command_tx.try_send(Command::LoadTags);
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -975,8 +975,8 @@ impl Screen for MainScreenState {
                         if self.list.is_visual() {
                             self.list.exit_visual();
                         }
-                        let _ = ctx.command_tx.try_send(Command::LoadTags);
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -988,8 +988,8 @@ impl Screen for MainScreenState {
                         if self.list.is_visual() {
                             self.list.exit_visual();
                         }
-                        let _ = ctx.command_tx.try_send(Command::LoadTags);
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -1001,8 +1001,8 @@ impl Screen for MainScreenState {
                         let removed_ids = self.list.visual_selected_ids();
                         self.list.cleanup_after_batch(&removed_ids);
                         self.detail.clear();
-                        let _ = ctx.command_tx.try_send(Command::LoadTags);
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -1013,8 +1013,8 @@ impl Screen for MainScreenState {
                         let removed_ids = self.list.visual_selected_ids();
                         self.list.cleanup_after_batch(&removed_ids);
                         self.detail.clear();
-                        let _ = ctx.command_tx.try_send(Command::LoadTags);
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadTags);
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -1025,7 +1025,7 @@ impl Screen for MainScreenState {
                         let removed_ids = self.list.visual_selected_ids();
                         self.list.cleanup_after_batch(&removed_ids);
                         self.detail.clear();
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -1037,7 +1037,7 @@ impl Screen for MainScreenState {
                         self.list.selected_index = None;
                         self.list.scroll_offset = 0;
                         self.detail.clear();
-                        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+                        ctx.send_system_command(Command::LoadRecordList {
                             filter: self.current_filter.clone(),
                             sort: self.current_sort.clone(),
                         });
@@ -1081,12 +1081,12 @@ impl Screen for MainScreenState {
             self.status_bar.health_check_phase = HealthCheckPhase::Skipped;
         }
         // Load initial record list
-        let _ = ctx.command_tx.try_send(Command::LoadRecordList {
+        ctx.send_system_command(Command::LoadRecordList {
             filter: self.current_filter.clone(),
             sort: self.current_sort.clone(),
         });
         // Load tags for sidebar
-        let _ = ctx.command_tx.try_send(Command::LoadTags);
+        ctx.send_system_command(Command::LoadTags);
     }
 
     fn on_unmount(&mut self) {

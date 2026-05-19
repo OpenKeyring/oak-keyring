@@ -111,7 +111,7 @@ fn build_executor_with_sync(
             )
         }
         DbStartupMode::DeferredInMemory => {
-            let conn = init_db_in_memory();
+            let conn = init_db_in_memory().unwrap();
             (
                 oak_keyring::executor::runtime::VaultRuntime::open(Box::new(
                     VaultServiceImpl::new(conn),

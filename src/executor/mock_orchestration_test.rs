@@ -507,6 +507,132 @@ async fn resolve_conflict_returns_error_when_not_configured() {
     ));
 }
 
+// ---------------------------------------------------------------------------
+// Sync cancellation dynamic tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn trigger_sync_maps_service_cancelled_to_command_cancelled() {
+    let mut mock_sync = MockSyncService::new();
+    mock_sync
+        .expect_sync_with_cancel()
+        .once()
+        .returning(|_, _| {
+            Box::pin(async {
+                Err(crate::errors::mapping::sync::SyncError::Cancelled {
+                    operation: "sync".to_string(),
+                })
+            })
+        });
+
+    let mut mock_vault = permissive_unlocked_vault();
+    mock_vault
+        .expect_list_all_stored_records()
+        .returning(|| Ok(vec![]));
+    mock_vault
+        .expect_load_sync_status_map()
+        .returning(HashMap::new);
+
+    let mut executor = base_builder()
+        .vault(Box::new(mock_vault))
+        .sync(Some(Box::new(mock_sync)))
+        .config(AppConfig::default())
+        .build();
+
+    let result = sync::handle_trigger_sync(&mut executor).await;
+    assert!(
+        matches!(result, CommandResult::Cancelled { ref operation, .. } if operation == "sync"),
+        "Expected Cancelled when service returns SyncError::Cancelled, got {:?}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn trigger_sync_maps_network_timeout_to_error() {
+    let mut mock_sync = MockSyncService::new();
+    mock_sync
+        .expect_sync_with_cancel()
+        .once()
+        .returning(|_, _| {
+            Box::pin(async {
+                Err(crate::errors::mapping::sync::SyncError::NetworkTimeout {
+                    message: "connection timed out".to_string(),
+                })
+            })
+        });
+
+    let mut mock_vault = permissive_unlocked_vault();
+    mock_vault
+        .expect_list_all_stored_records()
+        .returning(|| Ok(vec![]));
+    mock_vault
+        .expect_load_sync_status_map()
+        .returning(HashMap::new);
+
+    let mut executor = base_builder()
+        .vault(Box::new(mock_vault))
+        .sync(Some(Box::new(mock_sync)))
+        .config(AppConfig::default())
+        .build();
+
+    let result = sync::handle_trigger_sync(&mut executor).await;
+    assert!(
+        matches!(
+            result,
+            CommandResult::Error {
+                message_key: "error.sync_failed",
+                ..
+            }
+        ),
+        "Expected Error for network timeout, got {:?}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn trigger_sync_maps_auth_failure_to_error() {
+    let mut mock_sync = MockSyncService::new();
+    mock_sync
+        .expect_sync_with_cancel()
+        .once()
+        .returning(|_, _| {
+            Box::pin(async {
+                Err(
+                    crate::errors::mapping::sync::SyncError::AuthenticationFailed {
+                        reason: "token expired".to_string(),
+                    },
+                )
+            })
+        });
+
+    let mut mock_vault = permissive_unlocked_vault();
+    mock_vault
+        .expect_list_all_stored_records()
+        .returning(|| Ok(vec![]));
+    mock_vault
+        .expect_load_sync_status_map()
+        .returning(HashMap::new);
+
+    let mut executor = base_builder()
+        .vault(Box::new(mock_vault))
+        .sync(Some(Box::new(mock_sync)))
+        .config(AppConfig::default())
+        .build();
+
+    let result = sync::handle_trigger_sync(&mut executor).await;
+    assert!(
+        matches!(
+            result,
+            CommandResult::Error {
+                message_key: "error.sync_failed",
+                ..
+            }
+        ),
+        "Expected Error for auth failure, got {:?}",
+        result
+    );
+}
+
 #[tokio::test]
 async fn restore_database_from_cloud_returns_needs_oauth_without_sync() {
     let mut executor = base_builder()
@@ -620,6 +746,88 @@ fn import_reports_mixed_success_and_failure_counts() {
         }
         other => panic!("expected ImportCompleted, got {:?}", other),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Provider fault path: resolve_conflict error mapping
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn resolve_conflict_maps_provider_error_to_command_error() {
+    let mut mock_sync = MockSyncService::new();
+    mock_sync
+        .expect_resolve_conflict()
+        .once()
+        .returning(|_, _| {
+            Box::pin(async {
+                Err(crate::errors::mapping::sync::SyncError::ProviderError {
+                    provider: "test".to_string(),
+                    message: "upload failed".to_string(),
+                })
+            })
+        });
+
+    let mut executor = base_builder()
+        .vault(Box::new(MockVault::new()))
+        .sync(Some(Box::new(mock_sync)))
+        .config(AppConfig::default())
+        .build();
+
+    let result = sync::handle_resolve_conflict(
+        &mut executor,
+        Uuid::new_v4(),
+        crate::commands::types::ConflictResolution::KeepLocal,
+    )
+    .await;
+    assert!(
+        matches!(
+            result,
+            CommandResult::Error {
+                message_key: "error.conflict_resolve_failed",
+                ..
+            }
+        ),
+        "Expected Error for provider error during conflict resolution, got {:?}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn resolve_all_conflicts_maps_quota_error_to_command_error() {
+    let mut mock_sync = MockSyncService::new();
+    mock_sync
+        .expect_resolve_all_conflicts()
+        .once()
+        .returning(|_| {
+            Box::pin(async {
+                Err(crate::errors::mapping::sync::SyncError::QuotaExceeded {
+                    provider: "test".to_string(),
+                })
+            })
+        });
+
+    let mut executor = base_builder()
+        .vault(Box::new(MockVault::new()))
+        .sync(Some(Box::new(mock_sync)))
+        .config(AppConfig::default())
+        .build();
+
+    let result = sync::handle_resolve_all_conflicts(
+        &mut executor,
+        crate::commands::types::ConflictResolution::KeepLocal,
+    )
+    .await;
+    assert!(
+        matches!(
+            result,
+            CommandResult::Error {
+                message_key: "error.conflict_resolve_all_failed",
+                ..
+            }
+        ),
+        "Expected Error for quota exceeded during resolve_all, got {:?}",
+        result
+    );
 }
 
 // ---------------------------------------------------------------------------
