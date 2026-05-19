@@ -205,6 +205,11 @@ impl LockedSecretBytes {
         }
 
         let (ptr, cap) = allocate_locked_pages(len)?;
+
+        // Register for crash-time zeroization
+        #[cfg(unix)]
+        crate::security::crash_handler::register(ptr, cap);
+
         Ok(Self { ptr, len, cap })
     }
 
@@ -232,6 +237,10 @@ impl Drop for LockedSecretBytes {
         if self.cap == 0 {
             return;
         }
+
+        // Unregister from crash handler registry
+        #[cfg(unix)]
+        crate::security::crash_handler::unregister(self.ptr);
 
         // Zeroize the used portion before unlocking and freeing pages.
         use zeroize::Zeroize;

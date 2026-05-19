@@ -2584,6 +2584,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2 0.10.9",
+ "spin",
  "subtle",
  "sys-locale",
  "tachyonfx",
@@ -4086,6 +4087,9 @@ name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+dependencies = [
+ "lock_api",
+]
 
 [[package]]
 name = "spki"
