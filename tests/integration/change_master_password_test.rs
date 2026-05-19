@@ -56,7 +56,10 @@ impl Harness {
     }
 
     async fn send(&self, command: Command) {
-        self.command_tx.send(command).await.unwrap();
+        self.command_tx
+            .send(command)
+            .await
+            .expect("command channel closed — executor may have panicked");
     }
 
     async fn recv_result(&mut self) -> CommandResult {
@@ -72,6 +75,7 @@ impl Harness {
                     }
                     return result;
                 }
+                Message::HealthCheckProgress { .. } => continue,
                 other => panic!("unexpected message: {other:?}"),
             }
         }
@@ -230,6 +234,18 @@ async fn change_master_password_with_explicit_current_password() {
         "new password must work after change, got: {result:?}"
     );
 
+    // Old password must no longer work.
+    lock(&mut h).await;
+    h.send(Command::UnlockVault {
+        master_password: SecureStr::new(old_pw.to_string()),
+    })
+    .await;
+    let result = h.recv_result().await;
+    assert!(
+        matches!(result, CommandResult::VaultUnlockFailed { .. }),
+        "old password must fail after change, got: {result:?}"
+    );
+
     h.shutdown().await;
 }
 
@@ -293,7 +309,7 @@ async fn change_master_password_wrong_old_password_fails() {
 
     let result = h.recv_result().await;
     assert!(
-        matches!(&result, CommandResult::Error { fallback, .. } if fallback.contains("change_password_failed") || fallback.contains("Failed to change")),
+        matches!(&result, CommandResult::Error { fallback, .. } if fallback.contains("Failed to change")),
         "expected change-password error for wrong old password, got: {result:?}"
     );
 
