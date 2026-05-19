@@ -134,6 +134,7 @@ fn create_metadata(
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "test-device".to_string(),
                 checksum: checksum.to_string(),
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );
@@ -188,6 +189,97 @@ fn vault_upload_record_round_trips_health_via_encrypted_private_metadata() {
     assert_eq!(restored.duplicate_group_size, Some(3));
     assert_eq!(restored.compromised, Some(false));
     assert_eq!(restored.expired, Some(true));
+}
+
+#[tokio::test]
+async fn same_version_encrypted_private_health_change_is_downloaded_and_applied() {
+    let (storage, _temp_dir) = create_test_storage();
+    let checkpoint = create_test_checkpoint();
+    let mut vault = setup_unlocked_vault();
+    let record_id = create_login_record(&mut vault, "Same Version Health");
+    let health = make_health_state(record_id, 1, true, Some(2), false, false);
+    assert!(
+        vault.get_record_health_state(&record_id).unwrap().is_none(),
+        "local peer starts with no health state"
+    );
+
+    let stored = vault
+        .list_all_stored_records()
+        .unwrap()
+        .into_iter()
+        .find(|record| record.id == record_id)
+        .expect("stored record should exist");
+    let cloud_record = vault
+        .build_cloud_record_for_sync(&stored, Some(health))
+        .expect("cloud record should build");
+    let checksum = cloud_record.compute_checksum().unwrap();
+    let private_metadata_checksum = cloud_record
+        .compute_private_metadata_checksum()
+        .unwrap()
+        .expect("encrypted private metadata checksum should exist");
+
+    storage
+        .upload_record(&record_id.to_string(), &cloud_record)
+        .await
+        .unwrap();
+
+    let mut previous_metadata = create_metadata(
+        "test_token",
+        1,
+        vec![(&record_id.to_string(), 1, &checksum)],
+    );
+    previous_metadata
+        .records
+        .get_mut(&record_id.to_string())
+        .unwrap()
+        .private_metadata_checksum = Some("old-private-metadata-checksum".to_string());
+
+    let mut current_metadata = create_metadata(
+        "test_token",
+        2,
+        vec![(&record_id.to_string(), 1, &checksum)],
+    );
+    current_metadata
+        .records
+        .get_mut(&record_id.to_string())
+        .unwrap()
+        .private_metadata_checksum = Some(private_metadata_checksum);
+    storage.upload_metadata(&current_metadata).await.unwrap();
+
+    let mut context = PipelineContext::new(
+        storage,
+        ConflictManager::new(),
+        checkpoint,
+        1,
+        "test_token".to_string(),
+    );
+    context.set_last_remote_metadata(Some(previous_metadata));
+    context.set_local_records(vec![LocalRecordInfo {
+        record_id: record_id.to_string(),
+        sync_status: SyncStatus::Synced,
+        version: 1,
+    }]);
+
+    let result = SyncPipeline::new().execute(&mut context).await;
+
+    assert!(matches!(result, PipelineResult::Completed));
+    assert!(
+        context.downloads.contains_key(&record_id.to_string()),
+        "same-version private metadata change must trigger a download"
+    );
+    let downloaded = context
+        .downloads
+        .remove(&record_id.to_string())
+        .expect("record should be downloaded");
+    vault
+        .apply_downloaded_cloud_record(&downloaded)
+        .expect("vault should apply downloaded encrypted private metadata");
+    let restored = vault
+        .get_record_health_state(&record_id)
+        .unwrap()
+        .expect("health should be restored by vault apply");
+    assert_eq!(restored.weak_password, Some(true));
+    assert_eq!(restored.duplicate_group_size, Some(2));
 }
 
 #[tokio::test]

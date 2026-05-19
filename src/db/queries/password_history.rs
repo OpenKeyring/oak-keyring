@@ -6,6 +6,18 @@ use crate::types::history::PasswordHistory;
 
 use super::Result;
 
+fn parse_record_id(raw: String) -> rusqlite::Result<Uuid> {
+    Uuid::parse_str(&raw).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
+    })
+}
+
+fn parse_changed_at(ts: i64) -> rusqlite::Result<chrono::DateTime<chrono::Utc>> {
+    timestamp_to_datetime(ts).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Integer, Box::new(e))
+    })
+}
+
 /// Insert a password history entry for a record.
 pub fn insert_password_history(
     conn: &Connection,
@@ -52,13 +64,14 @@ pub fn get_password_history(
                 Box::new(std::io::Error::other("nonce must be 24 bytes")),
             )
         })?;
+        let record_id = parse_record_id(row.get("record_id")?)?;
         Ok(PasswordHistory {
             id: row.get("id")?,
-            record_id: Uuid::parse_str(&row.get::<_, String>("record_id")?).unwrap(),
+            record_id,
             encrypted_password: row.get("encrypted_password")?,
             nonce,
             dek_version: row.get::<_, i64>("dek_version")? as u32,
-            changed_at: timestamp_to_datetime(row.get("changed_at")?),
+            changed_at: parse_changed_at(row.get("changed_at")?)?,
         })
     })?;
 
@@ -114,13 +127,14 @@ pub fn get_password_history_by_id(
                     Box::new(std::io::Error::other("nonce must be 24 bytes")),
                 )
             })?;
+            let record_id = parse_record_id(row.get("record_id")?)?;
             Ok(PasswordHistory {
                 id: row.get("id")?,
-                record_id: Uuid::parse_str(&row.get::<_, String>("record_id")?).unwrap(),
+                record_id,
                 encrypted_password: row.get("encrypted_password")?,
                 nonce,
                 dek_version: row.get::<_, i64>("dek_version")? as u32,
-                changed_at: timestamp_to_datetime(row.get("changed_at")?),
+                changed_at: parse_changed_at(row.get("changed_at")?)?,
             })
         },
     );

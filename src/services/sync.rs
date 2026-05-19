@@ -283,6 +283,25 @@ impl SyncServiceImpl {
                                 record_id,
                             });
                         }
+                        if let Some(expected) = remote_info.private_metadata_checksum.as_deref() {
+                            match record.compute_private_metadata_checksum()? {
+                                Some(computed) if computed == expected => {}
+                                Some(computed) => {
+                                    return Err(SyncError::ChecksumMismatch {
+                                        expected: expected.to_string(),
+                                        actual: computed,
+                                        record_id,
+                                    });
+                                }
+                                None => {
+                                    return Err(SyncError::ChecksumMismatch {
+                                        expected: expected.to_string(),
+                                        actual: "missing private metadata".to_string(),
+                                        record_id,
+                                    });
+                                }
+                            }
+                        }
                     }
 
                     if let Some(health_state) = record.to_health_state() {
@@ -898,6 +917,7 @@ mod tests {
                 updated_at: now.clone(),
                 updated_by: "test-device".to_string(),
                 checksum,
+                private_metadata_checksum: record.compute_private_metadata_checksum().unwrap(),
                 deleted: false,
             },
         );
@@ -949,6 +969,7 @@ mod tests {
                 updated_at: now,
                 updated_by: "test-device".to_string(),
                 checksum: "wrong-checksum".to_string(),
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );
@@ -997,6 +1018,7 @@ mod tests {
                 updated_at: now,
                 updated_by: "test-device".to_string(),
                 checksum,
+                private_metadata_checksum: record.compute_private_metadata_checksum().unwrap(),
                 deleted: false,
             },
         );
@@ -1046,6 +1068,7 @@ mod tests {
                 updated_at: now,
                 updated_by: "test-device".to_string(),
                 checksum,
+                private_metadata_checksum: record.compute_private_metadata_checksum().unwrap(),
                 deleted: false,
             },
         );
@@ -1092,6 +1115,7 @@ mod tests {
                 updated_at: now,
                 updated_by: "test-device".to_string(),
                 checksum,
+                private_metadata_checksum: record.compute_private_metadata_checksum().unwrap(),
                 deleted: false,
             },
         );
@@ -1132,6 +1156,7 @@ mod tests {
                 updated_at: chrono::Utc::now().to_rfc3339(),
                 updated_by: "test-device".to_string(),
                 checksum: "unused".to_string(),
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );

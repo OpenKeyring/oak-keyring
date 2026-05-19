@@ -72,7 +72,10 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
     .expect("executor construction should succeed");
 
     tokio::spawn(async move {
-        executor.run(command_rx).await;
+        executor
+            .run(command_rx)
+            .await
+            .expect("executor run should succeed");
     });
 
     (command_tx, result_rx)
@@ -135,6 +138,7 @@ fn build_executor_with_sync(
         .shutdown_token(cancel_token)
         .clipboard(clipboard)
         .build()
+        .expect("executor should build")
 }
 
 async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
@@ -160,7 +164,10 @@ async fn setup_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     );
 
     tokio::spawn(async move {
-        executor.run(command_rx).await;
+        executor
+            .run(command_rx)
+            .await
+            .expect("executor run should succeed");
     });
 
     SyncTestContext {
@@ -199,7 +206,10 @@ async fn setup_key_only_sync_executor(vault_dir: &TempDir) -> SyncTestContext {
     );
 
     tokio::spawn(async move {
-        executor.run(command_rx).await;
+        executor
+            .run(command_rx)
+            .await
+            .expect("executor run should succeed");
     });
 
     SyncTestContext {
@@ -717,7 +727,10 @@ async fn sync_cancellation_returns_cancelled() {
     let op_cancel = executor.cancel_token().clone();
 
     tokio::spawn(async move {
-        executor.run(command_rx).await;
+        executor
+            .run(command_rx)
+            .await
+            .expect("executor run should succeed");
     });
 
     let password = SecureStr::new("test_password_123".to_string());
@@ -828,6 +841,7 @@ async fn restore_database_from_cloud_with_valid_records_creates_vault_db() {
             updated_at: now,
             updated_by: "test-device".to_string(),
             checksum,
+            private_metadata_checksum: record.compute_private_metadata_checksum().unwrap(),
             deleted: false,
         },
     );

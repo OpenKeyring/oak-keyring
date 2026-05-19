@@ -591,6 +591,7 @@ mod tests {
                 30,
             )))
             .build()
+            .expect("executor should build")
     }
 
     /// Helper: create a Login record and return its UUID.

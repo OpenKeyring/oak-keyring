@@ -19,6 +19,16 @@ use super::config_impl::{ClipboardConfigAdapter, ConfigManagerImpl, ServiceNotif
 use super::runtime;
 use super::CommandExecutor;
 
+#[derive(Debug, thiserror::Error)]
+pub enum ExecutorBuildError {
+    #[error("ExecutorBuilder requires {field}")]
+    MissingField { field: &'static str },
+}
+
+fn required<T>(value: Option<T>, field: &'static str) -> Result<T, ExecutorBuildError> {
+    value.ok_or(ExecutorBuildError::MissingField { field })
+}
+
 /// Builder for [`CommandExecutor`] — the single dependency-injection boundary.
 ///
 /// The builder holds all the same fields as CommandExecutor but provides setter
@@ -175,9 +185,9 @@ impl ExecutorBuilder {
 
     /// Build the [`CommandExecutor`].
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if required fields are missing:
+    /// Returns an error if required fields are missing:
     /// - `vault`
     /// - `config`
     /// - `result_tx`
@@ -197,16 +207,11 @@ impl ExecutorBuilder {
     /// The builder does NOT create the sync service from config. The caller (including
     /// [`CommandExecutor::new`]) is responsible for creating sync and passing it via
     /// `.sync()`. This keeps the builder pure and testable.
-    #[track_caller]
-    pub fn build(self) -> CommandExecutor {
-        let vault_runtime = self
-            .vault_runtime
-            .expect("ExecutorBuilder requires a vault");
-        let config = self.config.expect("ExecutorBuilder requires config");
-        let result_tx = self.result_tx.expect("ExecutorBuilder requires result_tx");
-        let shutdown_token = self
-            .shutdown_token
-            .expect("ExecutorBuilder requires shutdown_token");
+    pub fn build(self) -> Result<CommandExecutor, ExecutorBuildError> {
+        let vault_runtime = required(self.vault_runtime, "a vault")?;
+        let config = required(self.config, "config")?;
+        let result_tx = required(self.result_tx, "result_tx")?;
+        let shutdown_token = required(self.shutdown_token, "shutdown_token")?;
 
         // Default services if not explicitly set
         let health = self
@@ -242,7 +247,7 @@ impl ExecutorBuilder {
             &clipboard,
         ))));
 
-        CommandExecutor {
+        Ok(CommandExecutor {
             vault_runtime,
             vault_db_file_backed: self.vault_db_file_backed,
             sync: self.sync,
@@ -265,6 +270,6 @@ impl ExecutorBuilder {
             oauth2_token_store: self
                 .oauth2_token_store
                 .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(None))),
-        }
+        })
     }
 }

@@ -27,6 +27,7 @@ impl ServiceError for DbError {
                 DataError::InvalidAuditOperation(_) => ErrorCode::DataInvalidAuditOperation,
                 DataError::InvalidSyncStatus(_) => ErrorCode::DataInvalidCredentialType,
                 DataError::InvalidUuid(_) => ErrorCode::DataInvalidUuid,
+                DataError::InvalidTimestamp(_) => ErrorCode::DataInvalidCredentialType,
             },
             DbError::Uuid(_) => ErrorCode::DataInvalidUuid,
         }
@@ -47,6 +48,7 @@ impl ServiceError for DbError {
                 }
                 DataError::InvalidSyncStatus(_) => ErrorContext::new().field_name("sync_status"),
                 DataError::InvalidUuid(_) => ErrorContext::new().field_name("uuid"),
+                DataError::InvalidTimestamp(_) => ErrorContext::new().field_name("timestamp"),
             },
             DbError::Uuid(_) => ErrorContext::new(),
         }
@@ -79,6 +81,9 @@ impl ServiceError for DbError {
                 }
                 DataError::InvalidUuid(s) => {
                     format!("Invalid UUID format: '{}'", s)
+                }
+                DataError::InvalidTimestamp(ts) => {
+                    format!("Invalid timestamp: {}", ts)
                 }
             },
             DbError::Uuid(e) => format!("Invalid UUID: {}", e),

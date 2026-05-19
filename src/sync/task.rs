@@ -32,6 +32,8 @@ pub struct SyncVaultData {
     pub uploads: Vec<CloudRecord>,
     /// Local metadata version for fast-path comparison in Pull stage.
     pub local_metadata_version: u64,
+    /// Last remote metadata snapshot persisted locally after a completed sync.
+    pub last_remote_metadata: Option<CloudMetadata>,
     /// Vault identity token for validation in Pull stage.
     pub local_vault_token: String,
 }
@@ -119,6 +121,7 @@ struct PipelineExecutionOutcome {
     downloaded_health_deleted: Vec<Uuid>,
     downloaded_records: Vec<CloudRecord>,
     uploaded_ids: Vec<String>,
+    failed_count: u32,
     conflict_data: HashMap<String, Vec<u8>>,
     final_metadata: Option<CloudMetadata>,
 }
@@ -570,16 +573,17 @@ impl SyncTask {
     async fn execute_pipeline(&mut self) -> PipelineExecutionOutcome {
         let checkpoint = SyncCheckpoint::new(std::env::temp_dir());
 
-        let (metadata_version, vault_token, local_records, uploads) =
+        let (metadata_version, last_remote_metadata, vault_token, local_records, uploads) =
             if let Some(ref data) = self.vault_data {
                 (
                     data.local_metadata_version,
+                    data.last_remote_metadata.clone(),
                     data.local_vault_token.clone(),
                     data.local_records.clone(),
                     data.uploads.clone(),
                 )
             } else {
-                (0, String::new(), Vec::new(), Vec::new())
+                (0, None, String::new(), Vec::new(), Vec::new())
             };
 
         let mut context = PipelineContext::new(
@@ -589,6 +593,7 @@ impl SyncTask {
             metadata_version,
             vault_token,
         );
+        context.set_last_remote_metadata(last_remote_metadata);
 
         if !local_records.is_empty() {
             context.set_local_records(local_records);
@@ -603,8 +608,13 @@ impl SyncTask {
         let downloaded_records: Vec<CloudRecord> =
             context.downloads.drain().map(|(_, v)| v).collect();
         let uploaded_ids = std::mem::take(&mut context.uploaded_ids);
+        let failed_count = context.failed_ids.len() as u32;
         let conflict_data = std::mem::take(&mut context.conflict_data_map);
-        let final_metadata = context.final_metadata.clone();
+        let final_metadata = if failed_count == 0 {
+            context.final_metadata.clone()
+        } else {
+            None
+        };
 
         // Store conflict items for later resolution
         if !context.conflicts.is_empty() {
@@ -630,6 +640,7 @@ impl SyncTask {
             downloaded_health_deleted,
             downloaded_records,
             uploaded_ids,
+            failed_count,
             conflict_data,
             final_metadata,
         }
@@ -658,7 +669,7 @@ impl SyncTask {
                     uploaded: uploaded_count,
                     downloaded: downloaded_count,
                     conflicts: 0,
-                    failed: 0,
+                    failed: outcome.failed_count,
                     duration_ms,
                 };
                 let _ = self
@@ -690,7 +701,7 @@ impl SyncTask {
                     uploaded: 0,
                     downloaded: 0,
                     conflicts: 0,
-                    failed: 0,
+                    failed: outcome.failed_count,
                     duration_ms,
                 };
                 let _ = self
@@ -722,7 +733,7 @@ impl SyncTask {
                     uploaded: uploaded_count,
                     downloaded: downloaded_count,
                     conflicts: conflict_ids.len() as u32,
-                    failed: 0,
+                    failed: outcome.failed_count,
                     duration_ms,
                 };
                 let _ = self
@@ -1129,6 +1140,7 @@ mod tests {
             local_records,
             uploads,
             local_metadata_version: 0,
+            last_remote_metadata: None,
             local_vault_token: "test-token".to_string(),
         })
     }
@@ -1183,6 +1195,111 @@ mod tests {
             }
             other => {
                 panic!("Expected Completed or Failed, got {:?}", other);
+            }
+        }
+
+        cmd_tx.send(SyncCommand::Shutdown).await.unwrap();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn trigger_sync_with_download_failure_does_not_advance_metadata_snapshot() {
+        let (cmd_tx, cmd_rx) = mpsc::channel(16);
+        let (event_tx, mut event_rx) = mpsc::channel(16);
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let op = opendal::Operator::new(
+            opendal::services::Fs::default().root(temp_dir.path().to_str().unwrap()),
+        )
+        .unwrap()
+        .finish();
+        let storage = CloudStorage::new(op, "fs".to_string());
+        let record_id = Uuid::new_v4().to_string();
+        let cloud_record = CloudRecord {
+            id: record_id.clone(),
+            version: 1,
+            encrypted_data: base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                b"test",
+            ),
+            nonce: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 24]),
+            dek_version: 1,
+            aad: crate::cloud::record::AadFields {
+                record_id: record_id.clone(),
+                dek_version: 1,
+            },
+            metadata: crate::cloud::record::RecordMetadata {
+                name: "remote-record".to_string(),
+                tags: vec![],
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                health: None,
+                ..Default::default()
+            },
+            deleted: None,
+            deleted_at: None,
+        };
+        storage
+            .upload_record(&record_id, &cloud_record)
+            .await
+            .unwrap();
+        let mut metadata = CloudMetadata::new("test-token".to_string());
+        metadata.metadata_version = 2;
+        metadata.upsert_record(
+            record_id.clone(),
+            crate::cloud::RecordVersionInfo {
+                version: 1,
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                updated_by: "remote-device".to_string(),
+                checksum: "wrong-checksum".to_string(),
+                private_metadata_checksum: None,
+                deleted: false,
+            },
+        );
+        storage.upload_metadata(&metadata).await.unwrap();
+
+        let mut task = SyncTask::new(storage, cmd_rx, event_tx, SyncStateMachine::new(5));
+        let vault_data = Box::new(SyncVaultData {
+            local_records: vec![LocalRecordInfo {
+                record_id: record_id.clone(),
+                sync_status: crate::types::sync::SyncStatus::Synced,
+                version: 0,
+            }],
+            uploads: vec![],
+            local_metadata_version: 1,
+            last_remote_metadata: None,
+            local_vault_token: "test-token".to_string(),
+        });
+        cmd_tx
+            .send(SyncCommand::TriggerSync(Some(vault_data)))
+            .await
+            .unwrap();
+
+        let handle = tokio::spawn(async move {
+            task.run().await;
+        });
+
+        let mut final_event = None;
+        while let Ok(Some(event)) = timeout(Duration::from_secs(5), event_rx.recv()).await {
+            match &event {
+                SyncEvent::Completed(..) | SyncEvent::Failed { .. } => {
+                    final_event = Some(event);
+                    break;
+                }
+                _ => continue,
+            }
+        }
+
+        match final_event {
+            Some(SyncEvent::Completed(report, _, _, downloaded, _, _, final_metadata)) => {
+                assert_eq!(report.downloaded, 0);
+                assert_eq!(report.failed, 1);
+                assert!(downloaded.is_empty());
+                assert!(
+                    final_metadata.is_none(),
+                    "failed download must not advance the local remote metadata snapshot"
+                );
+            }
+            other => {
+                panic!("Expected Completed, got {:?}", other);
             }
         }
 

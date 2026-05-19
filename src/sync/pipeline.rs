@@ -43,6 +43,8 @@ pub struct PipelineContext {
     pub checkpoint: SyncCheckpoint,
     /// Remote metadata downloaded in Pull stage.
     pub remote_metadata: Option<CloudMetadata>,
+    /// Last remote metadata snapshot persisted locally after a completed sync.
+    pub last_remote_metadata: Option<CloudMetadata>,
     /// Local metadata version for fast-path comparison.
     pub local_metadata_version: u64,
     /// Local vault identity token.
@@ -84,6 +86,13 @@ impl fmt::Debug for PipelineContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PipelineContext")
             .field("local_metadata_version", &self.local_metadata_version)
+            .field(
+                "last_remote_metadata_version",
+                &self
+                    .last_remote_metadata
+                    .as_ref()
+                    .map(|m| m.metadata_version),
+            )
             .field("local_vault_token", &self.local_vault_token)
             .field("to_upload", &self.to_upload.len())
             .field("to_download", &self.to_download.len())
@@ -118,6 +127,7 @@ impl PipelineContext {
             conflict_manager,
             checkpoint,
             remote_metadata: None,
+            last_remote_metadata: None,
             local_metadata_version,
             local_vault_token,
             to_upload: Vec::new(),
@@ -143,6 +153,36 @@ impl PipelineContext {
     /// Sets the records to upload.
     pub fn set_uploads(&mut self, records: Vec<CloudRecord>) {
         self.uploads = records;
+    }
+
+    /// Sets the previous remote metadata snapshot used for same-version
+    /// private metadata change detection.
+    pub fn set_last_remote_metadata(&mut self, metadata: Option<CloudMetadata>) {
+        self.last_remote_metadata = metadata;
+    }
+
+    fn private_metadata_changed_since_last_snapshot(
+        &self,
+        record_id: &str,
+        remote: &crate::cloud::RecordVersionInfo,
+    ) -> bool {
+        let Some(remote_checksum) = remote.private_metadata_checksum.as_deref() else {
+            return false;
+        };
+
+        let previous_checksum = self
+            .last_remote_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.records.get(record_id))
+            .and_then(|info| info.private_metadata_checksum.as_deref());
+
+        match previous_checksum {
+            Some(previous) => previous != remote_checksum,
+            None => self
+                .remote_metadata
+                .as_ref()
+                .is_some_and(|metadata| metadata.metadata_version > self.local_metadata_version),
+        }
     }
 }
 
@@ -240,7 +280,9 @@ impl SyncStage for DetectStage {
             return StageOutcome::Continue;
         }
 
-        let remote_metadata = context.remote_metadata.as_ref().unwrap();
+        let Some(remote_metadata) = context.remote_metadata.as_ref() else {
+            return StageOutcome::Continue;
+        };
         let remote_records = &remote_metadata.records;
         let local_record_ids = context
             .local_records
@@ -252,6 +294,16 @@ impl SyncStage for DetectStage {
             let remote_info = remote_records.get(&local.record_id);
 
             let action = match remote_info {
+                Some(remote)
+                    if local.sync_status == SyncStatus::Synced
+                        && remote.version == local.version
+                        && context.private_metadata_changed_since_last_snapshot(
+                            &local.record_id,
+                            remote,
+                        ) =>
+                {
+                    ConflictAction::DownloadOnly
+                }
                 Some(remote) => context.conflict_manager.detect_conflicts(
                     local.sync_status,
                     local.version,
@@ -390,6 +442,41 @@ impl SyncStage for PushStage {
                                         continue;
                                     }
                                 }
+                                if let Some(expected) =
+                                    remote_info.private_metadata_checksum.as_deref()
+                                {
+                                    match record.compute_private_metadata_checksum() {
+                                        Ok(Some(computed)) if computed == expected => {}
+                                        Ok(Some(computed)) => {
+                                            tracing::warn!(
+                                                record_id = %record_id,
+                                                expected = %expected,
+                                                actual = %computed,
+                                                "Private metadata checksum mismatch on downloaded record, skipping"
+                                            );
+                                            context.failed_ids.push(record_id);
+                                            continue;
+                                        }
+                                        Ok(None) => {
+                                            tracing::warn!(
+                                                record_id = %record_id,
+                                                expected = %expected,
+                                                "Downloaded record has no encrypted private metadata, skipping"
+                                            );
+                                            context.failed_ids.push(record_id);
+                                            continue;
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                record_id = %record_id,
+                                                error = %e,
+                                                "Failed to compute private metadata checksum, skipping"
+                                            );
+                                            context.failed_ids.push(record_id);
+                                            continue;
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -506,6 +593,7 @@ impl PushStage {
                 continue;
             }
             let checksum = compute_checksum(&record.encrypted_data)?;
+            let private_metadata_checksum = record.compute_private_metadata_checksum()?;
             updated_meta.upsert_record(
                 record.id.clone(),
                 RecordVersionInfo {
@@ -513,6 +601,7 @@ impl PushStage {
                     updated_at: now.clone(),
                     updated_by: device_id.clone(),
                     checksum,
+                    private_metadata_checksum,
                     deleted: record.deleted.unwrap_or(false),
                 },
             );

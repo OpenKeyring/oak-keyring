@@ -10,6 +10,8 @@ use crate::types::{SecureStr, SyncStats};
 
 use super::CommandExecutor;
 
+const REMOTE_METADATA_SNAPSHOT_KEY: &str = "remote_metadata_snapshot";
+
 /// Builds a SyncVaultData snapshot from the current vault state.
 ///
 /// Reads local records, their sync status, the pending upload CloudRecords
@@ -124,6 +126,22 @@ pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<Sy
         .flatten()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(0);
+    let last_remote_metadata = vault
+        .get_metadata(REMOTE_METADATA_SNAPSHOT_KEY)
+        .ok()
+        .flatten()
+        .and_then(
+            |json| match crate::cloud::metadata::deserialize_metadata(&json) {
+                Ok(metadata) => Some(metadata),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "Ignoring invalid persisted remote metadata snapshot"
+                    );
+                    None
+                }
+            },
+        );
 
     let vault_token = vault
         .get_metadata("vault_identity_token")
@@ -136,6 +154,7 @@ pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<Sy
         local_records,
         uploads: valid_uploads,
         local_metadata_version: metadata_version,
+        last_remote_metadata,
         local_vault_token: vault_token,
     }))
 }
@@ -267,6 +286,9 @@ fn persist_restored_cloud_data(
     if let Some(metadata) = result.remote_metadata.as_ref() {
         target.set_metadata("metadata_version", &metadata.metadata_version.to_string())?;
         target.set_metadata("vault_identity_token", &metadata.vault_identity_token)?;
+        let metadata_json = crate::cloud::metadata::serialize_metadata(metadata)
+            .map_err(|e| crate::errors::mapping::vault::VaultError::CryptoError(e.to_string()))?;
+        target.set_metadata(REMOTE_METADATA_SNAPSHOT_KEY, &metadata_json)?;
     }
 
     Ok(())
@@ -445,7 +467,12 @@ pub async fn handle_trigger_sync(executor: &mut CommandExecutor) -> CommandResul
             if let Some(metadata) = sync_result.remote_metadata.as_ref() {
                 if let Err(e) = executor.vault_mut().and_then(|v| {
                     v.set_metadata("metadata_version", &metadata.metadata_version.to_string())?;
-                    v.set_metadata("vault_identity_token", &metadata.vault_identity_token)
+                    v.set_metadata("vault_identity_token", &metadata.vault_identity_token)?;
+                    let metadata_json = crate::cloud::metadata::serialize_metadata(metadata)
+                        .map_err(|e| {
+                            crate::errors::mapping::vault::VaultError::CryptoError(e.to_string())
+                        })?;
+                    v.set_metadata(REMOTE_METADATA_SNAPSHOT_KEY, &metadata_json)
                 }) {
                     tracing::warn!(error = %e, "Failed to persist sync metadata");
                 }
@@ -857,7 +884,8 @@ mod restore_password_tests {
             )))
             .sync(Some(create_test_sync_service()))
             .verified_master_password(SecureStr::new("cached-password".to_string()))
-            .build();
+            .build()
+            .expect("executor should build");
 
         let result = handle_restore_database_from_cloud(&mut executor, None).await;
 
@@ -891,7 +919,8 @@ mod restore_password_tests {
                 30,
             )))
             .sync(Some(create_test_sync_service()))
-            .build();
+            .build()
+            .expect("executor should build");
 
         let result = handle_restore_database_from_cloud(
             &mut executor,
@@ -920,6 +949,7 @@ mod cloud_restore_metadata_tests {
                 updated_at: "2026-05-14T00:00:00Z".to_string(),
                 updated_by: "test-device".to_string(),
                 checksum: "checksum".to_string(),
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );

@@ -2,10 +2,11 @@
 //! generate obfuscated credential helpers via obfstr.
 
 use std::env;
+use std::error::Error;
 use std::fs;
 use std::path::Path;
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=locales/");
     println!("cargo:rerun-if-changed=.env");
 
@@ -52,7 +53,7 @@ fn main() {
     // Generate obfuscated credential accessors.
     // obfstring! requires a string literal, so we generate a source file
     // with the credentials embedded as literals and include it at compile time.
-    let out_dir = env::var("OUT_DIR").unwrap();
+    let out_dir = env::var("OUT_DIR")?;
     let dest = Path::new(&out_dir).join("_obfuscated_credentials.rs");
 
     let content = format!(
@@ -70,7 +71,9 @@ pub fn google_client_secret() -> String {{
         client_secret = escape_literal(&client_secret),
     );
 
-    fs::write(&dest, content).unwrap();
+    fs::write(&dest, content)?;
+
+    Ok(())
 }
 
 /// Escape special characters for use inside a string literal.

@@ -387,6 +387,7 @@ mod tests {
             .clipboard(clipboard)
             .sync(sync)
             .build()
+            .expect("executor should build")
     }
 
     /// Create a SyncService backed by a real filesystem (required for atomic
@@ -700,7 +701,8 @@ mod tests {
             .result_tx(result_tx)
             .shutdown_token(shutdown_token)
             .clipboard(clipboard)
-            .build();
+            .build()
+            .expect("executor should build");
 
         executor.shutdown_token.cancel();
 

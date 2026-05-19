@@ -73,6 +73,7 @@ fn create_test_metadata_with_records(
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "device-1".to_string(),
                 checksum: "test_checksum".to_string(),
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );
@@ -95,10 +96,34 @@ fn create_test_metadata_from_cloud_records(
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "device-1".to_string(),
                 checksum: record.compute_checksum().unwrap(),
+                private_metadata_checksum: record.compute_private_metadata_checksum().unwrap(),
                 deleted: record.deleted.unwrap_or(false),
             },
         );
     }
+    metadata
+}
+
+fn create_test_metadata_with_private_checksum(
+    vault_token: &str,
+    metadata_version: u64,
+    record_id: &str,
+    record_version: u64,
+    private_metadata_checksum: &str,
+) -> CloudMetadata {
+    let mut metadata = CloudMetadata::new(vault_token.to_string());
+    metadata.metadata_version = metadata_version;
+    metadata.upsert_record(
+        record_id.to_string(),
+        RecordVersionInfo {
+            version: record_version,
+            updated_at: Utc::now().to_rfc3339(),
+            updated_by: "device-1".to_string(),
+            checksum: "test_checksum".to_string(),
+            private_metadata_checksum: Some(private_metadata_checksum.to_string()),
+            deleted: false,
+        },
+    );
     metadata
 }
 
@@ -366,6 +391,69 @@ async fn detect_classifies_remote_record_missing_locally_as_download() {
 }
 
 #[tokio::test]
+async fn detect_downloads_same_version_record_when_private_metadata_checksum_changed() {
+    let (storage, _temp_dir) = create_test_storage();
+    let checkpoint = create_test_checkpoint();
+    let record_id = Uuid::new_v4().to_string();
+    let previous_metadata =
+        create_test_metadata_with_private_checksum("test_token", 4, &record_id, 1, "old-private");
+    let remote_metadata =
+        create_test_metadata_with_private_checksum("test_token", 5, &record_id, 1, "new-private");
+    let mut context = PipelineContext::new(
+        storage,
+        ConflictManager::new(),
+        checkpoint,
+        4,
+        "test_token".to_string(),
+    );
+    context.remote_metadata = Some(remote_metadata);
+    context.set_last_remote_metadata(Some(previous_metadata));
+    context.set_local_records(vec![LocalRecordInfo {
+        record_id: record_id.clone(),
+        sync_status: SyncStatus::Synced,
+        version: 1,
+    }]);
+
+    let stage = DetectStage::new();
+    let outcome = stage.execute(&mut context).await;
+
+    assert!(matches!(outcome, StageOutcome::Continue));
+    assert_eq!(context.to_download, vec![record_id]);
+    assert!(context.to_upload.is_empty());
+    assert!(context.conflicts.is_empty());
+}
+
+#[tokio::test]
+async fn detect_downloads_same_version_private_metadata_on_first_snapshot_upgrade() {
+    let (storage, _temp_dir) = create_test_storage();
+    let checkpoint = create_test_checkpoint();
+    let record_id = Uuid::new_v4().to_string();
+    let remote_metadata =
+        create_test_metadata_with_private_checksum("test_token", 5, &record_id, 1, "new-private");
+    let mut context = PipelineContext::new(
+        storage,
+        ConflictManager::new(),
+        checkpoint,
+        4,
+        "test_token".to_string(),
+    );
+    context.remote_metadata = Some(remote_metadata);
+    context.set_local_records(vec![LocalRecordInfo {
+        record_id: record_id.clone(),
+        sync_status: SyncStatus::Synced,
+        version: 1,
+    }]);
+
+    let stage = DetectStage::new();
+    let outcome = stage.execute(&mut context).await;
+
+    assert!(matches!(outcome, StageOutcome::Continue));
+    assert_eq!(context.to_download, vec![record_id]);
+    assert!(context.to_upload.is_empty());
+    assert!(context.conflicts.is_empty());
+}
+
+#[tokio::test]
 async fn full_pipeline_downloads_remote_record_missing_locally() {
     let (storage, _temp_dir) = create_test_storage();
     let checkpoint = create_test_checkpoint();
@@ -441,6 +529,7 @@ async fn push_downloads_records() {
             updated_at: Utc::now().to_rfc3339(),
             updated_by: "device-1".to_string(),
             checksum: correct_checksum,
+            private_metadata_checksum: None,
             deleted: false,
         },
     );

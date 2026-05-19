@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::errors::mapping::sync::SyncError;
@@ -267,6 +268,23 @@ impl CloudRecord {
     /// Returns hex string of the hash.
     pub fn compute_checksum(&self) -> Result<String, SyncError> {
         compute_checksum(&self.encrypted_data)
+    }
+
+    /// Computes a checksum over encrypted private metadata transport fields.
+    ///
+    /// This is a sync-detection signal for private metadata changes such as
+    /// password-health state. It hashes encrypted transport fields, not
+    /// plaintext private metadata.
+    pub fn compute_private_metadata_checksum(&self) -> Result<Option<String>, SyncError> {
+        let Some(encrypted_metadata) = self.metadata.encrypted_metadata.as_ref() else {
+            return Ok(None);
+        };
+        let bytes =
+            serde_json::to_vec(encrypted_metadata).map_err(|e| SyncError::SerializationFailed {
+                message: format!("failed to serialize encrypted private metadata: {}", e),
+            })?;
+        let hash = Sha256::digest(&bytes);
+        Ok(Some(hex::encode(hash)))
     }
 
     /// Extract the health metadata from this cloud record, if present.

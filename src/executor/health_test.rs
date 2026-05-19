@@ -63,6 +63,7 @@ fn make_executor_with_one_login() -> CommandExecutor {
             30,
         )))
         .build()
+        .expect("executor should build")
 }
 
 /// Helper: create an executor with an unlocked vault (no records).
@@ -86,6 +87,7 @@ fn make_executor_no_records() -> CommandExecutor {
             30,
         )))
         .build()
+        .expect("executor should build")
 }
 
 /// Helper: create a Login record and return its UUID.
