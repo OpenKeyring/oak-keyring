@@ -32,8 +32,11 @@ impl Harness {
         std::fs::create_dir_all(&data_dir).unwrap();
         std::fs::create_dir_all(&config_dir).unwrap();
 
+        let mut config = AppConfig::default();
+        config.general.auto_lock_seconds = 0;
+
         let executor = CommandExecutor::new(
-            AppConfig::default(),
+            config,
             result_tx,
             CancellationToken::new(),
             data_dir,
