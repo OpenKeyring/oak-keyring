@@ -371,7 +371,8 @@ async fn full_pipeline_downloads_remote_record_missing_locally() {
     let checkpoint = create_test_checkpoint();
     let remote_id = Uuid::new_v4().to_string();
     let record = create_test_cloud_record(&remote_id, 1);
-    let metadata = create_test_metadata_from_cloud_records("test_token", 2, &[record.clone()]);
+    let metadata =
+        create_test_metadata_from_cloud_records("test_token", 2, std::slice::from_ref(&record));
 
     storage.upload_metadata(&metadata).await.unwrap();
     storage.upload_record(&remote_id, &record).await.unwrap();
