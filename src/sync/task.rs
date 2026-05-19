@@ -385,14 +385,21 @@ impl SyncTask {
                     resolved.version = item.current_version + 1;
                     if let Err(e) = self.storage.upload_record(record_id, &resolved).await {
                         tracing::warn!(record_id, error = %e, "failed to upload resolved record");
+                        Err(format!(
+                            "upload failed for resolved record {record_id}: {e}"
+                        ))
+                    } else {
+                        Ok(())
                     }
+                } else {
+                    Ok(())
                 }
-                Ok(())
             }
             ResolutionStrategy::KeepRemote => self
                 .conflict_manager
                 .resolve_keep_remote(&item.conflict_data)
-                .map(|_| ()),
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
         };
 
         match result {
@@ -436,7 +443,7 @@ impl SyncTask {
 
         for (outcome, item) in outcomes.into_iter().zip(items) {
             if outcome.result.is_ok() {
-                succeeded += 1;
+                let mut upload_ok = true;
                 if strategy == ResolutionStrategy::KeepLocal {
                     let record_id_str = item.record_id.to_string();
                     if let Some(cloud_record) = self
@@ -453,8 +460,14 @@ impl SyncTask {
                                 error = %e,
                                 "failed to upload resolved record in batch"
                             );
+                            upload_ok = false;
                         }
                     }
+                }
+                if upload_ok {
+                    succeeded += 1;
+                } else {
+                    self.pending_conflicts.push(item);
                 }
             } else {
                 tracing::warn!(
