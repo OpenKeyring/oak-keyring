@@ -1,4 +1,5 @@
 mod audit_sync_test;
+mod change_master_password_test;
 mod clipboard_test;
 mod db_lifecycle_test;
 mod db_migration_test;
