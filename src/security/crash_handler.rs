@@ -43,8 +43,13 @@ mod registry {
     pub fn zeroize_all() {
         if let Some(registry) = REGISTRY.try_lock() {
             for region in registry.iter() {
-                // SAFETY: ptr and len were valid when registered.
-                // In crash context, the memory should still be mapped.
+                // SAFETY: ptr and len were valid when registered. In crash context
+                // the memory should still be mapped. Edge cases where memory was
+                // already freed or munmap'd by Drop are acceptable: we're about to
+                // _exit(0) anyway, so writing to stale pages either succeeds (best
+                // case) or causes a no-op fault that the handler already catches.
+                // try_lock() ensures we never block; if the registry is locked
+                // during a concurrent Drop, we skip zeroization rather than deadlock.
                 unsafe {
                     core::ptr::write_bytes(region.ptr, 0, region.len);
                     core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);

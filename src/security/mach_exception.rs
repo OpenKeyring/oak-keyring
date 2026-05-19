@@ -180,13 +180,13 @@ fn exception_handler_thread(port: mach_port_t) {
         };
 
         if result != KERN_SUCCESS {
-            // mach_msg failed - log and break (thread will exit)
-            tracing::error!("mach_msg failed with result={}", result);
             break;
         }
 
-        // Exception received - zeroize all secrets and exit silently
-        tracing::error!("Mach exception received - zeroizing secrets and exiting");
+        // Exception received - zeroize all secrets and exit silently.
+        // No logging here: this runs in crash handler context where
+        // async-signal-safe functions only are allowed.
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
         crate::security::crash_handler::zeroize_all();
         unsafe {
             libc::_exit(0);
@@ -220,6 +220,7 @@ fn install_sigabrt_handler() -> MachResult<bool> {
             _info: *mut libc::siginfo_t,
             _ctx: *mut libc::c_void,
         ) {
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
             crate::security::crash_handler::zeroize_all();
             unsafe {
                 libc::_exit(0);
