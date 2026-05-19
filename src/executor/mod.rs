@@ -53,6 +53,9 @@ mod sync_test;
 #[cfg(test)]
 mod mock_orchestration_test;
 
+#[cfg(test)]
+mod smoke_test;
+
 const SYNC_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
