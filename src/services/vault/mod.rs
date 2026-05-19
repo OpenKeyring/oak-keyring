@@ -1,6 +1,5 @@
 mod audit;
 mod health_state;
-pub mod health_sync;
 mod history;
 mod metadata;
 mod record;
