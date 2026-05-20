@@ -23,6 +23,6 @@ expression: backend
 "          ┌──────────────────────────────────────────────────────────┐          "
 "          │                                                          │          "
 "          └──────────────────────────────────────────────────────────┘          "
-"             Tab/Shift+Tab: navigate  |  Enter: verify  |  Esc: back            "
+"                ↑↓/Tab: navigate  |  Enter: verify  |  Esc: back                "
 "                                    Step 3/4                                    "
 "                                                                                "

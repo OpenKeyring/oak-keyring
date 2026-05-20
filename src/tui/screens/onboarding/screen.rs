@@ -62,6 +62,8 @@ pub struct OnboardingScreen {
     /// Rendered areas of the 4 verify input boxes (for mouse hit-testing).
     /// Uses `Cell` for interior mutability since `view()` takes `&self`.
     pub verify_box_areas: [std::cell::Cell<ratatui::layout::Rect>; 4],
+    /// Rendered areas of the 3 welcome path cards (for mouse hit-testing).
+    pub welcome_card_areas: [std::cell::Cell<ratatui::layout::Rect>; 3],
 }
 
 impl Default for OnboardingScreen {
@@ -94,6 +96,9 @@ impl Default for OnboardingScreen {
             clipboard_copied: false,
             clipboard_clear_seconds: 30,
             verify_box_areas: std::array::from_fn(|_| {
+                std::cell::Cell::new(ratatui::layout::Rect::default())
+            }),
+            welcome_card_areas: std::array::from_fn(|_| {
                 std::cell::Cell::new(ratatui::layout::Rect::default())
             }),
         }

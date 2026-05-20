@@ -7,7 +7,10 @@ use crate::tui::traits::screen::Screen as ScreenTrait;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
 use crate::types::RecoveryWords;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
+use ratatui::Terminal;
 
 fn recovery_words_fixture() -> RecoveryWords {
     RecoveryWords::new(vec!["abandon".to_string(); 24]).unwrap()
@@ -41,6 +44,30 @@ fn indexed_recovery_words() -> RecoveryWords {
         "actor".to_string(),
     ])
     .unwrap()
+}
+
+fn render_onboarding(screen: &OnboardingScreen, width: u16, height: u16) -> String {
+    format!("{:?}", render_onboarding_buffer(screen, width, height))
+}
+
+fn render_onboarding_buffer(screen: &OnboardingScreen, width: u16, height: u16) -> Buffer {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            screen.view(frame, frame.area());
+        })
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
+fn click(column: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: crossterm::event::KeyModifiers::NONE,
+    }
 }
 
 #[test]
@@ -127,6 +154,22 @@ fn onboarding_welcome_enter_selects_create() {
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.selected_path, Some(OnboardingPath::CreateNew));
     assert_eq!(screen.current_step, OnboardingStep::RecoveryDisplay);
+}
+
+#[test]
+fn onboarding_welcome_mouse_click_selects_restore() {
+    let mut screen = OnboardingScreen::default();
+    let _ = render_onboarding(&screen, 80, 24);
+    let restore_area = screen.welcome_card_areas[1].get();
+
+    let result = screen.handle_mouse(click(restore_area.x + 1, restore_area.y + 1));
+
+    assert!(matches!(
+        result,
+        ScreenResult::NavigateTo(Screen::KeyRecovery)
+    ));
+    assert_eq!(screen.welcome_selected, 1);
+    assert_eq!(screen.selected_path, Some(OnboardingPath::Restore));
 }
 
 #[test]
@@ -570,6 +613,81 @@ fn onboarding_recovery_display_defaults() {
 }
 
 #[test]
+fn onboarding_recovery_verify_tab_and_arrows_cycle_focus() {
+    let mut screen = OnboardingScreen {
+        selected_path: Some(OnboardingPath::CreateNew),
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [0, 1, 2, 3],
+        },
+        verify_focus_index: 3,
+        ..Default::default()
+    };
+
+    let result = screen.handle_recovery_verify_key(KeyEvent::new(
+        KeyCode::Tab,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.verify_focus_index, 0);
+
+    screen.handle_recovery_verify_key(KeyEvent::new(
+        KeyCode::Up,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+    assert_eq!(screen.verify_focus_index, 3);
+
+    screen.handle_recovery_verify_key(KeyEvent::new(
+        KeyCode::Down,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+    assert_eq!(screen.verify_focus_index, 0);
+}
+
+#[test]
+fn onboarding_recovery_verify_backtab_is_ignored() {
+    let mut screen = OnboardingScreen {
+        selected_path: Some(OnboardingPath::CreateNew),
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [0, 1, 2, 3],
+        },
+        verify_focus_index: 2,
+        ..Default::default()
+    };
+
+    screen.handle_recovery_verify_key(KeyEvent::new(
+        KeyCode::BackTab,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+
+    assert_eq!(screen.verify_focus_index, 2);
+}
+
+#[test]
+fn onboarding_recovery_verify_empty_focused_input_renders_cursor() {
+    let screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [2, 5, 12, 21],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [2, 5, 12, 21],
+        verify_focus_index: 0,
+        ..Default::default()
+    };
+
+    let buffer = render_onboarding_buffer(&screen, 80, 24);
+    let input_area = screen.verify_box_areas[0].get();
+
+    assert_eq!(
+        buffer
+            .cell((input_area.x + 1, input_area.y + 1))
+            .expect("focused input cursor cell")
+            .symbol(),
+        "_"
+    );
+}
+
+#[test]
 fn onboarding_step_number_create_path() {
     #[allow(clippy::field_reassign_with_default)]
     let mut screen = OnboardingScreen {
@@ -908,7 +1026,7 @@ fn onboarding_verify_tab_advances_focus() {
 }
 
 #[test]
-fn onboarding_verify_tab_clamps_at_last_box() {
+fn onboarding_verify_tab_cycles_from_last_box() {
     let mut screen = OnboardingScreen {
         current_step: OnboardingStep::RecoveryVerify {
             positions: [0, 5, 10, 15],
@@ -918,12 +1036,11 @@ fn onboarding_verify_tab_clamps_at_last_box() {
         ..Default::default()
     };
 
-    // Tab on last box when not all filled should clamp
     screen.handle_recovery_verify_key(KeyEvent::new(
         KeyCode::Tab,
         crossterm::event::KeyModifiers::NONE,
     ));
-    assert_eq!(screen.verify_focus_index, 3);
+    assert_eq!(screen.verify_focus_index, 0);
     assert_eq!(
         screen.current_step,
         OnboardingStep::RecoveryVerify {
@@ -933,7 +1050,7 @@ fn onboarding_verify_tab_clamps_at_last_box() {
 }
 
 #[test]
-fn onboarding_verify_tab_on_last_box_submits_when_all_filled() {
+fn onboarding_verify_enter_submits_when_all_filled() {
     let mut screen = OnboardingScreen {
         current_step: OnboardingStep::RecoveryVerify {
             positions: [0, 5, 10, 15],
@@ -951,14 +1068,14 @@ fn onboarding_verify_tab_on_last_box_submits_when_all_filled() {
     };
 
     screen.handle_recovery_verify_key(KeyEvent::new(
-        KeyCode::Tab,
+        KeyCode::Enter,
         crossterm::event::KeyModifiers::NONE,
     ));
     assert_eq!(screen.current_step, OnboardingStep::SetPassword);
 }
 
 #[test]
-fn onboarding_verify_shifttab_goes_back() {
+fn onboarding_verify_shifttab_is_ignored() {
     let mut screen = OnboardingScreen {
         current_step: OnboardingStep::RecoveryVerify {
             positions: [0, 5, 10, 15],
@@ -972,19 +1089,19 @@ fn onboarding_verify_shifttab_goes_back() {
         KeyCode::BackTab,
         crossterm::event::KeyModifiers::NONE,
     ));
-    assert_eq!(screen.verify_focus_index, 2);
+    assert_eq!(screen.verify_focus_index, 3);
 
     screen.handle_recovery_verify_key(KeyEvent::new(
         KeyCode::BackTab,
         crossterm::event::KeyModifiers::NONE,
     ));
-    assert_eq!(screen.verify_focus_index, 1);
+    assert_eq!(screen.verify_focus_index, 3);
 
     screen.handle_recovery_verify_key(KeyEvent::new(
         KeyCode::BackTab,
         crossterm::event::KeyModifiers::NONE,
     ));
-    assert_eq!(screen.verify_focus_index, 0);
+    assert_eq!(screen.verify_focus_index, 3);
 }
 
 #[test]

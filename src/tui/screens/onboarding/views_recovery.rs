@@ -173,44 +173,39 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        use ratatui::widgets::{Row, Table};
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(BORDER));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
 
-        let rows: Vec<Row> = (0..6)
-            .map(|row| {
-                let cells: Vec<Line> = (0..4)
-                    .map(|col| {
-                        let idx = row * 4 + col;
-                        let num_str = format!("{:>2}.", idx + 1);
-                        let word = self
-                            .recovery_words
-                            .as_ref()
-                            .and_then(|words| words.word(idx))
-                            .unwrap_or("");
-                        Line::from(vec![
-                            Span::styled(num_str, Style::default().fg(TEXT_SECONDARY)),
-                            Span::raw(" "),
-                            Span::styled(word, Style::default().fg(TEXT)),
-                        ])
-                    })
-                    .collect();
-                Row::new(cells)
-            })
-            .collect();
+        let vertical = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(6),
+            Constraint::Fill(1),
+        ])
+        .split(inner);
+        let rows = Layout::vertical([Constraint::Length(1); 6]).split(vertical[1]);
 
-        let widths = [
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-        ];
-
-        let table = Table::new(rows, widths).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(BORDER)),
-        );
-
-        frame.render_widget(table, area);
+        for row in 0..6 {
+            let cols = Layout::horizontal([Constraint::Percentage(25); 4]).split(rows[row]);
+            for col in 0..4 {
+                let idx = row * 4 + col;
+                let num_str = format!("{:02}.", idx + 1);
+                let word = self
+                    .recovery_words
+                    .as_ref()
+                    .and_then(|words| words.word(idx))
+                    .unwrap_or("");
+                let cell = Paragraph::new(Line::from(vec![
+                    Span::styled(num_str, Style::default().fg(TEXT_SECONDARY)),
+                    Span::raw(" "),
+                    Span::styled(word, Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+                ]))
+                .alignment(Alignment::Center);
+                frame.render_widget(cell, cols[col]);
+            }
+        }
     }
 
     pub(crate) fn view_recovery_verify(
@@ -271,12 +266,16 @@ impl OnboardingScreen {
                 BORDER
             };
 
-            let input_text = if self.verify_inputs[i].is_empty() {
+            let input_text = if is_focused {
+                if self.verify_inputs[i].is_empty() {
+                    "_".to_string()
+                } else {
+                    let mut text = self.verify_inputs[i].expose(|s| s.to_string());
+                    text.push('_');
+                    text
+                }
+            } else if self.verify_inputs[i].is_empty() {
                 String::new()
-            } else if is_focused {
-                let mut text = self.verify_inputs[i].expose(|s| s.to_string());
-                text.push('_');
-                text
             } else {
                 self.verify_inputs[i].expose(|s| s.to_string())
             };

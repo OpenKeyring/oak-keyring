@@ -101,6 +101,7 @@ impl OnboardingScreen {
         for (i, (icon, title, desc)) in cards.iter().enumerate() {
             let is_selected = i == self.welcome_selected;
             let card_row = rows[4 + i * 2];
+            self.welcome_card_areas[i].set(card_row);
 
             let border_color = if is_selected { PRIMARY } else { BORDER };
             let bg_color = if is_selected { BG_SURFACE } else { BG };
