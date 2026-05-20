@@ -7,6 +7,8 @@ use oak_keyring::config::AppConfig;
 use oak_keyring::tui::screens::set_password::{SetPasswordContext, SetPasswordScreen};
 use oak_keyring::tui::traits::screen::{Screen as ScreenTrait, ScreenContext};
 
+use crate::support::snapshot_locale;
+
 fn render_screen(screen: &SetPasswordScreen, width: u16, height: u16) -> TestBackend {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
@@ -49,6 +51,7 @@ fn type_into_field(screen: &mut SetPasswordScreen, text: &str, ctx: &mut ScreenC
 
 #[test]
 fn set_password_empty_state() {
+    let _locale = snapshot_locale();
     let screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
     let backend = render_screen(&screen, 60, 16);
     insta::assert_snapshot!("set_password_empty", backend);
@@ -56,6 +59,7 @@ fn set_password_empty_state() {
 
 #[test]
 fn set_password_with_input_masked() {
+    let _locale = snapshot_locale();
     let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
     let mut ctx = dummy_ctx();
     type_into_field(&mut screen, "mysecretpassword", &mut ctx);
@@ -65,6 +69,7 @@ fn set_password_with_input_masked() {
 
 #[test]
 fn set_password_with_input_visible() {
+    let _locale = snapshot_locale();
     let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
     screen.password_visible = true;
     let mut ctx = dummy_ctx();
@@ -75,6 +80,7 @@ fn set_password_with_input_visible() {
 
 #[test]
 fn set_password_confirm_focused_with_match() {
+    let _locale = snapshot_locale();
     let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingRestore);
     let mut ctx = dummy_ctx();
     type_into_field(&mut screen, "strongpassword", &mut ctx);
@@ -90,6 +96,7 @@ fn set_password_confirm_focused_with_match() {
 
 #[test]
 fn set_password_with_error() {
+    let _locale = snapshot_locale();
     let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
     let mut ctx = dummy_ctx();
     // Type a short password then submit to trigger error

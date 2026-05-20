@@ -4,7 +4,10 @@ use ratatui::Terminal;
 use oak_keyring::tui::components::notification::render_notification;
 use oak_keyring::tui::state::notification::StatusMessage;
 
+use crate::support::snapshot_locale;
+
 fn render_notification_bar(msg: &StatusMessage) -> TestBackend {
+    let _locale = snapshot_locale();
     let backend = TestBackend::new(120, 24);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal

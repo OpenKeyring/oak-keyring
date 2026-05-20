@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/audit_log_test.rs
+expression: backend
+---
+" Audit Log                                               0 records              "
+"┌ Alle ──────┐┌ All Time───┐┌ Enter keywords...────────────────────────────────┐"
+"│            ││            ││                                                  │"
+"└────────────┘└────────────┘└──────────────────────────────────────────────────┘"
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                 ℹ No audit logs                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ↑↓/j/k Select  │  Tab Switch Area  │  Enter View Record  │  Esc Back           "

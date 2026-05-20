@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/import_export_test.rs
+expression: backend
+---
+"                                                                                "
+"                                   Export Data                                  "
+"                                                                                "
+"               Export Format:                                                   "
+"                > .okb (Encrypted Backup)                                       "
+"               ℹ Only .okb format. Decryptable via password or Re               "
+"               Export Scope:                                                    "
+"                > All records                                                   "
+"                  Current filter                                                "
+"                  By tag                                                        "
+"               ┌ Export Password ───────────────────────────────┐               "
+"               │Enter export password                           │               "
+"               └────────────────────────────────────────────────┘               "
+"               Strength:                                                        "
+"               ┌ Confirm Password ──────────────────────────────┐               "
+"                                                                                "
+"                                                                                "
+"               ┌ Output Path ───────────────────────────────────┐               "
+"               │/Users/alpha/Documents/keyring-backup.okb       │               "
+"               └────────────────────────────────────────────────┘               "
+"                                                                                "
+"                                                                                "
+"                Tab: switch fields | ↑↓: select scope | Esc: back               "
+"                                                                                "

@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/config_test.rs
+expression: backend
+---
+" Settings   General │ Sync │ Security │ Password │ About                        "
+" ℹ Some config changes require restart to take effect                           "
+"About                                                                           "
+"Version                0.7.2                                                    "
+"Authors                OpenKeyring Contributors                                 "
+"License              MIT OR Apache-2.0                                          "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ↑↓ scroll  Tab switch  Enter confirm  Esc close  q exit   [ Exit Program ] [ Cl"

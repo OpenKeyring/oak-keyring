@@ -3,8 +3,11 @@ use ratatui::Terminal;
 
 use oak_keyring::tui::screens::main::overlay::help::render_help;
 
+use crate::support::snapshot_locale;
+
 #[test]
 fn help_overlay_wide_layout() {
+    let _locale = snapshot_locale();
     let backend = TestBackend::new(130, 40);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal
@@ -17,6 +20,7 @@ fn help_overlay_wide_layout() {
 
 #[test]
 fn help_overlay_medium_layout() {
+    let _locale = snapshot_locale();
     let backend = TestBackend::new(110, 35);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal
@@ -29,6 +33,7 @@ fn help_overlay_medium_layout() {
 
 #[test]
 fn help_overlay_compact_layout() {
+    let _locale = snapshot_locale();
     let backend = TestBackend::new(90, 30);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal

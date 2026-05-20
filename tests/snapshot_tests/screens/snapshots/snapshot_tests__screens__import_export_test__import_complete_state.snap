@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/import_export_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                 Import Complete                                "
+"                                                                                "
+"               ✓ Records imported: 15                                           "
+"               ⚠ Partially imported: 2 (check field completeness)               "
+"               ⚠ Records skipped: 1                                             "
+"                                                                                "
+"                              Enter: back to config                             "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

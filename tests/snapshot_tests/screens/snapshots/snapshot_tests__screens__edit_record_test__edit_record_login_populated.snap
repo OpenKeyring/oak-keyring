@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/edit_record_test.rs
+expression: backend
+---
+"┌──────────────────────────────────────────────────────────────────────────────┐"
+"│  Edit Password                                         Esc Cancel            │"
+"│──────────────────────────────────────────────────────────────────────────────│"
+"│                                                                              │"
+"│  Type [ Login ▼ ]                                                            │"
+"│                                                                              │"
+"│  Name [My Personal Webmail                                                   │"
+"│ ] ← Required                                                                 │"
+"│                                                                              │"
+"│  URL [https://mail.example.com                                               │"
+"│ ] ← Optional                                                                 │"
+"│                                                                              │"
+"│  Username [alice_smith                                                       │"
+"│ ] ← Required                                                                 │"
+"│                                                                              │"
+"│  Password [•••••••••••••••••••             ] [ Generate ] [ Show ] [ Copy ]  │"
+"│  Strength: (strength shown after password entry)                             │"
+"│                                                                              │"
+"│  Expiry [ Never ▼ ]                                                          │"
+"│                                                                              │"
+"│  Tags [                    ]                                                 │"
+"│       [ work ×] [ personal ×]                                                │"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"

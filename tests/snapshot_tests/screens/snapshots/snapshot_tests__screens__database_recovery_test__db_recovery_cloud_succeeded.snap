@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/database_recovery_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                 🔐 OpenKeyring                                 " Hidden by multi-width symbols: [(34, " ")]
+"                          ─────────────────────────────                         "
+"                               Cloud Sync Recovery                              "
+"                                                                                "
+"                               vault.db downloaded                              "
+"                   Decryption verified with current vault key                   "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                 Enter: continue                                "
+"                                    Step 1/1                                    "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

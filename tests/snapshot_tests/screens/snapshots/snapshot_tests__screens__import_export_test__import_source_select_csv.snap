@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/import_export_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                   Import Data                                  "
+"              Tab: switch fields | ↑↓: navigate | 1=Import 2=Export             "
+"                                                                                "
+"          Select Source                                                         "
+"             KeePass (.kdbx) 🔑  Password / URL / Notes                         " Hidden by multi-width symbols: [(30, " ")]
+"                                                                                "
+"          ┌ File Path ───────────────────────────────────────────────┐          "
+"          │/path/to/import/file                                      │          "
+"          └──────────────────────────────────────────────────────────┘          "
+"          Column Mapping:                                                       "
+"            Name column:: Title                                                 "
+"            Username column:: Username                                          "
+"            Password column:: Password                                          "
+"            URL column:: URL                                                    "
+"            Notes column:: Notes                                                "
+"            Tags column:: (none)                                                "
+"            [x] Skip header row                                                 "
+"                                                                                "
+"                                                                                "
+"                           Enter: validate | Esc: back                          "
+"                                                                                "
+"                                                                                "

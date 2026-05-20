@@ -7,7 +7,10 @@ use oak_keyring::tui::state::main_state::{
     HealthCheckPhase, StatusBarState, StatusMessage, SyncIndicator,
 };
 
+use crate::support::snapshot_locale;
+
 fn render_status_bar(state: &StatusBarState) -> TestBackend {
+    let _locale = snapshot_locale();
     let backend = TestBackend::new(120, 1);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal

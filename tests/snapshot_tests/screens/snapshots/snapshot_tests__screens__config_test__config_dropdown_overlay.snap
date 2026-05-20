@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/config_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                              ┌ Language ────────┐                              "
+"                              │ > Auto           │                              "
+"                              │   中文(简体)     │                              " Hidden by multi-width symbols: [(35, " "), (37, " "), (40, " "), (42, " ")]
+"                              │   English        │                              "
+"                              └──────────────────┘                              "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

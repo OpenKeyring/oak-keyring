@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/main_composition_test.rs
+expression: backend
+---
+"All (2)                                │  Sort: [ Created│                                          "
+"☆ Favorites (1)                           Old GitHub Login                                          "
+"Expired                                   Deleted 5 days a                     🔐                   " Hidden by multi-width symbols: [(80, " ")]
+"                                        ──────────────────                                          "
+"                                          Expired API Key       Select a password to view details   "
+"                                          Deleted 20 days          Press Enter to view details      "
+"                                        ──────────────────                                          "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"────────────────────────────────────────────────────────────────────────────────────────────────────"
+"  r Restore  D PermDelete  A EmptyTrash  F1 Help │ v0.7.2 │ — Not configured                        "

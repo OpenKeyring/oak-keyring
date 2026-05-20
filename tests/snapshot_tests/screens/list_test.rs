@@ -9,6 +9,8 @@ use oak_keyring::tui::state::list_state::{ListMode, ListPanelState, SearchState,
 use oak_keyring::types::credential::CredentialType;
 use oak_keyring::types::record::TuiRecord;
 
+use crate::support::snapshot_locale;
+
 use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
@@ -82,6 +84,7 @@ fn render_to_snapshot(
     unicode: bool,
     filter: RecordFilter,
 ) -> String {
+    let _locale = snapshot_locale();
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal
@@ -99,6 +102,7 @@ fn render_to_snapshot(
 
 #[test]
 fn list_normal_rows() {
+    let _locale = snapshot_locale();
     let r1 = make_record(Uuid::new_v4(), "GitHub", "user@github.com");
     let r2 = make_record(Uuid::new_v4(), "GitLab", "dev@gitlab.com");
     let r3 = make_record(Uuid::new_v4(), "Bitbucket", "team@bitbucket.org");
@@ -125,6 +129,7 @@ fn list_normal_rows() {
 
 #[test]
 fn list_api_ssh_types() {
+    let _locale = snapshot_locale();
     let r1 = make_record_with_type(Uuid::new_v4(), "GitHub", CredentialType::Login);
     let r2 = make_record_with_type(Uuid::new_v4(), "AWS Key", CredentialType::Api);
     let r3 = make_record_with_type(Uuid::new_v4(), "Server", CredentialType::Ssh);
@@ -151,6 +156,7 @@ fn list_api_ssh_types() {
 
 #[test]
 fn list_selected_row() {
+    let _locale = snapshot_locale();
     let r1 = make_record(Uuid::new_v4(), "GitHub", "user@github.com");
     let r2 = make_record(Uuid::new_v4(), "GitLab", "dev@gitlab.com");
     let mut state = ListPanelState::with_records(vec![r1, r2]);
@@ -177,6 +183,7 @@ fn list_selected_row() {
 
 #[test]
 fn list_health_badge_compromised() {
+    let _locale = snapshot_locale();
     let record = make_record_with_health(Uuid::new_v4(), "HackedSite", true, false, None);
     let state = ListPanelState::with_records(vec![record]);
 
@@ -201,6 +208,7 @@ fn list_health_badge_compromised() {
 
 #[test]
 fn list_health_badge_weak() {
+    let _locale = snapshot_locale();
     let record = make_record_with_health(Uuid::new_v4(), "WeakPass", false, true, None);
     let state = ListPanelState::with_records(vec![record]);
 
@@ -225,6 +233,7 @@ fn list_health_badge_weak() {
 
 #[test]
 fn list_health_badge_duplicate() {
+    let _locale = snapshot_locale();
     let record = make_record_with_health(Uuid::new_v4(), "SharedPass", false, false, Some(3));
     let state = ListPanelState::with_records(vec![record]);
 
@@ -249,6 +258,7 @@ fn list_health_badge_duplicate() {
 
 #[test]
 fn list_search_highlight() {
+    let _locale = snapshot_locale();
     let r1 = make_record(Uuid::new_v4(), "GitHub", "user@github.com");
     let r2 = make_record(Uuid::new_v4(), "GitLab", "dev@gitlab.com");
     let mut state = ListPanelState::with_records(vec![r1, r2]);
@@ -279,6 +289,7 @@ fn list_search_highlight() {
 
 #[test]
 fn list_search_multi_term() {
+    let _locale = snapshot_locale();
     let r1 = make_record(Uuid::new_v4(), "GitHub API", "api.github.com");
     let r2 = make_record(Uuid::new_v4(), "GitLab SSH", "ssh.gitlab.com");
     let mut state = ListPanelState::with_records(vec![r1, r2]);
@@ -309,6 +320,7 @@ fn list_search_multi_term() {
 
 #[test]
 fn list_visual_mode() {
+    let _locale = snapshot_locale();
     let id1 = Uuid::new_v4();
     let id2 = Uuid::new_v4();
     let id3 = Uuid::new_v4();
@@ -345,6 +357,7 @@ fn list_visual_mode() {
 
 #[test]
 fn list_narrow_width() {
+    let _locale = snapshot_locale();
     let r1 = make_record_with_health(Uuid::new_v4(), "GitHub", true, false, None);
     let r2 = make_record(Uuid::new_v4(), "GitLab", "dev@gitlab.com");
     let state = ListPanelState::with_records(vec![r1, r2]);
@@ -371,6 +384,7 @@ fn list_narrow_width() {
 
 #[test]
 fn list_trash_rows() {
+    let _locale = snapshot_locale();
     // 5 days ago → Safe tier (25 days remaining)
     let r1 = make_trash_record(Uuid::new_v4(), "OldSite", 5);
     // 20 days ago → Moderate tier (10 days remaining)
@@ -398,6 +412,7 @@ fn list_trash_rows() {
 
 #[test]
 fn list_trash_selected() {
+    let _locale = snapshot_locale();
     let r1 = make_trash_record(Uuid::new_v4(), "DeletedSite", 5);
     let r2 = make_trash_record(Uuid::new_v4(), "AnotherDeleted", 10);
     let mut state = ListPanelState::with_records(vec![r1, r2]);
@@ -424,6 +439,7 @@ fn list_trash_selected() {
 
 #[test]
 fn list_empty_state() {
+    let _locale = snapshot_locale();
     let state = ListPanelState::default();
 
     let backend = TestBackend::new(60, 15);
@@ -447,6 +463,7 @@ fn list_empty_state() {
 
 #[test]
 fn list_empty_trash() {
+    let _locale = snapshot_locale();
     let state = ListPanelState::default();
 
     let backend = TestBackend::new(60, 15);
@@ -470,6 +487,7 @@ fn list_empty_trash() {
 
 #[test]
 fn list_unfocused() {
+    let _locale = snapshot_locale();
     let r1 = make_record(Uuid::new_v4(), "GitHub", "user@github.com");
     let r2 = make_record(Uuid::new_v4(), "GitLab", "dev@gitlab.com");
     let state = ListPanelState::with_records(vec![r1, r2]);
@@ -499,6 +517,7 @@ fn list_unfocused() {
 
 #[test]
 fn list_search_highlight_cell_styles() {
+    let _locale = snapshot_locale();
     let r1 = make_record(Uuid::new_v4(), "GitHub", "user@github.com");
     let r2 = make_record(Uuid::new_v4(), "GitLab", "dev@gitlab.com");
     let mut state = ListPanelState::with_records(vec![r1, r2]);

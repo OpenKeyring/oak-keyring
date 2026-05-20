@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/onboarding_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"          Step 2/6 · Select Import Source                                       "
+"                                                                                "
+"           ▶ KeePass (.kdbx)  Password / URL / Notes                            "
+"             1Password (.1pux)  Password / TOTP  ⚠ Custom fields                "
+"             1Password (.opvault)  Password / TOTP  ⚠ Custom fields             "
+"             Bitwarden (.json)  Password / TOTP / URL  ✗ Attachments            "
+"             CSV  Column-mapped fields                                          "
+"             OpenKeyring Backup (.okb)  All data                                "
+"                                                                                "
+"          ── Import Scope ── ──────────────────────────────                     "
+"           ✓ Login items (name, account, password, URL, notes)                  "
+"           ✗ TOTP / 2FA (not supported in current version, discarded d          "
+"           ⚠ Custom fields (formatted and stored in notes field)                "
+"           ✓ Password history records                                           "
+"           ✗ Attachments (ignored during import)                                "
+"                                                                                "
+"          File Path: /home/user/passwords.kdbx                                  "
+"          Password: password                                                    "
+"                                                                                "
+"          ↑↓: navigate | Tab: cycle fields | Enter: validate | Esc: ba          "
+"                                                                                "
+"                                                                                "
