@@ -315,21 +315,17 @@ impl ImportExportScreen {
 
         if is_okb {
             // Export password
+            let pw_inner = pw_block.inner(rows[8]);
             frame.render_widget(pw_block, rows[8]);
-            let pw_inner = Layout::vertical([Constraint::Length(1)]).split(rows[8])[0];
-            let pw_padded =
-                Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(pw_inner);
-            frame.render_widget(pw_display, pw_padded[1]);
+            frame.render_widget(pw_display, pw_inner);
 
             // Strength
             frame.render_widget(strength_line, rows[9]);
 
             // Confirm password
+            let confirm_inner = confirm_block.inner(rows[10]);
             frame.render_widget(confirm_block, rows[10]);
-            let confirm_inner = Layout::vertical([Constraint::Length(1)]).split(rows[10])[0];
-            let confirm_padded = Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)])
-                .split(confirm_inner);
-            frame.render_widget(confirm_display, confirm_padded[1]);
+            frame.render_widget(confirm_display, confirm_inner);
 
             // Match indicator
             if let Some(ref ml) = match_line {
@@ -338,11 +334,9 @@ impl ImportExportScreen {
         }
 
         // Output path
+        let path_inner = path_block.inner(rows[13]);
         frame.render_widget(path_block, rows[13]);
-        let path_inner = Layout::vertical([Constraint::Length(1)]).split(rows[13])[0];
-        let path_padded =
-            Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(path_inner);
-        frame.render_widget(path_display, path_padded[1]);
+        frame.render_widget(path_display, path_inner);
 
         // Error
         if let Some(ref el) = error_line {
@@ -442,11 +436,9 @@ impl ImportExportScreen {
         frame.render_widget(title, rows[0]);
         frame.render_widget(subtitle, rows[2]);
 
+        let pw_inner = pw_block.inner(rows[4]);
         frame.render_widget(pw_block, rows[4]);
-        let pw_inner = Layout::vertical([Constraint::Length(1)]).split(rows[4])[0];
-        let pw_padded =
-            Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(pw_inner);
-        frame.render_widget(pw_display, pw_padded[1]);
+        frame.render_widget(pw_display, pw_inner);
 
         if let Some(ref el) = error_line {
             frame.render_widget(el.clone(), rows[5]);

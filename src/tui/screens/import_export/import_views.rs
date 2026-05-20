@@ -209,22 +209,18 @@ impl ImportExportScreen {
         frame.render_widget(source_list, rows[row_idx]);
         row_idx += 1;
         row_idx += 1; // gap
+        let file_inner = file_block.inner(rows[row_idx]);
         frame.render_widget(file_block, rows[row_idx]);
-        let file_inner = Layout::vertical([Constraint::Length(1)]).split(rows[row_idx])[0];
-        let file_padded =
-            Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(file_inner);
-        frame.render_widget(file_display, file_padded[1]);
+        frame.render_widget(file_display, file_inner);
         row_idx += 1;
 
         if needs_password {
             row_idx += 1; // gap
             if let Some(ref block) = password_block_maybe {
+                let pw_inner = block.inner(rows[row_idx]);
                 frame.render_widget(block.clone(), rows[row_idx]);
-                let pw_inner = Layout::vertical([Constraint::Length(1)]).split(rows[row_idx])[0];
-                let pw_padded = Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)])
-                    .split(pw_inner);
                 if let Some(ref display) = pw_display_maybe {
-                    frame.render_widget(display.clone(), pw_padded[1]);
+                    frame.render_widget(display.clone(), pw_inner);
                 }
             }
             row_idx += 1;
