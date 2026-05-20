@@ -59,6 +59,9 @@ pub struct OnboardingScreen {
     pub clipboard_copied: bool,
     /// Clipboard clear timeout in seconds (captured from config when copying).
     pub clipboard_clear_seconds: u64,
+    /// Rendered areas of the 4 verify input boxes (for mouse hit-testing).
+    /// Uses `Cell` for interior mutability since `view()` takes `&self`.
+    pub verify_box_areas: [std::cell::Cell<ratatui::layout::Rect>; 4],
 }
 
 impl Default for OnboardingScreen {
@@ -90,6 +93,9 @@ impl Default for OnboardingScreen {
             recovery_focus: RecoveryFocus::default(),
             clipboard_copied: false,
             clipboard_clear_seconds: 30,
+            verify_box_areas: std::array::from_fn(|_| {
+                std::cell::Cell::new(ratatui::layout::Rect::default())
+            }),
         }
     }
 }
@@ -181,6 +187,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key, ctx),
+            Message::MouseEvent(event) => self.handle_mouse(event),
             Message::CommandCompleted(result) => self.handle_command_result(result),
             _ => ScreenResult::Continue,
         }

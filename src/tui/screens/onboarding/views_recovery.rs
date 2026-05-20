@@ -218,7 +218,7 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 20);
+        let content_area = Self::centered_content(area, 23);
 
         let rows = Layout::vertical([
             Constraint::Length(1), // title
@@ -294,10 +294,12 @@ impl OnboardingScreen {
                 .border_style(Style::default().fg(border_color))
                 .style(Style::default().bg(BG_SURFACE));
 
+            let box_area = rows[5 + i * 2];
             let para = Paragraph::new(input_text).style(text_style);
-            let inner = input_block.inner(rows[5 + i * 2]);
-            frame.render_widget(input_block, rows[5 + i * 2]);
+            let inner = input_block.inner(box_area);
+            frame.render_widget(input_block, box_area);
             frame.render_widget(para, inner);
+            self.verify_box_areas[i].set(box_area);
         }
 
         // Hint

@@ -131,7 +131,12 @@ pub fn run(
                 {
                     return Ok(());
                 }
-                // Ignore mouse events and other crossterm events for now.
+                CrosstermEvent::Mouse(mouse_event)
+                    if handle_message(app, Message::MouseEvent(mouse_event))?
+                        == LoopControl::Exit =>
+                {
+                    return Ok(());
+                }
                 _ => {}
             }
         } else {

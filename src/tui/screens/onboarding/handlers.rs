@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
@@ -23,6 +23,31 @@ impl OnboardingScreen {
             OnboardingStep::ImportPreview => self.handle_import_preview_key(key, ctx),
             OnboardingStep::SetPassword => self.handle_set_password_key(key, ctx),
         }
+    }
+
+    // ── Mouse handling ───────────────────────────────────────────────────────
+
+    pub(crate) fn handle_mouse(&mut self, event: MouseEvent) -> ScreenResult {
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.handle_mouse_click(event.column, event.row)
+            }
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn handle_mouse_click(&mut self, _col: u16, row: u16) -> ScreenResult {
+        if !matches!(self.current_step, OnboardingStep::RecoveryVerify { .. }) {
+            return ScreenResult::Continue;
+        }
+        for (i, area_cell) in self.verify_box_areas.iter().enumerate() {
+            let area = area_cell.get();
+            if area.top() <= row && row < area.bottom() {
+                self.verify_focus_index = i;
+                return ScreenResult::Continue;
+            }
+        }
+        ScreenResult::Continue
     }
 
     pub(crate) fn handle_welcome_key(
@@ -174,7 +199,7 @@ impl OnboardingScreen {
                 self.verify_errors[focused] = false;
                 ScreenResult::Continue
             }
-            KeyCode::Char(c) if c.is_alphabetic() => {
+            KeyCode::Char(c) => {
                 let input = &mut self.verify_inputs[focused];
                 if input.len() < 12 {
                     input.push_char(c);
