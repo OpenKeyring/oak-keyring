@@ -38,6 +38,15 @@ fn key_recovery_onboarding_partial() {
 }
 
 #[test]
+fn key_recovery_validating() {
+    let _locale = snapshot_locale();
+    let mut screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::StartupDbOnly);
+    screen.validating = true;
+    let backend = render_screen(&screen, 80, 24);
+    insta::assert_snapshot!("key_recovery_validating", backend);
+}
+
+#[test]
 fn key_recovery_with_error() {
     let _locale = snapshot_locale();
     let mut screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::StartupDbOnly);

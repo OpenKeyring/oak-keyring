@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/config_test.rs
+expression: backend
+---
+" Settings   General │ Sync │ Security │ Password │ About                        "
+" ℹ Some config changes require restart to take effect                           "
+"Sync                                                                            "
+"Sync Provider     [ Disabled ▼ ]                                                "
+"Sync Mode            [ Auto Sync ▼ ]                                            "
+"Auto Sync Interval        [ 600s ▼ ]                                            "
+"─────────────────────────────────────────────────────────────────────────────── "
+"[ Test Connection ]   Sync Status  — Not Configured                             "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ↑↓ scroll  Tab switch  Enter confirm  Esc close  q exit   [ Exit Program ] [ Cl"

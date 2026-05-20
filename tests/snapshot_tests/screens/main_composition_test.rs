@@ -302,6 +302,47 @@ fn main_composition_confirm_overlay() {
 }
 
 #[test]
+fn main_composition_destructive_confirm_overlay() {
+    let _locale = snapshot_locale();
+    let mut state = MainScreenState::default();
+    populate_state(&mut state);
+    open_overlay(
+        &mut state,
+        Overlay::ConfirmDialog(ConfirmDialogState {
+            variant: ConfirmVariant::HardDelete {
+                record_id: Uuid::nil(),
+                record_name: "GitHub Account".to_string(),
+            },
+            focused_button: ConfirmButton::Cancel,
+        }),
+    );
+    let backend = render_screen(&state, PanelId::List, 100, 24);
+    insta::assert_snapshot!("main_composition_destructive_confirm_overlay", backend);
+}
+
+#[test]
+fn main_composition_batch_destructive_confirm_overlay() {
+    let _locale = snapshot_locale();
+    let mut state = MainScreenState::default();
+    populate_state(&mut state);
+    open_overlay(
+        &mut state,
+        Overlay::ConfirmDialog(ConfirmDialogState {
+            variant: ConfirmVariant::BatchHardDelete {
+                record_ids: vec![Uuid::nil(), Uuid::from_u128(2)],
+                record_names: vec!["GitHub Account".to_string(), "Personal Email".to_string()],
+            },
+            focused_button: ConfirmButton::Cancel,
+        }),
+    );
+    let backend = render_screen(&state, PanelId::List, 100, 24);
+    insta::assert_snapshot!(
+        "main_composition_batch_destructive_confirm_overlay",
+        backend
+    );
+}
+
+#[test]
 fn main_composition_batch_tag_overlay() {
     let _locale = snapshot_locale();
     let mut state = MainScreenState::default();

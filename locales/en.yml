@@ -140,6 +140,8 @@ tui:
     key_recovery_instruction: "Enter your recovery words to rebuild wrapped_secret_key.json."
     key_recovery_hotkey: "Tab: next word  |  Shift+Tab: previous  |  Enter: continue  |  Esc: back"
     key_recovery_hotkey_error: "Tab: next word  |  Enter: retry  |  Esc: back"
+    key_recovery_hotkey_validating: "Please wait..."
+    key_recovery_validating: "Validating recovery words..."
     key_recovery_empty_error: "Enter all 24 recovery words."
     command_dispatch_failed: "Failed to send command. Please retry."
     key_recovery_step_1_2: "Step 1/2"

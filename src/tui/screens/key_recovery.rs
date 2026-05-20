@@ -194,7 +194,18 @@ impl ScreenTrait for KeyRecoveryScreen {
 
         // Error or hint
         let idx = 6;
-        if let Some(ref err) = self.error {
+        if self.validating {
+            let validating_line = Paragraph::new(Line::from(Span::styled(
+                format!(
+                    "{} {}",
+                    theme::ICON_SYNC_SYNCING,
+                    t!("tui.entry.key_recovery_validating")
+                ),
+                Style::default().fg(PRIMARY),
+            )))
+            .alignment(Alignment::Center);
+            frame.render_widget(validating_line, rows[idx]);
+        } else if let Some(ref err) = self.error {
             let error_line = Paragraph::new(Line::from(Span::styled(
                 format!("✕ {}", err),
                 Style::default().fg(ERROR),
@@ -204,7 +215,9 @@ impl ScreenTrait for KeyRecoveryScreen {
         }
 
         // Hotkeys
-        let hotkey = if self.error.is_some() {
+        let hotkey = if self.validating {
+            t!("tui.entry.key_recovery_hotkey_validating")
+        } else if self.error.is_some() {
             t!("tui.entry.key_recovery_hotkey_error")
         } else {
             t!("tui.entry.key_recovery_hotkey")
