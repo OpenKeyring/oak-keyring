@@ -170,12 +170,13 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, 8);
 
         let rows = Layout::vertical([
-            Constraint::Length(1), // title
-            Constraint::Length(2), // gap
-            Constraint::Length(1), // instruction
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // hint
-            Constraint::Length(1), // step indicator
+            Constraint::Length(1), // title          → [0]
+            Constraint::Length(1), // gap            → [1]
+            Constraint::Length(1), // gap            → [2]
+            Constraint::Length(1), // instruction    → [3]
+            Constraint::Length(1), // gap            → [4]
+            Constraint::Length(1), // hint           → [5]
+            Constraint::Length(1), // step indicator → [6]
         ])
         .split(content_area);
 
