@@ -5,7 +5,7 @@ expression: backend
 " Settings   General │ Sync │ Security │ Password │ About                        "
 " ℹ Some config changes require restart to take effect                           "
 "About                                                                           "
-"Version                0.7.2                                                    "
+"Version                0.7.3                                                    "
 "Authors                OpenKeyring Contributors                                 "
 "License              MIT OR Apache-2.0                                          "
 "                                                                                "
