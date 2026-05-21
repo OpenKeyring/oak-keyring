@@ -3,10 +3,10 @@ source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
 "OpenKeyring                            │  Sort: [ Created│  GitHub Account                          "
-"────────────────────────────────────────  GitHub Account20  octocat                                 "
+"────────────────────────────────────────  GitHub Accountye  octocat                                 "
 "All (2)                                   octocat         ★                                         "
 "☆ Favorites (1)                                                                                     "
-"Expired                                   Personal Email20  ─────────────────────                   "
+"Expired                                   Personal Emailye  ─────────────────────                   "
 "Health Issues                             alice@example.co                                          "
 "🗑 Trash                                                     Login                                   "
 "────────────────────────────────────────                                                            "

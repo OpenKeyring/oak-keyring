@@ -3,10 +3,10 @@ source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
 "┌ Batch Tags — 2 selected ─────────────────────┐[ Created│  GitHub Account                          "
-"│┌ Add Tag: ──────────────────────────────────┐│ Account20  octocat                                 "
+"│┌ Add Tag: ──────────────────────────────────┐│ Accountye  octocat                                 "
 "││█ Enter to add                              ││t         ★                                         "
 "│└────────────────────────────────────────────┘│                                                    "
-"│┌ Current Tags: ─────────────────────────────┐│al Email20  ─────────────────────                   "
+"│┌ Current Tags: ─────────────────────────────┐│al Emailye  ─────────────────────                   "
 "││  (no tags)                                 ││example.co                                          "
 "│└────────────────────────────────────────────┘│            Login                                   "
 "│┌ Existing Tags: ────────────────────────────┐│                                                    "
