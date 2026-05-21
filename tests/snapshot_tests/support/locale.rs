@@ -26,9 +26,7 @@ pub struct SnapshotLocaleGuard {
 impl SnapshotLocaleGuard {
     /// Acquire the locale lock and switch to the given locale and UTC timezone.
     pub fn new(locale: &str) -> Self {
-        let lock = LOCALE_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let lock = LOCALE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
         let original_locale = rust_i18n::locale().to_string();
         rust_i18n::set_locale(locale);
