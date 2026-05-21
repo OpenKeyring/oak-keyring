@@ -117,6 +117,7 @@ fn export_form_default() {
     screen.mode = ImportExportMode::Export;
     screen.export_step = ExportStep::Form;
     screen.export_focus = ExportFocus::Scope;
+    screen.export_output_path = "/path/to/keyring-backup.okb".to_string();
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("export_form_default", backend);
 }
@@ -140,6 +141,7 @@ fn export_password_confirm_state() {
     let mut screen = ImportExportScreen::new();
     screen.mode = ImportExportMode::Export;
     screen.export_step = ExportStep::MasterPasswordConfirm;
+    screen.export_output_path = "/path/to/keyring-backup.okb".to_string();
     screen.master_password = sensitive("masterpass");
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("export_password_confirm_state", backend);

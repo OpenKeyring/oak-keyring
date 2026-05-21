@@ -20,7 +20,7 @@ expression: backend
 "                                                                                "
 "                                                                                "
 "               ┌ Output Path ───────────────────────────────────┐               "
-"               │/Users/bytedance/Documents/keyring-backup.okb   │               "
+"               │/path/to/keyring-backup.okb                     │               "
 "               └────────────────────────────────────────────────┘               "
 "                                                                                "
 "                                                                                "
