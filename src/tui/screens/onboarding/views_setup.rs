@@ -4,16 +4,19 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::t;
+use crate::tui::terminal::WidthTier;
 use crate::tui::theme::{
     self, Styles, BG, BG_SURFACE, BORDER, BRAND, PRIMARY, TEXT, TEXT_MUTED, TEXT_SECONDARY,
 };
 
+use super::logo;
 use super::screen::OnboardingScreen;
 impl OnboardingScreen {
     /// Render a centered content block with standard padding.
     pub(crate) fn centered_content(
         area: ratatui::layout::Rect,
         content_height: u16,
+        content_width: u16,
     ) -> ratatui::layout::Rect {
         let outer = Layout::vertical([
             Constraint::Fill(1),
@@ -24,7 +27,7 @@ impl OnboardingScreen {
 
         let h_layout = Layout::horizontal([
             Constraint::Fill(1),
-            Constraint::Max(60),
+            Constraint::Max(content_width),
             Constraint::Fill(1),
         ])
         .split(outer[1]);
@@ -33,43 +36,69 @@ impl OnboardingScreen {
     }
 
     pub(crate) fn view_welcome(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        let content_area = Self::centered_content(area, 21);
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let content_area = Self::centered_content(
+            area,
+            if wide { 26 } else { 21 },
+            if wide { logo::LOGO_WIDTH } else { 60 },
+        );
 
-        let rows = Layout::vertical([
-            Constraint::Length(1), // brand
-            Constraint::Length(1), // separator line
-            Constraint::Length(1), // subtitle
-            Constraint::Length(1), // gap
-            Constraint::Length(3), // card 0 — CreateNew
-            Constraint::Length(1), // gap
-            Constraint::Length(3), // card 1 — Restore
-            Constraint::Length(1), // gap
-            Constraint::Length(3), // card 2 — Import
-            Constraint::Length(2), // gap
-            Constraint::Length(1), // language hint
-            Constraint::Length(1), // hint
-            Constraint::Length(1), // step indicator
-        ])
+        let rows = Layout::vertical(if wide {
+            vec![
+                Constraint::Length(logo::LOGO_HEIGHT), // ASCII logo
+                Constraint::Length(1),                 // gap
+                Constraint::Length(1),                 // subtitle
+                Constraint::Length(1),                 // gap
+                Constraint::Length(3),                 // card 0 — CreateNew
+                Constraint::Length(1),                 // gap
+                Constraint::Length(3),                 // card 1 — Restore
+                Constraint::Length(1),                 // gap
+                Constraint::Length(3),                 // card 2 — Import
+                Constraint::Length(2),                 // gap
+                Constraint::Length(1),                 // language hint
+                Constraint::Length(1),                 // hint
+                Constraint::Length(1),                 // step indicator
+            ]
+        } else {
+            vec![
+                Constraint::Length(1), // brand text
+                Constraint::Length(1), // separator line
+                Constraint::Length(1), // subtitle
+                Constraint::Length(1), // gap
+                Constraint::Length(3), // card 0 — CreateNew
+                Constraint::Length(1), // gap
+                Constraint::Length(3), // card 1 — Restore
+                Constraint::Length(1), // gap
+                Constraint::Length(3), // card 2 — Import
+                Constraint::Length(2), // gap
+                Constraint::Length(1), // language hint
+                Constraint::Length(1), // hint
+                Constraint::Length(1), // step indicator
+            ]
+        })
         .split(content_area);
 
-        // Brand
-        let brand = Paragraph::new(Line::from(vec![
-            Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
-            Span::styled(
-                t!("tui.entry.brand"),
-                Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
-            ),
-        ]))
-        .alignment(Alignment::Center);
-        frame.render_widget(brand, rows[0]);
+        if wide {
+            let logo_widget = Paragraph::new(logo::ascii_logo_lines()).alignment(Alignment::Center);
+            frame.render_widget(logo_widget, rows[0]);
+        } else {
+            let brand = Paragraph::new(Line::from(vec![
+                Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
+                Span::styled(
+                    t!("tui.entry.brand"),
+                    Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
+                ),
+            ]))
+            .alignment(Alignment::Center);
+            frame.render_widget(brand, rows[0]);
 
-        // Separator
-        let separator = Paragraph::new(Span::styled(
-            "\u{2500}".repeat(40),
-            Style::default().fg(BORDER),
-        ))
-        .alignment(Alignment::Center);
-        frame.render_widget(separator, rows[1]);
+            let separator = Paragraph::new(Span::styled(
+                "\u{2500}".repeat(40),
+                Style::default().fg(BORDER),
+            ))
+            .alignment(Alignment::Center);
+            frame.render_widget(separator, rows[1]);
+        }
 
         // Subtitle
         let subtitle = Paragraph::new(Span::styled(
@@ -168,7 +197,7 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 8);
+        let content_area = Self::centered_content(area, 8, 60);
 
         let rows = Layout::vertical([
             Constraint::Length(1), // title          → [0]

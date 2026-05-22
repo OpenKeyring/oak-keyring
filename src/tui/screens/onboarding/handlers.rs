@@ -36,9 +36,7 @@ impl OnboardingScreen {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.handle_mouse_click(event.column, event.row)
             }
-            MouseEventKind::Moved => {
-                self.handle_mouse_hover(event.column, event.row)
-            }
+            MouseEventKind::Moved => self.handle_mouse_hover(event.column, event.row),
             _ => ScreenResult::Continue,
         }
     }

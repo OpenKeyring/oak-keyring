@@ -20,7 +20,7 @@ impl OnboardingScreen {
             import_sources, source_needs_password, ImportFocus,
         };
 
-        let content_area = Self::centered_content(area, 20);
+        let content_area = Self::centered_content(area, 20, 60);
         let sources = import_sources();
         let source = sources[self.selected_source_idx].0;
         let needs_pw = source_needs_password(source);
@@ -168,7 +168,7 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 18);
+        let content_area = Self::centered_content(area, 18, 60);
 
         let mut lines: Vec<Line> = vec![
             Line::from(Span::styled(

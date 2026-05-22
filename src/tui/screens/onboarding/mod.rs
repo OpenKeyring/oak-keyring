@@ -4,6 +4,7 @@
 //! Import (import from other manager). Each path has its own step sequence.
 
 mod handlers;
+mod logo;
 pub mod screen;
 #[cfg(test)]
 pub mod tests;

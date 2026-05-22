@@ -18,7 +18,7 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 24);
+        let content_area = Self::centered_content(area, 24, 60);
 
         let rows = Layout::vertical([
             Constraint::Length(1),  // title
@@ -266,7 +266,7 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 23);
+        let content_area = Self::centered_content(area, 23, 60);
 
         let rows = Layout::vertical([
             Constraint::Length(1), // title
@@ -375,7 +375,7 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 16);
+        let content_area = Self::centered_content(area, 16, 60);
 
         let rows = Layout::vertical([
             Constraint::Length(1),  // title
@@ -417,7 +417,7 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 10);
+        let content_area = Self::centered_content(area, 10, 60);
 
         let rows = Layout::vertical([
             Constraint::Length(1), // title
