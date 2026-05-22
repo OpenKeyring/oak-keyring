@@ -59,6 +59,11 @@ pub struct OnboardingScreen {
     pub clipboard_copied: bool,
     /// Clipboard clear timeout in seconds (captured from config when copying).
     pub clipboard_clear_seconds: u64,
+    /// Whether the "Learn more" section is expanded.
+    pub learn_more_expanded: bool,
+    /// Rendered areas of the 5 RecoveryDisplay interactive elements (for mouse hit-testing).
+    /// [0] Copy button, [1] Regenerate button, [2] Learn more toggle, [3] Checkbox, [4] Next step button.
+    pub recovery_action_areas: [std::cell::Cell<ratatui::layout::Rect>; 5],
     /// Rendered areas of the 4 verify input boxes (for mouse hit-testing).
     /// Uses `Cell` for interior mutability since `view()` takes `&self`.
     pub verify_box_areas: [std::cell::Cell<ratatui::layout::Rect>; 4],
@@ -95,6 +100,10 @@ impl Default for OnboardingScreen {
             recovery_focus: RecoveryFocus::default(),
             clipboard_copied: false,
             clipboard_clear_seconds: 30,
+            learn_more_expanded: false,
+            recovery_action_areas: std::array::from_fn(|_| {
+                std::cell::Cell::new(ratatui::layout::Rect::default())
+            }),
             verify_box_areas: std::array::from_fn(|_| {
                 std::cell::Cell::new(ratatui::layout::Rect::default())
             }),
@@ -192,7 +201,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key, ctx),
-            Message::MouseEvent(event) => self.handle_mouse(event),
+            Message::MouseEvent(event) => self.handle_mouse(event, ctx),
             Message::CommandCompleted(result) => self.handle_command_result(result),
             _ => ScreenResult::Continue,
         }
@@ -247,6 +256,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.recovery_focus = RecoveryFocus::default();
         self.clipboard_copied = false;
         self.clipboard_clear_seconds = 30;
+        self.learn_more_expanded = false;
     }
 
     fn on_unmount(&mut self) {
@@ -270,5 +280,6 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.recovery_focus = RecoveryFocus::default();
         self.clipboard_copied = false;
         self.clipboard_clear_seconds = 30;
+        self.learn_more_expanded = false;
     }
 }

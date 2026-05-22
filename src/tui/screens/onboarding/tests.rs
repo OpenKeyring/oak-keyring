@@ -171,7 +171,7 @@ fn onboarding_welcome_mouse_click_selects_restore() {
     let _ = render_onboarding(&screen, 80, 24);
     let restore_area = screen.welcome_card_areas[1].get();
 
-    let result = screen.handle_mouse(click(restore_area.x + 1, restore_area.y + 1));
+    let result = screen.handle_mouse(click(restore_area.x + 1, restore_area.y + 1), &mut dummy_ctx());
 
     assert!(matches!(
         result,
@@ -188,7 +188,7 @@ fn onboarding_welcome_mouse_hover_updates_focus() {
     assert_eq!(screen.welcome_selected, 0);
 
     let import_area = screen.welcome_card_areas[2].get();
-    let result = screen.handle_mouse(mouse_move(import_area.x + 1, import_area.y + 1));
+    let result = screen.handle_mouse(mouse_move(import_area.x + 1, import_area.y + 1), &mut dummy_ctx());
 
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.welcome_selected, 2);
@@ -203,7 +203,7 @@ fn onboarding_welcome_mouse_hover_noop_outside_cards() {
     assert_eq!(screen.welcome_selected, 0);
 
     // Move mouse to top-left corner, outside any card
-    let result = screen.handle_mouse(mouse_move(0, 0));
+    let result = screen.handle_mouse(mouse_move(0, 0), &mut dummy_ctx());
 
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.welcome_selected, 0);
@@ -454,6 +454,12 @@ fn onboarding_recovery_display_tab_cycles_focus() {
         KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
         &mut dummy_ctx(),
     );
+    assert_eq!(screen.recovery_focus, RecoveryFocus::LearnMoreToggle);
+
+    screen.handle_recovery_display_key(
+        KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.recovery_focus, RecoveryFocus::ConfirmCheckbox);
 
     screen.handle_recovery_display_key(
@@ -478,6 +484,12 @@ fn onboarding_recovery_display_backtab_cycles_focus_reverse() {
         &mut dummy_ctx(),
     );
     assert_eq!(screen.recovery_focus, RecoveryFocus::ConfirmCheckbox);
+
+    screen.handle_recovery_display_key(
+        KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
+    assert_eq!(screen.recovery_focus, RecoveryFocus::LearnMoreToggle);
 
     screen.handle_recovery_display_key(
         KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),

@@ -22,32 +22,43 @@ impl OnboardingScreen {
     ) {
         let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
         let hdr = header_rows(wide);
-        let content_area = Self::centered_content(area, hdr + 20, 60);
+        let learn_extra = if self.learn_more_expanded { 3 } else { 0 };
+        let content_area = Self::centered_content(area, hdr + 19 + learn_extra, 72);
 
-        let rows = Layout::vertical([
-            Constraint::Length(hdr),  // logo or brand
-            Constraint::Length(1),    // title
-            Constraint::Length(12),   // word grid (8 rows + 2 borders + padding)
-            Constraint::Length(1),    // buttons row
-            Constraint::Length(1),    // clipboard warning (conditional)
-            Constraint::Length(1),    // checkbox
-            Constraint::Length(1),    // next step button / hint
-            Constraint::Length(1),    // hint
-            Constraint::Length(1),    // step indicator
-        ])
-        .split(content_area);
+        let mut constraints = vec![
+            Constraint::Length(hdr),     // 0: logo or brand
+            Constraint::Length(1),       // 1: title
+            Constraint::Length(1),       // 2: instruction
+            Constraint::Length(10),      // 3: word grid (was 12)
+            Constraint::Length(1),       // 4: buttons row
+            Constraint::Length(1),       // 5: clipboard warning
+            Constraint::Length(1),       // 6: learn more toggle
+        ];
+        if self.learn_more_expanded {
+            constraints.push(Constraint::Length(1)); // 7: learn more l1
+            constraints.push(Constraint::Length(1)); // 8: learn more l2
+            constraints.push(Constraint::Length(1)); // 9: learn more l3
+        }
+        let offset = if self.learn_more_expanded { 3 } else { 0 };
+        constraints.push(Constraint::Length(1));    // checkbox
+        constraints.push(Constraint::Length(1));    // next step / instruction
+        constraints.push(Constraint::Length(1));    // hint
+        constraints.push(Constraint::Length(1));    // step indicator
+        let rows = Layout::vertical(constraints).split(content_area);
 
         render_header(frame, rows[0], wide);
 
         // Title
-        let title = Paragraph::new(format!(
-            "{} {}",
-            theme::ICON_WARNING,
-            t!("tui.entry.recovery_key_write_down")
-        ))
-        .style(Style::default().fg(WARNING).add_modifier(Modifier::BOLD))
-        .alignment(Alignment::Center);
+        let title = Paragraph::new(t!("tui.entry.recovery_key_write_down"))
+            .style(Style::default().fg(WARNING).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center);
         frame.render_widget(title, rows[1]);
+
+        // Instruction
+        let instruction = Paragraph::new(t!("tui.entry.recovery_key_instruction"))
+            .style(Style::default().fg(TEXT_SECONDARY))
+            .alignment(Alignment::Center);
+        frame.render_widget(instruction, rows[2]);
 
         // Word grid (read-only)
         if self.recovery_words.is_none() {
@@ -57,63 +68,107 @@ impl OnboardingScreen {
             let grid_area = Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(BORDER));
-            frame.render_widget(grid_area, rows[2]);
+            frame.render_widget(grid_area, rows[3]);
             // Render placeholder centered inside grid
             let inner = Layout::vertical([
                 Constraint::Fill(1),
                 Constraint::Length(1),
                 Constraint::Fill(1),
             ])
-            .split(rows[2]);
+            .split(rows[3]);
             frame.render_widget(placeholder, inner[1]);
         } else {
             // Build a read-only 4x6 grid showing the recovery words
-            self.render_readonly_word_grid(frame, rows[2]);
+            self.render_readonly_word_grid(frame, rows[3]);
         }
 
         // Buttons row: [ Copy to clipboard ]  [ Regenerate ]
         let btn_area = Layout::horizontal([
             Constraint::Fill(1),
-            Constraint::Length(24),
-            Constraint::Length(2),
-            Constraint::Length(18),
+            Constraint::Length(22),
+            Constraint::Length(4),
+            Constraint::Length(16),
             Constraint::Fill(1),
         ])
-        .split(rows[3]);
+        .split(rows[4]);
 
-        let copy_style = if self.recovery_focus == RecoveryFocus::CopyButton {
+        let copy_focused = self.recovery_focus == RecoveryFocus::CopyButton;
+        let copy_style = if copy_focused {
             Styles::button_primary()
         } else {
-            Styles::button_secondary()
+            Style::default().fg(TEXT)
         };
-        let copy_btn = Paragraph::new(t!("tui.entry.copy_to_clipboard_btn"))
+        let copy_text = format!("[{}]", t!("tui.entry.copy_to_clipboard_btn"));
+        let copy_btn = Paragraph::new(copy_text)
             .style(copy_style)
             .alignment(Alignment::Center);
         frame.render_widget(copy_btn, btn_area[1]);
+        self.recovery_action_areas[0].set(btn_area[1]);
 
-        let regen_style = if self.recovery_focus == RecoveryFocus::RegenerateButton {
+        let regen_focused = self.recovery_focus == RecoveryFocus::RegenerateButton;
+        let regen_style = if regen_focused {
             Styles::button_primary()
         } else {
-            Styles::button_secondary()
+            Style::default().fg(TEXT)
         };
-        let regen_btn = Paragraph::new(t!("tui.entry.regenerate_btn"))
+        let regen_text = format!("[{}]", t!("tui.entry.regenerate_btn"));
+        let regen_btn = Paragraph::new(regen_text)
             .style(regen_style)
             .alignment(Alignment::Center);
         frame.render_widget(regen_btn, btn_area[3]);
+        self.recovery_action_areas[1].set(btn_area[3]);
 
         // Clipboard clear warning (shown after copy)
         if self.clipboard_copied {
-            let warning = Paragraph::new(format!(
-                "{} {}",
-                theme::ICON_WARNING,
+            let warning = Paragraph::new(
                 t!(
                     "tui.entry.clipboard_clear_warning",
                     seconds = self.clipboard_clear_seconds
                 )
-            ))
+                .to_string(),
+            )
             .style(Styles::warning_text())
             .alignment(Alignment::Center);
-            frame.render_widget(warning, rows[4]);
+            frame.render_widget(warning, rows[5]);
+        }
+
+        // Learn more toggle
+        let (toggle_text, toggle_style) = if self.learn_more_expanded {
+            let focused = self.recovery_focus == RecoveryFocus::LearnMoreToggle;
+            let style = if focused {
+                Style::default().fg(PRIMARY)
+            } else {
+                Style::default().fg(TEXT_SECONDARY)
+            };
+            (t!("tui.entry.recovery_learn_more_expanded").to_string(), style)
+        } else {
+            let focused = self.recovery_focus == RecoveryFocus::LearnMoreToggle;
+            let style = if focused {
+                Style::default().fg(PRIMARY)
+            } else {
+                Style::default().fg(TEXT_MUTED)
+            };
+            (t!("tui.entry.recovery_learn_more_collapsed").to_string(), style)
+        };
+        let toggle = Paragraph::new(toggle_text)
+            .style(toggle_style)
+            .alignment(Alignment::Center);
+        frame.render_widget(toggle, rows[6]);
+        self.recovery_action_areas[2].set(rows[6]);
+
+        // Learn more content (expanded)
+        if self.learn_more_expanded {
+            let lines = [
+                t!("tui.entry.recovery_learn_more_l1"),
+                t!("tui.entry.recovery_learn_more_l2"),
+                t!("tui.entry.recovery_learn_more_l3"),
+            ];
+            for (i, line) in lines.iter().enumerate() {
+                let para = Paragraph::new(line.to_string())
+                    .style(Style::default().fg(TEXT_SECONDARY))
+                    .alignment(Alignment::Center);
+                frame.render_widget(para, rows[7 + i]);
+            }
         }
 
         // Checkbox
@@ -123,7 +178,9 @@ impl OnboardingScreen {
             "[ ]"
         };
         let check_focused = self.recovery_focus == RecoveryFocus::ConfirmCheckbox;
-        let check_style = if self.recovery_confirmed {
+        let check_style = if self.recovery_confirmed && check_focused {
+            Style::default().fg(PRIMARY)
+        } else if self.recovery_confirmed {
             Style::default().fg(SUCCESS)
         } else if check_focused {
             Style::default().fg(PRIMARY)
@@ -137,27 +194,35 @@ impl OnboardingScreen {
         ))
         .style(check_style)
         .alignment(Alignment::Center);
-        frame.render_widget(checkbox, rows[5]);
+        frame.render_widget(checkbox, rows[7 + offset]);
+        self.recovery_action_areas[3].set(rows[7 + offset]);
 
         // Next step button or instruction
         if self.recovery_confirmed {
-            let next_style = Styles::button_primary();
-            let next_btn = Paragraph::new(t!("tui.entry.next_step"))
+            let next_focused = check_focused;
+            let next_style = if next_focused {
+                Styles::button_primary()
+            } else {
+                Style::default().fg(TEXT)
+            };
+            let next_text = format!("[{}]", t!("tui.entry.next_step"));
+            let next_btn = Paragraph::new(next_text)
                 .style(next_style)
                 .alignment(Alignment::Center);
-            frame.render_widget(next_btn, rows[6]);
+            frame.render_widget(next_btn, rows[8 + offset]);
+            self.recovery_action_areas[4].set(rows[8 + offset]);
         } else {
             let instruction = Paragraph::new(t!("tui.entry.check_box_to_continue"))
-                .style(Style::default().fg(TEXT_MUTED))
+                .style(Style::default().fg(TEXT_SECONDARY))
                 .alignment(Alignment::Center);
-            frame.render_widget(instruction, rows[6]);
+            frame.render_widget(instruction, rows[8 + offset]);
         }
 
         // Hint
         let hint = Paragraph::new(t!("tui.entry.recovery_display_hint"))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[7]);
+        frame.render_widget(hint, rows[9 + offset]);
 
         // Step indicator
         let step = self.current_step_number();
@@ -166,7 +231,7 @@ impl OnboardingScreen {
             Paragraph::new(t!("tui.entry.step_n_of_n", current = step, total = total).to_string())
                 .style(Style::default().fg(TEXT_MUTED))
                 .alignment(Alignment::Center);
-        frame.render_widget(step_text, rows[8]);
+        frame.render_widget(step_text, rows[10 + offset]);
     }
 
     /// Render a read-only 4x6 word grid from recovery_words.
@@ -183,7 +248,7 @@ impl OnboardingScreen {
 
         let vertical = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(8), // 6 word rows + 2 spacer rows
+            Constraint::Length(6), // 6 word rows (no spacers)
             Constraint::Fill(1),
         ])
         .split(inner);
@@ -218,18 +283,12 @@ impl OnboardingScreen {
         ])
         .split(grid_area);
 
-        // Build rows with spacers between groups of 2 word rows
-        let mut row_constraints = Vec::with_capacity(8);
-        for i in 0..6usize {
-            if i == 2 || i == 4 {
-                row_constraints.push(Constraint::Length(1)); // spacer
-            }
-            row_constraints.push(Constraint::Length(1)); // word row
-        }
+        // Build rows without spacers
+        let row_constraints: [Constraint; 6] = std::array::from_fn(|_: usize| Constraint::Length(1));
         let rows = Layout::vertical(row_constraints).split(h_chunks[1]);
 
         for row in 0..6 {
-            let row_idx = row + row / 2; // skip spacer rows
+            let row_idx = row; // no spacers
             let mut col_constraints = Vec::with_capacity(8); // 4 cols + 4 gaps between them
             for (col, &max_len) in col_max_len.iter().enumerate() {
                 if col > 0 {
