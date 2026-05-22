@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/onboarding_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                               ⚠ ⚠ Security Notice                              "
+"                                                                                "
+"          Your vault has been restored from a recovery key.                     "
+"          We strongly recommend setting a new master password                   "
+"          and reviewing your security settings.                                 "
+"                                                                                "
+"           Press Enter to set a new master password  |  Esc to go back          "
+"                                    Step 3/3                                    "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

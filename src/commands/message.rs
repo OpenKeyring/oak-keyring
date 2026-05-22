@@ -1,4 +1,4 @@
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyEvent, MouseEvent};
 use uuid::Uuid;
 
 use crate::commands::result::CommandResult;
@@ -17,6 +17,7 @@ pub enum Message {
 
     // -- Terminal Events ---------------------------------
     KeyEvent(KeyEvent),
+    MouseEvent(MouseEvent),
     Resize {
         width: u16,
         height: u16,
@@ -156,6 +157,7 @@ mod exhaustive_tests {
                 Message::CommandCompleted(_) => {}
                 // Terminal Events
                 Message::KeyEvent(_) => {}
+                Message::MouseEvent(_) => {}
                 Message::Resize { .. } => {}
                 Message::Tick => {}
                 // Navigation

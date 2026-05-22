@@ -209,11 +209,14 @@ pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor
 
     let token_store = {
         let mut ts_guard = executor.oauth2_token_store.lock().await;
-        if ts_guard.is_none() {
+        if let Some(store) = ts_guard.as_ref() {
+            store.clone()
+        } else {
             let base_path = executor.config_dir.join("tokens");
-            *ts_guard = Some(TokenStore::new(base_path));
+            let store = TokenStore::new(base_path);
+            *ts_guard = Some(store.clone());
+            store
         }
-        ts_guard.clone().unwrap()
     };
 
     let provider = GoogleDriveProvider::new();
@@ -301,6 +304,7 @@ mod tests {
             .shutdown_token(CancellationToken::new())
             .clipboard(clipboard)
             .build()
+            .expect("executor should build")
     }
 
     fn make_executor_with_clipboard(timeout: u64) -> super::super::CommandExecutor {
@@ -325,6 +329,7 @@ mod tests {
             .shutdown_token(CancellationToken::new())
             .clipboard(clipboard)
             .build()
+            .expect("executor should build")
     }
 
     #[test]

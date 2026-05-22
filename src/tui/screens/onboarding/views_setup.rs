@@ -101,6 +101,7 @@ impl OnboardingScreen {
         for (i, (icon, title, desc)) in cards.iter().enumerate() {
             let is_selected = i == self.welcome_selected;
             let card_row = rows[4 + i * 2];
+            self.welcome_card_areas[i].set(card_row);
 
             let border_color = if is_selected { PRIMARY } else { BORDER };
             let bg_color = if is_selected { BG_SURFACE } else { BG };
@@ -170,12 +171,13 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, 8);
 
         let rows = Layout::vertical([
-            Constraint::Length(1), // title
-            Constraint::Length(2), // gap
-            Constraint::Length(1), // instruction
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // hint
-            Constraint::Length(1), // step indicator
+            Constraint::Length(1), // title          → [0]
+            Constraint::Length(1), // gap            → [1]
+            Constraint::Length(1), // gap            → [2]
+            Constraint::Length(1), // instruction    → [3]
+            Constraint::Length(1), // gap            → [4]
+            Constraint::Length(1), // hint           → [5]
+            Constraint::Length(1), // step indicator → [6]
         ])
         .split(content_area);
 

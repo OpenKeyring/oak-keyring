@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/import_export_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                 Import Preview                                 "
+"                                                                                "
+"          ✓ Importable: 30                                                      "
+"          ✗ Failed: 1                                                           "
+"                                                                                "
+"          Review items:                                                         "
+"            - GitHub (Duplicate name found)                                     "
+"                                                                                "
+"            - SSH Key (Corrupted private key file)                              "
+"                         Enter: start import | Esc: back                        "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

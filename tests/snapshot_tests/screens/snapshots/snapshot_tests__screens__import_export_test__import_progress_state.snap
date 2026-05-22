@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/import_export_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                  Importing...                                  "
+"                                                                                "
+"               [██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 25/100                "
+"               Processing: Work Email                                           "
+"                                                                                "
+"                                 Please wait...                                 "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

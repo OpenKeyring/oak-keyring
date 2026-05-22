@@ -20,8 +20,6 @@
 //! - All error conditions log warnings but don't crash (best-effort protection).
 //! - The handler is installed before any secrets are loaded.
 
-#![cfg(target_os = "macos")]
-
 use mach2::{
     exception_types::{
         exception_mask_t, EXCEPTION_STATE, EXC_MASK_ARITHMETIC, EXC_MASK_BAD_ACCESS,

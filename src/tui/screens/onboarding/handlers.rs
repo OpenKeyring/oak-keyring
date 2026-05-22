@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 
 use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
@@ -8,6 +8,10 @@ use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 
 use super::screen::OnboardingScreen;
 use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
+
+fn contains(area: ratatui::layout::Rect, col: u16, row: u16) -> bool {
+    area.left() <= col && col < area.right() && area.top() <= row && row < area.bottom()
+}
 
 impl OnboardingScreen {
     // ── Key handling ───────────────────────────────────────────────────────
@@ -23,6 +27,64 @@ impl OnboardingScreen {
             OnboardingStep::ImportPreview => self.handle_import_preview_key(key, ctx),
             OnboardingStep::SetPassword => self.handle_set_password_key(key, ctx),
         }
+    }
+
+    // ── Mouse handling ───────────────────────────────────────────────────────
+
+    pub(crate) fn handle_mouse(&mut self, event: MouseEvent) -> ScreenResult {
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.handle_mouse_click(event.column, event.row)
+            }
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn handle_mouse_click(&mut self, col: u16, row: u16) -> ScreenResult {
+        match self.current_step {
+            OnboardingStep::Welcome => {
+                for i in 0..self.welcome_card_areas.len() {
+                    let area = self.welcome_card_areas[i].get();
+                    if contains(area, col, row) {
+                        self.welcome_selected = i;
+                        return self.select_welcome_path();
+                    }
+                }
+            }
+            OnboardingStep::RecoveryVerify { .. } => {
+                for (i, area_cell) in self.verify_box_areas.iter().enumerate() {
+                    let area = area_cell.get();
+                    if contains(area, col, row) {
+                        self.verify_focus_index = i;
+                        return ScreenResult::Continue;
+                    }
+                }
+            }
+            _ => {}
+        }
+        ScreenResult::Continue
+    }
+
+    fn select_welcome_path(&mut self) -> ScreenResult {
+        const LANGUAGES: [&str; 3] = ["auto", "en", "zh-CN"];
+        let lang = LANGUAGES[self.language_index];
+        match self.welcome_selected {
+            0 => {
+                self.selected_path = Some(OnboardingPath::CreateNew);
+                self.generate_recovery_words(lang);
+                self.current_step = OnboardingStep::RecoveryDisplay;
+            }
+            1 => {
+                self.selected_path = Some(OnboardingPath::Restore);
+                return ScreenResult::NavigateTo(Screen::KeyRecovery);
+            }
+            2 => {
+                self.selected_path = Some(OnboardingPath::Import);
+                self.current_step = OnboardingStep::ImportSource;
+            }
+            _ => {}
+        }
+        ScreenResult::Continue
     }
 
     pub(crate) fn handle_welcome_key(
@@ -49,26 +111,7 @@ impl OnboardingScreen {
                 crate::tui::i18n::init(lang);
                 ScreenResult::Continue
             }
-            KeyCode::Enter => {
-                let lang = LANGUAGES[self.language_index];
-                match self.welcome_selected {
-                    0 => {
-                        self.selected_path = Some(OnboardingPath::CreateNew);
-                        self.generate_recovery_words(lang);
-                        self.current_step = OnboardingStep::RecoveryDisplay;
-                    }
-                    1 => {
-                        self.selected_path = Some(OnboardingPath::Restore);
-                        return ScreenResult::NavigateTo(Screen::KeyRecovery);
-                    }
-                    2 => {
-                        self.selected_path = Some(OnboardingPath::Import);
-                        self.current_step = OnboardingStep::ImportSource;
-                    }
-                    _ => {}
-                }
-                ScreenResult::Continue
-            }
+            KeyCode::Enter => self.select_welcome_path(),
             KeyCode::Esc => ScreenResult::ExitApp,
             _ => ScreenResult::Continue,
         }
@@ -145,23 +188,13 @@ impl OnboardingScreen {
         let focused = self.verify_focus_index;
 
         match key.code {
-            KeyCode::Tab => {
-                if focused < 3 {
-                    self.verify_focus_index = focused + 1;
-                } else {
-                    // On last box: submit if all filled
-                    let all_filled = self.verify_inputs.iter().all(|s| !s.is_empty());
-                    if all_filled {
-                        return self.submit_recovery_verify();
-                    }
-                    // Otherwise clamp to last box
-                }
+            KeyCode::Tab | KeyCode::Down => {
+                self.verify_focus_index = (focused + 1) % self.verify_inputs.len();
                 ScreenResult::Continue
             }
-            KeyCode::BackTab => {
-                if focused > 0 {
-                    self.verify_focus_index = focused - 1;
-                }
+            KeyCode::Up => {
+                self.verify_focus_index =
+                    (focused + self.verify_inputs.len() - 1) % self.verify_inputs.len();
                 ScreenResult::Continue
             }
             KeyCode::Enter => self.submit_recovery_verify(),
@@ -174,7 +207,7 @@ impl OnboardingScreen {
                 self.verify_errors[focused] = false;
                 ScreenResult::Continue
             }
-            KeyCode::Char(c) if c.is_alphabetic() => {
+            KeyCode::Char(c) => {
                 let input = &mut self.verify_inputs[focused];
                 if input.len() < 12 {
                     input.push_char(c);

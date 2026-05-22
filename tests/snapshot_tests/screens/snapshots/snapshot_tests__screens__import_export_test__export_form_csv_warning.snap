@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/import_export_test.rs
+expression: backend
+---
+"                                                                                "
+"                                   Export Data                                  "
+"                                                                                "
+"               Export Format:                                                   "
+"                  .okb (Encrypted Backup)                                       "
+"                > .csv (Plaintext)                                              "
+"               ⚠ Warning: CSV exports are unencrypted plaintext.                "
+"               Export Scope:                                                    "
+"                > All records                                                   "
+"                  Current filter                                                "
+"                  By tag                                                        "
+"                                                                                "
+"               ┌ Output Path ───────────────────────────────────┐               "
+"               │/path/to/plain_export.csv                       │               "
+"               └────────────────────────────────────────────────┘               "
+"                                                                                "
+"                                                                                "
+"                Tab: switch fields | ↑↓: select scope | Esc: back               "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

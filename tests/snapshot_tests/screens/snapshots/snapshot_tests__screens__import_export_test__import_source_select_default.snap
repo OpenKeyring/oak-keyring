@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/import_export_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                   Import Data                                  "
+"              Tab: switch fields | ↑↓: navigate | 1=Import 2=Export             "
+"                                                                                "
+"          Select Source                                                         "
+"           ▶ KeePass (.kdbx) 🔑  Password / URL / Notes                         " Hidden by multi-width symbols: [(30, " ")]
+"             1Password (.1pux)  Password / TOTP  ⚠ Custom fields                "
+"             1Password (.opvault) 🔑  Password / TOTP  ⚠ Custom fields          " Hidden by multi-width symbols: [(35, " ")]
+"             Bitwarden (.json) 🔑  Password / TOTP / URL  ✗ Attachment          " Hidden by multi-width symbols: [(32, " ")]
+"             CSV  Column-mapped fields                                          "
+"                                                                                "
+"          ┌ File Path ───────────────────────────────────────────────┐          "
+"          │/path/to/import/file                                      │          "
+"          └──────────────────────────────────────────────────────────┘          "
+"                                                                                "
+"          ┌ Decryption Password ─────────────────────────────────────┐          "
+"          │Enter password                                            │          "
+"          └──────────────────────────────────────────────────────────┘          "
+"                                                                                "
+"                                                                                "
+"                           Enter: validate | Esc: back                          "
+"                                                                                "
+"                                                                                "

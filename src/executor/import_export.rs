@@ -723,6 +723,7 @@ mod tests {
                 30,
             )))
             .build()
+            .expect("executor should build")
     }
 
     #[test]

@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/sync_conflict_test.rs
+expression: backend
+---
+" Sync Conflict  (2/2)                                                           "
+"2 conflicts detected. Resolve each one.                                         "
+"┌ Local Version (05-20 11:00) ───────┐  ┌ Remote Version (05-20 11:05) ───────┐ "
+"│Password    •••••••• ← diff         │  │Password    •••••••• ← diff          │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"│                                    │  │                                     │ "
+"└────────────────────────────────────┘  └─────────────────────────────────────┘ "
+" ←→ Select version  │  Enter Confirm  │  a Keep All Local  │  Esc Skip (keep loc"

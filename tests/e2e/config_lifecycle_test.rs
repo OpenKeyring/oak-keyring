@@ -40,7 +40,10 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
 
     // Spawn the executor run loop
     tokio::spawn(async move {
-        executor.run(command_rx).await;
+        executor
+            .run(command_rx)
+            .await
+            .expect("executor run should succeed");
     });
 
     (command_tx, result_rx)
@@ -328,7 +331,10 @@ async fn save_and_reload_preserves_config() {
         .expect("executor construction should succeed");
 
         tokio::spawn(async move {
-            executor.run(command_rx).await;
+            executor
+                .run(command_rx)
+                .await
+                .expect("executor run should succeed");
         });
 
         // Load config in new executor (should return the loaded config)

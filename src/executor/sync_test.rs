@@ -25,7 +25,8 @@ async fn trigger_sync_returns_cancelled_when_token_already_cancelled() {
             Box::new(MockBackend::new()),
             30,
         )))
-        .build();
+        .build()
+        .expect("executor should build");
     executor.cancel_token().cancel();
 
     let result = handle_trigger_sync(&mut executor).await;
@@ -57,7 +58,8 @@ async fn trigger_sync_returns_cancelled_when_shutdown_token_cancelled() {
             Box::new(MockBackend::new()),
             30,
         )))
-        .build();
+        .build()
+        .expect("executor should build");
 
     // Simulate app shutdown: cancel the shutdown token.
     // operation_cancel_token (a child) should be auto-cancelled.

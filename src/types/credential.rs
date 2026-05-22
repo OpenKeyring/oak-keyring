@@ -13,6 +13,8 @@ pub enum DataError {
     InvalidSyncStatus(i64),
     #[error("Invalid UUID: {0}")]
     InvalidUuid(String),
+    #[error("Invalid timestamp: {0}")]
+    InvalidTimestamp(i64),
     #[error("Missing field: {0}")]
     MissingField(&'static str),
     #[error("Field too long: {field}, max {max}, actual {actual}")]

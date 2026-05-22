@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/onboarding_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"          Step 3/6 · Import Preview                                             "
+"                                                                                "
+"          Importable: 42  Needs review: 2  Failed: 1                            "
+"                                                                                "
+"          ⚠ Work Login — Weak password strength                                 "
+"          ⚠ Bank Account — URL field is missing                                 "
+"          ✗ Corrupt Entry — Invalid UTF-8 decryption payload                    "
+"                                                                                "
+"           ☑ Import problematic entries as notes (instead of skipping)          "
+"                                                                                "
+"          Tab: toggle focus | Space/Enter: toggle checkbox | Enter: st          "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

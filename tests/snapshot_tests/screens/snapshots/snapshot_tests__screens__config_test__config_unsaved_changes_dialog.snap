@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/config_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                    ┌ Unsaved Changes ─────────────────────┐                    "
+"                    │ You have unsaved changes. Save before│                    "
+"                    │ <Cancel>     <Save & Exit>           │                    "
+"                    │                                      │                    "
+"                    └──────────────────────────────────────┘                    "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

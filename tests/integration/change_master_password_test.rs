@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 struct Harness {
     command_tx: mpsc::Sender<Command>,
     result_rx: mpsc::Receiver<Message>,
-    handle: tokio::task::JoinHandle<()>,
+    handle: tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
     _temp: tempfile::TempDir,
 }
 
@@ -83,7 +83,10 @@ impl Harness {
 
     async fn shutdown(self) {
         drop(self.command_tx);
-        self.handle.await.expect("executor task panicked");
+        self.handle
+            .await
+            .expect("executor task panicked")
+            .expect("executor run should succeed");
     }
 }
 

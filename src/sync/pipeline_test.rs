@@ -70,6 +70,7 @@ mod tests {
                     updated_at: Utc::now().to_rfc3339(),
                     updated_by: "device-1".to_string(),
                     checksum: "test_checksum".to_string(),
+                    private_metadata_checksum: None,
                     deleted: false,
                 },
             );
@@ -348,6 +349,7 @@ mod tests {
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "device-1".to_string(),
                 checksum: correct_checksum,
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );
@@ -388,6 +390,7 @@ mod tests {
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "device-1".to_string(),
                 checksum: correct_checksum,
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );
@@ -601,6 +604,7 @@ mod tests {
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "device-1".to_string(),
                 checksum: correct_checksum,
+                private_metadata_checksum: record.compute_private_metadata_checksum().unwrap(),
                 deleted: false,
             },
         );
@@ -652,6 +656,7 @@ mod tests {
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "device-1".to_string(),
                 checksum: correct_checksum,
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );
@@ -761,6 +766,9 @@ mod tests {
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "device-a".to_string(),
                 checksum,
+                private_metadata_checksum: uploaded_record
+                    .compute_private_metadata_checksum()
+                    .unwrap(),
                 deleted: false,
             },
         );
@@ -828,6 +836,7 @@ mod tests {
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "device-1".to_string(),
                 checksum: checksum_a,
+                private_metadata_checksum: rec_a.compute_private_metadata_checksum().unwrap(),
                 deleted: false,
             },
         );
@@ -838,6 +847,7 @@ mod tests {
                 updated_at: Utc::now().to_rfc3339(),
                 updated_by: "device-1".to_string(),
                 checksum: checksum_b,
+                private_metadata_checksum: None,
                 deleted: false,
             },
         );

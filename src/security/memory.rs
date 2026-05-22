@@ -331,8 +331,11 @@ impl LockedKey32 {
 
     /// Exposes the underlying 32-byte key.
     pub fn expose(&self) -> &[u8; 32] {
-        // SAFETY: LockedKey32 always stores exactly 32 bytes
-        self.bytes.expose().try_into().unwrap()
+        let bytes = self.bytes.expose();
+        debug_assert_eq!(bytes.len(), 32);
+        // SAFETY: LockedKey32 is only constructed with LockedSecretBytes::with_len(32),
+        // so the exposed slice is exactly one 32-byte array.
+        unsafe { &*(bytes.as_ptr().cast::<[u8; 32]>()) }
     }
 
     /// Exposes the key for the duration of the closure with automatic
@@ -356,8 +359,11 @@ impl LockedKey32 {
         #[cfg(unix)]
         self.bytes.set_prot(libc::PROT_READ | libc::PROT_WRITE);
 
-        // SAFETY: LockedKey32 always stores exactly 32 bytes
-        let key: &mut [u8; 32] = self.bytes.expose_mut().try_into().unwrap();
+        let bytes = self.bytes.expose_mut();
+        debug_assert_eq!(bytes.len(), 32);
+        // SAFETY: LockedKey32 is only constructed with LockedSecretBytes::with_len(32),
+        // so the exposed mutable slice is exactly one 32-byte array.
+        let key: &mut [u8; 32] = unsafe { &mut *(bytes.as_mut_ptr().cast::<[u8; 32]>()) };
         let result = f(key);
 
         #[cfg(unix)]

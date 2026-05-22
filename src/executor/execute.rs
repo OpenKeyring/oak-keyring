@@ -41,7 +41,8 @@ impl CommandExecutor {
     ///
     /// Commands that require an unlocked vault will return an error
     /// if the vault is currently locked. Certain commands (unlock,
-    /// recovery key unlock, initialize vault, load config) are exempt.
+    /// recovery key unlock, initialize vault, load config,
+    /// raw clipboard copy) are exempt — they do not need vault access.
     fn pre_check(&self, command: &Command) -> Option<CommandResult> {
         let needs_unlock = !matches!(
             command,
@@ -54,9 +55,23 @@ impl CommandExecutor {
                 | Command::RestoreDatabaseFromOkb { .. }
                 | Command::RestoreDatabaseFromCloud { .. }
                 | Command::ValidateRestoredDatabase
+                | Command::CopyRawToClipboard { .. }
         );
 
-        if needs_unlock && self.vault().map(|v| !v.is_unlocked()).unwrap_or(true) {
+        // Skip vault-locked check when no real vault exists (DeferredInMemory mode).
+        // During onboarding, an in-memory placeholder is used; the CryptoManager
+        // has no keystore so is_unlocked() returns false, but "Vault is locked"
+        // is misleading — there is no vault to lock yet.
+        //
+        // DeferredInMemory = runtime is Open (in-memory DB) + not file-backed.
+        // This is distinct from a locked production vault where runtime is Locked
+        // (SQLCipher) or runtime is Open + file-backed (plain SQLite).
+        let is_deferred_in_memory = self.vault_runtime.is_open() && !self.vault_db_file_backed;
+
+        if needs_unlock
+            && !is_deferred_in_memory
+            && self.vault().map(|v| !v.is_unlocked()).unwrap_or(true)
+        {
             return Some(CommandResult::Error {
                 code: ErrorCode::ExecutorVaultLocked,
                 context: crate::errors::ErrorContext::default(),

@@ -279,21 +279,17 @@ impl Screen for ChangeMasterPasswordScreen {
             frame.render_widget(title, rows[0]);
 
             // New password field
+            let new_inner = new_input_block.inner(rows[2]);
             frame.render_widget(new_input_block, rows[2]);
-            let new_inner = Layout::vertical([Constraint::Length(1)]).split(rows[2])[0];
-            let new_padded =
-                Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(new_inner);
-            frame.render_widget(new_input_text, new_padded[1]);
+            frame.render_widget(new_input_text, new_inner);
 
             // Strength bar
             frame.render_widget(strength_line, rows[3]);
 
             // Confirm password field
+            let confirm_inner = confirm_input_block.inner(rows[5]);
             frame.render_widget(confirm_input_block, rows[5]);
-            let confirm_inner = Layout::vertical([Constraint::Length(1)]).split(rows[5])[0];
-            let confirm_padded = Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)])
-                .split(confirm_inner);
-            frame.render_widget(confirm_input_text, confirm_padded[1]);
+            frame.render_widget(confirm_input_text, confirm_inner);
 
             // Match indicator
             if let Some(ref ml) = match_line {
@@ -420,10 +416,9 @@ impl ChangeMasterPasswordScreen {
         frame.render_widget(subtitle, rows[1]);
 
         // Password input
+        let inner = input_block.inner(rows[3]);
         frame.render_widget(input_block, rows[3]);
-        let inner = Layout::vertical([Constraint::Length(1)]).split(rows[3])[0];
-        let padded = Layout::horizontal([Constraint::Length(1), Constraint::Fill(1)]).split(inner);
-        frame.render_widget(input_text, padded[1]);
+        frame.render_widget(input_text, inner);
 
         // Error
         if let Some(ref el) = error_line {

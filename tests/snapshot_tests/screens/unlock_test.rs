@@ -7,6 +7,8 @@ use oak_keyring::tui::screens::unlock::{UnlockMode, UnlockPhase, UnlockScreen};
 use oak_keyring::tui::traits::screen::Screen;
 use oak_keyring::types::sensitive::SensitiveInput;
 
+use crate::support::snapshot_locale;
+
 fn sensitive(s: &str) -> SensitiveInput {
     let mut input = SensitiveInput::new();
     for c in s.chars() {
@@ -16,6 +18,7 @@ fn sensitive(s: &str) -> SensitiveInput {
 }
 
 fn render_screen(screen: &UnlockScreen, width: u16, height: u16) -> TestBackend {
+    let _locale = snapshot_locale();
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal

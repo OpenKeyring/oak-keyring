@@ -4,8 +4,11 @@ use ratatui::Terminal;
 use oak_keyring::tui::screens::main::detail::DetailPanel;
 use oak_keyring::tui::state::detail_state::DetailPanelState;
 
+use crate::support::snapshot_locale;
+
 #[test]
 fn detail_panel_empty() {
+    let _locale = snapshot_locale();
     let backend = TestBackend::new(50, 20);
     let mut terminal = Terminal::new(backend).unwrap();
     let state = DetailPanelState::default();
@@ -22,6 +25,7 @@ fn detail_panel_empty() {
 
 #[test]
 fn detail_login_record() {
+    let _locale = snapshot_locale();
     use oak_keyring::tui::state::detail_state::*;
     use uuid::Uuid;
 
@@ -91,6 +95,7 @@ fn detail_login_record() {
 
 #[test]
 fn detail_api_record() {
+    let _locale = snapshot_locale();
     use oak_keyring::tui::state::detail_state::*;
     use uuid::Uuid;
 
@@ -146,6 +151,7 @@ fn detail_api_record() {
 
 #[test]
 fn detail_ssh_record() {
+    let _locale = snapshot_locale();
     use oak_keyring::tui::state::detail_state::*;
     use uuid::Uuid;
 
@@ -208,6 +214,7 @@ fn detail_ssh_record() {
 
 #[test]
 fn detail_with_health_compromised() {
+    let _locale = snapshot_locale();
     use oak_keyring::commands::types::HealthIssue;
     use oak_keyring::tui::state::detail_state::*;
     use uuid::Uuid;
@@ -265,6 +272,7 @@ fn detail_with_health_compromised() {
 
 #[test]
 fn detail_with_health_duplicate() {
+    let _locale = snapshot_locale();
     use oak_keyring::commands::types::HealthIssue;
     use oak_keyring::tui::state::detail_state::*;
     use uuid::Uuid;
@@ -322,6 +330,7 @@ fn detail_with_health_duplicate() {
 
 #[test]
 fn detail_wide_screen() {
+    let _locale = snapshot_locale();
     use oak_keyring::tui::state::detail_state::*;
     use uuid::Uuid;
 
@@ -391,6 +400,7 @@ fn detail_wide_screen() {
 
 #[test]
 fn detail_narrow_width() {
+    let _locale = snapshot_locale();
     use oak_keyring::tui::state::detail_state::*;
     use uuid::Uuid;
 

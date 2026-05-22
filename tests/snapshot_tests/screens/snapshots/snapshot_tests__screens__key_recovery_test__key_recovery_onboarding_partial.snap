@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/key_recovery_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                 🔐 OpenKeyring                                 " Hidden by multi-width symbols: [(34, " ")]
+"                          ─────────────────────────────                         "
+"                                Recover Vault Key                               "
+"                                                                                "
+"          Enter your recovery words to rebuild wrapped_secret_key.json          "
+"                                                                                "
+"          ┌──────────────────────────────────────────────────────────┐          "
+"          │01. abandon    02. ability    03. able      04. ____      │          "
+"          │05. ____       06. ____       07. ____      08. ____      │          "
+"          │09. ____       10. ____       11. ____      12. ____      │          "
+"          │13. ____       14. ____       15. ____      16. ____      │          "
+"          └──────────────────────────────────────────────────────────┘          "
+"                                                                                "
+"                                                                                "
+"          Tab: next word  |  Shift+Tab: previous  |  Enter: continue            "
+"                                    Step 1/3                                    "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

@@ -212,8 +212,8 @@ impl WordGridState {
         let is_error = self.errors[index];
         let is_editable = self.is_editable(index);
 
-        // Number prefix: right-aligned 2-digit
-        let num_str = format!("{:>2}.", index + 1);
+        // Number prefix: zero-padded 2-digit for vertical alignment
+        let num_str = format!("{:02}.", index + 1);
 
         let (word_text, base_style): (Cow<'a, str>, Style) = if !is_editable {
             // Non-editable in PartialVerify: dimmed dots

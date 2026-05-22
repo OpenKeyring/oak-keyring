@@ -70,7 +70,8 @@ async fn health_check_returns_started_from_mock_service() {
         .vault(Box::new(permissive_unlocked_vault()))
         .health(Arc::new(mock_health))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = health::handle_run_health_check(&mut executor, true);
     assert!(matches!(result, CommandResult::HealthCheckStarted));
@@ -91,7 +92,8 @@ async fn health_check_skips_when_frequency_gate_blocks() {
         .health(Arc::new(MockHealth::new()))
         .config(config)
         .last_health_check_time(chrono::Utc::now())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = health::handle_run_health_check(&mut executor, false);
     assert!(matches!(result, CommandResult::HealthCheckSkipped));
@@ -114,6 +116,7 @@ async fn cloud_restore_preflight_checks_metadata_via_sync_trait() {
                     updated_at: "2026-05-14T00:00:00Z".to_string(),
                     updated_by: "test-device".to_string(),
                     checksum: "checksum".to_string(),
+                    private_metadata_checksum: None,
                     deleted: false,
                 },
             );
@@ -196,7 +199,8 @@ fn vault_lock_calls_trait_method() {
         .vault(Box::new(mock_vault))
         .config(AppConfig::default())
         .verified_master_password(SecureStr::new("cached".to_string()))
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = vault::handle_lock(&mut executor);
     assert!(matches!(result, CommandResult::VaultLocked));
@@ -216,7 +220,8 @@ async fn vault_unlock_calls_unlock_on_trait() {
     let mut executor = base_builder()
         .vault(Box::new(mock_vault))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let password = SecureStr::new("test-password".to_string());
     let result = vault::handle_unlock(&mut executor, password).await;
@@ -287,7 +292,8 @@ async fn trigger_rotation_with_mock_sync_pause_resume_flow() {
         .vault(Box::new(mock_vault))
         .sync(Some(Box::new(mock_sync)))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = rotation::handle_trigger_rotation(&mut executor).await;
     match &result {
@@ -319,7 +325,8 @@ async fn trigger_rotation_fails_when_sync_pause_fails() {
         .vault(Box::new(permissive_unlocked_vault()))
         .sync(Some(Box::new(mock_sync)))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = rotation::handle_trigger_rotation(&mut executor).await;
     assert!(matches!(
@@ -355,7 +362,8 @@ async fn trigger_rotation_fails_when_metadata_download_fails() {
         .vault(Box::new(permissive_unlocked_vault()))
         .sync(Some(Box::new(mock_sync)))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = rotation::handle_trigger_rotation(&mut executor).await;
     assert!(matches!(
@@ -374,7 +382,8 @@ async fn resume_rotation_returns_no_trigger_when_no_checkpoint() {
     let mut executor = base_builder()
         .vault(Box::new(mock_vault))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = rotation::handle_resume_rotation(&mut executor).await;
     match &result {
@@ -397,7 +406,8 @@ fn check_rotation_trigger_returns_correct_result() {
     let mut executor = base_builder()
         .vault(Box::new(mock_vault))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = rotation::handle_check_rotation_trigger(&mut executor);
     match &result {
@@ -422,7 +432,8 @@ async fn trigger_sync_returns_error_when_not_configured() {
     let mut executor = base_builder()
         .vault(Box::new(mock_vault))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = sync::handle_trigger_sync(&mut executor).await;
     assert!(matches!(
@@ -453,6 +464,8 @@ async fn trigger_sync_calls_sync_service() {
                     downloaded_health_states: vec![],
                     downloaded_health_deleted: vec![],
                     downloaded_records: vec![],
+                    uploaded_ids: vec![],
+                    conflict_data: std::collections::HashMap::new(),
                     remote_metadata: None,
                 })
             })
@@ -473,7 +486,8 @@ async fn trigger_sync_calls_sync_service() {
         .vault(Box::new(mock_vault))
         .sync(Some(Box::new(mock_sync)))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = sync::handle_trigger_sync(&mut executor).await;
     match &result {
@@ -490,7 +504,8 @@ async fn resolve_conflict_returns_error_when_not_configured() {
     let mut executor = base_builder()
         .vault(Box::new(MockVault::new()))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = sync::handle_resolve_conflict(
         &mut executor,
@@ -537,7 +552,8 @@ async fn trigger_sync_maps_service_cancelled_to_command_cancelled() {
         .vault(Box::new(mock_vault))
         .sync(Some(Box::new(mock_sync)))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = sync::handle_trigger_sync(&mut executor).await;
     assert!(
@@ -573,7 +589,8 @@ async fn trigger_sync_maps_network_timeout_to_error() {
         .vault(Box::new(mock_vault))
         .sync(Some(Box::new(mock_sync)))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = sync::handle_trigger_sync(&mut executor).await;
     assert!(
@@ -617,7 +634,8 @@ async fn trigger_sync_maps_auth_failure_to_error() {
         .vault(Box::new(mock_vault))
         .sync(Some(Box::new(mock_sync)))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = sync::handle_trigger_sync(&mut executor).await;
     assert!(
@@ -638,7 +656,8 @@ async fn restore_database_from_cloud_returns_needs_oauth_without_sync() {
     let mut executor = base_builder()
         .vault(Box::new(MockVault::new()))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = sync::handle_restore_database_from_cloud(&mut executor, None).await;
     assert!(matches!(result, CommandResult::DatabaseRestoreNeedsOAuth));
@@ -720,7 +739,8 @@ fn import_reports_mixed_success_and_failure_counts() {
         .vault(Box::new(mock_vault))
         .import_export(Box::new(mock_ie))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     // ── Call handler with existing session_id (skips session creation) ──
     let result = import_export::handle_execute_import(
@@ -771,7 +791,8 @@ async fn resolve_conflict_maps_provider_error_to_command_error() {
         .vault(Box::new(MockVault::new()))
         .sync(Some(Box::new(mock_sync)))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = sync::handle_resolve_conflict(
         &mut executor,
@@ -810,7 +831,8 @@ async fn resolve_all_conflicts_maps_quota_error_to_command_error() {
         .vault(Box::new(MockVault::new()))
         .sync(Some(Box::new(mock_sync)))
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     let result = sync::handle_resolve_all_conflicts(
         &mut executor,
@@ -840,7 +862,8 @@ fn builder_sets_vault_db_file_backed_flag() {
         .vault(Box::new(MockVault::new()))
         .vault_db_file_backed(true)
         .config(AppConfig::default())
-        .build();
+        .build()
+        .expect("executor should build");
 
     assert!(executor.vault_db_file_backed);
 }
@@ -851,7 +874,8 @@ fn builder_sets_verified_master_password() {
         .vault(Box::new(MockVault::new()))
         .config(AppConfig::default())
         .verified_master_password(SecureStr::new("test-password".to_string()))
-        .build();
+        .build()
+        .expect("executor should build");
 
     assert!(executor.verified_master_password.is_some());
     assert_eq!(

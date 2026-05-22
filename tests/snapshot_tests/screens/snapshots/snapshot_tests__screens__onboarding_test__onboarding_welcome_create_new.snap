@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/onboarding_test.rs
+expression: backend
+---
+"                                                                                "
+"                                                                                "
+"                                 🔐 OpenKeyring                                 " Hidden by multi-width symbols: [(34, " ")]
+"                    ────────────────────────────────────────                    "
+"                  Secure, open-source terminal password manager                 "
+"                                                                                "
+"          ┌──────────────────────────────────────────────────────────┐          "
+"          │ ✦ Create New Vault                                       │          "
+"          └──────────────────────────────────────────────────────────┘          "
+"                                                                                "
+"          ┌──────────────────────────────────────────────────────────┐          "
+"          │ ↻ Restore Existing Vault (Cloud or .okb)                 │          "
+"          └──────────────────────────────────────────────────────────┘          "
+"                                                                                "
+"          ┌──────────────────────────────────────────────────────────┐          "
+"          │ ↓ Import from Another Manager                            │          "
+"          └──────────────────────────────────────────────────────────┘          "
+"                                                                                "
+"                                                                                "
+"                               L: Language (auto)                               "
+"                ↑↓/Tab: navigate  |  Enter: select  |  Esc: quit                "
+"                                    Step 1/1                                    "
+"                                                                                "
+"                                                                                "

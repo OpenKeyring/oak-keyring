@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/audit_log_test.rs
+expression: backend
+---
+" Audit Log                                               3 records              "
+"┌ Alle ──────┐┌ Today──────┐┌ Enter keywords...────────────────────────────────┐"
+"│            ││            ││                                                  │"
+"└────────────┘└────────────┘└──────────────────────────────────────────────────┘"
+" 05-20 09:00 [Unlocked] (no record name)                                        "
+" 05-20 09:05 [Added ] Gmail Login - Created credential for Gmail                "
+" 05-20 09:10 [Viewed Password] Gmail Login                                      "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ↑↓/j/k Select  │  Tab Switch Area  │  Enter View Record  │  Esc Back           "

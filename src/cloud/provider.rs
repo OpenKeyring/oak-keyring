@@ -67,35 +67,9 @@ impl WebDavAdapter {
 impl ProviderAdapter for WebDavAdapter {
     fn create_operator(&self, config: &ProviderConfig) -> Result<Operator, SyncError> {
         match config {
-            ProviderConfig::WebDav(webdav_config) => {
-                let builder =
-                    opendal::services::Webdav::default().endpoint(&webdav_config.endpoint);
-
-                let builder = if !webdav_config.root_path.is_empty() {
-                    builder.root(&webdav_config.root_path)
-                } else {
-                    builder
-                };
-
-                let builder = if let Some(ref bearer_token) = webdav_config.bearer_token {
-                    builder.token(bearer_token)
-                } else if let (Some(ref username), Some(ref password)) =
-                    (&webdav_config.username, &webdav_config.password)
-                {
-                    builder.username(username).password(password)
-                } else {
-                    builder
-                };
-
-                let operator = Operator::new(builder)
-                    .map_err(|e| SyncError::ProviderError {
-                        provider: "webdav".to_string(),
-                        message: format!("failed to create operator: {}", e),
-                    })?
-                    .finish();
-
-                Ok(operator)
-            }
+            ProviderConfig::WebDav(_) => Err(SyncError::ProviderNotSupported {
+                provider: "webdav".to_string(),
+            }),
             _ => Err(SyncError::ProviderError {
                 provider: "webdav".to_string(),
                 message: "expected WebDav config".to_string(),

@@ -8,6 +8,7 @@ mod pipeline_test;
 pub mod retry;
 pub mod state_machine;
 pub mod task;
+#[cfg(feature = "fs-watcher")]
 pub mod watcher;
 pub use checkpoint::{PendingConflict, SyncCheckpoint};
 pub use conflict::{
@@ -17,11 +18,11 @@ pub use conflict::{
 pub use lock::{LockFileData, SyncLock};
 pub use nonce_validator::{IdentityAction, NonceValidator};
 pub use pipeline::{
-    DetectStage, HealthSyncAdapter, LocalRecordInfo, NoOpHealthSyncAdapter, PipelineContext,
-    PipelineResult, PullMetadataStage, PushStage, ResolveStage, StageOutcome, SyncPipeline,
-    SyncStage,
+    DetectStage, LocalRecordInfo, PipelineContext, PipelineResult, PullMetadataStage, PushStage,
+    ResolveStage, StageOutcome, SyncPipeline, SyncStage,
 };
 pub use retry::{BackoffTimer, RetryPolicy};
 pub use state_machine::{SyncState, SyncStateMachine, SyncTrigger};
 pub use task::{SyncCommand, SyncEvent, SyncReport, SyncTask, SyncVaultData};
+#[cfg(feature = "fs-watcher")]
 pub use watcher::{SyncWatcher, WatchEventKind};

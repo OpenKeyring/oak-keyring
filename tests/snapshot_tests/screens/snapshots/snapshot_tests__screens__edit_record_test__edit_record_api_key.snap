@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/edit_record_test.rs
+expression: backend
+---
+"┌──────────────────────────────────────────────────────────────────────────────┐"
+"│  Edit Password                                         Esc Cancel            │"
+"│──────────────────────────────────────────────────────────────────────────────│"
+"│                                                                              │"
+"│  Type [ API Credential ▼ ]                                                   │"
+"│                                                                              │"
+"│  Name [Stripe API Key                                                        │"
+"│ ] ← Required                                                                 │"
+"│                                                                              │"
+"│  URL [                                                                       │"
+"│ ] ← Optional                                                                 │"
+"│                                                                              │"
+"│  App ID [stripe_live_51                                                      │"
+"│ ] ← Required                                                                 │"
+"│                                                                              │"
+"│  Secret Key [•••••••••••••••••                         ] [ Show ] [ Copy ]   │"
+"│                                                                              │"
+"│  Expiry [ Never ▼ ]                                                          │"
+"│                                                                              │"
+"│  Tags [                    ]                                                 │"
+"│                                                                              │"
+"│  Notes [                                                                     │"
+"│ ] ← Optional                                                                 │"
+"└──────────────────────────────────────────────────────────────────────────────┘"

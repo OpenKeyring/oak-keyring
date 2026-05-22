@@ -18,12 +18,12 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 22);
+        let content_area = Self::centered_content(area, 24);
 
         let rows = Layout::vertical([
             Constraint::Length(1),  // title
             Constraint::Length(1),  // gap
-            Constraint::Length(10), // word grid (4 rows x 6 cols = ~8 + borders)
+            Constraint::Length(12), // word grid (8 rows + 2 borders + padding)
             Constraint::Length(1),  // separator gap
             Constraint::Length(1),  // buttons row
             Constraint::Length(1),  // gap
@@ -173,44 +173,92 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        use ratatui::widgets::{Row, Table};
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(BORDER));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
 
-        let rows: Vec<Row> = (0..6)
-            .map(|row| {
-                let cells: Vec<Line> = (0..4)
-                    .map(|col| {
-                        let idx = row * 4 + col;
-                        let num_str = format!("{:>2}.", idx + 1);
-                        let word = self
-                            .recovery_words
-                            .as_ref()
-                            .and_then(|words| words.word(idx))
-                            .unwrap_or("");
-                        Line::from(vec![
-                            Span::styled(num_str, Style::default().fg(TEXT_SECONDARY)),
-                            Span::raw(" "),
-                            Span::styled(word, Style::default().fg(TEXT)),
-                        ])
-                    })
-                    .collect();
-                Row::new(cells)
-            })
-            .collect();
+        let vertical = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(8), // 6 word rows + 2 spacer rows
+            Constraint::Fill(1),
+        ])
+        .split(inner);
+        let grid_area = vertical[1];
 
-        let widths = [
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-        ];
+        // Compute per-column max content width: "{:02}. {word}"
+        let col_max_len: [usize; 4] = std::array::from_fn(|c| {
+            (0..6)
+                .map(|r| {
+                    let idx = r * 4 + c;
+                    let num_str = format!("{:02}.", idx + 1);
+                    let word = self
+                        .recovery_words
+                        .as_ref()
+                        .and_then(|words| words.word(idx))
+                        .unwrap_or("");
+                    num_str.len() + 1 + word.len() // "01. word"
+                })
+                .max()
+                .unwrap_or(0)
+        });
 
-        let table = Table::new(rows, widths).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(BORDER)),
-        );
+        let gap: u16 = 4;
+        let grid_content_width: u16 = col_max_len.iter().sum::<usize>() as u16 + gap * 3; // 3 gaps between 4 columns
+        let block_width = grid_content_width + 2; // borders
 
-        frame.render_widget(table, area);
+        // Center the grid horizontally
+        let h_chunks = Layout::horizontal([
+            Constraint::Min(0),
+            Constraint::Length(block_width.min(grid_area.width)),
+            Constraint::Min(0),
+        ])
+        .split(grid_area);
+
+        // Build rows with spacers between groups of 2 word rows
+        let mut row_constraints = Vec::with_capacity(8);
+        for i in 0..6usize {
+            if i == 2 || i == 4 {
+                row_constraints.push(Constraint::Length(1)); // spacer
+            }
+            row_constraints.push(Constraint::Length(1)); // word row
+        }
+        let rows = Layout::vertical(row_constraints).split(h_chunks[1]);
+
+        for row in 0..6 {
+            let row_idx = row + row / 2; // skip spacer rows
+            let mut col_constraints = Vec::with_capacity(8); // 4 cols + 4 gaps between them
+            for (col, &max_len) in col_max_len.iter().enumerate() {
+                if col > 0 {
+                    col_constraints.push(Constraint::Length(gap));
+                }
+                col_constraints.push(Constraint::Length(max_len as u16));
+            }
+            let cols = Layout::horizontal(col_constraints).split(rows[row_idx]);
+            let mut cell_idx = 0;
+            for (col, &max_len) in col_max_len.iter().enumerate() {
+                let idx = row * 4 + col;
+                let num_str = format!("{:02}.", idx + 1);
+                let word = self
+                    .recovery_words
+                    .as_ref()
+                    .and_then(|words| words.word(idx))
+                    .unwrap_or("");
+                // Pad word to column max width so cells align within the column
+                let word_pad = max_len - num_str.len() - 1; // -1 for the space
+                let cell = Paragraph::new(Line::from(vec![
+                    Span::styled(num_str, Style::default().fg(TEXT_SECONDARY)),
+                    Span::raw(" "),
+                    Span::styled(
+                        format!("{:<width$}", word, width = word_pad),
+                        Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+                frame.render_widget(cell, cols[cell_idx]);
+                cell_idx += 2; // skip gap column
+            }
+        }
     }
 
     pub(crate) fn view_recovery_verify(
@@ -218,7 +266,7 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 20);
+        let content_area = Self::centered_content(area, 23);
 
         let rows = Layout::vertical([
             Constraint::Length(1), // title
@@ -271,12 +319,16 @@ impl OnboardingScreen {
                 BORDER
             };
 
-            let input_text = if self.verify_inputs[i].is_empty() {
+            let input_text = if is_focused {
+                if self.verify_inputs[i].is_empty() {
+                    "_".to_string()
+                } else {
+                    let mut text = self.verify_inputs[i].expose(|s| s.to_string());
+                    text.push('_');
+                    text
+                }
+            } else if self.verify_inputs[i].is_empty() {
                 String::new()
-            } else if is_focused {
-                let mut text = self.verify_inputs[i].expose(|s| s.to_string());
-                text.push('_');
-                text
             } else {
                 self.verify_inputs[i].expose(|s| s.to_string())
             };
@@ -294,10 +346,12 @@ impl OnboardingScreen {
                 .border_style(Style::default().fg(border_color))
                 .style(Style::default().bg(BG_SURFACE));
 
+            let box_area = rows[5 + i * 2];
             let para = Paragraph::new(input_text).style(text_style);
-            let inner = input_block.inner(rows[5 + i * 2]);
-            frame.render_widget(input_block, rows[5 + i * 2]);
+            let inner = input_block.inner(box_area);
+            frame.render_widget(input_block, box_area);
             frame.render_widget(para, inner);
+            self.verify_box_areas[i].set(box_area);
         }
 
         // Hint

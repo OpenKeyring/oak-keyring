@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/config_test.rs
+expression: backend
+---
+" Settings   General │ Sync │ Security │ Password │ About                        "
+" ℹ Some config changes require restart to take effect                           "
+"Sync                                                                            "
+"Sync Provider     [ Google Drive ▼ ]                                            "
+"Sync Mode            [ Auto Sync ▼ ]                                            "
+"Auto Sync Interval        [ 600s ▼ ]                                            "
+"─────────────────────────────────────────────────────────────────────────────── "
+"Auth Status           Please authorize in browser...                            "
+"Action                [ Authorizing... ]                                        "
+"Working Directory     /OpenKeyring                                              "
+"[ Test Connection ]   Sync Status  ⟳ Testing connection...                      "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ↑↓ scroll  Tab switch  Enter confirm  Esc close  q exit   [ Exit Program ] [ Cl"
