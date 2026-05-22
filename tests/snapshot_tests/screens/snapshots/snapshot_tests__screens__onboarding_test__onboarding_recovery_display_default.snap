@@ -2,8 +2,11 @@
 source: tests/snapshot_tests/screens/onboarding_test.rs
 expression: backend
 ---
-"                       ⚠ Recovery Key - Write These Down!                       "
+"                  ░█▀█░█▀█░█▀▀░█▀█░█░█░█▀▀░█░█░█▀▄░▀█▀░█▀█░█▀▀                  "
+"                  ░█░█░█▀▀░█▀▀░█░█░█▀▄░█▀▀░░█░░█▀▄░░█░░█░█░█░█                  "
+"                  ░▀▀▀░▀░░░▀▀▀░▀░▀░▀░▀░▀▀▀░░▀░░▀░▀░▀▀▀░▀░▀░▀▀▀                  "
 "                                                                                "
+"                       ⚠ Recovery Key - Write These Down!                       "
 "          ┌──────────────────────────────────────────────────────────┐          "
 "          │                                                          │          "
 "          │01. abandon    02. abandon    03. abandon    04. abandon  │          "
@@ -16,13 +19,10 @@ expression: backend
 "          │21. abandon    22. abandon    23. abandon    24. abandon  │          "
 "          │                                                          │          "
 "          └──────────────────────────────────────────────────────────┘          "
-"                                                                                "
 "                      Copy to clipboard         Regenerate                      "
 "                                                                                "
-"                                                                                "
-"                                                                                "
 "                         [ ] I have saved my recovery key                       "
-"                                                                                "
 "                         Check the box above to continue                        "
 "          ←→/Tab: navigate  |  Enter: activate  |  Space: toggle  |  E          "
 "                                    Step 2/4                                    "
+"                                                                                "

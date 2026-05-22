@@ -3,9 +3,10 @@ source: tests/snapshot_tests/screens/onboarding_test.rs
 expression: backend
 ---
 "                                                                                "
+"                  ░█▀█░█▀█░█▀▀░█▀█░█░█░█▀▀░█░█░█▀▄░▀█▀░█▀█░█▀▀                  "
+"                  ░█░█░█▀▀░█▀▀░█░█░█▀▄░█▀▀░░█░░█▀▄░░█░░█░█░█░█                  "
+"                  ░▀▀▀░▀░░░▀▀▀░▀░▀░▀░▀░▀▀▀░░▀░░▀░▀░▀▀▀░▀░▀░▀▀▀                  "
 "                                                                                "
-"                                 🔐 OpenKeyring                                 " Hidden by multi-width symbols: [(34, " ")]
-"                    ────────────────────────────────────────                    "
 "                  Secure, open-source terminal password manager                 "
 "                                                                                "
 "          ┌──────────────────────────────────────────────────────────┐          "
@@ -24,5 +25,4 @@ expression: backend
 "                               L: Language (auto)                               "
 "                ↑↓/Tab: navigate  |  Enter: select  |  Esc: quit                "
 "                                    Step 1/1                                    "
-"                                                                                "
 "                                                                                "

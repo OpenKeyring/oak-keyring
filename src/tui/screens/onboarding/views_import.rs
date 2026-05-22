@@ -1,14 +1,17 @@
+use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::t;
 use crate::tui::screens::import_export::ScopeHintStyle;
+use crate::tui::terminal::WidthTier;
 use crate::tui::theme::{
     self, BORDER, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_SECONDARY, WARNING,
 };
 
 use super::screen::OnboardingScreen;
+use super::views_setup::{render_header, header_rows};
 
 impl OnboardingScreen {
     pub(crate) fn view_import_source(
@@ -20,7 +23,19 @@ impl OnboardingScreen {
             import_sources, source_needs_password, ImportFocus,
         };
 
-        let content_area = Self::centered_content(area, 20, 60);
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let hdr = header_rows(wide);
+        let content_area = Self::centered_content(area, hdr + 20, 60);
+
+        let rows = Layout::vertical([
+            Constraint::Length(hdr),     // logo or brand
+            Constraint::Min(0),          // content
+        ])
+        .split(content_area);
+
+        render_header(frame, rows[0], wide);
+
+        let content_area = rows[1];
         let sources = import_sources();
         let source = sources[self.selected_source_idx].0;
         let needs_pw = source_needs_password(source);
@@ -168,7 +183,19 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 18, 60);
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let hdr = header_rows(wide);
+        let content_area = Self::centered_content(area, hdr + 18, 60);
+
+        let rows = Layout::vertical([
+            Constraint::Length(hdr),     // logo or brand
+            Constraint::Min(0),          // content
+        ])
+        .split(content_area);
+
+        render_header(frame, rows[0], wide);
+
+        let content_area = rows[1];
 
         let mut lines: Vec<Line> = vec![
             Line::from(Span::styled(

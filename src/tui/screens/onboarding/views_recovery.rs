@@ -4,6 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
 use crate::t;
+use crate::tui::terminal::WidthTier;
 use crate::tui::theme::{
     self, Styles, BG_SURFACE, BORDER, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_SECONDARY,
     WARNING,
@@ -11,6 +12,7 @@ use crate::tui::theme::{
 
 use super::screen::OnboardingScreen;
 use super::types::RecoveryFocus;
+use super::views_setup::{render_header, header_rows};
 
 impl OnboardingScreen {
     pub(crate) fn view_recovery_display(
@@ -18,24 +20,24 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 24, 60);
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let hdr = header_rows(wide);
+        let content_area = Self::centered_content(area, hdr + 20, 60);
 
         let rows = Layout::vertical([
-            Constraint::Length(1),  // title
-            Constraint::Length(1),  // gap
-            Constraint::Length(12), // word grid (8 rows + 2 borders + padding)
-            Constraint::Length(1),  // separator gap
-            Constraint::Length(1),  // buttons row
-            Constraint::Length(1),  // gap
-            Constraint::Length(1),  // clipboard warning (conditional)
-            Constraint::Length(1),  // gap
-            Constraint::Length(1),  // checkbox
-            Constraint::Length(1),  // gap
-            Constraint::Length(1),  // next step button / hint
-            Constraint::Length(1),  // hint
-            Constraint::Length(1),  // step indicator
+            Constraint::Length(hdr),  // logo or brand
+            Constraint::Length(1),    // title
+            Constraint::Length(12),   // word grid (8 rows + 2 borders + padding)
+            Constraint::Length(1),    // buttons row
+            Constraint::Length(1),    // clipboard warning (conditional)
+            Constraint::Length(1),    // checkbox
+            Constraint::Length(1),    // next step button / hint
+            Constraint::Length(1),    // hint
+            Constraint::Length(1),    // step indicator
         ])
         .split(content_area);
+
+        render_header(frame, rows[0], wide);
 
         // Title
         let title = Paragraph::new(format!(
@@ -45,7 +47,7 @@ impl OnboardingScreen {
         ))
         .style(Style::default().fg(WARNING).add_modifier(Modifier::BOLD))
         .alignment(Alignment::Center);
-        frame.render_widget(title, rows[0]);
+        frame.render_widget(title, rows[1]);
 
         // Word grid (read-only)
         if self.recovery_words.is_none() {
@@ -77,7 +79,7 @@ impl OnboardingScreen {
             Constraint::Length(18),
             Constraint::Fill(1),
         ])
-        .split(rows[4]);
+        .split(rows[3]);
 
         let copy_style = if self.recovery_focus == RecoveryFocus::CopyButton {
             Styles::button_primary()
@@ -111,7 +113,7 @@ impl OnboardingScreen {
             ))
             .style(Styles::warning_text())
             .alignment(Alignment::Center);
-            frame.render_widget(warning, rows[6]);
+            frame.render_widget(warning, rows[4]);
         }
 
         // Checkbox
@@ -135,7 +137,7 @@ impl OnboardingScreen {
         ))
         .style(check_style)
         .alignment(Alignment::Center);
-        frame.render_widget(checkbox, rows[8]);
+        frame.render_widget(checkbox, rows[5]);
 
         // Next step button or instruction
         if self.recovery_confirmed {
@@ -143,19 +145,19 @@ impl OnboardingScreen {
             let next_btn = Paragraph::new(t!("tui.entry.next_step"))
                 .style(next_style)
                 .alignment(Alignment::Center);
-            frame.render_widget(next_btn, rows[10]);
+            frame.render_widget(next_btn, rows[6]);
         } else {
             let instruction = Paragraph::new(t!("tui.entry.check_box_to_continue"))
                 .style(Style::default().fg(TEXT_MUTED))
                 .alignment(Alignment::Center);
-            frame.render_widget(instruction, rows[10]);
+            frame.render_widget(instruction, rows[6]);
         }
 
         // Hint
         let hint = Paragraph::new(t!("tui.entry.recovery_display_hint"))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[11]);
+        frame.render_widget(hint, rows[7]);
 
         // Step indicator
         let step = self.current_step_number();
@@ -164,7 +166,7 @@ impl OnboardingScreen {
             Paragraph::new(t!("tui.entry.step_n_of_n", current = step, total = total).to_string())
                 .style(Style::default().fg(TEXT_MUTED))
                 .alignment(Alignment::Center);
-        frame.render_widget(step_text, rows[12]);
+        frame.render_widget(step_text, rows[8]);
     }
 
     /// Render a read-only 4x6 word grid from recovery_words.
@@ -266,32 +268,34 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 23, 60);
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let hdr = header_rows(wide);
+        let content_area = Self::centered_content(area, hdr + 20, 60);
 
         let rows = Layout::vertical([
-            Constraint::Length(1), // title
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // instruction
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // label 0
-            Constraint::Length(3), // input box 0
-            Constraint::Length(1), // label 1
-            Constraint::Length(3), // input box 1
-            Constraint::Length(1), // label 2
-            Constraint::Length(3), // input box 2
-            Constraint::Length(1), // label 3
-            Constraint::Length(3), // input box 3
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // hint
-            Constraint::Length(1), // step indicator
+            Constraint::Length(hdr),  // logo or brand
+            Constraint::Length(1),    // title
+            Constraint::Length(1),    // instruction
+            Constraint::Length(1),    // label 0
+            Constraint::Length(3),    // input box 0
+            Constraint::Length(1),    // label 1
+            Constraint::Length(3),    // input box 1
+            Constraint::Length(1),    // label 2
+            Constraint::Length(3),    // input box 2
+            Constraint::Length(1),    // label 3
+            Constraint::Length(3),    // input box 3
+            Constraint::Length(1),    // hint
+            Constraint::Length(1),    // step indicator
         ])
         .split(content_area);
+
+        render_header(frame, rows[0], wide);
 
         // Title
         let title = Paragraph::new(t!("tui.entry.verify_recovery_title"))
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
-        frame.render_widget(title, rows[0]);
+        frame.render_widget(title, rows[1]);
 
         // Instruction
         let instruction = Paragraph::new(t!("tui.entry.enter_word_position"))
@@ -308,7 +312,7 @@ impl OnboardingScreen {
             // Label
             let label = Paragraph::new(t!("tui.entry.word_n_label", n = pos).to_string())
                 .style(Style::default().fg(TEXT_SECONDARY));
-            frame.render_widget(label, rows[4 + i * 2]);
+            frame.render_widget(label, rows[3 + i * 2]);
 
             // Input box with border
             let border_color = if has_error {
@@ -346,7 +350,7 @@ impl OnboardingScreen {
                 .border_style(Style::default().fg(border_color))
                 .style(Style::default().bg(BG_SURFACE));
 
-            let box_area = rows[5 + i * 2];
+            let box_area = rows[4 + i * 2];
             let para = Paragraph::new(input_text).style(text_style);
             let inner = input_block.inner(box_area);
             frame.render_widget(input_block, box_area);
@@ -358,7 +362,7 @@ impl OnboardingScreen {
         let hint = Paragraph::new(t!("tui.entry.verify_hint"))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[12]);
+        frame.render_widget(hint, rows[11]);
 
         // Step indicator
         let step = self.current_step_number();
@@ -367,7 +371,7 @@ impl OnboardingScreen {
             Paragraph::new(t!("tui.entry.step_n_of_n", current = step, total = total).to_string())
                 .style(Style::default().fg(TEXT_MUTED))
                 .alignment(Alignment::Center);
-        frame.render_widget(step_text, rows[13]);
+        frame.render_widget(step_text, rows[12]);
     }
 
     pub(crate) fn view_recovery_input(
@@ -375,32 +379,37 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 16, 60);
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let hdr = header_rows(wide);
+        let content_area = Self::centered_content(area, hdr + 16, 60);
 
         let rows = Layout::vertical([
-            Constraint::Length(1),  // title
-            Constraint::Length(1),  // gap
-            Constraint::Length(10), // grid
-            Constraint::Length(1),  // gap
-            Constraint::Length(1),  // hint
-            Constraint::Length(1),  // step indicator
+            Constraint::Length(hdr),  // logo or brand
+            Constraint::Length(1),    // title
+            Constraint::Length(1),    // gap
+            Constraint::Length(10),   // grid
+            Constraint::Length(1),    // gap
+            Constraint::Length(1),    // hint
+            Constraint::Length(1),    // step indicator
         ])
         .split(content_area);
+
+        render_header(frame, rows[0], wide);
 
         // Title
         let title = Paragraph::new(t!("tui.entry.enter_recovery_title"))
             .style(Styles::brand_text())
             .alignment(Alignment::Center);
-        frame.render_widget(title, rows[0]);
+        frame.render_widget(title, rows[1]);
 
         // Grid
-        self.recovery_grid.view(frame, rows[2]);
+        self.recovery_grid.view(frame, rows[3]);
 
         // Hint
         let hint = Paragraph::new(t!("tui.entry.recovery_input_hint"))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[4]);
+        frame.render_widget(hint, rows[5]);
 
         // Step indicator
         let step = self.current_step_number();
@@ -409,7 +418,7 @@ impl OnboardingScreen {
             Paragraph::new(t!("tui.entry.step_n_of_n", current = step, total = total).to_string())
                 .style(Style::default().fg(TEXT_MUTED))
                 .alignment(Alignment::Center);
-        frame.render_widget(step_text, rows[5]);
+        frame.render_widget(step_text, rows[6]);
     }
 
     pub(crate) fn view_security_advisory(
@@ -417,17 +426,22 @@ impl OnboardingScreen {
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
     ) {
-        let content_area = Self::centered_content(area, 10, 60);
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let hdr = header_rows(wide);
+        let content_area = Self::centered_content(area, hdr + 10, 60);
 
         let rows = Layout::vertical([
-            Constraint::Length(1), // title
-            Constraint::Length(1), // gap
-            Constraint::Length(3), // notice
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // hint
-            Constraint::Length(1), // step indicator
+            Constraint::Length(hdr),  // logo or brand
+            Constraint::Length(1),    // title
+            Constraint::Length(1),    // gap
+            Constraint::Length(3),    // notice
+            Constraint::Length(1),    // gap
+            Constraint::Length(1),    // hint
+            Constraint::Length(1),    // step indicator
         ])
         .split(content_area);
+
+        render_header(frame, rows[0], wide);
 
         // Title
         let title = Paragraph::new(format!(
@@ -437,19 +451,19 @@ impl OnboardingScreen {
         ))
         .style(Style::default().fg(WARNING).add_modifier(Modifier::BOLD))
         .alignment(Alignment::Center);
-        frame.render_widget(title, rows[0]);
+        frame.render_widget(title, rows[1]);
 
         // Notice
         let notice = Paragraph::new(t!("tui.entry.security_notice_body"))
             .style(Style::default().fg(TEXT))
             .wrap(Wrap { trim: true });
-        frame.render_widget(notice, rows[2]);
+        frame.render_widget(notice, rows[3]);
 
         // Hint
         let hint = Paragraph::new(t!("tui.entry.security_notice_hint"))
             .style(Style::default().fg(TEXT_MUTED))
             .alignment(Alignment::Center);
-        frame.render_widget(hint, rows[4]);
+        frame.render_widget(hint, rows[5]);
 
         // Step indicator
         let step = self.current_step_number();
@@ -458,6 +472,6 @@ impl OnboardingScreen {
             Paragraph::new(t!("tui.entry.step_n_of_n", current = step, total = total).to_string())
                 .style(Style::default().fg(TEXT_MUTED))
                 .alignment(Alignment::Center);
-        frame.render_widget(step_text, rows[5]);
+        frame.render_widget(step_text, rows[6]);
     }
 }

@@ -3,7 +3,9 @@ source: tests/snapshot_tests/screens/onboarding_test.rs
 expression: backend
 ---
 "                                                                                "
-"                                                                                "
+"                  ░█▀█░█▀█░█▀▀░█▀█░█░█░█▀▀░█░█░█▀▄░▀█▀░█▀█░█▀▀                  "
+"                  ░█░█░█▀▀░█▀▀░█░█░█▀▄░█▀▀░░█░░█▀▄░░█░░█░█░█░█                  "
+"                  ░▀▀▀░▀░░░▀▀▀░▀░▀░▀░▀░▀▀▀░░▀░░▀░▀░▀▀▀░▀░▀░▀▀▀                  "
 "                                                                                "
 "          Step 3/6 · Import Preview                                             "
 "                                                                                "
@@ -16,8 +18,6 @@ expression: backend
 "           ☑ Import problematic entries as notes (instead of skipping)          "
 "                                                                                "
 "          Tab: toggle focus | Space/Enter: toggle checkbox | Enter: st          "
-"                                                                                "
-"                                                                                "
 "                                                                                "
 "                                                                                "
 "                                                                                "
