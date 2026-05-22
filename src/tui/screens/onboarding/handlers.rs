@@ -36,6 +36,9 @@ impl OnboardingScreen {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.handle_mouse_click(event.column, event.row)
             }
+            MouseEventKind::Moved => {
+                self.handle_mouse_hover(event.column, event.row)
+            }
             _ => ScreenResult::Continue,
         }
     }
@@ -61,6 +64,21 @@ impl OnboardingScreen {
                 }
             }
             _ => {}
+        }
+        ScreenResult::Continue
+    }
+
+    fn handle_mouse_hover(&mut self, col: u16, row: u16) -> ScreenResult {
+        if matches!(self.current_step, OnboardingStep::Welcome) {
+            for i in 0..self.welcome_card_areas.len() {
+                let area = self.welcome_card_areas[i].get();
+                if contains(area, col, row) {
+                    if self.welcome_selected != i {
+                        self.welcome_selected = i;
+                    }
+                    return ScreenResult::Continue;
+                }
+            }
         }
         ScreenResult::Continue
     }

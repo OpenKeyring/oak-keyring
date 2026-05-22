@@ -70,6 +70,15 @@ fn click(column: u16, row: u16) -> MouseEvent {
     }
 }
 
+fn mouse_move(column: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind: MouseEventKind::Moved,
+        column,
+        row,
+        modifiers: crossterm::event::KeyModifiers::NONE,
+    }
+}
+
 #[test]
 fn onboarding_welcome_defaults() {
     let screen = OnboardingScreen::default();
@@ -170,6 +179,34 @@ fn onboarding_welcome_mouse_click_selects_restore() {
     ));
     assert_eq!(screen.welcome_selected, 1);
     assert_eq!(screen.selected_path, Some(OnboardingPath::Restore));
+}
+
+#[test]
+fn onboarding_welcome_mouse_hover_updates_focus() {
+    let mut screen = OnboardingScreen::default();
+    let _ = render_onboarding(&screen, 80, 24);
+    assert_eq!(screen.welcome_selected, 0);
+
+    let import_area = screen.welcome_card_areas[2].get();
+    let result = screen.handle_mouse(mouse_move(import_area.x + 1, import_area.y + 1));
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.welcome_selected, 2);
+    // Hover should NOT select a path
+    assert!(screen.selected_path.is_none());
+}
+
+#[test]
+fn onboarding_welcome_mouse_hover_noop_outside_cards() {
+    let mut screen = OnboardingScreen::default();
+    let _ = render_onboarding(&screen, 80, 24);
+    assert_eq!(screen.welcome_selected, 0);
+
+    // Move mouse to top-left corner, outside any card
+    let result = screen.handle_mouse(mouse_move(0, 0));
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.welcome_selected, 0);
 }
 
 #[test]
