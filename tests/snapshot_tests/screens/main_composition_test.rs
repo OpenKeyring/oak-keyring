@@ -27,8 +27,9 @@ use oak_keyring::types::Tag;
 
 use crate::support::snapshot_locale;
 
+/// Fixed timestamp in 2024 — always renders as a date string (stable across runs).
 fn fixed_past_ts() -> chrono::DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 5, 20, 12, 0, 0).unwrap()
+    Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap()
 }
 
 fn make_record(id: Uuid, name: &str, subtitle: &str) -> TuiRecord {
