@@ -192,10 +192,21 @@ pub(super) fn build_record_item<'a>(
         None
     };
     let badge_str = badge.as_ref().map(|s| s.content.as_ref()).unwrap_or("");
-    let right_part = format!("{}{}", timestamp, if is_selected { indicator } else { "" });
 
-    // Calculate total name content length for padding
+    // Determine right-side content: omit timestamp when space is too narrow
+    // to display it fully, avoiding mid-word truncation like "ye" from "yesterday".
+    let indicator_str = if is_selected { indicator } else { "" };
     let name_len = prefix_str.chars().count() + record.name.chars().count();
+    let right_min_width = timestamp.chars().count() + indicator_str.chars().count();
+    let available_after_name = (area_width as usize)
+        .saturating_sub(name_len)
+        .saturating_sub(badge_str.chars().count());
+
+    let right_part = if available_after_name >= right_min_width {
+        format!("{timestamp}{indicator_str}")
+    } else {
+        indicator_str.to_string()
+    };
 
     let padding_len = (area_width as usize)
         .saturating_sub(name_len)
