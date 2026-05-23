@@ -11,7 +11,7 @@ use crate::tui::theme::{
 };
 
 use super::screen::OnboardingScreen;
-use super::views_setup::{render_header, header_rows};
+use super::views_setup::{header_rows, render_header};
 
 impl OnboardingScreen {
     pub(crate) fn view_import_source(
@@ -28,8 +28,8 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, hdr + 20, 60);
 
         let rows = Layout::vertical([
-            Constraint::Length(hdr),     // logo or brand
-            Constraint::Min(0),          // content
+            Constraint::Length(hdr), // logo or brand
+            Constraint::Min(0),      // content
         ])
         .split(content_area);
 
@@ -188,8 +188,8 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, hdr + 18, 60);
 
         let rows = Layout::vertical([
-            Constraint::Length(hdr),     // logo or brand
-            Constraint::Min(0),          // content
+            Constraint::Length(hdr), // logo or brand
+            Constraint::Min(0),      // content
         ])
         .split(content_area);
 

@@ -11,7 +11,7 @@ pub mod tests;
 mod types;
 mod views_import;
 mod views_recovery;
-mod views_setup;
+pub(crate) mod views_setup;
 
 pub use screen::OnboardingScreen;
 pub use types::*;

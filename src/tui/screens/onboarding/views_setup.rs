@@ -14,22 +14,16 @@ use super::screen::OnboardingScreen;
 
 /// Render the logo (wide) or brand text + separator (narrow) into the given area.
 /// Returns the number of rows consumed: `LOGO_HEIGHT + 1` for wide, `2` for narrow.
-pub(super) fn render_header(frame: &mut ratatui::Frame, area: ratatui::layout::Rect, wide: bool) {
+pub(crate) fn render_header(frame: &mut ratatui::Frame, area: ratatui::layout::Rect, wide: bool) {
     if wide {
-        let chunks = Layout::vertical([
-            Constraint::Length(logo::LOGO_HEIGHT),
-            Constraint::Length(1),
-        ])
-        .split(area);
+        let chunks =
+            Layout::vertical([Constraint::Length(logo::LOGO_HEIGHT), Constraint::Length(1)])
+                .split(area);
 
         let logo_widget = Paragraph::new(logo::ascii_logo_lines()).alignment(Alignment::Center);
         frame.render_widget(logo_widget, chunks[0]);
     } else {
-        let chunks = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .split(area);
+        let chunks = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(area);
 
         let brand = Paragraph::new(Line::from(vec![
             Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
@@ -51,7 +45,7 @@ pub(super) fn render_header(frame: &mut ratatui::Frame, area: ratatui::layout::R
 }
 
 /// Header rows: wide = LOGO_HEIGHT + 1 gap, narrow = 1 brand + 1 separator.
-pub(super) const fn header_rows(wide: bool) -> u16 {
+pub(crate) const fn header_rows(wide: bool) -> u16 {
     if wide {
         logo::LOGO_HEIGHT + 1
     } else {
@@ -89,18 +83,18 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, hdr + 18, 60);
 
         let rows = Layout::vertical(vec![
-            Constraint::Length(hdr),           // logo or brand
-            Constraint::Length(1),             // subtitle
-            Constraint::Length(1),             // gap
-            Constraint::Length(3),             // card 0 — CreateNew
-            Constraint::Length(1),             // gap
-            Constraint::Length(3),             // card 1 — Restore
-            Constraint::Length(1),             // gap
-            Constraint::Length(3),             // card 2 — Import
-            Constraint::Length(2),             // gap
-            Constraint::Length(1),             // language hint
-            Constraint::Length(1),             // hint
-            Constraint::Length(1),             // step indicator
+            Constraint::Length(hdr), // logo or brand
+            Constraint::Length(1),   // subtitle
+            Constraint::Length(1),   // gap
+            Constraint::Length(3),   // card 0 — CreateNew
+            Constraint::Length(1),   // gap
+            Constraint::Length(3),   // card 1 — Restore
+            Constraint::Length(1),   // gap
+            Constraint::Length(3),   // card 2 — Import
+            Constraint::Length(2),   // gap
+            Constraint::Length(1),   // language hint
+            Constraint::Length(1),   // hint
+            Constraint::Length(1),   // step indicator
         ])
         .split(content_area);
 
@@ -149,11 +143,8 @@ impl OnboardingScreen {
             let inner = card_block.inner(card_row);
             frame.render_widget(card_block, card_row);
 
-            let card_lines = Layout::vertical([
-                Constraint::Length(1),
-                Constraint::Length(1),
-            ])
-            .split(inner);
+            let card_lines =
+                Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(inner);
 
             let title_line = Paragraph::new(Line::from(vec![
                 Span::styled(format!(" {} ", icon), Style::default().fg(BRAND)),
@@ -207,13 +198,13 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, hdr + 7, 60);
 
         let rows = Layout::vertical([
-            Constraint::Length(hdr),    // logo or brand
-            Constraint::Length(1),      // title
-            Constraint::Length(1),      // gap
-            Constraint::Length(1),      // instruction
-            Constraint::Length(1),      // gap
-            Constraint::Length(1),      // hint
-            Constraint::Length(1),      // step indicator
+            Constraint::Length(hdr), // logo or brand
+            Constraint::Length(1),   // title
+            Constraint::Length(1),   // gap
+            Constraint::Length(1),   // instruction
+            Constraint::Length(1),   // gap
+            Constraint::Length(1),   // hint
+            Constraint::Length(1),   // step indicator
         ])
         .split(content_area);
 

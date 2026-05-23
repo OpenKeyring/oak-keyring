@@ -12,7 +12,7 @@ use crate::tui::theme::{
 
 use super::screen::OnboardingScreen;
 use super::types::RecoveryFocus;
-use super::views_setup::{render_header, header_rows};
+use super::views_setup::{header_rows, render_header};
 
 impl OnboardingScreen {
     pub(crate) fn view_recovery_display(
@@ -26,13 +26,13 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, hdr + 19 + learn_extra, 72);
 
         let mut constraints = vec![
-            Constraint::Length(hdr),     // 0: logo or brand
-            Constraint::Length(1),       // 1: title
-            Constraint::Length(1),       // 2: instruction
-            Constraint::Length(10),      // 3: word grid (was 12)
-            Constraint::Length(1),       // 4: buttons row
-            Constraint::Length(1),       // 5: clipboard warning
-            Constraint::Length(1),       // 6: learn more toggle
+            Constraint::Length(hdr), // 0: logo or brand
+            Constraint::Length(1),   // 1: title
+            Constraint::Length(1),   // 2: instruction
+            Constraint::Length(10),  // 3: word grid (was 12)
+            Constraint::Length(1),   // 4: buttons row
+            Constraint::Length(1),   // 5: clipboard warning
+            Constraint::Length(1),   // 6: learn more toggle
         ];
         if self.learn_more_expanded {
             constraints.push(Constraint::Length(1)); // 7: learn more l1
@@ -40,10 +40,10 @@ impl OnboardingScreen {
             constraints.push(Constraint::Length(1)); // 9: learn more l3
         }
         let offset = if self.learn_more_expanded { 3 } else { 0 };
-        constraints.push(Constraint::Length(1));    // checkbox
-        constraints.push(Constraint::Length(1));    // next step / instruction
-        constraints.push(Constraint::Length(1));    // hint
-        constraints.push(Constraint::Length(1));    // step indicator
+        constraints.push(Constraint::Length(1)); // checkbox
+        constraints.push(Constraint::Length(1)); // next step / instruction
+        constraints.push(Constraint::Length(1)); // hint
+        constraints.push(Constraint::Length(1)); // step indicator
         let rows = Layout::vertical(constraints).split(content_area);
 
         render_header(frame, rows[0], wide);
@@ -140,7 +140,10 @@ impl OnboardingScreen {
             } else {
                 Style::default().fg(TEXT_SECONDARY)
             };
-            (t!("tui.entry.recovery_learn_more_expanded").to_string(), style)
+            (
+                t!("tui.entry.recovery_learn_more_expanded").to_string(),
+                style,
+            )
         } else {
             let focused = self.recovery_focus == RecoveryFocus::LearnMoreToggle;
             let style = if focused {
@@ -148,7 +151,10 @@ impl OnboardingScreen {
             } else {
                 Style::default().fg(TEXT_MUTED)
             };
-            (t!("tui.entry.recovery_learn_more_collapsed").to_string(), style)
+            (
+                t!("tui.entry.recovery_learn_more_collapsed").to_string(),
+                style,
+            )
         };
         let toggle = Paragraph::new(toggle_text)
             .style(toggle_style)
@@ -284,7 +290,8 @@ impl OnboardingScreen {
         .split(grid_area);
 
         // Build rows without spacers
-        let row_constraints: [Constraint; 6] = std::array::from_fn(|_: usize| Constraint::Length(1));
+        let row_constraints: [Constraint; 6] =
+            std::array::from_fn(|_: usize| Constraint::Length(1));
         let rows = Layout::vertical(row_constraints).split(h_chunks[1]);
 
         for row in 0..6 {
@@ -332,19 +339,19 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, hdr + 20, 60);
 
         let rows = Layout::vertical([
-            Constraint::Length(hdr),  // logo or brand
-            Constraint::Length(1),    // title
-            Constraint::Length(1),    // instruction
-            Constraint::Length(1),    // label 0
-            Constraint::Length(3),    // input box 0
-            Constraint::Length(1),    // label 1
-            Constraint::Length(3),    // input box 1
-            Constraint::Length(1),    // label 2
-            Constraint::Length(3),    // input box 2
-            Constraint::Length(1),    // label 3
-            Constraint::Length(3),    // input box 3
-            Constraint::Length(1),    // hint
-            Constraint::Length(1),    // step indicator
+            Constraint::Length(hdr), // logo or brand
+            Constraint::Length(1),   // title
+            Constraint::Length(1),   // instruction
+            Constraint::Length(1),   // gap
+            Constraint::Length(3),   // word 0
+            Constraint::Length(1),   // gap
+            Constraint::Length(3),   // word 1
+            Constraint::Length(1),   // gap
+            Constraint::Length(3),   // word 2
+            Constraint::Length(1),   // gap
+            Constraint::Length(3),   // word 3
+            Constraint::Length(1),   // hint
+            Constraint::Length(1),   // step indicator
         ])
         .split(content_area);
 
@@ -368,10 +375,32 @@ impl OnboardingScreen {
             let is_focused = i == self.verify_focus_index;
             let has_error = self.verify_errors[i];
 
-            // Label
+            let item_area = rows[4 + i * 2];
+            let label_width = 12.min(item_area.width.saturating_sub(1));
+            let input_width = 20.min(item_area.width.saturating_sub(label_width + 1));
+            let gap_width = if item_area.width > label_width + input_width {
+                1
+            } else {
+                0
+            };
+            let fields = Layout::horizontal([
+                Constraint::Fill(1),
+                Constraint::Length(label_width),
+                Constraint::Length(gap_width),
+                Constraint::Length(input_width),
+                Constraint::Fill(1),
+            ])
+            .split(item_area);
+
             let label = Paragraph::new(t!("tui.entry.word_n_label", n = pos).to_string())
-                .style(Style::default().fg(TEXT_SECONDARY));
-            frame.render_widget(label, rows[3 + i * 2]);
+                .style(Style::default().fg(TEXT_SECONDARY))
+                .alignment(Alignment::Right);
+            let label_area = ratatui::layout::Rect {
+                y: item_area.y.saturating_add(1),
+                height: 1,
+                ..fields[1]
+            };
+            frame.render_widget(label, label_area);
 
             // Input box with border
             let border_color = if has_error {
@@ -401,7 +430,7 @@ impl OnboardingScreen {
                 .border_style(Style::default().fg(border_color))
                 .style(Style::default().bg(BG_SURFACE));
 
-            let box_area = rows[4 + i * 2];
+            let box_area = fields[3];
             let para = Paragraph::new(input_text).style(text_style);
             let inner = input_block.inner(box_area);
             frame.render_widget(input_block, box_area);
@@ -440,13 +469,13 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, hdr + 16, 60);
 
         let rows = Layout::vertical([
-            Constraint::Length(hdr),  // logo or brand
-            Constraint::Length(1),    // title
-            Constraint::Length(1),    // gap
-            Constraint::Length(10),   // grid
-            Constraint::Length(1),    // gap
-            Constraint::Length(1),    // hint
-            Constraint::Length(1),    // step indicator
+            Constraint::Length(hdr), // logo or brand
+            Constraint::Length(1),   // title
+            Constraint::Length(1),   // gap
+            Constraint::Length(10),  // grid
+            Constraint::Length(1),   // gap
+            Constraint::Length(1),   // hint
+            Constraint::Length(1),   // step indicator
         ])
         .split(content_area);
 
@@ -487,13 +516,13 @@ impl OnboardingScreen {
         let content_area = Self::centered_content(area, hdr + 10, 60);
 
         let rows = Layout::vertical([
-            Constraint::Length(hdr),  // logo or brand
-            Constraint::Length(1),    // title
-            Constraint::Length(1),    // gap
-            Constraint::Length(3),    // notice
-            Constraint::Length(1),    // gap
-            Constraint::Length(1),    // hint
-            Constraint::Length(1),    // step indicator
+            Constraint::Length(hdr), // logo or brand
+            Constraint::Length(1),   // title
+            Constraint::Length(1),   // gap
+            Constraint::Length(3),   // notice
+            Constraint::Length(1),   // gap
+            Constraint::Length(1),   // hint
+            Constraint::Length(1),   // step indicator
         ])
         .split(content_area);
 

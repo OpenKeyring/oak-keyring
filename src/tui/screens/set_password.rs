@@ -7,6 +7,8 @@ use crate::commands::types::Screen;
 use crate::commands::{Command, Message};
 use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel};
 use crate::t;
+use crate::tui::screens::onboarding::views_setup::{header_rows, render_header};
+use crate::tui::terminal::WidthTier;
 use crate::tui::theme::{
     self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING,
 };
@@ -143,10 +145,14 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         use ratatui::layout::{Alignment, Constraint, Layout};
         use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let header_height = Self::header_height(area, wide);
+        let content_height = 16 + header_height;
+
         // Vertical centering
         let outer = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(16),
+            Constraint::Length(content_height),
             Constraint::Fill(1),
         ])
         .split(area);
@@ -162,6 +168,18 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         .split(center_area);
 
         let content_area = h_layout[1];
+        let (header_area, form_area) = if header_height > 0 {
+            let sections =
+                Layout::vertical([Constraint::Length(header_height), Constraint::Length(16)])
+                    .split(content_area);
+            (Some(sections[0]), sections[1])
+        } else {
+            (None, content_area)
+        };
+
+        if let Some(header_area) = header_area {
+            render_header(frame, header_area, wide);
+        }
 
         // Title
         let title = Paragraph::new(t!("tui.entry.set_password_title"))
@@ -313,7 +331,7 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
             Constraint::Length(1), // gap
             Constraint::Length(1), // hint
         ])
-        .split(content_area);
+        .split(form_area);
 
         frame.render_widget(title, rows[0]);
 
@@ -362,6 +380,15 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
 // ── Key handling ─────────────────────────────────────────────────────────────
 
 impl SetPasswordScreen {
+    fn header_height(area: ratatui::layout::Rect, wide: bool) -> u16 {
+        let header_height = header_rows(wide);
+        if area.height >= 16 + header_height {
+            header_height
+        } else {
+            0
+        }
+    }
+
     fn cycle_focus_forward(&mut self) {
         self.focused = match self.focused {
             PasswordField::New => PasswordField::Confirm,
@@ -524,6 +551,7 @@ mod tests {
     use super::*;
     use crate::tui::traits::screen::Screen as ScreenTrait;
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
     use ratatui::Terminal;
 
     fn sensitive(s: &str) -> SensitiveInput {
@@ -539,6 +567,10 @@ mod tests {
     }
 
     fn render_set_password(screen: &SetPasswordScreen, width: u16, height: u16) {
+        let _ = render_set_password_buffer(screen, width, height);
+    }
+
+    fn render_set_password_buffer(screen: &SetPasswordScreen, width: u16, height: u16) -> Buffer {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
@@ -546,6 +578,7 @@ mod tests {
                 screen.view(frame, frame.area());
             })
             .unwrap();
+        terminal.backend().buffer().clone()
     }
 
     fn click(column: u16, row: u16) -> MouseEvent {
@@ -615,6 +648,26 @@ mod tests {
         screen.new_password.clear();
         screen.update_strength();
         assert!(screen.strength.is_none());
+    }
+
+    #[test]
+    fn onboarding_set_password_context_renders_logo_on_tall_terminal() {
+        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: recovery_words(),
+        });
+
+        let buffer = render_set_password_buffer(&screen, 80, 24);
+
+        assert!(format!("{buffer:?}").contains("░█▀█"));
+    }
+
+    #[test]
+    fn post_recovery_set_password_context_renders_logo_on_tall_terminal() {
+        let screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
+
+        let buffer = render_set_password_buffer(&screen, 80, 24);
+
+        assert!(format!("{buffer:?}").contains("░█▀█"));
     }
 
     #[test]

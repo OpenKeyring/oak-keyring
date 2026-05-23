@@ -828,6 +828,32 @@ fn onboarding_recovery_verify_empty_focused_input_sets_terminal_cursor() {
 }
 
 #[test]
+fn onboarding_recovery_verify_uses_left_labels_and_compact_inputs() {
+    let screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [2, 5, 12, 21],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [2, 5, 12, 21],
+        verify_focus_index: 0,
+        ..Default::default()
+    };
+
+    let buffer = render_onboarding_buffer(&screen, 80, 24);
+    let input_area = screen.verify_box_areas[0].get();
+    let input_row = input_area.y + 1;
+    let label_text = (0..input_area.x)
+        .filter_map(|x| buffer.cell((x, input_row)).map(|cell| cell.symbol()))
+        .collect::<String>();
+
+    assert!(input_area.width <= 24, "input area was {input_area:?}");
+    assert!(
+        label_text.contains('3') && !label_text.trim().is_empty(),
+        "left label row before input was {label_text:?}"
+    );
+}
+
+#[test]
 fn onboarding_recovery_verify_mouse_hover_focuses_input_box() {
     let mut screen = OnboardingScreen {
         current_step: OnboardingStep::RecoveryVerify {

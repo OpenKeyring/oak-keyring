@@ -58,6 +58,14 @@ fn set_password_empty_state() {
 }
 
 #[test]
+fn set_password_fullscreen_with_logo() {
+    let _locale = snapshot_locale();
+    let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingRestore);
+    let backend = render_screen(&screen, 80, 24);
+    insta::assert_snapshot!("set_password_fullscreen_with_logo", backend);
+}
+
+#[test]
 fn set_password_with_input_masked() {
     let _locale = snapshot_locale();
     let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
