@@ -34,7 +34,17 @@ fn start_transition_kind(
     crate::tui::animation::transitions::start_transition(&mut state.shared.animation, kind);
 }
 
-fn start_initial_transition(state: &mut crate::tui::state::AppState) {
+fn start_initial_transition(
+    state: &mut crate::tui::state::AppState,
+    config: &crate::config::AppConfig,
+) {
+    if matches!(
+        config.general.animation,
+        crate::config::general::AnimationMode::Off
+    ) {
+        return;
+    }
+
     if matches!(state.current_screen, Screen::Onboarding) {
         if let Some(kind) = state.screens.onboarding.take_intro_motion() {
             start_transition_kind(state, kind);
@@ -45,7 +55,11 @@ fn start_initial_transition(state: &mut crate::tui::state::AppState) {
 fn take_pending_onboarding_motion(
     state: &mut crate::tui::state::AppState,
 ) -> Option<crate::tui::state::animation::EffectKind> {
-    state.screens.onboarding.take_pending_motion()
+    if matches!(state.current_screen, Screen::Onboarding) {
+        state.screens.onboarding.take_pending_motion()
+    } else {
+        None
+    }
 }
 
 fn onboarding_navigation_fallback_transition(
@@ -102,6 +116,24 @@ fn prepare_set_password_context_for_navigation(
             ));
         false
     }
+}
+
+fn handle_screen_result_navigation(app: &mut App, screen: Screen) {
+    if !prepare_set_password_context_for_navigation(&mut app.state, screen) {
+        return;
+    }
+
+    let fallback_transition = onboarding_navigation_fallback_transition(&app.state, screen);
+    let transition = take_pending_onboarding_motion(&mut app.state).unwrap_or(fallback_transition);
+
+    route_on_unmount_from_state(&mut app.state);
+    app.state.navigate_to(screen);
+    let mut ctx = ScreenContext {
+        command_tx: &app.command_tx,
+        config: &app.config,
+    };
+    route_on_mount_from_state(&mut app.state, &mut ctx);
+    start_transition_kind(&mut app.state, transition);
 }
 
 fn build_set_password_context_before_unmount(
@@ -204,7 +236,7 @@ pub fn run(
     // Spawn signal handler.
     let _signal_handler = SignalHandler::spawn(app.result_tx.clone());
 
-    start_initial_transition(&mut app.state);
+    start_initial_transition(&mut app.state, &app.config);
 
     // Initial render.
     terminal.draw(|f| view::render(f, app))?;
@@ -474,21 +506,7 @@ fn handle_message(
                     start_pending_onboarding_motion(&mut app.state);
                 }
                 ScreenResult::NavigateTo(screen) => {
-                    let fallback_transition =
-                        onboarding_navigation_fallback_transition(&app.state, screen);
-                    let transition = take_pending_onboarding_motion(&mut app.state)
-                        .unwrap_or(fallback_transition);
-                    if !prepare_set_password_context_for_navigation(&mut app.state, screen) {
-                        return Ok(LoopControl::Continue);
-                    }
-                    route_on_unmount_from_state(&mut app.state);
-                    app.state.navigate_to(screen);
-                    let mut ctx = ScreenContext {
-                        command_tx: &app.command_tx,
-                        config: &app.config,
-                    };
-                    route_on_mount_from_state(&mut app.state, &mut ctx);
-                    start_transition_kind(&mut app.state, transition);
+                    handle_screen_result_navigation(app, screen);
                 }
                 ScreenResult::PopScreen => {
                     route_on_unmount_from_state(&mut app.state);
@@ -533,21 +551,7 @@ fn handle_message(
                     start_pending_onboarding_motion(&mut app.state);
                 }
                 ScreenResult::NavigateTo(screen) => {
-                    let fallback_transition =
-                        onboarding_navigation_fallback_transition(&app.state, screen);
-                    let transition = take_pending_onboarding_motion(&mut app.state)
-                        .unwrap_or(fallback_transition);
-                    if !prepare_set_password_context_for_navigation(&mut app.state, screen) {
-                        return Ok(LoopControl::Continue);
-                    }
-                    route_on_unmount_from_state(&mut app.state);
-                    app.state.navigate_to(screen);
-                    let mut ctx = ScreenContext {
-                        command_tx: &app.command_tx,
-                        config: &app.config,
-                    };
-                    route_on_mount_from_state(&mut app.state, &mut ctx);
-                    start_transition_kind(&mut app.state, transition);
+                    handle_screen_result_navigation(app, screen);
                 }
                 ScreenResult::PopScreen => {
                     route_on_unmount_from_state(&mut app.state);
@@ -841,7 +845,7 @@ mod tests {
     fn initial_onboarding_screen_starts_intro_once() {
         let mut app = onboarding_app();
 
-        start_initial_transition(&mut app.state);
+        start_initial_transition(&mut app.state, &app.config);
 
         assert!(app
             .state
@@ -850,7 +854,7 @@ mod tests {
             .has_active_kind(crate::tui::state::animation::EffectKind::OnboardingIntro));
 
         app.state.shared.animation.clear();
-        start_initial_transition(&mut app.state);
+        start_initial_transition(&mut app.state, &app.config);
         assert!(!app.state.shared.animation.is_active());
     }
 
@@ -926,6 +930,66 @@ mod tests {
             .shared
             .animation
             .has_active_kind(crate::tui::state::animation::EffectKind::OnboardingForward));
+    }
+
+    #[test]
+    fn failed_onboarding_set_password_prepare_preserves_pending_motion() {
+        let mut app = onboarding_app();
+        app.state.screens.onboarding.selected_path =
+            Some(crate::tui::screens::onboarding::OnboardingPath::CreateNew);
+        app.state.screens.onboarding.current_step =
+            crate::tui::screens::onboarding::OnboardingStep::SetPassword;
+        app.state.screens.onboarding.pending_motion =
+            Some(crate::tui::state::animation::EffectKind::OnboardingForward);
+
+        let result = handle_message(&mut app, Message::KeyEvent(key(KeyCode::Enter)))
+            .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Onboarding);
+        assert!(!app.state.shared.animation.is_active());
+        assert_eq!(
+            app.state.screens.onboarding.pending_motion,
+            Some(crate::tui::state::animation::EffectKind::OnboardingForward)
+        );
+    }
+
+    #[test]
+    fn non_onboarding_navigation_ignores_stale_onboarding_pending_motion() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::Main;
+        app.state.shared.focus.focused_panel = PanelId::Sidebar;
+        app.state.screens.onboarding.pending_motion =
+            Some(crate::tui::state::animation::EffectKind::OnboardingForward);
+
+        let result = handle_message(&mut app, Message::KeyEvent(key(KeyCode::Char('g'))))
+            .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Config);
+        assert!(app
+            .state
+            .shared
+            .animation
+            .has_active_kind(crate::tui::state::animation::EffectKind::ScreenIn));
+        assert_eq!(
+            app.state.screens.onboarding.pending_motion,
+            Some(crate::tui::state::animation::EffectKind::OnboardingForward)
+        );
+    }
+
+    #[test]
+    fn initial_onboarding_intro_respects_animation_off() {
+        let mut app = onboarding_app();
+        app.config.general.animation = crate::config::general::AnimationMode::Off;
+
+        start_initial_transition(&mut app.state, &app.config);
+
+        assert!(!app.state.shared.animation.is_active());
+        assert_eq!(
+            app.state.screens.onboarding.take_intro_motion(),
+            Some(crate::tui::state::animation::EffectKind::OnboardingIntro)
+        );
     }
 
     #[test]
