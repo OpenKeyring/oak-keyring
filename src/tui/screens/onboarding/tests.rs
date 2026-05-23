@@ -8,8 +8,9 @@ use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
 use crate::types::RecoveryWords;
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
-use ratatui::backend::TestBackend;
+use ratatui::backend::{Backend, TestBackend};
 use ratatui::buffer::Buffer;
+use ratatui::layout::Position;
 use ratatui::Terminal;
 
 fn recovery_words_fixture() -> RecoveryWords {
@@ -61,6 +62,21 @@ fn render_onboarding_buffer(screen: &OnboardingScreen, width: u16, height: u16) 
     terminal.backend().buffer().clone()
 }
 
+fn render_onboarding_cursor_position(
+    screen: &OnboardingScreen,
+    width: u16,
+    height: u16,
+) -> Position {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            screen.view(frame, frame.area());
+        })
+        .unwrap();
+    terminal.backend_mut().get_cursor_position().unwrap()
+}
+
 fn click(column: u16, row: u16) -> MouseEvent {
     MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
@@ -91,6 +107,73 @@ fn onboarding_welcome_defaults() {
     assert!(screen.recovery_words.is_none());
     assert!(screen.verify_inputs.iter().all(|s| s.is_empty()));
     assert!(screen.verify_errors.iter().all(|&e| !e));
+}
+
+#[test]
+fn onboarding_intro_motion_is_one_shot() {
+    let mut screen = OnboardingScreen::default();
+
+    assert_eq!(
+        screen.take_intro_motion(),
+        Some(crate::tui::state::animation::EffectKind::OnboardingIntro)
+    );
+    assert_eq!(screen.take_intro_motion(), None);
+}
+
+#[test]
+fn onboarding_welcome_enter_selects_create_and_requests_forward_motion() {
+    let mut screen = OnboardingScreen::default();
+
+    let result = screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.selected_path, Some(OnboardingPath::CreateNew));
+    assert_eq!(screen.current_step, OnboardingStep::RecoveryDisplay);
+    assert_eq!(
+        screen.take_pending_motion(),
+        Some(crate::tui::state::animation::EffectKind::OnboardingForward)
+    );
+}
+
+#[test]
+fn onboarding_recovery_display_esc_requests_back_motion() {
+    let mut screen = OnboardingScreen {
+        selected_path: Some(OnboardingPath::CreateNew),
+        current_step: OnboardingStep::RecoveryDisplay,
+        recovery_words: Some(recovery_words_fixture()),
+        ..Default::default()
+    };
+
+    let result = screen.handle_recovery_display_key(
+        KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.current_step, OnboardingStep::Welcome);
+    assert_eq!(
+        screen.take_pending_motion(),
+        Some(crate::tui::state::animation::EffectKind::OnboardingBack)
+    );
+}
+
+#[test]
+fn onboarding_recovery_key_unlocked_on_current_step_does_not_request_motion() {
+    let mut screen = OnboardingScreen {
+        selected_path: Some(OnboardingPath::Restore),
+        current_step: OnboardingStep::SecurityAdvisory,
+        pending_motion: None,
+        ..Default::default()
+    };
+
+    let result = screen.handle_command_result(CommandResult::RecoveryKeyUnlocked);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.current_step, OnboardingStep::SecurityAdvisory);
+    assert_eq!(screen.take_pending_motion(), None);
 }
 
 #[test]
@@ -171,7 +254,10 @@ fn onboarding_welcome_mouse_click_selects_restore() {
     let _ = render_onboarding(&screen, 80, 24);
     let restore_area = screen.welcome_card_areas[1].get();
 
-    let result = screen.handle_mouse(click(restore_area.x + 1, restore_area.y + 1));
+    let result = screen.handle_mouse(
+        click(restore_area.x + 1, restore_area.y + 1),
+        &mut dummy_ctx(),
+    );
 
     assert!(matches!(
         result,
@@ -188,7 +274,10 @@ fn onboarding_welcome_mouse_hover_updates_focus() {
     assert_eq!(screen.welcome_selected, 0);
 
     let import_area = screen.welcome_card_areas[2].get();
-    let result = screen.handle_mouse(mouse_move(import_area.x + 1, import_area.y + 1));
+    let result = screen.handle_mouse(
+        mouse_move(import_area.x + 1, import_area.y + 1),
+        &mut dummy_ctx(),
+    );
 
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.welcome_selected, 2);
@@ -203,7 +292,7 @@ fn onboarding_welcome_mouse_hover_noop_outside_cards() {
     assert_eq!(screen.welcome_selected, 0);
 
     // Move mouse to top-left corner, outside any card
-    let result = screen.handle_mouse(mouse_move(0, 0));
+    let result = screen.handle_mouse(mouse_move(0, 0), &mut dummy_ctx());
 
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.welcome_selected, 0);
@@ -454,6 +543,12 @@ fn onboarding_recovery_display_tab_cycles_focus() {
         KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
         &mut dummy_ctx(),
     );
+    assert_eq!(screen.recovery_focus, RecoveryFocus::LearnMoreToggle);
+
+    screen.handle_recovery_display_key(
+        KeyEvent::new(KeyCode::Tab, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
     assert_eq!(screen.recovery_focus, RecoveryFocus::ConfirmCheckbox);
 
     screen.handle_recovery_display_key(
@@ -478,6 +573,12 @@ fn onboarding_recovery_display_backtab_cycles_focus_reverse() {
         &mut dummy_ctx(),
     );
     assert_eq!(screen.recovery_focus, RecoveryFocus::ConfirmCheckbox);
+
+    screen.handle_recovery_display_key(
+        KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
+    assert_eq!(screen.recovery_focus, RecoveryFocus::LearnMoreToggle);
 
     screen.handle_recovery_display_key(
         KeyEvent::new(KeyCode::BackTab, crossterm::event::KeyModifiers::NONE),
@@ -701,7 +802,7 @@ fn onboarding_recovery_verify_backtab_is_ignored() {
 }
 
 #[test]
-fn onboarding_recovery_verify_empty_focused_input_renders_cursor() {
+fn onboarding_recovery_verify_empty_focused_input_does_not_render_text_cursor() {
     let screen = OnboardingScreen {
         current_step: OnboardingStep::RecoveryVerify {
             positions: [2, 5, 12, 21],
@@ -718,10 +819,148 @@ fn onboarding_recovery_verify_empty_focused_input_renders_cursor() {
     assert_eq!(
         buffer
             .cell((input_area.x + 1, input_area.y + 1))
-            .expect("focused input cursor cell")
+            .expect("focused input text cell")
             .symbol(),
-        "_"
+        " "
     );
+}
+
+#[test]
+fn onboarding_recovery_verify_focused_text_input_does_not_append_text_cursor() {
+    let screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [2, 5, 12, 21],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [2, 5, 12, 21],
+        verify_focus_index: 1,
+        verify_inputs: [
+            SensitiveInput::new(),
+            SensitiveInput::from("ab".to_string()),
+            SensitiveInput::new(),
+            SensitiveInput::new(),
+        ],
+        ..Default::default()
+    };
+
+    let buffer = render_onboarding_buffer(&screen, 80, 24);
+    let input_area = screen.verify_box_areas[1].get();
+
+    assert_eq!(
+        buffer
+            .cell((input_area.x + 1, input_area.y + 1))
+            .expect("first typed cell")
+            .symbol(),
+        "a"
+    );
+    assert_eq!(
+        buffer
+            .cell((input_area.x + 2, input_area.y + 1))
+            .expect("second typed cell")
+            .symbol(),
+        "b"
+    );
+    assert_eq!(
+        buffer
+            .cell((input_area.x + 3, input_area.y + 1))
+            .expect("cell after typed input")
+            .symbol(),
+        " "
+    );
+}
+
+#[test]
+fn onboarding_recovery_verify_empty_focused_input_sets_terminal_cursor() {
+    let screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [2, 5, 12, 21],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [2, 5, 12, 21],
+        verify_focus_index: 2,
+        ..Default::default()
+    };
+
+    let _ = render_onboarding_buffer(&screen, 80, 24);
+    let input_area = screen.verify_box_areas[2].get();
+    let cursor = render_onboarding_cursor_position(&screen, 80, 24);
+
+    assert_eq!(
+        cursor,
+        Position {
+            x: input_area.x + 1,
+            y: input_area.y + 1,
+        }
+    );
+}
+
+#[test]
+fn onboarding_recovery_verify_uses_left_labels_and_compact_inputs() {
+    let screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [2, 5, 12, 21],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [2, 5, 12, 21],
+        verify_focus_index: 0,
+        ..Default::default()
+    };
+
+    let buffer = render_onboarding_buffer(&screen, 80, 24);
+    let input_area = screen.verify_box_areas[0].get();
+    let input_row = input_area.y + 1;
+    let label_text = (0..input_area.x)
+        .filter_map(|x| buffer.cell((x, input_row)).map(|cell| cell.symbol()))
+        .collect::<String>();
+
+    assert!(input_area.width <= 24, "input area was {input_area:?}");
+    assert!(
+        label_text.contains('3') && !label_text.trim().is_empty(),
+        "left label row before input was {label_text:?}"
+    );
+}
+
+#[test]
+fn onboarding_recovery_verify_mouse_hover_focuses_input_box() {
+    let mut screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [0, 5, 10, 15],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [0, 5, 10, 15],
+        verify_focus_index: 0,
+        ..Default::default()
+    };
+    let _ = render_onboarding(&screen, 80, 24);
+    let third_box = screen.verify_box_areas[2].get();
+
+    let result = screen.handle_mouse(
+        mouse_move(third_box.x + 1, third_box.y + 1),
+        &mut dummy_ctx(),
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.verify_focus_index, 2);
+}
+
+#[test]
+fn onboarding_recovery_verify_mouse_click_focuses_input_box() {
+    let mut screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [0, 5, 10, 15],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [0, 5, 10, 15],
+        verify_focus_index: 0,
+        ..Default::default()
+    };
+    let _ = render_onboarding(&screen, 80, 24);
+    let fourth_box = screen.verify_box_areas[3].get();
+
+    let result = screen.handle_mouse(click(fourth_box.x + 1, fourth_box.y + 1), &mut dummy_ctx());
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.verify_focus_index, 3);
 }
 
 #[test]

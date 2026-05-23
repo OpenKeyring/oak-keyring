@@ -6,6 +6,7 @@ use crate::commands::Message;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::t;
 use crate::tui::screens::recovery_key::WordGridState;
+use crate::tui::state::animation::EffectKind;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
 use crate::types::RecoveryWords;
@@ -18,6 +19,10 @@ use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
 #[derive(Debug)]
 pub struct OnboardingScreen {
     pub current_step: OnboardingStep,
+    /// Pending onboarding motion intent emitted by accepted step changes.
+    pub pending_motion: Option<EffectKind>,
+    /// Whether the one-shot Cyber intro has already been emitted this process.
+    pub intro_motion_played: bool,
     pub selected_path: Option<OnboardingPath>,
     pub error: Option<String>,
     pub recovery_confirmed: bool,
@@ -59,6 +64,11 @@ pub struct OnboardingScreen {
     pub clipboard_copied: bool,
     /// Clipboard clear timeout in seconds (captured from config when copying).
     pub clipboard_clear_seconds: u64,
+    /// Whether the "Learn more" section is expanded.
+    pub learn_more_expanded: bool,
+    /// Rendered areas of the 5 RecoveryDisplay interactive elements (for mouse hit-testing).
+    /// [0] Copy button, [1] Regenerate button, [2] Learn more toggle, [3] Checkbox, [4] Next step button.
+    pub recovery_action_areas: [std::cell::Cell<ratatui::layout::Rect>; 5],
     /// Rendered areas of the 4 verify input boxes (for mouse hit-testing).
     /// Uses `Cell` for interior mutability since `view()` takes `&self`.
     pub verify_box_areas: [std::cell::Cell<ratatui::layout::Rect>; 4],
@@ -71,6 +81,8 @@ impl Default for OnboardingScreen {
         use crate::tui::screens::import_export::ImportFocus;
         Self {
             current_step: OnboardingStep::default(),
+            pending_motion: None,
+            intro_motion_played: false,
             selected_path: None,
             error: None,
             recovery_confirmed: false,
@@ -95,6 +107,10 @@ impl Default for OnboardingScreen {
             recovery_focus: RecoveryFocus::default(),
             clipboard_copied: false,
             clipboard_clear_seconds: 30,
+            learn_more_expanded: false,
+            recovery_action_areas: std::array::from_fn(|_| {
+                std::cell::Cell::new(ratatui::layout::Rect::default())
+            }),
             verify_box_areas: std::array::from_fn(|_| {
                 std::cell::Cell::new(ratatui::layout::Rect::default())
             }),
@@ -106,6 +122,36 @@ impl Default for OnboardingScreen {
 }
 
 impl OnboardingScreen {
+    pub(crate) fn take_pending_motion(&mut self) -> Option<EffectKind> {
+        self.pending_motion.take()
+    }
+
+    pub(crate) fn take_intro_motion(&mut self) -> Option<EffectKind> {
+        if self.intro_motion_played || !matches!(self.current_step, OnboardingStep::Welcome) {
+            return None;
+        }
+        self.intro_motion_played = true;
+        Some(EffectKind::OnboardingIntro)
+    }
+
+    pub(crate) fn set_step_forward(&mut self, step: OnboardingStep) {
+        if self.current_step == step {
+            self.current_step = step;
+            return;
+        }
+        self.current_step = step;
+        self.pending_motion = Some(EffectKind::OnboardingForward);
+    }
+
+    pub(crate) fn set_step_back(&mut self, step: OnboardingStep) {
+        if self.current_step == step {
+            self.current_step = step;
+            return;
+        }
+        self.current_step = step;
+        self.pending_motion = Some(EffectKind::OnboardingBack);
+    }
+
     /// Generate a fresh 24-word BIP39 recovery key and store in `recovery_words`.
     pub(crate) fn generate_recovery_words(&mut self, config_language: &str) {
         let language = MnemonicLanguage::from_config_language(config_language);
@@ -192,7 +238,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key, ctx),
-            Message::MouseEvent(event) => self.handle_mouse(event),
+            Message::MouseEvent(event) => self.handle_mouse(event, ctx),
             Message::CommandCompleted(result) => self.handle_command_result(result),
             _ => ScreenResult::Continue,
         }
@@ -216,15 +262,18 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         if self.returning_from_import {
             self.returning_from_import = false;
             self.current_step = OnboardingStep::RecoveryDisplay;
+            self.pending_motion = None;
             return;
         }
         // If returning from SetNewMasterPassword, resume at SetPassword step
         if self.returning_from_set_password {
             self.returning_from_set_password = false;
             self.current_step = OnboardingStep::SetPassword;
+            self.pending_motion = None;
             return;
         }
         self.current_step = OnboardingStep::Welcome;
+        self.pending_motion = None;
         self.selected_path = None;
         self.error = None;
         self.recovery_confirmed = false;
@@ -247,6 +296,7 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.recovery_focus = RecoveryFocus::default();
         self.clipboard_copied = false;
         self.clipboard_clear_seconds = 30;
+        self.learn_more_expanded = false;
     }
 
     fn on_unmount(&mut self) {
@@ -270,5 +320,6 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         self.recovery_focus = RecoveryFocus::default();
         self.clipboard_copied = false;
         self.clipboard_clear_seconds = 30;
+        self.learn_more_expanded = false;
     }
 }

@@ -281,6 +281,14 @@ impl CommandExecutor {
         self.vault_runtime.is_open() && self.vault().map(|v| v.is_unlocked()).unwrap_or(false)
     }
 
+    fn should_run_auto_sync_timer(&self) -> bool {
+        self.vault_db_file_backed && self.is_unlocked()
+    }
+
+    fn should_run_auto_lock_timer(&self) -> bool {
+        self.vault_db_file_backed && self.is_unlocked()
+    }
+
     /// Get a reference to the vault (read-only operations).
     ///
     /// Returns an error if the vault runtime is not `Open`.
@@ -367,14 +375,22 @@ impl CommandExecutor {
 
                 // Priority 4: Auto-sync timer
                 _ = timer::tick_opt(sync_interval), if sync_active => {
-                    info!("Auto-sync timer triggered");
-                    self.execute(Command::TriggerSync).await;
+                    if self.should_run_auto_sync_timer() {
+                        info!("Auto-sync timer triggered");
+                        self.execute(Command::TriggerSync).await;
+                    } else {
+                        tracing::debug!("Auto-sync timer skipped because vault is not unlocked");
+                    }
                 }
 
                 // Priority 5: Auto-lock timer
                 _ = timer::tick_opt(auto_lock_interval), if auto_lock_active => {
-                    info!("Auto-lock timer triggered");
-                    self.execute(Command::LockVault).await;
+                    if self.should_run_auto_lock_timer() {
+                        info!("Auto-lock timer triggered");
+                        self.execute(Command::LockVault).await;
+                    } else {
+                        tracing::debug!("Auto-lock timer skipped because vault is not unlocked");
+                    }
                 }
 
             }

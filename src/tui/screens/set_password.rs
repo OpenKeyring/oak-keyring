@@ -7,8 +7,11 @@ use crate::commands::types::Screen;
 use crate::commands::{Command, Message};
 use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel};
 use crate::t;
+use crate::tui::screens::onboarding::views_setup::{header_rows, render_header};
+use crate::tui::terminal::WidthTier;
 use crate::tui::theme::{
-    self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING,
+    self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY,
+    WARNING,
 };
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
@@ -26,6 +29,13 @@ pub enum PasswordField {
     #[default]
     New,
     Confirm,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ExitConfirmationFocus {
+    #[default]
+    Continue,
+    Exit,
 }
 
 /// Context in which the set-password screen is shown.
@@ -73,6 +83,8 @@ pub struct SetPasswordScreen {
     pub password_visible: bool,
     pub new_input_area: std::cell::Cell<ratatui::layout::Rect>,
     pub confirm_input_area: std::cell::Cell<ratatui::layout::Rect>,
+    show_exit_confirmation: bool,
+    exit_confirmation_focus: ExitConfirmationFocus,
 }
 
 impl Default for SetPasswordScreen {
@@ -93,6 +105,8 @@ impl SetPasswordScreen {
             password_visible: false,
             new_input_area: std::cell::Cell::new(ratatui::layout::Rect::default()),
             confirm_input_area: std::cell::Cell::new(ratatui::layout::Rect::default()),
+            show_exit_confirmation: false,
+            exit_confirmation_focus: ExitConfirmationFocus::Continue,
         }
     }
 
@@ -143,10 +157,16 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         use ratatui::layout::{Alignment, Constraint, Layout};
         use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let header_height = Self::header_height(area, wide);
+        let usage_hint_height = Self::usage_hint_height(area, header_height);
+        let form_height = 16 + usage_hint_height;
+        let content_height = form_height + header_height;
+
         // Vertical centering
         let outer = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(16),
+            Constraint::Length(content_height),
             Constraint::Fill(1),
         ])
         .split(area);
@@ -162,10 +182,30 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         .split(center_area);
 
         let content_area = h_layout[1];
+        let (header_area, form_area) = if header_height > 0 {
+            let sections = Layout::vertical([
+                Constraint::Length(header_height),
+                Constraint::Length(form_height),
+            ])
+            .split(content_area);
+            (Some(sections[0]), sections[1])
+        } else {
+            (None, content_area)
+        };
+
+        if let Some(header_area) = header_area {
+            render_header(frame, header_area, wide);
+        }
 
         // Title
         let title = Paragraph::new(t!("tui.entry.set_password_title"))
             .style(Styles::brand_text())
+            .alignment(Alignment::Center);
+        let usage_hint_line1 = Paragraph::new(t!("tui.entry.set_password_usage_hint_line1"))
+            .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
+            .alignment(Alignment::Center);
+        let usage_hint_line2 = Paragraph::new(t!("tui.entry.set_password_usage_hint_line2"))
+            .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
             .alignment(Alignment::Center);
 
         // -- New password field --
@@ -301,8 +341,12 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
             .alignment(Alignment::Center);
 
         // -- Layout rows --
-        let rows = Layout::vertical([
-            Constraint::Length(1), // title
+        let mut constraints = vec![Constraint::Length(1)]; // title
+        if usage_hint_height > 0 {
+            constraints.push(Constraint::Length(1)); // usage hint line 1
+            constraints.push(Constraint::Length(1)); // usage hint line 2
+        }
+        constraints.extend([
             Constraint::Length(1), // gap
             Constraint::Length(3), // new password input with borders
             Constraint::Length(1), // strength bar
@@ -312,38 +356,70 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
             Constraint::Length(1), // error or gap
             Constraint::Length(1), // gap
             Constraint::Length(1), // hint
-        ])
-        .split(content_area);
+        ]);
+        let rows = Layout::vertical(constraints).split(form_area);
+        let row_offset = usage_hint_height as usize;
 
         frame.render_widget(title, rows[0]);
+        if usage_hint_height > 0 {
+            frame.render_widget(usage_hint_line1, rows[1]);
+            frame.render_widget(usage_hint_line2, rows[2]);
+        }
 
         // New password field
-        let new_inner = new_input_block.inner(rows[2]);
-        self.new_input_area.set(rows[2]);
-        frame.render_widget(new_input_block, rows[2]);
+        let new_row = 2 + row_offset;
+        let strength_row = 3 + row_offset;
+        let confirm_row = 5 + row_offset;
+        let match_row = 6 + row_offset;
+        let error_row = 7 + row_offset;
+        let hint_row = 9 + row_offset;
+
+        let new_inner = new_input_block.inner(rows[new_row]);
+        self.new_input_area.set(rows[new_row]);
+        frame.render_widget(new_input_block, rows[new_row]);
         frame.render_widget(new_input_text, new_inner);
 
         // Strength bar
-        frame.render_widget(strength_line, rows[3]);
+        frame.render_widget(strength_line, rows[strength_row]);
 
         // Confirm password field
-        let confirm_inner = confirm_input_block.inner(rows[5]);
-        self.confirm_input_area.set(rows[5]);
-        frame.render_widget(confirm_input_block, rows[5]);
+        let confirm_inner = confirm_input_block.inner(rows[confirm_row]);
+        self.confirm_input_area.set(rows[confirm_row]);
+        frame.render_widget(confirm_input_block, rows[confirm_row]);
         frame.render_widget(confirm_input_text, confirm_inner);
 
         // Match indicator
         if let Some(ref ml) = match_line {
-            frame.render_widget(ml.clone(), rows[6]);
+            frame.render_widget(ml.clone(), rows[match_row]);
         }
 
         // Error message
         if let Some(ref el) = error_line {
-            frame.render_widget(el.clone(), rows[7]);
+            frame.render_widget(el.clone(), rows[error_row]);
         }
 
         // Hint
-        frame.render_widget(hint, rows[9]);
+        frame.render_widget(hint, rows[hint_row]);
+
+        let (focused_inner, focused_text_len) = match self.focused {
+            PasswordField::New => (
+                new_inner,
+                self.new_password.expose(|s| s.chars().count() as u16),
+            ),
+            PasswordField::Confirm => (
+                confirm_inner,
+                self.confirm_password.expose(|s| s.chars().count() as u16),
+            ),
+        };
+        if !self.show_exit_confirmation && focused_inner.width > 0 && focused_inner.height > 0 {
+            let cursor_x =
+                focused_inner.x + focused_text_len.min(focused_inner.width.saturating_sub(1));
+            frame.set_cursor_position(ratatui::layout::Position::new(cursor_x, focused_inner.y));
+        }
+
+        if self.show_exit_confirmation {
+            self.render_exit_confirmation(frame, area);
+        }
     }
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {
@@ -354,6 +430,8 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
         self.new_password.clear();
         self.confirm_password.clear();
         self.error = None;
+        self.show_exit_confirmation = false;
+        self.exit_confirmation_focus = ExitConfirmationFocus::Continue;
         // RecoveryWords in context zeroize on drop/replacement.
         self.context = SetPasswordContext::PostRecovery;
     }
@@ -362,6 +440,23 @@ impl crate::tui::traits::screen::Screen for SetPasswordScreen {
 // ── Key handling ─────────────────────────────────────────────────────────────
 
 impl SetPasswordScreen {
+    fn header_height(area: ratatui::layout::Rect, wide: bool) -> u16 {
+        let header_height = header_rows(wide);
+        if area.height >= 16 + header_height {
+            header_height
+        } else {
+            0
+        }
+    }
+
+    fn usage_hint_height(area: ratatui::layout::Rect, header_height: u16) -> u16 {
+        if area.height >= 18 + header_height {
+            2
+        } else {
+            0
+        }
+    }
+
     fn cycle_focus_forward(&mut self) {
         self.focused = match self.focused {
             PasswordField::New => PasswordField::Confirm,
@@ -374,6 +469,10 @@ impl SetPasswordScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
+        if self.show_exit_confirmation {
+            return self.handle_exit_confirmation_key(key);
+        }
+
         match key.code {
             KeyCode::Tab | KeyCode::Down => {
                 self.cycle_focus_forward();
@@ -437,7 +536,9 @@ impl SetPasswordScreen {
             }
             KeyCode::Esc if self.can_go_back() => ScreenResult::PopScreen,
             KeyCode::Esc => {
-                self.error = Some(t!("tui.entry.restart_onboarding_required").to_string());
+                self.error = None;
+                self.show_exit_confirmation = true;
+                self.exit_confirmation_focus = ExitConfirmationFocus::Continue;
                 ScreenResult::Continue
             }
             KeyCode::Backspace => {
@@ -476,17 +577,110 @@ impl SetPasswordScreen {
         matches!(self.context, SetPasswordContext::PostRecovery)
     }
 
-    fn handle_mouse(&mut self, event: MouseEvent) -> ScreenResult {
-        if !matches!(event.kind, MouseEventKind::Down(MouseButton::Left)) {
-            return ScreenResult::Continue;
+    fn handle_exit_confirmation_key(&mut self, key: KeyEvent) -> ScreenResult {
+        match key.code {
+            KeyCode::Tab | KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => {
+                self.exit_confirmation_focus = match self.exit_confirmation_focus {
+                    ExitConfirmationFocus::Continue => ExitConfirmationFocus::Exit,
+                    ExitConfirmationFocus::Exit => ExitConfirmationFocus::Continue,
+                };
+                ScreenResult::Continue
+            }
+            KeyCode::Esc => {
+                self.show_exit_confirmation = false;
+                self.exit_confirmation_focus = ExitConfirmationFocus::Continue;
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => match self.exit_confirmation_focus {
+                ExitConfirmationFocus::Continue => {
+                    self.show_exit_confirmation = false;
+                    ScreenResult::Continue
+                }
+                ExitConfirmationFocus::Exit => ScreenResult::ExitApp,
+            },
+            _ => ScreenResult::Continue,
         }
+    }
 
-        if contains(self.new_input_area.get(), event.column, event.row) {
-            self.focused = PasswordField::New;
-        } else if contains(self.confirm_input_area.get(), event.column, event.row) {
-            self.focused = PasswordField::Confirm;
+    fn handle_mouse(&mut self, event: MouseEvent) -> ScreenResult {
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Moved => {
+                self.focus_password_field_at(event.column, event.row);
+            }
+            _ => {}
         }
         ScreenResult::Continue
+    }
+
+    fn focus_password_field_at(&mut self, column: u16, row: u16) {
+        if contains(self.new_input_area.get(), column, row) {
+            self.focused = PasswordField::New;
+        } else if contains(self.confirm_input_area.get(), column, row) {
+            self.focused = PasswordField::Confirm;
+        }
+    }
+
+    fn render_exit_confirmation(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        use ratatui::layout::{Alignment, Rect};
+        use ratatui::style::{Modifier, Style};
+        use ratatui::text::{Line, Span};
+        use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+
+        let width = area.width.min(60);
+        let height = area.height.min(11);
+        let dialog_area = Rect::new(
+            area.x + area.width.saturating_sub(width) / 2,
+            area.y + area.height.saturating_sub(height) / 2,
+            width,
+            height,
+        );
+
+        let continue_style = if self.exit_confirmation_focus == ExitConfirmationFocus::Continue {
+            Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TEXT_SECONDARY)
+        };
+        let exit_style = if self.exit_confirmation_focus == ExitConfirmationFocus::Exit {
+            Style::default().fg(ERROR).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TEXT_SECONDARY)
+        };
+
+        let lines = vec![
+            Line::raw(""),
+            Line::from(Span::styled(
+                t!("tui.entry.set_password_exit_title").to_string(),
+                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+            )),
+            Line::raw(""),
+            Line::from(t!("tui.entry.set_password_exit_body_line1").to_string()),
+            Line::from(t!("tui.entry.set_password_exit_body_line2").to_string()),
+            Line::from(t!("tui.entry.set_password_exit_body_line3").to_string()),
+            Line::raw(""),
+            Line::from(vec![
+                Span::styled(
+                    format!(" {} ", t!("tui.entry.set_password_continue_setup_button")),
+                    continue_style,
+                ),
+                Span::raw("    "),
+                Span::styled(
+                    format!(" {} ", t!("tui.entry.set_password_exit_setup_button")),
+                    exit_style,
+                ),
+            ]),
+        ];
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(PRIMARY))
+            .style(Style::default().bg(theme::BG));
+        let dialog = Paragraph::new(lines)
+            .block(block)
+            .style(Style::default().fg(TEXT))
+            .alignment(Alignment::Center);
+
+        frame.render_widget(Clear, dialog_area);
+        frame.render_widget(dialog, dialog_area);
     }
 
     fn handle_command_result(&mut self, result: CommandResult) -> ScreenResult {
@@ -523,7 +717,9 @@ impl SetPasswordScreen {
 mod tests {
     use super::*;
     use crate::tui::traits::screen::Screen as ScreenTrait;
-    use ratatui::backend::TestBackend;
+    use ratatui::backend::{Backend, TestBackend};
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Position;
     use ratatui::Terminal;
 
     fn sensitive(s: &str) -> SensitiveInput {
@@ -539,6 +735,10 @@ mod tests {
     }
 
     fn render_set_password(screen: &SetPasswordScreen, width: u16, height: u16) {
+        let _ = render_set_password_buffer(screen, width, height);
+    }
+
+    fn render_set_password_buffer(screen: &SetPasswordScreen, width: u16, height: u16) -> Buffer {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
@@ -546,11 +746,36 @@ mod tests {
                 screen.view(frame, frame.area());
             })
             .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn render_set_password_cursor_position(
+        screen: &SetPasswordScreen,
+        width: u16,
+        height: u16,
+    ) -> Position {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                screen.view(frame, frame.area());
+            })
+            .unwrap();
+        terminal.backend_mut().get_cursor_position().unwrap()
     }
 
     fn click(column: u16, row: u16) -> MouseEvent {
         MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        }
+    }
+
+    fn mouse_move(column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Moved,
             column,
             row,
             modifiers: crossterm::event::KeyModifiers::NONE,
@@ -618,6 +843,39 @@ mod tests {
     }
 
     #[test]
+    fn onboarding_set_password_context_renders_logo_on_tall_terminal() {
+        let screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: recovery_words(),
+        });
+
+        let buffer = render_set_password_buffer(&screen, 80, 24);
+
+        assert!(format!("{buffer:?}").contains("░█▀█"));
+    }
+
+    #[test]
+    fn post_recovery_set_password_context_renders_logo_on_tall_terminal() {
+        let screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
+
+        let buffer = render_set_password_buffer(&screen, 80, 24);
+
+        assert!(format!("{buffer:?}").contains("░█▀█"));
+    }
+
+    #[test]
+    fn set_password_usage_hint_mentions_unlock_and_recovery_key() {
+        let screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
+
+        let buffer = render_set_password_buffer(&screen, 80, 24);
+        let rendered = format!("{buffer:?}");
+
+        assert!(
+            (rendered.contains("unlock") && rendered.contains("recovery"))
+                || (rendered.contains("解锁") && rendered.contains("恢复"))
+        );
+    }
+
+    #[test]
     fn tab_toggles_focus() {
         let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         assert_eq!(screen.focused, PasswordField::New);
@@ -678,7 +936,39 @@ mod tests {
     }
 
     #[test]
-    fn esc_in_onboarding_context_prompts_restart_instead_of_popping() {
+    fn mouse_hover_selects_password_field() {
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
+        render_set_password(&screen, 80, 24);
+        let confirm_area = screen.confirm_input_area.get();
+        let mut ctx = dummy_ctx();
+
+        screen.update(
+            Message::MouseEvent(mouse_move(confirm_area.x + 1, confirm_area.y + 1)),
+            &mut ctx,
+        );
+
+        assert_eq!(screen.focused, PasswordField::Confirm);
+    }
+
+    #[test]
+    fn focused_empty_password_field_sets_terminal_cursor() {
+        let screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
+
+        let _ = render_set_password_buffer(&screen, 80, 24);
+        let input_area = screen.new_input_area.get();
+        let cursor = render_set_password_cursor_position(&screen, 80, 24);
+
+        assert_eq!(
+            cursor,
+            Position {
+                x: input_area.x + 1,
+                y: input_area.y + 1,
+            }
+        );
+    }
+
+    #[test]
+    fn esc_in_onboarding_context_opens_exit_confirmation() {
         let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
             recovery_words: recovery_words(),
         });
@@ -693,9 +983,74 @@ mod tests {
         );
 
         assert!(matches!(result, ScreenResult::Continue));
-        assert!(screen.error.as_deref().is_some_and(|msg| {
-            msg.contains("restart onboarding") || msg.contains("重新开始")
-        }));
+        assert!(screen.show_exit_confirmation);
+        assert_eq!(
+            screen.exit_confirmation_focus,
+            ExitConfirmationFocus::Continue
+        );
+        assert!(screen.error.is_none());
+    }
+
+    #[test]
+    fn exit_confirmation_defaults_to_continue_setting() {
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: recovery_words(),
+        });
+        let mut ctx = dummy_ctx();
+
+        screen.show_exit_confirmation = true;
+        let result = screen.update(
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(!screen.show_exit_confirmation);
+    }
+
+    #[test]
+    fn exit_confirmation_can_confirm_exit() {
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: recovery_words(),
+        });
+        let mut ctx = dummy_ctx();
+
+        screen.show_exit_confirmation = true;
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Tab,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        let result = screen.update(
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::ExitApp));
+    }
+
+    #[test]
+    fn exit_confirmation_renders_restart_warning() {
+        let mut screen = SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+            recovery_words: recovery_words(),
+        });
+        screen.show_exit_confirmation = true;
+
+        let buffer = render_set_password_buffer(&screen, 80, 24);
+        let rendered = format!("{buffer:?}");
+
+        assert!(
+            (rendered.contains("Exit setup?") && rendered.contains("start onboarding"))
+                || (rendered.contains("退出设置？") && rendered.contains("重新开始"))
+        );
     }
 
     #[test]

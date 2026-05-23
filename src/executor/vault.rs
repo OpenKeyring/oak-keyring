@@ -675,11 +675,43 @@ pub async fn handle_initialize_vault(
 /// Reconstruct a Passkey from pre-generated recovery words.
 /// Tries English first, then Chinese Simplified.
 fn reconstruct_passkey(words: &RecoveryWords) -> Result<Passkey, String> {
-    let english = Passkey::from_recovery_words(words, MnemonicLanguage::English);
-    if english.is_ok() {
-        return english;
+    match Passkey::from_recovery_words(words, MnemonicLanguage::English) {
+        Ok(passkey) => Ok(passkey),
+        Err(english_error) => {
+            match Passkey::from_recovery_words(words, MnemonicLanguage::ChineseSimplified) {
+                Ok(passkey) => Ok(passkey),
+                Err(chinese_error) => {
+                    if words.iter().all(|word| word.is_ascii()) {
+                        Err(english_error)
+                    } else {
+                        Err(chinese_error)
+                    }
+                }
+            }
+        }
     }
-    Passkey::from_recovery_words(words, MnemonicLanguage::ChineseSimplified)
+}
+
+fn format_invalid_recovery_key_error(error: &str) -> String {
+    if let Some(index) = parse_bip39_word_index(error) {
+        return format!(
+            "Invalid recovery key: word {} is not in the recovery word list.",
+            index + 1
+        );
+    }
+
+    if error.to_ascii_lowercase().contains("checksum") {
+        return "Invalid recovery key: the words are valid, but the checksum does not match. Check the word order.".to_string();
+    }
+
+    "Invalid recovery key. Check that all 24 words are correct and in order.".to_string()
+}
+
+fn parse_bip39_word_index(error: &str) -> Option<usize> {
+    let marker = "(word ";
+    let start = error.find(marker)? + marker.len();
+    let end = error[start..].find(')')? + start;
+    error[start..end].parse().ok()
 }
 
 /// Validate BIP39 recovery words (must be exactly 24).
@@ -698,7 +730,7 @@ pub async fn handle_validate_recovery_words(words: RecoveryWords) -> CommandResu
             code: ErrorCode::CryptoKeyDerivationFailed,
             context: ErrorContext::default(),
             message_key: "error.invalid_recovery_key",
-            fallback: format!("Invalid recovery key: {}", e),
+            fallback: format_invalid_recovery_key_error(&e),
         },
     }
 }
@@ -716,7 +748,7 @@ pub async fn handle_rebuild_keyfile_from_recovery(
                 code: ErrorCode::CryptoKeyDerivationFailed,
                 context: ErrorContext::default(),
                 message_key: "error.invalid_recovery_key",
-                fallback: format!("Invalid recovery key: {}", e),
+                fallback: format_invalid_recovery_key_error(&e),
             };
         }
     };
