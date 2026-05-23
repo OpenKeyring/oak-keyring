@@ -18,7 +18,7 @@ pub mod timing {
     /// Modal overlay dismissing.
     pub const MODAL_DISMISS: u64 = 150;
     /// First-run onboarding intro.
-    pub const ONBOARDING_INTRO: u64 = 900;
+    pub const ONBOARDING_INTRO: u64 = 2000;
     /// Onboarding step transition.
     pub const ONBOARDING_STEP: u64 = 400;
     /// Sidebar sweep animation.
@@ -174,6 +174,7 @@ mod tests {
         start_transition(&mut state, EffectKind::OnboardingIntro);
         let effect = state.active_effect.as_ref().expect("intro effect");
         assert_eq!(effect.kind, EffectKind::OnboardingIntro);
+        assert_eq!(effect.duration_ms, 2000);
         assert_eq!(effect.duration_ms, timing::ONBOARDING_INTRO);
         assert!(effect.interruptible);
 

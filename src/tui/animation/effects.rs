@@ -49,29 +49,19 @@ pub fn expand_vertical(duration_ms: u32, level: AnimationLevel) -> Option<tachyo
 
 /// Cyber first-run onboarding intro.
 pub fn onboarding_intro(duration_ms: u32, level: AnimationLevel) -> Option<tachyonfx::Effect> {
-    use ratatui::style::{Color, Style};
     use tachyonfx::pattern::SweepPattern;
     use tachyonfx::{fx, Interpolation};
 
     match level {
         AnimationLevel::None => None,
-        AnimationLevel::Reduced => Some(
-            fx::coalesce_from(
-                Style::default().bg(Color::Black),
-                (duration_ms, Interpolation::CubicInOut),
-            )
-            .with_pattern(SweepPattern::left_to_right(18)),
+        AnimationLevel::Reduced => Some(fx::hsl_shift_fg(
+            [80.0, 18.0, 4.0],
+            (duration_ms, Interpolation::Linear),
+        )),
+        AnimationLevel::Full => Some(
+            fx::hsl_shift_fg([180.0, 35.0, 8.0], (duration_ms, Interpolation::Linear))
+                .with_pattern(SweepPattern::left_to_right(24)),
         ),
-        AnimationLevel::Full => {
-            let coalesce = fx::coalesce_from(
-                Style::default().bg(Color::Black),
-                (duration_ms, Interpolation::CubicInOut),
-            )
-            .with_pattern(SweepPattern::left_to_right(24));
-            let hsl = fx::hsl_shift_fg([180.0, 35.0, 8.0], (duration_ms, Interpolation::Linear))
-                .with_pattern(SweepPattern::left_to_right(24));
-            Some(fx::parallel(&[coalesce, hsl]))
-        }
     }
 }
 
@@ -116,7 +106,7 @@ mod tests {
     fn onboarding_forward_effect_changes_fixed_buffer_at_fixed_tick() {
         let mut effect =
             onboarding_forward(400, AnimationLevel::Full).expect("forward effect should exist");
-        let area = Rect::new(0, 0, 24, 3);
+        let area = Rect::new(0, 0, 11, 3);
         let mut buffer = Buffer::with_lines(vec!["OPENKEYRING", "SETUP", "READY"]);
         let before = format!("{buffer:?}");
 
@@ -131,9 +121,57 @@ mod tests {
     }
 
     #[test]
+    fn onboarding_intro_full_preserves_text_positions_at_fixed_tick() {
+        let mut effect =
+            onboarding_intro(2000, AnimationLevel::Full).expect("intro effect should exist");
+        let area = Rect::new(0, 0, 11, 3);
+        let mut buffer = Buffer::with_lines(vec!["OPENKEYRING", "SETUP", "READY"]);
+        let before = buffer_symbols(&buffer, area);
+
+        effect.process(
+            std::time::Duration::from_millis(1000).into(),
+            &mut buffer,
+            area,
+        );
+
+        assert_eq!(before, buffer_symbols(&buffer, area));
+    }
+
+    #[test]
+    fn onboarding_intro_reduced_preserves_text_positions_at_fixed_tick() {
+        let mut effect =
+            onboarding_intro(2000, AnimationLevel::Reduced).expect("intro effect should exist");
+        let area = Rect::new(0, 0, 11, 3);
+        let mut buffer = Buffer::with_lines(vec!["OPENKEYRING", "SETUP", "READY"]);
+        let before = buffer_symbols(&buffer, area);
+
+        effect.process(
+            std::time::Duration::from_millis(1000).into(),
+            &mut buffer,
+            area,
+        );
+
+        assert_eq!(before, buffer_symbols(&buffer, area));
+    }
+
+    #[test]
     fn onboarding_effects_are_absent_when_animation_is_none() {
-        assert!(onboarding_intro(900, AnimationLevel::None).is_none());
+        assert!(onboarding_intro(2000, AnimationLevel::None).is_none());
         assert!(onboarding_forward(400, AnimationLevel::None).is_none());
         assert!(onboarding_back(400, AnimationLevel::None).is_none());
+    }
+
+    fn buffer_symbols(buffer: &Buffer, area: Rect) -> Vec<String> {
+        (area.y..area.y + area.height)
+            .flat_map(|y| {
+                (area.x..area.x + area.width).map(move |x| {
+                    buffer
+                        .cell((x, y))
+                        .expect("cell should be inside buffer")
+                        .symbol()
+                        .to_string()
+                })
+            })
+            .collect()
     }
 }
