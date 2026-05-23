@@ -24,10 +24,46 @@ use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenRes
 const TICK_RATE: Duration = Duration::from_millis(50);
 
 fn start_screen_in_transition(state: &mut crate::tui::state::AppState) {
-    crate::tui::animation::transitions::start_transition(
-        &mut state.shared.animation,
-        crate::tui::state::animation::EffectKind::ScreenIn,
-    );
+    start_transition_kind(state, crate::tui::state::animation::EffectKind::ScreenIn);
+}
+
+fn start_transition_kind(
+    state: &mut crate::tui::state::AppState,
+    kind: crate::tui::state::animation::EffectKind,
+) {
+    crate::tui::animation::transitions::start_transition(&mut state.shared.animation, kind);
+}
+
+fn start_initial_transition(state: &mut crate::tui::state::AppState) {
+    if matches!(state.current_screen, Screen::Onboarding) {
+        if let Some(kind) = state.screens.onboarding.take_intro_motion() {
+            start_transition_kind(state, kind);
+        }
+    }
+}
+
+fn take_pending_onboarding_motion(
+    state: &mut crate::tui::state::AppState,
+) -> Option<crate::tui::state::animation::EffectKind> {
+    state.screens.onboarding.take_pending_motion()
+}
+
+fn start_pending_onboarding_motion(state: &mut crate::tui::state::AppState) {
+    if matches!(state.current_screen, Screen::Onboarding) {
+        if let Some(kind) = take_pending_onboarding_motion(state) {
+            start_transition_kind(state, kind);
+        }
+    }
+}
+
+fn transition_after_pop(
+    state: &crate::tui::state::AppState,
+) -> crate::tui::state::animation::EffectKind {
+    if matches!(state.current_screen, Screen::Onboarding) {
+        crate::tui::state::animation::EffectKind::OnboardingBack
+    } else {
+        crate::tui::state::animation::EffectKind::ScreenIn
+    }
 }
 
 fn prepare_set_password_context_for_navigation(
@@ -151,6 +187,8 @@ pub fn run(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Spawn signal handler.
     let _signal_handler = SignalHandler::spawn(app.result_tx.clone());
+
+    start_initial_transition(&mut app.state);
 
     // Initial render.
     terminal.draw(|f| view::render(f, app))?;
@@ -416,8 +454,12 @@ fn handle_message(
             };
             let result = route_to_screen(&mut app.state, msg, &mut ctx);
             match result {
-                ScreenResult::Continue => {}
+                ScreenResult::Continue => {
+                    start_pending_onboarding_motion(&mut app.state);
+                }
                 ScreenResult::NavigateTo(screen) => {
+                    let transition = take_pending_onboarding_motion(&mut app.state)
+                        .unwrap_or(crate::tui::state::animation::EffectKind::ScreenIn);
                     if !prepare_set_password_context_for_navigation(&mut app.state, screen) {
                         return Ok(LoopControl::Continue);
                     }
@@ -428,7 +470,7 @@ fn handle_message(
                         config: &app.config,
                     };
                     route_on_mount_from_state(&mut app.state, &mut ctx);
-                    start_screen_in_transition(&mut app.state);
+                    start_transition_kind(&mut app.state, transition);
                 }
                 ScreenResult::PopScreen => {
                     route_on_unmount_from_state(&mut app.state);
@@ -439,7 +481,8 @@ fn handle_message(
                         config: &app.config,
                     };
                     route_on_mount_from_state(&mut app.state, &mut ctx);
-                    start_screen_in_transition(&mut app.state);
+                    let transition = transition_after_pop(&app.state);
+                    start_transition_kind(&mut app.state, transition);
                 }
                 ScreenResult::Command(cmd) => {
                     if let Err(e) = app.command_tx.try_send(*cmd) {
@@ -468,8 +511,12 @@ fn handle_message(
             };
             let result = route_to_screen(&mut app.state, msg, &mut ctx);
             match result {
-                ScreenResult::Continue => {}
+                ScreenResult::Continue => {
+                    start_pending_onboarding_motion(&mut app.state);
+                }
                 ScreenResult::NavigateTo(screen) => {
+                    let transition = take_pending_onboarding_motion(&mut app.state)
+                        .unwrap_or(crate::tui::state::animation::EffectKind::ScreenIn);
                     if !prepare_set_password_context_for_navigation(&mut app.state, screen) {
                         return Ok(LoopControl::Continue);
                     }
@@ -480,7 +527,7 @@ fn handle_message(
                         config: &app.config,
                     };
                     route_on_mount_from_state(&mut app.state, &mut ctx);
-                    start_screen_in_transition(&mut app.state);
+                    start_transition_kind(&mut app.state, transition);
                 }
                 ScreenResult::PopScreen => {
                     route_on_unmount_from_state(&mut app.state);
@@ -491,7 +538,8 @@ fn handle_message(
                         config: &app.config,
                     };
                     route_on_mount_from_state(&mut app.state, &mut ctx);
-                    start_screen_in_transition(&mut app.state);
+                    let transition = transition_after_pop(&app.state);
+                    start_transition_kind(&mut app.state, transition);
                 }
                 ScreenResult::Command(cmd) => {
                     if let Err(e) = app.command_tx.try_send(*cmd) {
@@ -708,6 +756,27 @@ mod tests {
         app
     }
 
+    fn onboarding_app() -> App {
+        let vault_dir = tempfile::tempdir().unwrap();
+        let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
+        let vault_dir_path = vault_dir.path().to_path_buf();
+        let config_dir_path = vault_dir.path().to_path_buf();
+        let mut app = App::new(
+            crate::config::AppConfig::default(),
+            crate::app::VaultInitState {
+                has_vault: false,
+                vault_has_key_only: false,
+                vault_has_db_only: false,
+            },
+            instance_lock,
+            vault_dir_path,
+            config_dir_path,
+        )
+        .expect("app");
+        app.phase = AppPhase::Running;
+        app
+    }
+
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent {
             code,
@@ -746,6 +815,76 @@ mod tests {
             .shared
             .animation
             .has_active_kind(crate::tui::state::animation::EffectKind::ScreenIn));
+    }
+
+    #[test]
+    fn initial_onboarding_screen_starts_intro_once() {
+        let mut app = onboarding_app();
+
+        start_initial_transition(&mut app.state);
+
+        assert!(app
+            .state
+            .shared
+            .animation
+            .has_active_kind(crate::tui::state::animation::EffectKind::OnboardingIntro));
+
+        app.state.shared.animation.clear();
+        start_initial_transition(&mut app.state);
+        assert!(!app.state.shared.animation.is_active());
+    }
+
+    #[test]
+    fn onboarding_internal_forward_starts_onboarding_forward_animation() {
+        let mut app = onboarding_app();
+
+        let result = handle_message(&mut app, Message::KeyEvent(key(KeyCode::Enter)))
+            .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Onboarding);
+        assert!(app
+            .state
+            .shared
+            .animation
+            .has_active_kind(crate::tui::state::animation::EffectKind::OnboardingForward));
+    }
+
+    #[test]
+    fn onboarding_internal_back_starts_onboarding_back_animation() {
+        let mut app = onboarding_app();
+        app.state.screens.onboarding.selected_path =
+            Some(crate::tui::screens::onboarding::OnboardingPath::CreateNew);
+        app.state.screens.onboarding.current_step =
+            crate::tui::screens::onboarding::OnboardingStep::RecoveryDisplay;
+
+        let result = handle_message(&mut app, Message::KeyEvent(key(KeyCode::Esc)))
+            .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Onboarding);
+        assert!(app
+            .state
+            .shared
+            .animation
+            .has_active_kind(crate::tui::state::animation::EffectKind::OnboardingBack));
+    }
+
+    #[test]
+    fn onboarding_restore_navigation_uses_onboarding_forward_animation() {
+        let mut app = onboarding_app();
+        app.state.screens.onboarding.welcome_selected = 1;
+
+        let result = handle_message(&mut app, Message::KeyEvent(key(KeyCode::Enter)))
+            .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::KeyRecovery);
+        assert!(app
+            .state
+            .shared
+            .animation
+            .has_active_kind(crate::tui::state::animation::EffectKind::OnboardingForward));
     }
 
     #[test]
