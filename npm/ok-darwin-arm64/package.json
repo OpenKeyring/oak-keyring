@@ -1,0 +1,19 @@
+{
+  "name": "@openkeyring/ok-darwin-arm64",
+  "version": "0.7.3",
+  "description": "Open-Keyring ok binary for macOS Apple Silicon",
+  "scripts": {
+    "prepack": "node ../check-binary.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ]
+}
