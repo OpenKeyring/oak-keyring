@@ -1,0 +1,95 @@
+name: Bug report
+description: Report a reproducible oak-keyring bug.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include passwords, vault files, recovery words, OAuth secrets, tokens, or private logs.
+  - type: input
+    id: version
+    attributes:
+      label: oak-keyring version
+      description: Run `ok --version`.
+      placeholder: "ok 0.7.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS Apple Silicon
+        - macOS Intel
+        - Linux (not supported in current preview)
+        - Windows (not supported in current preview)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS version
+      placeholder: "14.5"
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Install method
+      options:
+        - GitHub Release unsigned build
+        - npm bundled binary package
+        - Developer source build
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest set of steps that reproduces the issue.
+      placeholder: |
+        1. Run ...
+        2. Select ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or errors
+      description: Paste exact errors or short logs after removing secrets and private data.
+      render: text
+  - type: dropdown
+    id: data_context
+    attributes:
+      label: Data context
+      options:
+        - New vault
+        - Restored vault
+        - Imported data
+        - Existing preview data
+        - Synced data
+        - Not data-related
+        - Unsure
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy reminder
+      options:
+        - label: I removed passwords, vault files, recovery words, OAuth secrets, tokens, and private logs.
+          required: true

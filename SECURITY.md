@@ -1,32 +1,37 @@
 # Security Policy
 
+oak-keyring is a local-first password manager in first-preview status. Please report suspected security vulnerabilities responsibly and avoid public disclosure before maintainers have had time to investigate.
+
+## Supported Versions and Previews
+
+Only the latest preview release is supported for security fixes. Older preview builds may be superseded quickly, and preview data formats may change before a stable release line exists.
+
+The current preview supports macOS on Apple Silicon and Intel. Linux and Windows are not supported yet. Preview builds are unsigned and not notarized, so verify that downloads come from the official OpenKeyring GitHub release or package channel before running them.
+
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in oak-keyring, please report it responsibly:
+Use one of these private channels:
 
-- **GitHub Security Advisory:** Use the ["Report a Vulnerability"](https://github.com/OpenKeyring/oak-keyring/security/advisories/new) tab.
-- **Email:** Send your report to alphaqiu@gmail.com.
+- GitHub Security Advisory: `https://github.com/OpenKeyring/oak-keyring/security/advisories/new`
+- Email: alphaqiu@gmail.com
 
-**Do not** use public GitHub issues for security vulnerability reports.
+Do not use public GitHub issues, discussions, chat logs, or social media for vulnerability reports.
 
-## What to Report
+## What to Include
 
-Genuine security vulnerabilities include:
+- A short description of the issue and likely impact.
+- Steps to reproduce, proof-of-concept details, or affected commands.
+- oak-keyring version from `ok --version`.
+- macOS version and Mac architecture.
+- Whether the issue involves a new vault, restored vault, imported data, or synced data.
+- Any logs or screenshots with secrets removed.
 
-- Unauthorized access to stored passwords or encryption keys
-- Bypass of authentication or encryption mechanisms
-- Remote code execution or privilege escalation
-- Weaknesses in the cryptographic implementation (key derivation, encryption, key storage)
+## Secret Handling Boundaries
 
-## What Not to Report
+Never send real passwords, vault databases, recovery words, OAuth client secrets, tokens, private keys, or full logs containing sensitive values unless a maintainer explicitly arranges a private, minimized exchange.
 
-These are not security vulnerabilities:
+If a reproduction needs sample data, create a disposable vault with fake records and fake credentials.
 
-- Bugs causing crashes or data corruption under normal use — file as a regular issue
-- Vulnerabilities in third-party dependencies — report to the upstream maintainer
-- Issues caused by modifying the application binary or local code
-- Theoretical attacks requiring physical access to an unlocked session
+## Expected Response
 
-## Response
-
-I will acknowledge reports within 7 days and keep you informed of progress toward a fix.
+Maintainers aim to acknowledge private reports within 7 days. During the first-preview phase, investigation and fix timing is best effort and does not come with a formal SLA.
