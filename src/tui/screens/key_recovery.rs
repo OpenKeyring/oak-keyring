@@ -14,7 +14,9 @@ use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::{Command, Message};
 use crate::t;
+use crate::tui::screens::onboarding::views_setup::{header_rows, render_header};
 use crate::tui::screens::recovery_key::WordGridState;
+use crate::tui::terminal::WidthTier;
 use crate::tui::theme::{self, BRAND, ERROR, PRIMARY, TEXT, TEXT_MUTED};
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
 
@@ -138,39 +140,51 @@ impl ScreenTrait for KeyRecoveryScreen {
     }
 
     fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        let content_area = Self::centered_content(area, 17);
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let use_onboarding_header = matches!(self.origin, KeyRecoveryOrigin::OnboardingRestore);
+        let brand_rows = if use_onboarding_header {
+            header_rows(wide)
+        } else {
+            1
+        };
+        let separator_rows = if use_onboarding_header { 0 } else { 1 };
+        let content_area = Self::centered_content(area, 15 + brand_rows + separator_rows);
 
         let rows = Layout::vertical([
-            Constraint::Length(1), // brand
-            Constraint::Length(1), // separator
-            Constraint::Length(2), // title
-            Constraint::Length(2), // instruction
-            Constraint::Length(6), // 24-word grid
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // error or hint
-            Constraint::Length(1), // hotkey
-            Constraint::Length(1), // step
+            Constraint::Length(brand_rows),     // logo or brand
+            Constraint::Length(separator_rows), // separator for compact startup recovery
+            Constraint::Length(2),              // title
+            Constraint::Length(2),              // instruction
+            Constraint::Length(6),              // 24-word grid
+            Constraint::Length(1),              // gap
+            Constraint::Length(1),              // error or hint
+            Constraint::Length(1),              // hotkey
+            Constraint::Length(1),              // step
         ])
         .split(content_area);
 
-        // Brand
-        let brand = Paragraph::new(Line::from(vec![
-            Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
-            Span::styled(
-                "OpenKeyring",
-                Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
-            ),
-        ]))
-        .alignment(Alignment::Center);
-        frame.render_widget(brand, rows[0]);
+        if use_onboarding_header {
+            render_header(frame, rows[0], wide);
+        } else {
+            // Brand
+            let brand = Paragraph::new(Line::from(vec![
+                Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
+                Span::styled(
+                    "OpenKeyring",
+                    Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
+                ),
+            ]))
+            .alignment(Alignment::Center);
+            frame.render_widget(brand, rows[0]);
 
-        // Separator
-        let sep = Paragraph::new(Line::from(Span::styled(
-            "─────────────────────────────",
-            Style::default().fg(TEXT_MUTED),
-        )))
-        .alignment(Alignment::Center);
-        frame.render_widget(sep, rows[1]);
+            // Separator
+            let sep = Paragraph::new(Line::from(Span::styled(
+                "─────────────────────────────",
+                Style::default().fg(TEXT_MUTED),
+            )))
+            .alignment(Alignment::Center);
+            frame.render_widget(sep, rows[1]);
+        }
 
         // Title
         let title = Paragraph::new(Line::from(Span::styled(
@@ -270,6 +284,9 @@ impl KeyRecoveryScreen {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::traits::screen::Screen as ScreenTrait;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent {
@@ -280,12 +297,36 @@ mod tests {
         }
     }
 
+    fn render_key_recovery_buffer(
+        screen: &KeyRecoveryScreen,
+        width: u16,
+        height: u16,
+    ) -> ratatui::buffer::Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                screen.view(frame, frame.area());
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
     #[test]
     fn key_recovery_starts_with_empty_24_word_grid() {
         let screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::StartupDbOnly);
         assert_eq!(screen.origin, KeyRecoveryOrigin::StartupDbOnly);
         assert_eq!(screen.words.words.len(), 24);
         assert_eq!(screen.error, None);
+    }
+
+    #[test]
+    fn onboarding_restore_renders_ascii_logo_on_tall_terminal() {
+        let screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::OnboardingRestore);
+
+        let buffer = render_key_recovery_buffer(&screen, 80, 24);
+
+        assert!(format!("{buffer:?}").contains("░█▀█"));
     }
 
     #[test]
