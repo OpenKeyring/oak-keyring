@@ -110,6 +110,57 @@ fn onboarding_welcome_defaults() {
 }
 
 #[test]
+fn onboarding_intro_motion_is_one_shot() {
+    let mut screen = OnboardingScreen::default();
+
+    assert_eq!(
+        screen.take_intro_motion(),
+        Some(crate::tui::state::animation::EffectKind::OnboardingIntro)
+    );
+    assert_eq!(screen.take_intro_motion(), None);
+}
+
+#[test]
+fn onboarding_welcome_enter_selects_create_and_requests_forward_motion() {
+    let mut screen = OnboardingScreen::default();
+
+    let result = screen.handle_welcome_key(
+        KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.selected_path, Some(OnboardingPath::CreateNew));
+    assert_eq!(screen.current_step, OnboardingStep::RecoveryDisplay);
+    assert_eq!(
+        screen.take_pending_motion(),
+        Some(crate::tui::state::animation::EffectKind::OnboardingForward)
+    );
+}
+
+#[test]
+fn onboarding_recovery_display_esc_requests_back_motion() {
+    let mut screen = OnboardingScreen {
+        selected_path: Some(OnboardingPath::CreateNew),
+        current_step: OnboardingStep::RecoveryDisplay,
+        recovery_words: Some(recovery_words_fixture()),
+        ..Default::default()
+    };
+
+    let result = screen.handle_recovery_display_key(
+        KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE),
+        &mut dummy_ctx(),
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.current_step, OnboardingStep::Welcome);
+    assert_eq!(
+        screen.take_pending_motion(),
+        Some(crate::tui::state::animation::EffectKind::OnboardingBack)
+    );
+}
+
+#[test]
 fn generate_recovery_words_stores_secure_owner() {
     let mut screen = OnboardingScreen::default();
     screen.generate_recovery_words("en");

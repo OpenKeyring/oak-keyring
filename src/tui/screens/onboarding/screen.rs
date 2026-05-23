@@ -6,6 +6,7 @@ use crate::commands::Message;
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::t;
 use crate::tui::screens::recovery_key::WordGridState;
+use crate::tui::state::animation::EffectKind;
 use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
 use crate::types::RecoveryWords;
@@ -18,6 +19,10 @@ use super::types::{OnboardingPath, OnboardingStep, RecoveryFocus};
 #[derive(Debug)]
 pub struct OnboardingScreen {
     pub current_step: OnboardingStep,
+    /// Pending onboarding motion intent emitted by accepted step changes.
+    pub pending_motion: Option<EffectKind>,
+    /// Whether the one-shot Cyber intro has already been emitted this process.
+    pub intro_motion_played: bool,
     pub selected_path: Option<OnboardingPath>,
     pub error: Option<String>,
     pub recovery_confirmed: bool,
@@ -76,6 +81,8 @@ impl Default for OnboardingScreen {
         use crate::tui::screens::import_export::ImportFocus;
         Self {
             current_step: OnboardingStep::default(),
+            pending_motion: None,
+            intro_motion_played: false,
             selected_path: None,
             error: None,
             recovery_confirmed: false,
@@ -115,6 +122,28 @@ impl Default for OnboardingScreen {
 }
 
 impl OnboardingScreen {
+    pub(crate) fn take_pending_motion(&mut self) -> Option<EffectKind> {
+        self.pending_motion.take()
+    }
+
+    pub(crate) fn take_intro_motion(&mut self) -> Option<EffectKind> {
+        if self.intro_motion_played || !matches!(self.current_step, OnboardingStep::Welcome) {
+            return None;
+        }
+        self.intro_motion_played = true;
+        Some(EffectKind::OnboardingIntro)
+    }
+
+    pub(crate) fn set_step_forward(&mut self, step: OnboardingStep) {
+        self.current_step = step;
+        self.pending_motion = Some(EffectKind::OnboardingForward);
+    }
+
+    pub(crate) fn set_step_back(&mut self, step: OnboardingStep) {
+        self.current_step = step;
+        self.pending_motion = Some(EffectKind::OnboardingBack);
+    }
+
     /// Generate a fresh 24-word BIP39 recovery key and store in `recovery_words`.
     pub(crate) fn generate_recovery_words(&mut self, config_language: &str) {
         let language = MnemonicLanguage::from_config_language(config_language);
@@ -225,15 +254,18 @@ impl crate::tui::traits::screen::Screen for OnboardingScreen {
         if self.returning_from_import {
             self.returning_from_import = false;
             self.current_step = OnboardingStep::RecoveryDisplay;
+            self.pending_motion = None;
             return;
         }
         // If returning from SetNewMasterPassword, resume at SetPassword step
         if self.returning_from_set_password {
             self.returning_from_set_password = false;
             self.current_step = OnboardingStep::SetPassword;
+            self.pending_motion = None;
             return;
         }
         self.current_step = OnboardingStep::Welcome;
+        self.pending_motion = None;
         self.selected_path = None;
         self.error = None;
         self.recovery_confirmed = false;

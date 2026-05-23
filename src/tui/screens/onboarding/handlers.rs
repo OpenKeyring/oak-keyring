@@ -128,15 +128,17 @@ impl OnboardingScreen {
             0 => {
                 self.selected_path = Some(OnboardingPath::CreateNew);
                 self.generate_recovery_words(lang);
-                self.current_step = OnboardingStep::RecoveryDisplay;
+                self.set_step_forward(OnboardingStep::RecoveryDisplay);
             }
             1 => {
                 self.selected_path = Some(OnboardingPath::Restore);
+                self.pending_motion =
+                    Some(crate::tui::state::animation::EffectKind::OnboardingForward);
                 return ScreenResult::NavigateTo(Screen::KeyRecovery);
             }
             2 => {
                 self.selected_path = Some(OnboardingPath::Import);
-                self.current_step = OnboardingStep::ImportSource;
+                self.set_step_forward(OnboardingStep::ImportSource);
             }
             _ => {}
         }
@@ -180,9 +182,9 @@ impl OnboardingScreen {
                     if self.recovery_confirmed {
                         self.clipboard_copied = false;
                         self.generate_verify_positions();
-                        self.current_step = OnboardingStep::RecoveryVerify {
+                        self.set_step_forward(OnboardingStep::RecoveryVerify {
                             positions: self.verify_positions,
-                        };
+                        });
                     }
                 }
                 _ => {}
@@ -274,9 +276,9 @@ impl OnboardingScreen {
                     if self.recovery_confirmed {
                         self.clipboard_copied = false;
                         self.generate_verify_positions();
-                        self.current_step = OnboardingStep::RecoveryVerify {
+                        self.set_step_forward(OnboardingStep::RecoveryVerify {
                             positions: self.verify_positions,
-                        };
+                        });
                     }
                     ScreenResult::Continue
                 }
@@ -294,7 +296,7 @@ impl OnboardingScreen {
             }
             KeyCode::Esc => {
                 self.clipboard_copied = false;
-                self.current_step = OnboardingStep::Welcome;
+                self.set_step_back(OnboardingStep::Welcome);
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -316,7 +318,7 @@ impl OnboardingScreen {
             }
             KeyCode::Enter => self.submit_recovery_verify(),
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::RecoveryDisplay;
+                self.set_step_back(OnboardingStep::RecoveryDisplay);
                 ScreenResult::Continue
             }
             KeyCode::Backspace => {
@@ -347,7 +349,7 @@ impl OnboardingScreen {
         });
         if all_correct {
             self.verify_errors = [false; 4];
-            self.current_step = OnboardingStep::SetPassword;
+            self.set_step_forward(OnboardingStep::SetPassword);
         } else {
             // Mark mismatches
             for (i, &pos) in self.verify_positions.iter().enumerate() {
@@ -370,7 +372,7 @@ impl OnboardingScreen {
     ) -> ScreenResult {
         match key.code {
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::Welcome;
+                self.set_step_back(OnboardingStep::Welcome);
                 ScreenResult::Continue
             }
             _ => {
@@ -386,7 +388,7 @@ impl OnboardingScreen {
                                     return ScreenResult::Continue;
                                 }
                                 // Advance to SecurityAdvisory
-                                self.current_step = OnboardingStep::SecurityAdvisory;
+                                self.set_step_forward(OnboardingStep::SecurityAdvisory);
                             }
                             Err(_) => {
                                 self.error =
@@ -404,11 +406,11 @@ impl OnboardingScreen {
     pub(crate) fn handle_security_advisory_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
             KeyCode::Enter => {
-                self.current_step = OnboardingStep::SetPassword;
+                self.set_step_forward(OnboardingStep::SetPassword);
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::RecoveryInput;
+                self.set_step_back(OnboardingStep::RecoveryInput);
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -500,7 +502,7 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::Welcome;
+                self.set_step_back(OnboardingStep::Welcome);
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -541,7 +543,7 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::ImportSource;
+                self.set_step_back(OnboardingStep::ImportSource);
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -562,15 +564,15 @@ impl OnboardingScreen {
                 // Go back based on path
                 match self.selected_path {
                     Some(OnboardingPath::CreateNew) | Some(OnboardingPath::Import) => {
-                        self.current_step = OnboardingStep::RecoveryVerify {
+                        self.set_step_back(OnboardingStep::RecoveryVerify {
                             positions: self.verify_positions,
-                        };
+                        });
                     }
                     Some(OnboardingPath::Restore) => {
-                        self.current_step = OnboardingStep::SecurityAdvisory;
+                        self.set_step_back(OnboardingStep::SecurityAdvisory);
                     }
                     None => {
-                        self.current_step = OnboardingStep::Welcome;
+                        self.set_step_back(OnboardingStep::Welcome);
                     }
                 }
                 ScreenResult::Continue
@@ -585,7 +587,7 @@ impl OnboardingScreen {
         match result {
             CommandResult::RecoveryKeyUnlocked => {
                 // Recovery key was accepted — advance to SecurityAdvisory
-                self.current_step = OnboardingStep::SecurityAdvisory;
+                self.set_step_forward(OnboardingStep::SecurityAdvisory);
                 ScreenResult::Continue
             }
             CommandResult::ImportValidated {
@@ -596,7 +598,7 @@ impl OnboardingScreen {
                     self.import_session_id = Some(session_id);
                     self.import_preview = Some(preview);
                     self.error = None;
-                    self.current_step = OnboardingStep::ImportPreview;
+                    self.set_step_forward(OnboardingStep::ImportPreview);
                 }
                 ScreenResult::Continue
             }
@@ -606,7 +608,7 @@ impl OnboardingScreen {
                     const LANGUAGES: [&str; 3] = ["auto", "en", "zh-CN"];
                     let lang = LANGUAGES[self.language_index];
                     self.generate_recovery_words(lang);
-                    self.current_step = OnboardingStep::RecoveryDisplay;
+                    self.set_step_forward(OnboardingStep::RecoveryDisplay);
                 }
                 ScreenResult::Continue
             }
