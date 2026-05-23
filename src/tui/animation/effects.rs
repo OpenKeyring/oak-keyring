@@ -101,6 +101,10 @@ fn onboarding_slide_fill_color() -> ratatui::style::Color {
     theme::BG
 }
 
+pub(crate) fn onboarding_slide_edge_color() -> ratatui::style::Color {
+    theme::BG_SURFACE
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,6 +173,11 @@ mod tests {
     #[test]
     fn onboarding_slide_fill_color_uses_theme_background() {
         assert_eq!(onboarding_slide_fill_color(), theme::BG);
+    }
+
+    #[test]
+    fn onboarding_slide_edge_color_stays_near_theme_background() {
+        assert_eq!(onboarding_slide_edge_color(), theme::BG_SURFACE);
     }
 
     fn buffer_symbols(buffer: &Buffer, area: Rect) -> Vec<String> {

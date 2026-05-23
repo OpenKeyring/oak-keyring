@@ -78,6 +78,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .map(|active| animation_effect_area(&app.state, frame.area(), active.kind))
         .unwrap_or_else(|| frame.area());
     if let Some(active) = app.state.shared.animation.active_effect.as_mut() {
+        prepare_animation_area(frame.buffer_mut(), area, active.kind);
         active.effect.process(
             std::time::Duration::from_millis(50).into(),
             frame.buffer_mut(),
@@ -85,6 +86,28 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         );
     }
     app.state.shared.animation.clear_finished();
+}
+
+fn prepare_animation_area(
+    buffer: &mut ratatui::buffer::Buffer,
+    area: ratatui::layout::Rect,
+    kind: EffectKind,
+) {
+    if !matches!(
+        kind,
+        EffectKind::OnboardingForward | EffectKind::OnboardingBack
+    ) {
+        return;
+    }
+
+    let edge_color = crate::tui::animation::effects::onboarding_slide_edge_color();
+    for y in area.y..area.bottom() {
+        for x in area.x..area.right() {
+            if let Some(cell) = buffer.cell_mut((x, y)) {
+                cell.bg = edge_color;
+            }
+        }
+    }
 }
 
 fn animation_effect_area(
@@ -210,5 +233,43 @@ mod tests {
         let area = animation_effect_area(&state, frame_area, EffectKind::ScreenIn);
 
         assert_eq!(area, frame_area);
+    }
+
+    #[test]
+    fn onboarding_slide_prepares_muted_edge_background() {
+        let area = Rect::new(1, 1, 3, 2);
+        let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 6, 5));
+
+        prepare_animation_area(&mut buffer, area, EffectKind::OnboardingForward);
+
+        for y in area.y..area.bottom() {
+            for x in area.x..area.right() {
+                assert_eq!(
+                    buffer.cell((x, y)).expect("cell").bg,
+                    crate::tui::theme::BG_SURFACE
+                );
+            }
+        }
+        assert_ne!(
+            buffer.cell((0, 0)).expect("outside cell").bg,
+            crate::tui::theme::BG_SURFACE
+        );
+    }
+
+    #[test]
+    fn non_onboarding_slide_effect_does_not_prepare_background() {
+        let area = Rect::new(1, 1, 3, 2);
+        let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 6, 5));
+
+        prepare_animation_area(&mut buffer, area, EffectKind::ScreenIn);
+
+        for y in area.y..area.bottom() {
+            for x in area.x..area.right() {
+                assert_ne!(
+                    buffer.cell((x, y)).expect("cell").bg,
+                    crate::tui::theme::BG_SURFACE
+                );
+            }
+        }
     }
 }
