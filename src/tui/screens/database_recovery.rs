@@ -1166,7 +1166,8 @@ mod tests {
         screen.focus = DatabaseRecoveryFocus::Okb;
         screen.mode = DatabaseRecoveryMode::OkbPathInput;
         screen.handle_key_for_test(key(KeyCode::Enter));
-        assert_eq!(screen.error.as_deref(), Some("Enter a .okb path."));
+        let expected = t!("tui.entry.db_recovery_okb_empty_error").to_string();
+        assert_eq!(screen.error.as_deref(), Some(expected.as_str()));
     }
 
     #[test]
