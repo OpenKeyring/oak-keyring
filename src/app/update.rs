@@ -875,6 +875,28 @@ mod tests {
     }
 
     #[test]
+    fn onboarding_forward_interrupts_active_intro_animation() {
+        let mut app = onboarding_app();
+        start_initial_transition(&mut app.state, &app.config);
+        assert!(app
+            .state
+            .shared
+            .animation
+            .has_active_kind(crate::tui::state::animation::EffectKind::OnboardingIntro));
+
+        let result = handle_message(&mut app, Message::KeyEvent(key(KeyCode::Enter)))
+            .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Onboarding);
+        assert!(app
+            .state
+            .shared
+            .animation
+            .has_active_kind(crate::tui::state::animation::EffectKind::OnboardingForward));
+    }
+
+    #[test]
     fn onboarding_internal_back_starts_onboarding_back_animation() {
         let mut app = onboarding_app();
         app.state.screens.onboarding.selected_path =

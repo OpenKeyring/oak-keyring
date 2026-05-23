@@ -76,7 +76,7 @@ pub fn start_transition(state: &mut AnimationState, kind: EffectKind) {
         ),
         EffectKind::OnboardingIntro => (
             timing::ONBOARDING_INTRO,
-            false,
+            true,
             crate::tui::animation::effects::onboarding_intro(
                 timing::ONBOARDING_INTRO as u32,
                 state.level,
@@ -175,7 +175,7 @@ mod tests {
         let effect = state.active_effect.as_ref().expect("intro effect");
         assert_eq!(effect.kind, EffectKind::OnboardingIntro);
         assert_eq!(effect.duration_ms, timing::ONBOARDING_INTRO);
-        assert!(!effect.interruptible);
+        assert!(effect.interruptible);
 
         state.clear();
         start_transition(&mut state, EffectKind::OnboardingForward);
@@ -190,6 +190,16 @@ mod tests {
         assert_eq!(effect.kind, EffectKind::OnboardingBack);
         assert_eq!(effect.duration_ms, timing::ONBOARDING_STEP);
         assert!(effect.interruptible);
+    }
+
+    #[test]
+    fn onboarding_intro_can_be_interrupted_by_step_motion() {
+        let mut state = AnimationState::default();
+
+        start_transition(&mut state, EffectKind::OnboardingIntro);
+        start_transition(&mut state, EffectKind::OnboardingForward);
+
+        assert!(state.has_active_kind(EffectKind::OnboardingForward));
     }
 
     #[test]
