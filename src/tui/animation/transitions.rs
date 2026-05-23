@@ -17,6 +17,8 @@ pub mod timing {
     pub const MODAL_APPEAR: u64 = 200;
     /// Modal overlay dismissing.
     pub const MODAL_DISMISS: u64 = 150;
+    /// First-run onboarding intro.
+    pub const ONBOARDING_INTRO: u64 = 900;
     /// Onboarding step transition.
     pub const ONBOARDING_STEP: u64 = 400;
     /// Sidebar sweep animation.
@@ -71,6 +73,30 @@ pub fn start_transition(state: &mut AnimationState, kind: EffectKind) {
             timing::UNLOCK_TO_MAIN,
             false,
             crate::tui::animation::effects::dissolve(timing::UNLOCK_TO_MAIN as u32, state.level),
+        ),
+        EffectKind::OnboardingIntro => (
+            timing::ONBOARDING_INTRO,
+            false,
+            crate::tui::animation::effects::onboarding_intro(
+                timing::ONBOARDING_INTRO as u32,
+                state.level,
+            ),
+        ),
+        EffectKind::OnboardingForward => (
+            timing::ONBOARDING_STEP,
+            true,
+            crate::tui::animation::effects::onboarding_forward(
+                timing::ONBOARDING_STEP as u32,
+                state.level,
+            ),
+        ),
+        EffectKind::OnboardingBack => (
+            timing::ONBOARDING_STEP,
+            true,
+            crate::tui::animation::effects::onboarding_back(
+                timing::ONBOARDING_STEP as u32,
+                state.level,
+            ),
         ),
         EffectKind::ScreenIn => (
             timing::SCREEN_IN,
@@ -129,6 +155,9 @@ mod tests {
             EffectKind::ModalAppear,
             EffectKind::ModalDismiss,
             EffectKind::BrandDissolve,
+            EffectKind::OnboardingIntro,
+            EffectKind::OnboardingForward,
+            EffectKind::OnboardingBack,
             EffectKind::ScreenIn,
             EffectKind::ScreenOut,
         ] {
@@ -136,6 +165,48 @@ mod tests {
             start_transition(&mut state, kind);
             assert!(state.is_active(), "EffectKind::{kind:?} should be active");
         }
+    }
+
+    #[test]
+    fn onboarding_transition_kinds_have_expected_timing() {
+        let mut state = AnimationState::default();
+
+        start_transition(&mut state, EffectKind::OnboardingIntro);
+        let effect = state.active_effect.as_ref().expect("intro effect");
+        assert_eq!(effect.kind, EffectKind::OnboardingIntro);
+        assert_eq!(effect.duration_ms, timing::ONBOARDING_INTRO);
+        assert!(!effect.interruptible);
+
+        state.clear();
+        start_transition(&mut state, EffectKind::OnboardingForward);
+        let effect = state.active_effect.as_ref().expect("forward effect");
+        assert_eq!(effect.kind, EffectKind::OnboardingForward);
+        assert_eq!(effect.duration_ms, timing::ONBOARDING_STEP);
+        assert!(effect.interruptible);
+
+        state.clear();
+        start_transition(&mut state, EffectKind::OnboardingBack);
+        let effect = state.active_effect.as_ref().expect("back effect");
+        assert_eq!(effect.kind, EffectKind::OnboardingBack);
+        assert_eq!(effect.duration_ms, timing::ONBOARDING_STEP);
+        assert!(effect.interruptible);
+    }
+
+    #[test]
+    fn onboarding_intro_respects_reduced_and_none_levels() {
+        let mut reduced = AnimationState {
+            level: AnimationLevel::Reduced,
+            active_effect: None,
+        };
+        start_transition(&mut reduced, EffectKind::OnboardingIntro);
+        assert!(reduced.has_active_kind(EffectKind::OnboardingIntro));
+
+        let mut none = AnimationState {
+            level: AnimationLevel::None,
+            active_effect: None,
+        };
+        start_transition(&mut none, EffectKind::OnboardingIntro);
+        assert!(!none.is_active());
     }
 
     #[test]
