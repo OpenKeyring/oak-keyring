@@ -466,7 +466,7 @@ impl OnboardingScreen {
     ) {
         let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
         let hdr = header_rows(wide);
-        let content_area = Self::centered_content(area, hdr + 16, 60);
+        let content_area = Self::centered_content(area, hdr + 16, 72);
 
         let rows = Layout::vertical([
             Constraint::Length(hdr), // logo or brand

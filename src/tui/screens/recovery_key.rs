@@ -4,14 +4,21 @@
 //! OnboardingScreen and other flows that need recovery key input or verification.
 
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::layout::Constraint;
+use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Row, Table};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use std::borrow::Cow;
 use zeroize::Zeroize;
 
 use crate::tui::theme::{BORDER, ERROR, PRIMARY, TEXT, TEXT_MUTED, TEXT_SECONDARY};
+
+const GRID_COLUMNS: usize = 4;
+const GRID_ROWS: usize = 6;
+const DESIRED_CELL_WIDTH: u16 = 16;
+const WIDE_CELL_GAP: u16 = 4;
+const COMPACT_CELL_GAP: u16 = 2;
+const WORD_TEXT_OFFSET: u16 = 4; // "01. " prefix width
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -107,6 +114,26 @@ impl WordGridState {
         self.focused_index = prev;
     }
 
+    fn move_focus_spatially(&mut self, col_delta: i8, row_delta: i8) {
+        let mut col = (self.focused_index % GRID_COLUMNS) as i8;
+        let mut row = (self.focused_index / GRID_COLUMNS) as i8;
+
+        loop {
+            col += col_delta;
+            row += row_delta;
+
+            if col < 0 || col >= GRID_COLUMNS as i8 || row < 0 || row >= GRID_ROWS as i8 {
+                return;
+            }
+
+            let index = row as usize * GRID_COLUMNS + col as usize;
+            if self.is_editable(index) {
+                self.focused_index = index;
+                return;
+            }
+        }
+    }
+
     /// Returns `true` if all editable words are non-empty.
     pub fn all_filled(&self) -> bool {
         self.editable_indices()
@@ -140,6 +167,22 @@ impl WordGridState {
             }
             KeyCode::BackTab => {
                 self.prev_word();
+                None
+            }
+            KeyCode::Left => {
+                self.move_focus_spatially(-1, 0);
+                None
+            }
+            KeyCode::Right => {
+                self.move_focus_spatially(1, 0);
+                None
+            }
+            KeyCode::Up => {
+                self.move_focus_spatially(0, -1);
+                None
+            }
+            KeyCode::Down => {
+                self.move_focus_spatially(0, 1);
                 None
             }
             KeyCode::Enter => {
@@ -177,33 +220,25 @@ impl WordGridState {
 
     /// Render the word grid into the given `Frame` and `area`.
     pub fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        // 4 columns x 6 rows
-        let rows: Vec<Row> = (0..6)
-            .map(|row| {
-                let cells: Vec<Line> = (0..4)
-                    .map(|col| {
-                        let idx = row * 4 + col;
-                        self.render_cell(idx)
-                    })
-                    .collect();
-                Row::new(cells)
-            })
-            .collect();
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(BORDER));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
 
-        let widths = [
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-        ];
+        for row in 0..GRID_ROWS {
+            for col in 0..GRID_COLUMNS {
+                let Some(cell_area) = Self::cell_area(inner, row, col) else {
+                    continue;
+                };
+                let idx = row * GRID_COLUMNS + col;
+                frame.render_widget(Paragraph::new(self.render_cell(idx)), cell_area);
+            }
+        }
 
-        let table = Table::new(rows, widths).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(BORDER)),
-        );
-
-        frame.render_widget(table, area);
+        if let Some(cursor_position) = self.focused_cursor_position(inner) {
+            frame.set_cursor_position(cursor_position);
+        }
     }
 
     /// Build the styled `Line` for a single cell at `index`.
@@ -245,11 +280,7 @@ impl WordGridState {
             Style::default().fg(TEXT_SECONDARY)
         };
 
-        let word_style = if is_focused {
-            base_style.add_modifier(Modifier::UNDERLINED)
-        } else {
-            base_style
-        };
+        let word_style = base_style;
 
         let separator = Span::styled(" ", Style::default());
 
@@ -259,6 +290,72 @@ impl WordGridState {
             Span::styled(word_text, word_style),
         ])
     }
+
+    fn cell_area(inner: Rect, row: usize, col: usize) -> Option<Rect> {
+        if row >= GRID_ROWS || col >= GRID_COLUMNS || row as u16 >= inner.height {
+            return None;
+        }
+
+        let (cell_width, gap) = Self::cell_metrics(inner.width);
+        if cell_width == 0 {
+            return None;
+        }
+
+        let x = inner
+            .x
+            .saturating_add(col as u16 * cell_width.saturating_add(gap));
+        if x >= inner.right() {
+            return None;
+        }
+
+        Some(Rect {
+            x,
+            y: inner.y + row as u16,
+            width: cell_width.min(inner.right().saturating_sub(x)),
+            height: 1,
+        })
+    }
+
+    fn cell_metrics(width: u16) -> (u16, u16) {
+        if width == 0 {
+            return (0, 0);
+        }
+
+        let gap = if width >= DESIRED_CELL_WIDTH * GRID_COLUMNS as u16 + WIDE_CELL_GAP * 3 {
+            WIDE_CELL_GAP
+        } else if width >= DESIRED_CELL_WIDTH * GRID_COLUMNS as u16 + COMPACT_CELL_GAP * 3 {
+            COMPACT_CELL_GAP
+        } else if width >= GRID_COLUMNS as u16 + 3 {
+            1
+        } else {
+            0
+        };
+        let available_for_cells = width.saturating_sub(gap * 3);
+        let cell_width = (available_for_cells / GRID_COLUMNS as u16)
+            .min(DESIRED_CELL_WIDTH)
+            .max(1);
+
+        (cell_width, gap)
+    }
+
+    fn focused_cursor_position(&self, inner: Rect) -> Option<Position> {
+        if !self.is_editable(self.focused_index) {
+            return None;
+        }
+
+        let row = self.focused_index / GRID_COLUMNS;
+        let col = self.focused_index % GRID_COLUMNS;
+        let cell_area = Self::cell_area(inner, row, col)?;
+        let word_len = self.words[self.focused_index].chars().count() as u16;
+        let cursor_offset = WORD_TEXT_OFFSET
+            .saturating_add(word_len)
+            .min(cell_area.width.saturating_sub(1));
+
+        Some(Position {
+            x: cell_area.x + cursor_offset,
+            y: cell_area.y,
+        })
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -266,6 +363,20 @@ impl WordGridState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::backend::{Backend, TestBackend};
+    use ratatui::layout::Position;
+    use ratatui::Terminal;
+
+    fn render_grid_cursor_position(state: &WordGridState, width: u16, height: u16) -> Position {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                state.view(frame, frame.area());
+            })
+            .unwrap();
+        terminal.backend_mut().get_cursor_position().unwrap()
+    }
 
     #[test]
     fn recovery_key_grid_default() {
@@ -300,6 +411,92 @@ mod tests {
         state.focused_index = 0;
         state.prev_word();
         assert_eq!(state.focused_index, 23);
+    }
+
+    #[test]
+    fn recovery_key_arrow_keys_move_spatially() {
+        let mut state = WordGridState::default();
+
+        state.handle_key(KeyEvent::new(
+            KeyCode::Right,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(state.focused_index, 1);
+
+        state.handle_key(KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(state.focused_index, 5);
+
+        state.handle_key(KeyEvent::new(
+            KeyCode::Left,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(state.focused_index, 4);
+
+        state.handle_key(KeyEvent::new(
+            KeyCode::Up,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(state.focused_index, 0);
+    }
+
+    #[test]
+    fn recovery_key_arrow_keys_skip_non_editable_slots() {
+        let mut state = WordGridState::default();
+        state.focused_index = 0;
+        state.mode = WordGridMode::PartialVerify {
+            positions: [0, 3, 7, 11],
+        };
+
+        state.handle_key(KeyEvent::new(
+            KeyCode::Right,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(state.focused_index, 3);
+
+        state.handle_key(KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(state.focused_index, 7);
+
+        state.handle_key(KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(state.focused_index, 11);
+
+        state.handle_key(KeyEvent::new(
+            KeyCode::Left,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(state.focused_index, 11);
+    }
+
+    #[test]
+    fn recovery_key_focused_word_sets_terminal_cursor() {
+        let mut state = WordGridState::default();
+        state.words[1] = "ability".to_string();
+        state.focused_index = 1;
+
+        let cursor = render_grid_cursor_position(&state, 80, 10);
+
+        assert_eq!(cursor, Position { x: 32, y: 1 });
+    }
+
+    #[test]
+    fn recovery_key_focused_word_is_not_underlined() {
+        let mut state = WordGridState::default();
+        state.focused_index = 0;
+
+        let line = state.render_cell(0);
+
+        assert!(!line.spans[2]
+            .style
+            .add_modifier
+            .contains(Modifier::UNDERLINED));
     }
 
     #[test]

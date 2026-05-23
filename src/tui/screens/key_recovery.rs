@@ -148,14 +148,14 @@ impl ScreenTrait for KeyRecoveryScreen {
             1
         };
         let separator_rows = if use_onboarding_header { 0 } else { 1 };
-        let content_area = Self::centered_content(area, 15 + brand_rows + separator_rows);
+        let content_area = Self::centered_content(area, 17 + brand_rows + separator_rows);
 
         let rows = Layout::vertical([
             Constraint::Length(brand_rows),     // logo or brand
             Constraint::Length(separator_rows), // separator for compact startup recovery
             Constraint::Length(2),              // title
             Constraint::Length(2),              // instruction
-            Constraint::Length(6),              // 24-word grid
+            Constraint::Length(8),              // 24-word grid
             Constraint::Length(1),              // gap
             Constraint::Length(1),              // error or hint
             Constraint::Length(1),              // hotkey
@@ -272,7 +272,7 @@ impl KeyRecoveryScreen {
 
         let h_layout = Layout::horizontal([
             Constraint::Fill(1),
-            Constraint::Max(60),
+            Constraint::Max(72),
             Constraint::Fill(1),
         ])
         .split(outer[1]);
