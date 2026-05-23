@@ -1,4 +1,4 @@
-use ratatui::layout::{Alignment, Constraint, Layout};
+use ratatui::layout::{Alignment, Constraint, Layout, Position};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
@@ -382,15 +382,7 @@ impl OnboardingScreen {
                 BORDER
             };
 
-            let input_text = if is_focused {
-                if self.verify_inputs[i].is_empty() {
-                    "_".to_string()
-                } else {
-                    let mut text = self.verify_inputs[i].expose(|s| s.to_string());
-                    text.push('_');
-                    text
-                }
-            } else if self.verify_inputs[i].is_empty() {
+            let input_text = if self.verify_inputs[i].is_empty() {
                 String::new()
             } else {
                 self.verify_inputs[i].expose(|s| s.to_string())
@@ -414,6 +406,11 @@ impl OnboardingScreen {
             let inner = input_block.inner(box_area);
             frame.render_widget(input_block, box_area);
             frame.render_widget(para, inner);
+            if is_focused && inner.width > 0 && inner.height > 0 {
+                let cursor_offset = self.verify_inputs[i].expose(|s| s.chars().count() as u16);
+                let cursor_x = inner.x + cursor_offset.min(inner.width.saturating_sub(1));
+                frame.set_cursor_position(Position::new(cursor_x, inner.y));
+            }
             self.verify_box_areas[i].set(box_area);
         }
 

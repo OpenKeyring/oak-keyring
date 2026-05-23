@@ -45,12 +45,7 @@ impl OnboardingScreen {
         }
     }
 
-    fn handle_mouse_click(
-        &mut self,
-        col: u16,
-        row: u16,
-        ctx: &mut ScreenContext,
-    ) -> ScreenResult {
+    fn handle_mouse_click(&mut self, col: u16, row: u16, ctx: &mut ScreenContext) -> ScreenResult {
         match self.current_step {
             OnboardingStep::Welcome => {
                 for i in 0..self.welcome_card_areas.len() {
@@ -65,13 +60,7 @@ impl OnboardingScreen {
                 return self.handle_recovery_display_click(col, row, ctx);
             }
             OnboardingStep::RecoveryVerify { .. } => {
-                for (i, area_cell) in self.verify_box_areas.iter().enumerate() {
-                    let area = area_cell.get();
-                    if contains(area, col, row) {
-                        self.verify_focus_index = i;
-                        return ScreenResult::Continue;
-                    }
-                }
+                self.focus_verify_box_at(col, row);
             }
             _ => {}
         }
@@ -114,9 +103,22 @@ impl OnboardingScreen {
                     }
                 }
             }
+            OnboardingStep::RecoveryVerify { .. } => {
+                self.focus_verify_box_at(col, row);
+            }
             _ => {}
         }
         ScreenResult::Continue
+    }
+
+    fn focus_verify_box_at(&mut self, col: u16, row: u16) {
+        for (i, area_cell) in self.verify_box_areas.iter().enumerate() {
+            let area = area_cell.get();
+            if contains(area, col, row) {
+                self.verify_focus_index = i;
+                return;
+            }
+        }
     }
 
     fn select_welcome_path(&mut self) -> ScreenResult {

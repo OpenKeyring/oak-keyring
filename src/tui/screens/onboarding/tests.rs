@@ -8,8 +8,9 @@ use crate::tui::traits::screen::{ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
 use crate::types::RecoveryWords;
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
-use ratatui::backend::TestBackend;
+use ratatui::backend::{Backend, TestBackend};
 use ratatui::buffer::Buffer;
+use ratatui::layout::Position;
 use ratatui::Terminal;
 
 fn recovery_words_fixture() -> RecoveryWords {
@@ -59,6 +60,21 @@ fn render_onboarding_buffer(screen: &OnboardingScreen, width: u16, height: u16) 
         })
         .unwrap();
     terminal.backend().buffer().clone()
+}
+
+fn render_onboarding_cursor_position(
+    screen: &OnboardingScreen,
+    width: u16,
+    height: u16,
+) -> Position {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            screen.view(frame, frame.area());
+        })
+        .unwrap();
+    terminal.backend_mut().get_cursor_position().unwrap()
 }
 
 fn click(column: u16, row: u16) -> MouseEvent {
@@ -171,7 +187,10 @@ fn onboarding_welcome_mouse_click_selects_restore() {
     let _ = render_onboarding(&screen, 80, 24);
     let restore_area = screen.welcome_card_areas[1].get();
 
-    let result = screen.handle_mouse(click(restore_area.x + 1, restore_area.y + 1), &mut dummy_ctx());
+    let result = screen.handle_mouse(
+        click(restore_area.x + 1, restore_area.y + 1),
+        &mut dummy_ctx(),
+    );
 
     assert!(matches!(
         result,
@@ -188,7 +207,10 @@ fn onboarding_welcome_mouse_hover_updates_focus() {
     assert_eq!(screen.welcome_selected, 0);
 
     let import_area = screen.welcome_card_areas[2].get();
-    let result = screen.handle_mouse(mouse_move(import_area.x + 1, import_area.y + 1), &mut dummy_ctx());
+    let result = screen.handle_mouse(
+        mouse_move(import_area.x + 1, import_area.y + 1),
+        &mut dummy_ctx(),
+    );
 
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(screen.welcome_selected, 2);
@@ -713,7 +735,7 @@ fn onboarding_recovery_verify_backtab_is_ignored() {
 }
 
 #[test]
-fn onboarding_recovery_verify_empty_focused_input_renders_cursor() {
+fn onboarding_recovery_verify_empty_focused_input_does_not_render_text_cursor() {
     let screen = OnboardingScreen {
         current_step: OnboardingStep::RecoveryVerify {
             positions: [2, 5, 12, 21],
@@ -730,10 +752,122 @@ fn onboarding_recovery_verify_empty_focused_input_renders_cursor() {
     assert_eq!(
         buffer
             .cell((input_area.x + 1, input_area.y + 1))
-            .expect("focused input cursor cell")
+            .expect("focused input text cell")
             .symbol(),
-        "_"
+        " "
     );
+}
+
+#[test]
+fn onboarding_recovery_verify_focused_text_input_does_not_append_text_cursor() {
+    let screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [2, 5, 12, 21],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [2, 5, 12, 21],
+        verify_focus_index: 1,
+        verify_inputs: [
+            SensitiveInput::new(),
+            SensitiveInput::from("ab".to_string()),
+            SensitiveInput::new(),
+            SensitiveInput::new(),
+        ],
+        ..Default::default()
+    };
+
+    let buffer = render_onboarding_buffer(&screen, 80, 24);
+    let input_area = screen.verify_box_areas[1].get();
+
+    assert_eq!(
+        buffer
+            .cell((input_area.x + 1, input_area.y + 1))
+            .expect("first typed cell")
+            .symbol(),
+        "a"
+    );
+    assert_eq!(
+        buffer
+            .cell((input_area.x + 2, input_area.y + 1))
+            .expect("second typed cell")
+            .symbol(),
+        "b"
+    );
+    assert_eq!(
+        buffer
+            .cell((input_area.x + 3, input_area.y + 1))
+            .expect("cell after typed input")
+            .symbol(),
+        " "
+    );
+}
+
+#[test]
+fn onboarding_recovery_verify_empty_focused_input_sets_terminal_cursor() {
+    let screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [2, 5, 12, 21],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [2, 5, 12, 21],
+        verify_focus_index: 2,
+        ..Default::default()
+    };
+
+    let _ = render_onboarding_buffer(&screen, 80, 24);
+    let input_area = screen.verify_box_areas[2].get();
+    let cursor = render_onboarding_cursor_position(&screen, 80, 24);
+
+    assert_eq!(
+        cursor,
+        Position {
+            x: input_area.x + 1,
+            y: input_area.y + 1,
+        }
+    );
+}
+
+#[test]
+fn onboarding_recovery_verify_mouse_hover_focuses_input_box() {
+    let mut screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [0, 5, 10, 15],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [0, 5, 10, 15],
+        verify_focus_index: 0,
+        ..Default::default()
+    };
+    let _ = render_onboarding(&screen, 80, 24);
+    let third_box = screen.verify_box_areas[2].get();
+
+    let result = screen.handle_mouse(
+        mouse_move(third_box.x + 1, third_box.y + 1),
+        &mut dummy_ctx(),
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.verify_focus_index, 2);
+}
+
+#[test]
+fn onboarding_recovery_verify_mouse_click_focuses_input_box() {
+    let mut screen = OnboardingScreen {
+        current_step: OnboardingStep::RecoveryVerify {
+            positions: [0, 5, 10, 15],
+        },
+        selected_path: Some(OnboardingPath::CreateNew),
+        verify_positions: [0, 5, 10, 15],
+        verify_focus_index: 0,
+        ..Default::default()
+    };
+    let _ = render_onboarding(&screen, 80, 24);
+    let fourth_box = screen.verify_box_areas[3].get();
+
+    let result = screen.handle_mouse(click(fourth_box.x + 1, fourth_box.y + 1), &mut dummy_ctx());
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.verify_focus_index, 3);
 }
 
 #[test]
