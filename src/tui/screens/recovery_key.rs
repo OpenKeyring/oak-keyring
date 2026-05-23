@@ -331,9 +331,7 @@ impl WordGridState {
             0
         };
         let available_for_cells = width.saturating_sub(gap * 3);
-        let cell_width = (available_for_cells / GRID_COLUMNS as u16)
-            .min(DESIRED_CELL_WIDTH)
-            .max(1);
+        let cell_width = (available_for_cells / GRID_COLUMNS as u16).clamp(1, DESIRED_CELL_WIDTH);
 
         (cell_width, gap)
     }
