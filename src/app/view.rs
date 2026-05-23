@@ -4,6 +4,7 @@ use ratatui::Frame;
 
 use crate::app::App;
 use crate::commands::types::Screen;
+use crate::tui::state::animation::EffectKind;
 use crate::tui::theme;
 use crate::tui::traits::screen::Screen as ScreenTrait;
 
@@ -68,7 +69,14 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
 
     // Apply active animation effect to the frame buffer.
-    let area = frame.area();
+    let area = app
+        .state
+        .shared
+        .animation
+        .active_effect
+        .as_ref()
+        .map(|active| animation_effect_area(&app.state, frame.area(), active.kind))
+        .unwrap_or_else(|| frame.area());
     if let Some(active) = app.state.shared.animation.active_effect.as_mut() {
         active.effect.process(
             std::time::Duration::from_millis(50).into(),
@@ -77,6 +85,77 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         );
     }
     app.state.shared.animation.clear_finished();
+}
+
+fn animation_effect_area(
+    state: &crate::tui::state::AppState,
+    frame_area: ratatui::layout::Rect,
+    kind: EffectKind,
+) -> ratatui::layout::Rect {
+    match kind {
+        EffectKind::OnboardingIntro
+        | EffectKind::OnboardingForward
+        | EffectKind::OnboardingBack => onboarding_animation_area(state, frame_area),
+        _ => frame_area,
+    }
+}
+
+fn onboarding_animation_area(
+    state: &crate::tui::state::AppState,
+    frame_area: ratatui::layout::Rect,
+) -> ratatui::layout::Rect {
+    use crate::tui::screens::onboarding::views_setup::header_rows;
+    use crate::tui::screens::onboarding::{OnboardingScreen, OnboardingStep};
+    use crate::tui::terminal::WidthTier;
+
+    if !matches!(state.current_screen, Screen::Onboarding) {
+        return centered_animation_area(frame_area, 24, 72);
+    }
+
+    let wide = WidthTier::from_width(frame_area.width) != WidthTier::TooSmall;
+    let hdr = header_rows(wide);
+    let (height, width) = match &state.screens.onboarding.current_step {
+        OnboardingStep::Welcome => (hdr + 18, 60),
+        OnboardingStep::RecoveryDisplay => {
+            let learn_extra = if state.screens.onboarding.learn_more_expanded {
+                5
+            } else {
+                0
+            };
+            (hdr + 19 + learn_extra, 72)
+        }
+        OnboardingStep::RecoveryVerify { .. } => (hdr + 20, 60),
+        OnboardingStep::RecoveryInput => (hdr + 16, 72),
+        OnboardingStep::SecurityAdvisory => (hdr + 10, 60),
+        OnboardingStep::ImportSource => (hdr + 20, 60),
+        OnboardingStep::ImportPreview => (hdr + 18, 60),
+        OnboardingStep::SetPassword => (hdr + 7, 60),
+    };
+
+    OnboardingScreen::centered_content(frame_area, height, width)
+}
+
+fn centered_animation_area(
+    area: ratatui::layout::Rect,
+    height: u16,
+    width: u16,
+) -> ratatui::layout::Rect {
+    use ratatui::layout::{Constraint, Layout};
+
+    let vertical = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(height.min(area.height)),
+        Constraint::Fill(1),
+    ])
+    .split(area);
+    let horizontal = Layout::horizontal([
+        Constraint::Fill(1),
+        Constraint::Length(width.min(area.width)),
+        Constraint::Fill(1),
+    ])
+    .split(vertical[1]);
+
+    horizontal[1]
 }
 
 fn render_too_small(frame: &mut Frame, area: ratatui::layout::Rect) {
@@ -94,4 +173,42 @@ fn render_too_small(frame: &mut Frame, area: ratatui::layout::Rect) {
                 .border_style(theme::Styles::error_border()),
         );
     frame.render_widget(paragraph, area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::layout::Rect;
+
+    #[test]
+    fn onboarding_transition_area_is_limited_to_content_region() {
+        let mut state = crate::tui::state::AppState {
+            current_screen: Screen::Onboarding,
+            ..crate::tui::state::AppState::default()
+        };
+        state.screens.onboarding.current_step =
+            crate::tui::screens::onboarding::OnboardingStep::Welcome;
+        let frame_area = Rect::new(0, 0, 120, 40);
+
+        let area = animation_effect_area(&state, frame_area, EffectKind::OnboardingForward);
+
+        assert!(area.x > frame_area.x);
+        assert!(area.y > frame_area.y);
+        assert!(area.width < frame_area.width);
+        assert!(area.height < frame_area.height);
+        assert_eq!(area.width, 60);
+    }
+
+    #[test]
+    fn non_onboarding_transition_area_remains_full_frame() {
+        let state = crate::tui::state::AppState {
+            current_screen: Screen::Main,
+            ..crate::tui::state::AppState::default()
+        };
+        let frame_area = Rect::new(0, 0, 120, 40);
+
+        let area = animation_effect_area(&state, frame_area, EffectKind::ScreenIn);
+
+        assert_eq!(area, frame_area);
+    }
 }

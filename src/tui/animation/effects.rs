@@ -3,6 +3,7 @@
 //! Wraps tachyonfx effects with animation-level awareness.
 
 use crate::tui::animation::AnimationLevel;
+use crate::tui::theme;
 
 /// Create a dissolve effect for brand transitions (unlock to main).
 /// Returns None if animation level is None.
@@ -74,8 +75,8 @@ pub fn onboarding_forward(duration_ms: u32, level: AnimationLevel) -> Option<tac
         tachyonfx::Motion::RightToLeft,
         16,
         0,
-        ratatui::style::Color::Black,
-        (duration_ms, tachyonfx::Interpolation::CubicInOut),
+        onboarding_slide_fill_color(),
+        (duration_ms, tachyonfx::Interpolation::Linear),
     ))
 }
 
@@ -91,9 +92,13 @@ pub fn onboarding_back(duration_ms: u32, level: AnimationLevel) -> Option<tachyo
         tachyonfx::Motion::LeftToRight,
         16,
         0,
-        ratatui::style::Color::Black,
-        (duration_ms, tachyonfx::Interpolation::CubicInOut),
+        onboarding_slide_fill_color(),
+        (duration_ms, tachyonfx::Interpolation::Linear),
     ))
+}
+
+fn onboarding_slide_fill_color() -> ratatui::style::Color {
+    theme::BG
 }
 
 #[cfg(test)]
@@ -159,6 +164,11 @@ mod tests {
         assert!(onboarding_intro(2000, AnimationLevel::None).is_none());
         assert!(onboarding_forward(400, AnimationLevel::None).is_none());
         assert!(onboarding_back(400, AnimationLevel::None).is_none());
+    }
+
+    #[test]
+    fn onboarding_slide_fill_color_uses_theme_background() {
+        assert_eq!(onboarding_slide_fill_color(), theme::BG);
     }
 
     fn buffer_symbols(buffer: &Buffer, area: Rect) -> Vec<String> {
