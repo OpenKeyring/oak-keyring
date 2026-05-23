@@ -48,6 +48,22 @@ fn take_pending_onboarding_motion(
     state.screens.onboarding.take_pending_motion()
 }
 
+fn onboarding_navigation_fallback_transition(
+    state: &crate::tui::state::AppState,
+    screen: Screen,
+) -> crate::tui::state::animation::EffectKind {
+    if matches!(state.current_screen, Screen::Onboarding)
+        && matches!(
+            screen,
+            Screen::SetNewMasterPassword | Screen::KeyRecovery | Screen::ImportExport
+        )
+    {
+        crate::tui::state::animation::EffectKind::OnboardingForward
+    } else {
+        crate::tui::state::animation::EffectKind::ScreenIn
+    }
+}
+
 fn start_pending_onboarding_motion(state: &mut crate::tui::state::AppState) {
     if matches!(state.current_screen, Screen::Onboarding) {
         if let Some(kind) = take_pending_onboarding_motion(state) {
@@ -458,8 +474,10 @@ fn handle_message(
                     start_pending_onboarding_motion(&mut app.state);
                 }
                 ScreenResult::NavigateTo(screen) => {
+                    let fallback_transition =
+                        onboarding_navigation_fallback_transition(&app.state, screen);
                     let transition = take_pending_onboarding_motion(&mut app.state)
-                        .unwrap_or(crate::tui::state::animation::EffectKind::ScreenIn);
+                        .unwrap_or(fallback_transition);
                     if !prepare_set_password_context_for_navigation(&mut app.state, screen) {
                         return Ok(LoopControl::Continue);
                     }
@@ -515,8 +533,10 @@ fn handle_message(
                     start_pending_onboarding_motion(&mut app.state);
                 }
                 ScreenResult::NavigateTo(screen) => {
+                    let fallback_transition =
+                        onboarding_navigation_fallback_transition(&app.state, screen);
                     let transition = take_pending_onboarding_motion(&mut app.state)
-                        .unwrap_or(crate::tui::state::animation::EffectKind::ScreenIn);
+                        .unwrap_or(fallback_transition);
                     if !prepare_set_password_context_for_navigation(&mut app.state, screen) {
                         return Ok(LoopControl::Continue);
                     }
@@ -880,6 +900,27 @@ mod tests {
 
         assert_eq!(result, LoopControl::Continue);
         assert_eq!(app.state.current_screen, Screen::KeyRecovery);
+        assert!(app
+            .state
+            .shared
+            .animation
+            .has_active_kind(crate::tui::state::animation::EffectKind::OnboardingForward));
+    }
+
+    #[test]
+    fn onboarding_set_password_navigation_uses_onboarding_forward_animation() {
+        let mut app = onboarding_app();
+        app.state.screens.onboarding.selected_path =
+            Some(crate::tui::screens::onboarding::OnboardingPath::CreateNew);
+        app.state.screens.onboarding.current_step =
+            crate::tui::screens::onboarding::OnboardingStep::SetPassword;
+        app.state.screens.onboarding.recovery_words = Some(recovery_words());
+
+        let result = handle_message(&mut app, Message::KeyEvent(key(KeyCode::Enter)))
+            .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::SetNewMasterPassword);
         assert!(app
             .state
             .shared
