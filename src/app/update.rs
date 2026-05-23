@@ -16,7 +16,7 @@ use crate::app::signal::SignalHandler;
 use crate::app::view;
 use crate::app::App;
 use crate::commands::types::{AppPhase, Screen};
-use crate::commands::Message;
+use crate::commands::{CommandResult, Message};
 use crate::tui::screens::set_password::{RestoreNext, SetPasswordContext, SetPasswordScreen};
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
 
@@ -87,6 +87,47 @@ fn build_set_password_context_before_unmount(
         },
         _ => None,
     }
+}
+
+fn is_onboarding_flow_screen(state: &crate::tui::state::AppState) -> bool {
+    match state.current_screen {
+        Screen::Onboarding => true,
+        Screen::KeyRecovery => matches!(
+            state.screens.key_recovery.origin,
+            crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore
+        ),
+        Screen::DatabaseRecovery => matches!(
+            state.screens.database_recovery.origin,
+            crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore
+        ),
+        Screen::SetNewMasterPassword => matches!(
+            state.screens.set_new_master_password.context,
+            SetPasswordContext::OnboardingCreate { .. }
+                | SetPasswordContext::OnboardingRestore
+                | SetPasswordContext::RestoreExistingVault {
+                    next: RestoreNext::RestoreDatabase,
+                    ..
+                }
+        ),
+        Screen::ImportExport => matches!(
+            state.screens.import_export.entry_point,
+            crate::tui::screens::import_export::ImportEntryPoint::Onboarding { .. }
+        ),
+        _ => false,
+    }
+}
+
+fn should_suppress_onboarding_vault_locked(
+    state: &crate::tui::state::AppState,
+    result: &CommandResult,
+) -> bool {
+    matches!(
+        result,
+        CommandResult::Error {
+            code: crate::errors::ErrorCode::ExecutorVaultLocked,
+            ..
+        }
+    ) && is_onboarding_flow_screen(state)
 }
 
 pub fn run(
@@ -227,8 +268,12 @@ fn handle_message(
 
         // -- Command results: global handling + screen routing ----
         Message::CommandCompleted(ref result) => {
-            use crate::commands::result::CommandResult;
             use crate::tui::state::notification::StatusMessage;
+
+            if should_suppress_onboarding_vault_locked(&app.state, result) {
+                tracing::debug!("Suppressed vault-locked result during onboarding flow");
+                return Ok(LoopControl::Continue);
+            }
 
             match result {
                 CommandResult::ConfigSaved { warnings } => {
@@ -616,7 +661,10 @@ fn route_on_unmount_from_state(state: &mut crate::tui::state::AppState) {
 mod tests {
     use super::*;
     use crate::commands::types::{AppPhase, PanelId};
+    use crate::errors::{ErrorCode, ErrorContext};
     use crate::instance_lock::InstanceLock;
+    use crate::tui::screens::database_recovery::DatabaseRecoveryOrigin;
+    use crate::tui::screens::import_export::ImportEntryPoint;
     use crate::tui::screens::key_recovery::KeyRecoveryOrigin;
     use crate::tui::screens::set_password::{RestoreNext, SetPasswordContext};
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -649,6 +697,19 @@ mod tests {
             kind: KeyEventKind::Press,
             state: crossterm::event::KeyEventState::NONE,
         }
+    }
+
+    fn vault_locked_message() -> Message {
+        Message::CommandCompleted(crate::commands::result::CommandResult::Error {
+            code: ErrorCode::ExecutorVaultLocked,
+            context: ErrorContext::default(),
+            message_key: "error.vault_locked",
+            fallback: "Vault is locked. Please unlock first.".to_string(),
+        })
+    }
+
+    fn recovery_words() -> crate::types::RecoveryWords {
+        crate::types::RecoveryWords::new((0..24).map(|i| format!("word{i}")).collect()).unwrap()
     }
 
     #[test]
@@ -768,5 +829,67 @@ mod tests {
             .current_message
             .as_ref()
             .is_some_and(|message| message.is_error()));
+    }
+
+    #[test]
+    fn onboarding_screen_suppresses_vault_locked_result() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::Onboarding;
+
+        let result = handle_message(&mut app, vault_locked_message()).expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert!(app.state.shared.notification.current_message.is_none());
+        assert!(app.state.screens.onboarding.error.is_none());
+    }
+
+    #[test]
+    fn onboarding_set_password_suppresses_vault_locked_result() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::SetNewMasterPassword;
+        app.state.screens.set_new_master_password =
+            SetPasswordScreen::new(SetPasswordContext::OnboardingCreate {
+                recovery_words: recovery_words(),
+            });
+
+        let result = handle_message(&mut app, vault_locked_message()).expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert!(app.state.shared.notification.current_message.is_none());
+        assert!(app.state.screens.set_new_master_password.error.is_none());
+    }
+
+    #[test]
+    fn onboarding_restore_screens_suppress_vault_locked_result() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::KeyRecovery;
+        app.state.screens.key_recovery.origin = KeyRecoveryOrigin::OnboardingRestore;
+
+        let result = handle_message(&mut app, vault_locked_message()).expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert!(app.state.shared.notification.current_message.is_none());
+        assert!(app.state.screens.key_recovery.error.is_none());
+
+        app.state.current_screen = Screen::DatabaseRecovery;
+        app.state.screens.database_recovery.origin = DatabaseRecoveryOrigin::OnboardingRestore;
+
+        let result = handle_message(&mut app, vault_locked_message()).expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert!(app.state.shared.notification.current_message.is_none());
+        assert!(app.state.screens.database_recovery.error.is_none());
+    }
+
+    #[test]
+    fn onboarding_import_suppresses_vault_locked_result() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::ImportExport;
+        app.state.screens.import_export.entry_point = ImportEntryPoint::Onboarding { step: 2 };
+
+        let result = handle_message(&mut app, vault_locked_message()).expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert!(app.state.shared.notification.current_message.is_none());
     }
 }

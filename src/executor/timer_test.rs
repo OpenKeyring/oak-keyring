@@ -71,14 +71,14 @@ fn sync_interval_none_when_zero_interval() {
     assert!(!timers.sync_active);
 }
 
-fn executor_with_vault(unlocked: bool) -> CommandExecutor {
+fn executor_with_vault(unlocked: bool, file_backed: bool) -> CommandExecutor {
     let (result_tx, _) = mpsc::channel(8);
     let mut vault = MockVault::new();
     vault.expect_is_unlocked().returning(move || unlocked);
 
     CommandExecutor::builder(":memory:".into(), ":memory:".into())
         .vault(Box::new(vault))
-        .vault_db_file_backed(true)
+        .vault_db_file_backed(file_backed)
         .config(AppConfig::default())
         .result_tx(result_tx)
         .shutdown_token(CancellationToken::new())
@@ -104,7 +104,7 @@ fn auto_timers_do_not_emit_commands_when_runtime_is_locked() {
 
 #[test]
 fn auto_timers_do_not_emit_commands_when_file_backed_vault_is_locked() {
-    let executor = executor_with_vault(false);
+    let executor = executor_with_vault(false, true);
 
     assert!(!executor.should_run_auto_sync_timer());
     assert!(!executor.should_run_auto_lock_timer());
@@ -112,8 +112,16 @@ fn auto_timers_do_not_emit_commands_when_file_backed_vault_is_locked() {
 
 #[test]
 fn auto_timers_emit_commands_when_vault_is_unlocked() {
-    let executor = executor_with_vault(true);
+    let executor = executor_with_vault(true, true);
 
     assert!(executor.should_run_auto_sync_timer());
     assert!(executor.should_run_auto_lock_timer());
+}
+
+#[test]
+fn auto_timers_do_not_emit_commands_for_deferred_in_memory_vault() {
+    let executor = executor_with_vault(true, false);
+
+    assert!(!executor.should_run_auto_sync_timer());
+    assert!(!executor.should_run_auto_lock_timer());
 }

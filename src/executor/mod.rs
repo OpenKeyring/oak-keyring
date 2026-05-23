@@ -282,11 +282,11 @@ impl CommandExecutor {
     }
 
     fn should_run_auto_sync_timer(&self) -> bool {
-        self.is_unlocked()
+        self.vault_db_file_backed && self.is_unlocked()
     }
 
     fn should_run_auto_lock_timer(&self) -> bool {
-        self.is_unlocked()
+        self.vault_db_file_backed && self.is_unlocked()
     }
 
     /// Get a reference to the vault (read-only operations).
