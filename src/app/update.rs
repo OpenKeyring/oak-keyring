@@ -130,6 +130,21 @@ fn should_suppress_onboarding_vault_locked(
     ) && is_onboarding_flow_screen(state)
 }
 
+fn should_suppress_screen_local_error(
+    state: &crate::tui::state::AppState,
+    result: &CommandResult,
+) -> bool {
+    matches!(state.current_screen, Screen::KeyRecovery)
+        && matches!(
+            result,
+            CommandResult::Error {
+                code: crate::errors::ErrorCode::CryptoKeyDerivationFailed,
+                message_key: "error.invalid_recovery_key",
+                ..
+            }
+        )
+}
+
 pub fn run(
     app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -274,6 +289,8 @@ fn handle_message(
                 tracing::debug!("Suppressed vault-locked result during onboarding flow");
                 return Ok(LoopControl::Continue);
             }
+            let suppress_screen_local_error =
+                should_suppress_screen_local_error(&app.state, result);
 
             match result {
                 CommandResult::ConfigSaved { warnings } => {
@@ -334,12 +351,13 @@ fn handle_message(
                         .notification
                         .enqueue(StatusMessage::error(fallback.clone()));
                 }
-                CommandResult::Error { fallback, .. } => {
+                CommandResult::Error { fallback, .. } if !suppress_screen_local_error => {
                     app.state
                         .shared
                         .notification
                         .enqueue(StatusMessage::error(fallback.clone()));
                 }
+                CommandResult::Error { .. } => {}
                 CommandResult::FatalError { fallback, .. } => {
                     app.state
                         .shared
@@ -879,6 +897,31 @@ mod tests {
         assert_eq!(result, LoopControl::Continue);
         assert!(app.state.shared.notification.current_message.is_none());
         assert!(app.state.screens.database_recovery.error.is_none());
+    }
+
+    #[test]
+    fn key_recovery_validation_error_stays_screen_local() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::KeyRecovery;
+
+        let result = handle_message(
+            &mut app,
+            Message::CommandCompleted(crate::commands::result::CommandResult::Error {
+                code: ErrorCode::CryptoKeyDerivationFailed,
+                context: ErrorContext::default(),
+                message_key: "error.invalid_recovery_key",
+                fallback: "Invalid recovery key: word 1 is not in the recovery word list."
+                    .to_string(),
+            }),
+        )
+        .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert!(app.state.shared.notification.current_message.is_none());
+        assert_eq!(
+            app.state.screens.key_recovery.error.as_deref(),
+            Some("Invalid recovery key: word 1 is not in the recovery word list.")
+        );
     }
 
     #[test]

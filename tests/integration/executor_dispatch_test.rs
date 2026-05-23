@@ -56,10 +56,6 @@ impl std::ops::DerefMut for ExecutorHarness {
     }
 }
 
-fn recovery_words_fixture() -> oak_keyring::types::RecoveryWords {
-    oak_keyring::types::RecoveryWords::new(vec!["abandon".to_string(); 24]).unwrap()
-}
-
 async fn test_executor() -> ExecutorHarness {
     let (result_tx, result_rx) = mpsc::channel(64);
     let temp = tempfile::tempdir().unwrap();
@@ -180,14 +176,20 @@ async fn executor_run_loop_processes_commands() {
 #[tokio::test]
 async fn dispatch_validate_recovery_words_rejects_invalid_words_without_raw_vec() {
     let mut executor = test_executor().await;
+    let mut raw_words = vec!["abandon".to_string(); 24];
+    raw_words[0] = "notaword".to_string();
     executor
         .execute(Command::ValidateRecoveryWords {
-            words: recovery_words_fixture(),
+            words: oak_keyring::types::RecoveryWords::new(raw_words).unwrap(),
         })
         .await;
 
     let msg = recv_result(&mut executor).await;
-    assert!(matches!(msg, CommandResult::Error { .. }));
+    assert!(matches!(
+        msg,
+        CommandResult::Error { fallback, .. }
+            if fallback == "Invalid recovery key: word 1 is not in the recovery word list."
+    ));
 }
 
 #[tokio::test]

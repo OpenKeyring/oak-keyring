@@ -19,6 +19,7 @@ use crate::tui::screens::recovery_key::WordGridState;
 use crate::tui::terminal::WidthTier;
 use crate::tui::theme::{self, BRAND, ERROR, PRIMARY, TEXT, TEXT_MUTED};
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
+use zeroize::Zeroize;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,14 @@ pub enum KeyRecoveryOrigin {
     OnboardingRestore,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum KeyRecoveryFocus {
+    #[default]
+    Words,
+    Reset,
+    Confirm,
+}
+
 // ── KeyRecoveryScreen ─────────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -38,6 +47,7 @@ pub struct KeyRecoveryScreen {
     pub words: WordGridState,
     pub error: Option<String>,
     pub validating: bool,
+    pub focus: KeyRecoveryFocus,
 }
 
 impl Default for KeyRecoveryScreen {
@@ -53,6 +63,7 @@ impl KeyRecoveryScreen {
             words: WordGridState::default(),
             error: None,
             validating: false,
+            focus: KeyRecoveryFocus::Words,
         }
     }
 
@@ -63,37 +74,125 @@ impl KeyRecoveryScreen {
         }
     }
 
+    fn submit_recovery_words(&mut self, ctx: &mut ScreenContext) {
+        if self.words.all_filled() {
+            self.error = None;
+            self.validating = true;
+            match self.words.collect_recovery_words() {
+                Ok(words) => {
+                    if ctx
+                        .command_tx
+                        .try_send(Command::ValidateRecoveryWords { words })
+                        .is_err()
+                    {
+                        self.validating = false;
+                        self.error = Some(t!("tui.error.command_dispatch_failed").to_string());
+                    }
+                }
+                Err(_) => {
+                    self.validating = false;
+                    self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                }
+            }
+        } else {
+            self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
+        }
+    }
+
+    fn reset_recovery_words(&mut self) {
+        for word in &mut self.words.words {
+            word.zeroize();
+            word.clear();
+        }
+        self.words.errors = [false; 24];
+        self.words.focused_index = 0;
+        self.error = None;
+        self.validating = false;
+        self.focus = KeyRecoveryFocus::Words;
+    }
+
+    fn focus_next(&mut self) {
+        match self.focus {
+            KeyRecoveryFocus::Words if self.words.focused_index == 23 => {
+                self.focus = KeyRecoveryFocus::Reset;
+            }
+            KeyRecoveryFocus::Words => self.words.next_word(),
+            KeyRecoveryFocus::Reset => self.focus = KeyRecoveryFocus::Confirm,
+            KeyRecoveryFocus::Confirm => {
+                self.focus = KeyRecoveryFocus::Words;
+                self.words.focused_index = 0;
+            }
+        }
+    }
+
+    fn focus_prev(&mut self) {
+        match self.focus {
+            KeyRecoveryFocus::Words if self.words.focused_index == 0 => {
+                self.focus = KeyRecoveryFocus::Confirm;
+            }
+            KeyRecoveryFocus::Words => self.words.prev_word(),
+            KeyRecoveryFocus::Reset => {
+                self.focus = KeyRecoveryFocus::Words;
+                self.words.focused_index = 23;
+            }
+            KeyRecoveryFocus::Confirm => self.focus = KeyRecoveryFocus::Reset,
+        }
+    }
+
+    fn handle_navigation_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Tab => self.focus_next(),
+            KeyCode::BackTab => self.focus_prev(),
+            KeyCode::Down
+                if self.focus == KeyRecoveryFocus::Words && self.words.focused_index >= 20 =>
+            {
+                self.focus = if self.words.focused_index % 4 < 2 {
+                    KeyRecoveryFocus::Reset
+                } else {
+                    KeyRecoveryFocus::Confirm
+                };
+            }
+            KeyCode::Up if self.focus == KeyRecoveryFocus::Reset => {
+                self.focus = KeyRecoveryFocus::Words;
+                self.words.focused_index = 20;
+            }
+            KeyCode::Up if self.focus == KeyRecoveryFocus::Confirm => {
+                self.focus = KeyRecoveryFocus::Words;
+                self.words.focused_index = 23;
+            }
+            KeyCode::Left if self.focus == KeyRecoveryFocus::Confirm => {
+                self.focus = KeyRecoveryFocus::Reset;
+            }
+            KeyCode::Right if self.focus == KeyRecoveryFocus::Reset => {
+                self.focus = KeyRecoveryFocus::Confirm;
+            }
+            _ if self.focus == KeyRecoveryFocus::Words => {
+                self.words.handle_key(key);
+            }
+            _ => {}
+        }
+    }
+
     fn handle_key_inner(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
         match key.code {
             KeyCode::Esc => ScreenResult::PopScreen,
             KeyCode::Enter => {
-                if self.words.all_filled() {
-                    self.error = None;
-                    self.validating = true;
-                    match self.words.collect_recovery_words() {
-                        Ok(words) => {
-                            if ctx
-                                .command_tx
-                                .try_send(Command::ValidateRecoveryWords { words })
-                                .is_err()
-                            {
-                                self.validating = false;
-                                self.error =
-                                    Some(t!("tui.error.command_dispatch_failed").to_string());
-                            }
-                        }
-                        Err(_) => {
-                            self.validating = false;
-                            self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                match self.focus {
+                    KeyRecoveryFocus::Words => {
+                        if self.words.all_filled() {
+                            self.focus = KeyRecoveryFocus::Confirm;
+                            self.error = None;
+                        } else {
+                            self.words.next_word();
                         }
                     }
-                } else {
-                    self.error = Some(t!("tui.entry.key_recovery_empty_error").to_string());
+                    KeyRecoveryFocus::Reset => self.reset_recovery_words(),
+                    KeyRecoveryFocus::Confirm => self.submit_recovery_words(ctx),
                 }
                 ScreenResult::Continue
             }
             _ => {
-                self.words.handle_key(key);
+                self.handle_navigation_key(key);
                 ScreenResult::Continue
             }
         }
@@ -156,7 +255,7 @@ impl ScreenTrait for KeyRecoveryScreen {
             Constraint::Length(2),              // title
             Constraint::Length(2),              // instruction
             Constraint::Length(8),              // 24-word grid
-            Constraint::Length(1),              // gap
+            Constraint::Length(1),              // reset/confirm actions
             Constraint::Length(1),              // error or hint
             Constraint::Length(1),              // hotkey
             Constraint::Length(1),              // step
@@ -205,6 +304,8 @@ impl ScreenTrait for KeyRecoveryScreen {
         // 24-word grid
         let grid_area = rows[4];
         self.words.view(frame, grid_area);
+
+        self.render_actions(frame, rows[5]);
 
         // Error or hint
         let idx = 6;
@@ -279,6 +380,35 @@ impl KeyRecoveryScreen {
 
         h_layout[1]
     }
+
+    fn button_style(&self, focus: KeyRecoveryFocus, primary: bool) -> Style {
+        let base = if primary {
+            Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TEXT_MUTED)
+        };
+        if self.focus == focus {
+            base.add_modifier(Modifier::REVERSED)
+        } else {
+            base
+        }
+    }
+
+    fn render_actions(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        let actions = Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!("[ {} ]", t!("tui.entry.key_recovery_reset_button")),
+                self.button_style(KeyRecoveryFocus::Reset, false),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                format!("[ {} ]", t!("tui.entry.key_recovery_confirm_button")),
+                self.button_style(KeyRecoveryFocus::Confirm, true),
+            ),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(actions, area);
+    }
 }
 
 #[cfg(test)]
@@ -330,13 +460,105 @@ mod tests {
     }
 
     #[test]
-    fn enter_with_incomplete_words_sets_inline_error() {
+    fn confirm_with_incomplete_words_sets_inline_error() {
         let mut screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::OnboardingRestore);
+        screen.focus = KeyRecoveryFocus::Confirm;
         let result = screen.handle_key_for_test(key(KeyCode::Enter));
         assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(
             screen.error.as_deref(),
             Some(t!("tui.entry.key_recovery_empty_error").as_ref())
         );
+    }
+
+    #[test]
+    fn enter_on_filled_words_does_not_submit_without_confirm_button() {
+        let mut screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::OnboardingRestore);
+        for word in &mut screen.words.words {
+            word.push_str("abandon");
+        }
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+
+        let result = screen.handle_key_inner(key(KeyCode::Enter), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(matches!(
+            rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
+        assert!(!screen.validating);
+        assert!(screen.error.is_none());
+    }
+
+    #[test]
+    fn recovery_actions_are_rendered() {
+        let screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::StartupDbOnly);
+
+        let buffer = render_key_recovery_buffer(&screen, 80, 24);
+        let rendered = format!("{buffer:?}");
+
+        assert!(rendered.contains("Reset"));
+        assert!(rendered.contains("Confirm"));
+    }
+
+    #[test]
+    fn tab_moves_from_last_word_to_reset_then_confirm() {
+        let mut screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::StartupDbOnly);
+        screen.words.focused_index = 23;
+
+        screen.handle_key_for_test(key(KeyCode::Tab));
+        assert_eq!(screen.focus, KeyRecoveryFocus::Reset);
+
+        screen.handle_key_for_test(key(KeyCode::Tab));
+        assert_eq!(screen.focus, KeyRecoveryFocus::Confirm);
+    }
+
+    #[test]
+    fn reset_button_clears_words_and_errors() {
+        let mut screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::StartupDbOnly);
+        for word in &mut screen.words.words {
+            word.push_str("abandon");
+        }
+        screen.words.errors[3] = true;
+        screen.error = Some("bad words".to_string());
+        screen.focus = KeyRecoveryFocus::Reset;
+
+        screen.handle_key_for_test(key(KeyCode::Enter));
+
+        assert!(screen.words.words.iter().all(String::is_empty));
+        assert!(screen.words.errors.iter().all(|error| !error));
+        assert_eq!(screen.words.focused_index, 0);
+        assert_eq!(screen.focus, KeyRecoveryFocus::Words);
+        assert!(screen.error.is_none());
+    }
+
+    #[test]
+    fn confirm_button_submits_filled_words() {
+        let mut screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::StartupDbOnly);
+        for word in &mut screen.words.words {
+            word.push_str("abandon");
+        }
+        screen.focus = KeyRecoveryFocus::Confirm;
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+
+        let result = screen.handle_key_inner(key(KeyCode::Enter), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Command::ValidateRecoveryWords { .. })
+        ));
+        assert!(screen.validating);
+        assert!(screen.error.is_none());
     }
 }
