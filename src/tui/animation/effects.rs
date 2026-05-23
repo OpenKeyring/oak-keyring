@@ -105,3 +105,35 @@ pub fn onboarding_back(duration_ms: u32, level: AnimationLevel) -> Option<tachyo
         (duration_ms, tachyonfx::Interpolation::CubicInOut),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+
+    #[test]
+    fn onboarding_forward_effect_changes_fixed_buffer_at_fixed_tick() {
+        let mut effect =
+            onboarding_forward(400, AnimationLevel::Full).expect("forward effect should exist");
+        let area = Rect::new(0, 0, 24, 3);
+        let mut buffer = Buffer::with_lines(vec!["OPENKEYRING", "SETUP", "READY"]);
+        let before = format!("{buffer:?}");
+
+        effect.process(
+            std::time::Duration::from_millis(200).into(),
+            &mut buffer,
+            area,
+        );
+
+        let after = format!("{buffer:?}");
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn onboarding_effects_are_absent_when_animation_is_none() {
+        assert!(onboarding_intro(900, AnimationLevel::None).is_none());
+        assert!(onboarding_forward(400, AnimationLevel::None).is_none());
+        assert!(onboarding_back(400, AnimationLevel::None).is_none());
+    }
+}
