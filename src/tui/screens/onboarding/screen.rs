@@ -135,11 +135,19 @@ impl OnboardingScreen {
     }
 
     pub(crate) fn set_step_forward(&mut self, step: OnboardingStep) {
+        if self.current_step == step {
+            self.current_step = step;
+            return;
+        }
         self.current_step = step;
         self.pending_motion = Some(EffectKind::OnboardingForward);
     }
 
     pub(crate) fn set_step_back(&mut self, step: OnboardingStep) {
+        if self.current_step == step {
+            self.current_step = step;
+            return;
+        }
         self.current_step = step;
         self.pending_motion = Some(EffectKind::OnboardingBack);
     }

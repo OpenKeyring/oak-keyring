@@ -161,6 +161,22 @@ fn onboarding_recovery_display_esc_requests_back_motion() {
 }
 
 #[test]
+fn onboarding_recovery_key_unlocked_on_current_step_does_not_request_motion() {
+    let mut screen = OnboardingScreen {
+        selected_path: Some(OnboardingPath::Restore),
+        current_step: OnboardingStep::SecurityAdvisory,
+        pending_motion: None,
+        ..Default::default()
+    };
+
+    let result = screen.handle_command_result(CommandResult::RecoveryKeyUnlocked);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.current_step, OnboardingStep::SecurityAdvisory);
+    assert_eq!(screen.take_pending_motion(), None);
+}
+
+#[test]
 fn generate_recovery_words_stores_secure_owner() {
     let mut screen = OnboardingScreen::default();
     screen.generate_recovery_words("en");
