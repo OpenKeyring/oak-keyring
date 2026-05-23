@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn shortcuts_sidebar_unicode() {
         let text = shortcuts_text(PanelId::Sidebar, true, false);
-        assert!(text.contains('\u{2318}')); // ⌘
+        assert!(text.contains("Ctrl+K"));
     }
 
     #[test]

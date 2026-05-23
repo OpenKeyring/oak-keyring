@@ -174,6 +174,15 @@ impl MainScreen {
         let mut overlay = None;
         let result_command: Option<Box<Command>> = None;
 
+        if key.code == KeyCode::F(1) {
+            return MainKeyResult {
+                messages,
+                overlay: Some(Overlay::Help),
+                command: None,
+                focused_panel: None,
+            };
+        }
+
         // If inline rename is active, route all keys to it first
         if state.sidebar.is_tag_management() && state.sidebar.tag_management.is_renaming() {
             match key.code {
@@ -350,7 +359,7 @@ impl MainScreen {
                         }
                     }
                     KeyCode::Char('k')
-                        if key.modifiers.contains(KeyModifiers::CONTROL)
+                        if is_search_shortcut(key)
                             && !state.list.is_searching()
                             && !state.list.is_visual() =>
                     {
@@ -726,6 +735,13 @@ fn sort_sidebar_tags(sidebar: &mut crate::tui::state::main_state::SidebarState) 
     sidebar.sort_tags_by_current_order();
 }
 
+fn is_search_shortcut(key: KeyEvent) -> bool {
+    key.code == KeyCode::Char('k')
+        && key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META)
+}
+
 /// Render the horizontal separator line between content panels and the status bar.
 fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
     if area.width == 0 || area.height == 0 {
@@ -750,27 +766,10 @@ fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas
     let sep_style = Style::default().fg(theme::BORDER);
     let sep_char = PANEL_SEPARATOR.chars().next().unwrap_or('|');
 
-    // Separator between sidebar and list
-    if areas.sidebar.width > 0 && areas.list.width > 0 {
-        let x = areas.sidebar.x + areas.sidebar.width;
-        // Only render if there is no overlap (the separator column was not
-        // allocated to any panel — it visually sits on the border).
-        // We render into a 1-column-wide strip at the panel boundary.
-        let sep_rect = Rect::new(
-            x.saturating_sub(1),
-            areas.sidebar.y,
-            1,
-            areas.sidebar.height,
-        );
-        let line: String = std::iter::repeat_n(sep_char, sep_rect.height as usize).collect();
-        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
-        frame.render_widget(paragraph, sep_rect);
-    }
-
-    // Separator between list and detail
-    if areas.list.width > 0 && areas.detail.width > 0 {
-        let x = areas.list.x + areas.list.width;
-        let sep_rect = Rect::new(x.saturating_sub(1), areas.list.y, 1, areas.list.height);
+    for sep_rect in [areas.sidebar_list_separator, areas.list_detail_separator] {
+        if sep_rect.width == 0 || sep_rect.height == 0 {
+            continue;
+        }
         let line: String = std::iter::repeat_n(sep_char, sep_rect.height as usize).collect();
         let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
         frame.render_widget(paragraph, sep_rect);
@@ -985,6 +984,26 @@ mod tests {
         let key = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL);
         screen.handle_key_event(key, &mut state, PanelId::List);
         assert!(state.list.is_searching());
+    }
+
+    #[test]
+    fn super_k_enters_search_mode_when_terminal_sends_it() {
+        let mut state = MainScreenState::default();
+        let screen = MainScreen::new();
+        let key = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER);
+        screen.handle_key_event(key, &mut state, PanelId::List);
+        assert!(state.list.is_searching());
+    }
+
+    #[test]
+    fn f1_opens_help_overlay_from_list() {
+        let mut state = MainScreenState::default();
+        let screen = MainScreen::new();
+        let key = KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE);
+
+        let result = screen.handle_key_event(key, &mut state, PanelId::List);
+
+        assert!(matches!(result.overlay, Some(Overlay::Help)));
     }
 
     #[test]

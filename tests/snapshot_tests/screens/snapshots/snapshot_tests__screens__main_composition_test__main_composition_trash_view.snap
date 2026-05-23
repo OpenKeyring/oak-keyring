@@ -2,13 +2,13 @@
 source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
-"All (2)                                │  Sort: [ Created│                                          "
-"☆ Favorites (1)                           Old GitHub Login                                          "
-"Expired                                   Deleted 5 days a                     🔐                   " Hidden by multi-width symbols: [(80, " ")]
-"                                        ──────────────────                                          "
-"                                          Expired API Key       Select a password to view details   "
-"                                          Deleted 20 days          Press Enter to view details      "
-"                                        ──────────────────                                          "
+"                                        │  Sort: [ Created│                                         "
+"  All (2)                            ◄     Old GitHub Logi                                          "
+"                                           Deleted 5 days                      🔐                   " Hidden by multi-width symbols: [(80, " ")]
+"  Favorites (1)                          ─────────────────                                          "
+"  Expired (0)                              Expired API Key      Select a password to view details   "
+"                                           Deleted 20 days         Press Enter to view details      "
+"                                         ─────────────────                                          "
 "                                                                                                    "
 "                                                                                                    "
 "                                                                                                    "

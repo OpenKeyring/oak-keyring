@@ -962,7 +962,7 @@ tui:
     sync_failed: "同步失败"
     sync_offline: "离线"
     sync_not_configured: "未配置"
-    shortcuts_sidebar_list: "⌘K搜索  n新建  e编辑  d删除  F1帮助"
+    shortcuts_sidebar_list: "Ctrl+K搜索  n新建  e编辑  d删除  F1帮助"
     shortcuts_sidebar_list_ascii: "Ctrl+K 搜索  N 新建  E 编辑  D 删除  F1 帮助"
     shortcuts_detail: "c复制密码  u复制用户名  p显示/隐藏  e编辑  d删除  F1帮助"
     shortcuts_detail_ascii: "C 复制密码  U 复制用户名  P 显示/隐藏  E 编辑  D 删除  F1 帮助"

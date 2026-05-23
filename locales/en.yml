@@ -965,7 +965,7 @@ tui:
     sync_offline: "Offline"
     sync_not_configured: "Not configured"
     # ---- Status bar shortcut strings ----
-    shortcuts_sidebar_list: "⌘K Search  N New  E Edit  D Delete  F1 Help"
+    shortcuts_sidebar_list: "Ctrl+K Search  N New  E Edit  D Delete  F1 Help"
     shortcuts_sidebar_list_ascii: "Ctrl+K Search  N New  E Edit  D Delete  F1 Help"
     shortcuts_detail: "c CopyPwd  u CopyUser  p Show/Hide  e Edit  d Delete  F1 Help"
     shortcuts_detail_ascii: "C CopyPwd  U CopyUser  P Show/Hide  E Edit  D Delete  F1 Help"

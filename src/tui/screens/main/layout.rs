@@ -17,8 +17,12 @@ pub const HORIZONTAL_SEPARATOR: &str = "\u{2500}"; // ─
 pub struct MainLayoutAreas {
     /// Sidebar panel (categories/tags navigation).
     pub sidebar: Rect,
+    /// Visible separator between sidebar and list.
+    pub sidebar_list_separator: Rect,
     /// Password list panel.
     pub list: Rect,
+    /// Visible separator between list and detail.
+    pub list_detail_separator: Rect,
     /// Password detail panel (remaining space).
     pub detail: Rect,
     /// Horizontal separator between content and status bar (1 row).
@@ -40,19 +44,43 @@ pub fn calculate_layout(area: Rect, terminal_width: u16) -> MainLayoutAreas {
     // Vertical split: reserve 2 rows for separator + status bar
     let main_height = area.height.saturating_sub(2);
 
-    // Horizontal split within main content area
-    let list_width = ((area.width - sw) as u32 * 30 / 100) as u16;
-    let detail_width = area.width.saturating_sub(sw).saturating_sub(list_width);
+    let separator_width = if sw > 0 { 2 } else { 0 };
+    let content_width = area
+        .width
+        .saturating_sub(sw)
+        .saturating_sub(separator_width);
+    let list_width = (content_width as u32 * 30 / 100) as u16;
+    let detail_width = content_width.saturating_sub(list_width);
 
     let sidebar = Rect::new(area.x, area.y, sw, main_height);
-    let list = Rect::new(area.x + sw, area.y, list_width, main_height);
-    let detail = Rect::new(area.x + sw + list_width, area.y, detail_width, main_height);
+    let sidebar_list_separator =
+        Rect::new(area.x + sw, area.y, separator_width.min(1), main_height);
+    let list = Rect::new(
+        sidebar_list_separator.x + sidebar_list_separator.width,
+        area.y,
+        list_width,
+        main_height,
+    );
+    let list_detail_separator = Rect::new(
+        list.x + list.width,
+        area.y,
+        separator_width.min(1),
+        main_height,
+    );
+    let detail = Rect::new(
+        list_detail_separator.x + list_detail_separator.width,
+        area.y,
+        detail_width,
+        main_height,
+    );
     let status_separator = Rect::new(area.x, area.y + main_height, area.width, 1);
     let status_bar = Rect::new(area.x, area.y + main_height + 1, area.width, 1);
 
     MainLayoutAreas {
         sidebar,
+        sidebar_list_separator,
         list,
+        list_detail_separator,
         detail,
         status_separator,
         status_bar,
@@ -99,7 +127,19 @@ mod tests {
         let layout = calculate_layout(area, 120);
 
         // All horizontal widths should sum to the total area width
-        let total_width = layout.sidebar.width + layout.list.width + layout.detail.width;
+        let total_width = layout.sidebar.width + 1 + layout.list.width + 1 + layout.detail.width;
+        assert_eq!(total_width, area.width);
+    }
+
+    #[test]
+    fn layout_reserves_visible_separator_columns() {
+        let area = Rect::new(0, 0, 120, 30);
+        let layout = calculate_layout(area, 120);
+
+        assert_eq!(layout.list.x, layout.sidebar.x + layout.sidebar.width + 1);
+        assert_eq!(layout.detail.x, layout.list.x + layout.list.width + 1);
+
+        let total_width = layout.sidebar.width + 1 + layout.list.width + 1 + layout.detail.width;
         assert_eq!(total_width, area.width);
     }
 
@@ -109,7 +149,7 @@ mod tests {
         let layout = calculate_layout(area, 120);
 
         // Widths sum correctly
-        let total_width = layout.sidebar.width + layout.list.width + layout.detail.width;
+        let total_width = layout.sidebar.width + 1 + layout.list.width + 1 + layout.detail.width;
         assert_eq!(total_width, area.width);
 
         // Heights account for status bar: main panels + separator + status = total height

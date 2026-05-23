@@ -57,6 +57,8 @@ impl SidebarCategory {
 /// separators, tags, and utility links (generator, config).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidebarItem {
+    /// Blank spacing row.
+    Spacer,
     /// Brand header ("OpenKeyring") rendered at the top.
     Brand,
     /// A filterable category entry.
@@ -76,7 +78,7 @@ pub enum SidebarItem {
 impl SidebarItem {
     /// Whether this item can receive keyboard focus / be selected.
     pub fn is_selectable(&self) -> bool {
-        !matches!(self, Self::Brand | Self::Separator)
+        !matches!(self, Self::Spacer | Self::Brand | Self::Separator)
     }
 }
 
@@ -150,12 +152,17 @@ impl SidebarState {
     /// Build the ordered list of sidebar items.
     pub(crate) fn build_items(&self) -> Vec<SidebarItem> {
         let mut items: Vec<SidebarItem> = vec![
+            SidebarItem::Spacer,
             SidebarItem::Brand,
             SidebarItem::Separator,
             SidebarItem::Category(SidebarCategory::All),
+            SidebarItem::Separator,
             SidebarItem::Category(SidebarCategory::Favorites),
+            SidebarItem::Separator,
             SidebarItem::Category(SidebarCategory::Expired),
+            SidebarItem::Separator,
             SidebarItem::Category(SidebarCategory::HealthIssues),
+            SidebarItem::Separator,
             SidebarItem::Category(SidebarCategory::Trash),
             SidebarItem::Separator,
             SidebarItem::TagHeader,
@@ -174,6 +181,7 @@ impl SidebarState {
 
         items.push(SidebarItem::Separator);
         items.push(SidebarItem::Generator);
+        items.push(SidebarItem::Separator);
         items.push(SidebarItem::Config);
 
         items
@@ -220,6 +228,7 @@ impl SidebarState {
             // Generator and Config are shortcuts, not record filters
             SidebarItem::Generator
             | SidebarItem::Config
+            | SidebarItem::Spacer
             | SidebarItem::Brand
             | SidebarItem::Separator
             | SidebarItem::TagHeader => RecordFilter::All,
@@ -1138,10 +1147,12 @@ impl MainScreenState {
                 }
                 KeyCode::Char(c) => {
                     // Ignore Ctrl/Alt combinations — let them fall through to global shortcuts
-                    if key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-                    {
+                    if key.modifiers.intersects(
+                        KeyModifiers::CONTROL
+                            | KeyModifiers::ALT
+                            | KeyModifiers::SUPER
+                            | KeyModifiers::META,
+                    ) {
                         return ScreenResult::Continue;
                     }
                     if let ListMode::Search(ref s) = self.list.mode {
@@ -1193,6 +1204,15 @@ impl MainScreenState {
                 }
                 _ => {}
             }
+        }
+
+        if self.focused_panel == PanelId::List
+            && is_search_shortcut(key)
+            && !self.list.is_searching()
+            && !self.list.is_visual()
+        {
+            self.list.enter_search();
+            return ScreenResult::Continue;
         }
 
         // Sidebar j/k — filter change triggers LoadRecordList
@@ -1372,6 +1392,11 @@ impl MainScreenState {
         match key.code {
             KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
             KeyCode::Char('l') => ScreenResult::NavigateTo(ScreenEnum::AuditLog),
+            KeyCode::F(1) => {
+                self.overlay_manager.open(Overlay::Help);
+                self.pending_animation = Some(EffectKind::ModalAppear);
+                ScreenResult::Continue
+            }
             KeyCode::Char('?') => {
                 self.overlay_manager.open(Overlay::Help);
                 self.pending_animation = Some(EffectKind::ModalAppear);
@@ -1515,6 +1540,13 @@ impl MainScreenState {
             }
         }
     }
+}
+
+fn is_search_shortcut(key: KeyEvent) -> bool {
+    key.code == KeyCode::Char('k')
+        && key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META)
 }
 
 /// Convert a [`DetailFieldKind`] to the corresponding [`FieldSelector`] for

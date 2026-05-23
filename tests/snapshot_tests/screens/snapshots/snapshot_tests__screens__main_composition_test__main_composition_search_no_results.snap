@@ -2,11 +2,11 @@
 source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
-"All (2)                                │  🔍 Search: miss│                                          " Hidden by multi-width symbols: [(43, " ")]
-"☆ Favorites (1)                                🔍                                                   " Hidden by multi-width symbols: [(48, " ")]
-"Expired                                                                        🔐                   " Hidden by multi-width symbols: [(80, " ")]
-"                                         No results found                                           "
-"                                                                Select a password to view details   "
+"                                        │  🔍 Search: miss│                                         " Hidden by multi-width symbols: [(44, " ")]
+"  All (2)                            ◄         🔍                                                   " Hidden by multi-width symbols: [(48, " ")]
+"                                                                               🔐                   " Hidden by multi-width symbols: [(80, " ")]
+"  Favorites (1)                          No results found                                           "
+"  Expired (0)                                                   Select a password to view details   "
 "                                          No matches for           Press Enter to view details      "
 "                                             'missing'                                              "
 "                                                                                                    "
@@ -25,4 +25,4 @@ expression: backend
 "                                                                                                    "
 "                                                                                                    "
 "────────────────────────────────────────────────────────────────────────────────────────────────────"
-"  ⌘K Search  N New  E Edit  D Delete  F1 Help │ v0.7.3 │ — Not configured                           "
+"  Ctrl+K Search  N New  E Edit  D Delete  F1 Help │ v0.7.3 │ — Not configured                       "

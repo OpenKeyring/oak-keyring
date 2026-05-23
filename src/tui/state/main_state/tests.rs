@@ -13,29 +13,29 @@ use uuid::Uuid;
 #[test]
 fn sidebar_default_selects_all_category() {
     let sidebar = SidebarState::default();
-    // Brand(0) and Separator(1) are non-selectable, so All(2) is selected
-    assert_eq!(sidebar.selected_index, 2);
+    assert!(matches!(
+        sidebar.items[sidebar.selected_index],
+        SidebarItem::Category(SidebarCategory::All)
+    ));
     assert_eq!(sidebar.current_filter(), RecordFilter::All);
 }
 
 #[test]
 fn sidebar_navigation_skips_separators() {
     let mut sidebar = SidebarState::default();
-    // Items: Brand, Sep, All, Favorites, Expired, HealthIssues, Trash, Sep, TagHeader, Sep, Generator, Config
-    // Selectable:         2,    3,         4,       5,             6,     _,   8,         _,   10,         11
-    // Start at All (2), next -> Favorites (3)
     sidebar.next_selectable();
-    assert_eq!(sidebar.selected_index, 3);
     assert!(matches!(
-        sidebar.items[3],
+        sidebar.items[sidebar.selected_index],
         SidebarItem::Category(SidebarCategory::Favorites)
     ));
 
     // Skip ahead past categories to verify separator skip
-    sidebar.selected_index = 6; // Trash
+    sidebar.selected_index = sidebar
+        .items
+        .iter()
+        .position(|i| matches!(i, SidebarItem::Category(SidebarCategory::Trash)))
+        .unwrap();
     sidebar.next_selectable();
-    // Items[7] is Separator (non-selectable), items[8] is TagHeader (selectable)
-    // Should land on TagHeader (index 8)
     assert!(matches!(
         sidebar.items[sidebar.selected_index],
         SidebarItem::TagHeader
@@ -106,23 +106,24 @@ fn sidebar_build_items_structure() {
     };
     let items = sidebar.build_items();
 
-    // Brand + sep + 5 categories + separator + tag header + 2 tags + separator + generator + config = 14
-    assert_eq!(items.len(), 14);
+    assert_eq!(items.len(), 20);
 
     // Verify structure
-    assert!(matches!(items[0], SidebarItem::Brand));
-    assert!(matches!(items[1], SidebarItem::Separator));
+    assert!(matches!(items[0], SidebarItem::Spacer));
+    assert!(matches!(items[1], SidebarItem::Brand));
+    assert!(matches!(items[2], SidebarItem::Separator));
     assert!(matches!(
-        items[2],
+        items[3],
         SidebarItem::Category(SidebarCategory::All)
     ));
-    assert!(matches!(items[7], SidebarItem::Separator));
-    assert!(matches!(items[8], SidebarItem::TagHeader));
-    assert!(matches!(items[9], SidebarItem::Tag(ref t, _) if t == "personal"));
-    assert!(matches!(items[10], SidebarItem::Tag(ref t, _) if t == "work"));
-    assert!(matches!(items[11], SidebarItem::Separator));
-    assert!(matches!(items[12], SidebarItem::Generator));
-    assert!(matches!(items[13], SidebarItem::Config));
+    assert!(matches!(items[12], SidebarItem::Separator));
+    assert!(matches!(items[13], SidebarItem::TagHeader));
+    assert!(matches!(items[14], SidebarItem::Tag(ref t, _) if t == "personal"));
+    assert!(matches!(items[15], SidebarItem::Tag(ref t, _) if t == "work"));
+    assert!(matches!(items[16], SidebarItem::Separator));
+    assert!(matches!(items[17], SidebarItem::Generator));
+    assert!(matches!(items[18], SidebarItem::Separator));
+    assert!(matches!(items[19], SidebarItem::Config));
 }
 
 #[test]
@@ -153,8 +154,10 @@ fn main_screen_state_default() {
     let state = MainScreenState::default();
     assert_eq!(state.current_filter, RecordFilter::All);
     assert!(state.pre_lock_snapshot.is_none());
-    // Brand(0) and Separator(1) are non-selectable, so All is at index 2
-    assert_eq!(state.sidebar.selected_index, 2);
+    assert!(matches!(
+        state.sidebar.items[state.sidebar.selected_index],
+        SidebarItem::Category(SidebarCategory::All)
+    ));
     assert_eq!(state.status_bar.record_count, 0);
 }
 
@@ -431,10 +434,16 @@ fn sidebar_move_down() {
 #[test]
 fn sidebar_move_up() {
     let mut state = SidebarState::default();
-    // Start at Favorites (index 3), move up to All (index 2)
-    state.selected_index = 3;
+    state.selected_index = state
+        .items
+        .iter()
+        .position(|i| matches!(i, SidebarItem::Category(SidebarCategory::Favorites)))
+        .unwrap();
     state.move_up();
-    assert_eq!(state.selected_index, 2);
+    assert!(matches!(
+        state.items[state.selected_index],
+        SidebarItem::Category(SidebarCategory::All)
+    ));
 }
 
 #[test]
@@ -470,14 +479,17 @@ fn tag_header_is_selectable() {
 #[test]
 fn tag_header_keyboard_navigable() {
     let mut sidebar = SidebarState::default();
-    // Navigate from Trash (6) down — should land on TagHeader (8)
-    sidebar.selected_index = 6;
+    sidebar.selected_index = sidebar
+        .items
+        .iter()
+        .position(|i| matches!(i, SidebarItem::Category(SidebarCategory::Trash)))
+        .unwrap();
     sidebar.move_down();
     assert!(matches!(
         sidebar.items[sidebar.selected_index],
         SidebarItem::TagHeader
     ));
-    // Move down again — should skip Separator and land on Generator (10)
+    // Move down again — should skip Separator and land on Generator.
     sidebar.move_down();
     assert!(matches!(
         sidebar.items[sidebar.selected_index],
@@ -685,6 +697,19 @@ fn key_event(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
     KeyEvent {
         code,
         modifiers: KeyModifiers::NONE,
+        kind: KeyEventKind::Press,
+        state: crossterm::event::KeyEventState::NONE,
+    }
+}
+
+fn key_event_with_modifiers(
+    code: crossterm::event::KeyCode,
+    modifiers: crossterm::event::KeyModifiers,
+) -> crossterm::event::KeyEvent {
+    use crossterm::event::{KeyEvent, KeyEventKind};
+    KeyEvent {
+        code,
+        modifiers,
         kind: KeyEventKind::Press,
         state: crossterm::event::KeyEventState::NONE,
     }
@@ -1267,6 +1292,56 @@ fn search_mode_g_does_not_navigate_to_config() {
     } else {
         panic!("Expected search mode");
     }
+}
+
+#[test]
+fn ctrl_k_enters_search_mode_in_state_update() {
+    use crate::commands::types::PanelId;
+    use crate::tui::state::list_state::ListPanelState;
+    use crate::types::credential::CredentialType;
+    use crate::types::record::TuiRecord;
+
+    fn make_test_record(name: &str) -> TuiRecord {
+        TuiRecord {
+            id: uuid::Uuid::new_v4(),
+            credential_type: CredentialType::Login,
+            name: name.to_string(),
+            subtitle: String::new(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: Vec::new(),
+            sync_status: None,
+        }
+    }
+
+    let records = vec![make_test_record("GitHub"), make_test_record("GitLab")];
+    let mut state = MainScreenState {
+        list: ListPanelState::with_records(records),
+        focused_panel: PanelId::List,
+        ..Default::default()
+    };
+    state.list.selected_index = Some(1);
+
+    let mut ctx = make_ctx();
+    let result = state.update(
+        Message::KeyEvent(key_event_with_modifiers(
+            KeyCode::Char('k'),
+            KeyModifiers::CONTROL,
+        )),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.list.is_searching());
+    assert_eq!(state.list.selected_index, Some(1));
 }
 
 #[test]

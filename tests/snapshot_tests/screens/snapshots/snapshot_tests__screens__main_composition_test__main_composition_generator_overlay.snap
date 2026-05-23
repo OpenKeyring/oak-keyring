@@ -1,13 +1,12 @@
 ---
 source: tests/snapshot_tests/screens/main_composition_test.rs
-assertion_line: 282
 expression: backend
 ---
-"All (2)                                │  Sort: [ Created│  GitHub Account                          "
-"☆ Favorites (1)                           GitHub Account ◀  octocat                                 "
-"Expired               ┌──────────────────────────────────────────────────────┐                      "
-"                      │  Password Generator                              ✕   │                      "
-"                      │──────────────────────────────────────────────────────│───                   "
+"                                        │  Sort: [ Created│  GitHub Account                         "
+"  All (2)                            ◄     GitHub Account    octocat                                "
+"                      ┌──────────────────────────────────────────────────────┐                      "
+"  Favorites (1)       │  Password Generator                              ✕   │                      "
+"  Expired (0)         │──────────────────────────────────────────────────────│───                   "
 "                      │                                                      │                      "
 "                      │  Style [ Random ]  [ Memorable ]  [ PIN ]            │                      "
 "                      │──────────────────────────────────────────────────────│                      "
@@ -26,4 +25,4 @@ expression: backend
 "                      │                                                      │                      "
 "                      │      [ Regenerate ]          [ Copied to clipboard ] │                      "
 "──────────────────────│                                                      │──────────────────────"
-"  ⌘K Search  N New  E └──────────────────────────────────────────────────────┘                      "
+"  Ctrl+K Search  N New└──────────────────────────────────────────────────────┘                      "
