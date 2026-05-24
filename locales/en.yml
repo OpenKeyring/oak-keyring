@@ -407,6 +407,7 @@ tui:
     custom_date_placeholder: "YYYY-MM-DD"
     tags_label: "Tags"
     tag_add_placeholder: "Add tag..."
+    tag_input_hint: "Enter Add  ←/→ Select  Del Delete"
     notes_label: "Notes"
     required_marker: "Required"
     optional_marker: "Optional"
@@ -427,12 +428,19 @@ tui:
     # Additional form strings
     save_hint: "Ctrl+S Save"
     cancel_hint: "Esc Cancel"
+    shortcut_generate: "Generate"
+    shortcut_toggle_visibility: "Show/Hide"
+    shortcut_copy: "Copy"
+    shortcut_save: "Save"
+    shortcut_cancel: "Cancel"
     weak_password_hint: "Current password strength is \"Weak\" and vulnerable to brute force attacks."
     weak_password_suggestion: "Consider using the generator to create a stronger password."
     go_back: "Go Back"
     save_anyway: "Save Anyway"
     continue_editing: "Continue Editing"
     discard_changes: "Discard"
+    unsaved_cancel_shortcut: "Cancel and stay"
+    unsaved_discard_shortcut: "Discard and exit"
 
   # ---- U8: Config Screen ----
   config:

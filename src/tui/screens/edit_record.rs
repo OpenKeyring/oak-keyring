@@ -1,6 +1,6 @@
 //! Edit record screen (U7).
 
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use uuid::Uuid;
 
 use crate::commands::result::CommandResult;
@@ -82,6 +82,9 @@ impl EditRecordScreen {
                 ScreenResult::Continue
             }
             KeyCode::Right => {
+                if self.is_tags_focused() && self.form.fields.focus_next_tag() {
+                    return ScreenResult::Continue;
+                }
                 if self.open_focused_dropdown() {
                     return ScreenResult::Continue;
                 }
@@ -93,6 +96,9 @@ impl EditRecordScreen {
                 }
             }
             KeyCode::Left => {
+                if self.is_tags_focused() && self.form.fields.focus_prev_tag() {
+                    return ScreenResult::Continue;
+                }
                 if self.form.sub_focus_prev() {
                     ScreenResult::Continue
                 } else {
@@ -101,11 +107,16 @@ impl EditRecordScreen {
                 }
             }
             KeyCode::Esc => self.cancel_form(),
-            KeyCode::Char('s')
-                if key_event
-                    .modifiers
-                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-            {
+            KeyCode::Char('g') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.activate_generate_shortcut()
+            }
+            KeyCode::Char('v') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.activate_visibility_shortcut()
+            }
+            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.activate_copy_shortcut()
+            }
+            KeyCode::Char('s') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.attempt_save()
             }
             KeyCode::Enter => self.handle_enter(),
@@ -124,6 +135,7 @@ impl EditRecordScreen {
                     self.handle_backspace()
                 }
             }
+            KeyCode::Delete => self.handle_delete(),
             _ => ScreenResult::Continue,
         }
     }
@@ -180,9 +192,7 @@ impl EditRecordScreen {
             CredentialType::Ssh => 7,
         };
         if self.form.focused_field == tags_idx && !self.form.fields.tag_input.is_empty() {
-            let tag = std::mem::take(&mut self.form.fields.tag_input);
-            if !self.form.fields.tags.contains(&tag) {
-                self.form.fields.tags.push(tag);
+            if self.form.fields.commit_tag_input() {
                 self.form.has_changes = true;
             }
             return ScreenResult::Continue;
@@ -286,8 +296,15 @@ impl EditRecordScreen {
                     CredentialType::Ssh => 8,
                 };
                 if focused == tags_idx {
-                    self.form.fields.tag_input.push(c);
-                    self.form.has_changes = true;
+                    if matches!(c, ',' | '，') {
+                        if self.form.fields.commit_tag_input() {
+                            self.form.has_changes = true;
+                        }
+                    } else {
+                        self.form.fields.tag_focus = None;
+                        self.form.fields.tag_input.push(c);
+                        self.form.has_changes = true;
+                    }
                 } else if focused == notes_idx {
                     self.form.fields.notes.push(c);
                     self.form.has_changes = true;
@@ -358,11 +375,25 @@ impl EditRecordScreen {
                     CredentialType::Ssh => 7,
                 };
                 if focused == tags_idx {
-                    self.form.fields.tag_input.pop();
+                    if self.form.fields.tag_input.is_empty() {
+                        if self.form.fields.remove_focused_tag() {
+                            self.form.has_changes = true;
+                            return ScreenResult::Continue;
+                        }
+                    } else {
+                        self.form.fields.tag_input.pop();
+                    }
                 }
             }
         }
         self.form.has_changes = true;
+        ScreenResult::Continue
+    }
+
+    fn handle_delete(&mut self) -> ScreenResult {
+        if self.is_tags_focused() && self.form.fields.remove_focused_tag() {
+            self.form.has_changes = true;
+        }
         ScreenResult::Continue
     }
 
@@ -388,6 +419,14 @@ impl EditRecordScreen {
             return true;
         }
         false
+    }
+
+    fn is_tags_focused(&self) -> bool {
+        let tags_idx = match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api => 6,
+            CredentialType::Ssh => 7,
+        };
+        self.form.footer_focus.is_none() && self.form.focused_field == tags_idx
     }
 
     /// Handle smart cursor backspace for YYYY-MM-DD date input.
@@ -447,6 +486,7 @@ impl EditRecordScreen {
     fn cancel_form(&mut self) -> ScreenResult {
         if self.form.has_changes {
             self.form.show_unsaved_dialog = true;
+            self.form.unsaved_dialog_focus = 0;
             ScreenResult::Continue
         } else {
             ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
@@ -457,6 +497,36 @@ impl EditRecordScreen {
         match button {
             FormFooterButton::Save => self.attempt_save(),
             FormFooterButton::Cancel => self.cancel_form(),
+        }
+    }
+
+    fn activate_generate_shortcut(&mut self) -> ScreenResult {
+        if self.form.credential_type == CredentialType::Login {
+            self.form.focus_field(4);
+            self.generator.expand();
+        }
+        ScreenResult::Continue
+    }
+
+    fn activate_visibility_shortcut(&mut self) -> ScreenResult {
+        self.form.focus_field(self.shortcut_secret_field_index());
+        self.form.toggle_current_visibility();
+        ScreenResult::Continue
+    }
+
+    fn activate_copy_shortcut(&mut self) -> ScreenResult {
+        self.form.focus_field(self.shortcut_secret_field_index());
+        if let Some(value) = self.form.current_secret_value() {
+            if !value.expose().is_empty() {
+                return ScreenResult::Command(Box::new(Command::CopyRawToClipboard { value }));
+            }
+        }
+        ScreenResult::Continue
+    }
+
+    fn shortcut_secret_field_index(&self) -> usize {
+        match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
         }
     }
 
@@ -506,9 +576,23 @@ impl EditRecordScreen {
         match key {
             KeyCode::Esc | KeyCode::Char('n') => {
                 self.form.show_unsaved_dialog = false;
+                self.form.unsaved_dialog_focus = 0;
                 ScreenResult::Continue
             }
-            KeyCode::Enter | KeyCode::Char('y') => {
+            KeyCode::Tab | KeyCode::Right | KeyCode::Left => {
+                self.form.unsaved_dialog_focus = 1 - self.form.unsaved_dialog_focus;
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => {
+                if self.form.unsaved_dialog_focus == 0 {
+                    self.form.show_unsaved_dialog = false;
+                    ScreenResult::Continue
+                } else {
+                    ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+                }
+            }
+            KeyCode::Char('y') => {
+                self.form.unsaved_dialog_focus = 1;
                 ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
             }
             _ => ScreenResult::Continue,
@@ -830,6 +914,13 @@ mod tests {
         EditRecordScreen::default()
     }
 
+    fn ctrl(ch: char) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(ch),
+            crossterm::event::KeyModifiers::CONTROL,
+        )
+    }
+
     struct TestEnv {
         config: crate::config::AppConfig,
     }
@@ -1030,6 +1121,114 @@ mod tests {
 
         assert!(matches!(
             result,
+            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+        ));
+    }
+
+    #[test]
+    fn ctrl_shortcuts_work_on_edit_form() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.focus_field(1);
+        for ch in "secret".chars() {
+            screen.form.fields.password.as_mut().unwrap().push_char(ch);
+        }
+
+        let result = screen.update(Message::KeyEvent(ctrl('v')), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.form.fields.password_visible);
+        assert_eq!(screen.form.focused_field, 4);
+
+        let result = screen.update(Message::KeyEvent(ctrl('c')), &mut ctx);
+        assert!(matches!(result, ScreenResult::Command(_)));
+
+        let result = screen.update(Message::KeyEvent(ctrl('g')), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.generator.expanded);
+    }
+
+    #[test]
+    fn tag_chips_can_be_selected_and_deleted_on_edit_form() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.focus_field(6);
+        screen.form.fields.tags = vec!["work".into(), "personal".into()];
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Right,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.fields.tag_focus, Some(0));
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Delete,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.fields.tags, vec!["personal"]);
+        assert_eq!(screen.form.fields.tag_focus, Some(0));
+    }
+
+    #[test]
+    fn unsaved_dialog_shortcuts_match_rendered_hint_on_edit_form() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_unsaved_dialog = true;
+
+        let cancel_result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(cancel_result, ScreenResult::Continue));
+        assert!(!screen.form.show_unsaved_dialog);
+
+        screen.form.show_unsaved_dialog = true;
+        let default_result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(default_result, ScreenResult::Continue));
+        assert!(!screen.form.show_unsaved_dialog);
+
+        screen.form.show_unsaved_dialog = true;
+        let tab_result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Tab,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(tab_result, ScreenResult::Continue));
+        assert_eq!(screen.form.unsaved_dialog_focus, 1);
+
+        let exit_result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(
+            exit_result,
             ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
         ));
     }

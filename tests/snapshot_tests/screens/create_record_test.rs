@@ -87,6 +87,17 @@ fn create_record_weak_password_dialog() {
 }
 
 #[test]
+fn create_record_unsaved_dialog() {
+    let _locale = snapshot_locale();
+    let mut screen = CreateRecordScreen::new();
+    screen.form.fields.name = "Changed Account".to_string();
+    screen.form.has_changes = true;
+    screen.form.show_unsaved_dialog = true;
+    let backend = render_screen(&screen, 80, 24);
+    insta::assert_snapshot!("create_record_unsaved_dialog", backend);
+}
+
+#[test]
 fn create_record_api_key() {
     let _locale = snapshot_locale();
     let mut screen = CreateRecordScreen::new();

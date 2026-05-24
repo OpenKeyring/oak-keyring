@@ -89,7 +89,9 @@ pub fn render_form(
         area.width,
     ));
     if let Some(err) = name_error {
-        lines.push(error_line(&err.message));
+        if should_render_error_line(&err.message) {
+            lines.push(error_line(&err.message));
+        }
     }
     lines.push(Line::raw(""));
 
@@ -124,7 +126,9 @@ pub fn render_form(
                 area.width,
             ));
             if let Some(err) = user_error {
-                lines.push(error_line(&err.message));
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
+                }
             }
             lines.push(Line::raw(""));
 
@@ -174,7 +178,9 @@ pub fn render_form(
             );
             lines.extend(password_row);
             if let Some(err) = pw_error {
-                lines.push(error_line(&err.message));
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
+                }
             }
 
             // Strength bar with breathing room after the password input row.
@@ -198,7 +204,9 @@ pub fn render_form(
                 area.width,
             ));
             if let Some(err) = appid_error {
-                lines.push(error_line(&err.message));
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
+                }
             }
             lines.push(Line::raw(""));
 
@@ -271,7 +279,9 @@ pub fn render_form(
                 area.width,
             ));
             if let Some(err) = pubkey_error {
-                lines.push(error_line(&err.message));
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
+                }
             }
             lines.push(Line::raw(""));
 
@@ -426,6 +436,7 @@ pub fn render_form(
         &state.fields.tag_input,
         &state.fields.tags,
         focused == tags_idx,
+        state.fields.tag_focus,
         state.tag_autocomplete.as_ref(),
         all_tags,
         area.width,
@@ -448,9 +459,14 @@ pub fn render_form(
     ));
     lines.push(Line::raw(""));
 
+    let inner_height = area.height.saturating_sub(2) as usize;
+    let footer_rows = 3usize;
+    while lines.len().saturating_add(footer_rows) < inner_height {
+        lines.push(Line::raw(""));
+    }
+
     // Bottom buttons
     lines.push(separator_line(area.width));
-    lines.push(Line::raw(""));
     lines.push(Line::from(vec![
         Span::raw("  "),
         Span::styled(
@@ -463,6 +479,7 @@ pub fn render_form(
             footer_button_style(state.footer_focus, FormFooterButton::Cancel, false),
         ),
     ]));
+    lines.push(shortcut_line());
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -489,7 +506,7 @@ pub fn render_form(
 
     // Unsaved changes dialog overlay
     if state.show_unsaved_dialog {
-        render_unsaved_dialog(frame, area);
+        render_unsaved_dialog(frame, area, state.unsaved_dialog_focus);
     }
 }
 
@@ -603,6 +620,37 @@ fn footer_button_style(
     }
 }
 
+fn shortcut_line() -> Line<'static> {
+    Line::from(vec![
+        Span::raw("  "),
+        Span::styled("Ctrl+G", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_generate")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Ctrl+V", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_toggle_visibility")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Ctrl+C", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_copy")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Ctrl+S", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_save")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Esc", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}", t!("tui.form.shortcut_cancel")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+    ])
+}
+
 fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
     let go_back_style = if focus == 0 {
         Style::default()
@@ -670,7 +718,26 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
     frame.render_widget(p, dialog_area);
 }
 
-fn render_unsaved_dialog(frame: &mut Frame, area: Rect) {
+fn render_unsaved_dialog(frame: &mut Frame, area: Rect, focus: usize) {
+    let key_style = Style::default()
+        .fg(theme::PRIMARY)
+        .add_modifier(Modifier::BOLD);
+    let continue_style = if focus == 0 {
+        Style::default()
+            .fg(theme::BG)
+            .bg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::PRIMARY)
+    };
+    let discard_style = if focus == 1 {
+        Style::default()
+            .fg(theme::BG)
+            .bg(theme::ERROR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::ERROR)
+    };
     let lines = vec![
         Line::from(Span::styled(
             format!("  {}", t!("tui.overlay.unsaved_title")),
@@ -678,27 +745,35 @@ fn render_unsaved_dialog(frame: &mut Frame, area: Rect) {
                 .fg(theme::TEXT)
                 .add_modifier(Modifier::BOLD),
         )),
-        separator_line(40),
+        separator_line(52),
         Line::raw(""),
         Line::from(Span::raw(format!("  {}", t!("tui.overlay.unsaved_body")))),
         Line::raw(""),
-        separator_line(40),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Esc", key_style),
+            Span::raw(format!(" {}    ", t!("tui.form.unsaved_cancel_shortcut"))),
+            Span::styled("Enter", key_style),
+            Span::raw(format!(" {}", t!("tui.form.unsaved_discard_shortcut"))),
+        ]),
+        Line::raw(""),
+        separator_line(52),
         Line::raw(""),
         Line::from(vec![
-            Span::raw("      "),
+            Span::raw("        "),
             Span::styled(
                 format!(" {} ", t!("tui.form.continue_editing")),
-                Style::default().fg(theme::PRIMARY),
+                continue_style,
             ),
-            Span::raw("    "),
+            Span::raw("      "),
             Span::styled(
                 format!(" {} ", t!("tui.form.discard_changes")),
-                Style::default().fg(theme::ERROR),
+                discard_style,
             ),
         ]),
     ];
-    let w = 40.min(area.width);
-    let h = 9.min(area.height);
+    let w = 52.min(area.width);
+    let h = 12.min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     let dialog_area = Rect::new(x, y, w, h);
@@ -724,4 +799,8 @@ fn error_line(msg: &str) -> Line<'static> {
         format!("  {}", msg),
         Style::default().fg(theme::ERROR),
     ))
+}
+
+fn should_render_error_line(msg: &str) -> bool {
+    msg != t!("tui.form.validation_required").as_ref()
 }

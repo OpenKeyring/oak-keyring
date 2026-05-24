@@ -28,6 +28,7 @@ pub fn render_tag_input(
     input_text: &str,
     tags: &[String],
     focused: bool,
+    focused_tag: Option<usize>,
     autocomplete: Option<&TagAutocompleteState>,
     _existing_tags: &[String],
     width: u16,
@@ -63,21 +64,37 @@ pub fn render_tag_input(
     input_spans.extend(text_input::render_input_box_spans(
         &input_text,
         input_width,
-        focused,
+        focused && focused_tag.is_none(),
         input_style,
+    ));
+    input_spans.push(Span::raw("  "));
+    input_spans.push(Span::styled(
+        t!("tui.form.tag_input_hint").to_string(),
+        Style::default().fg(theme::TEXT_MUTED),
     ));
     lines.push(Line::from(input_spans));
 
     // Tag blocks
     if !tags.is_empty() {
         let mut tag_spans: Vec<Span> = vec![Span::raw(" ".repeat(text_input::FORM_LABEL_WIDTH))];
-        for tag in tags {
-            tag_spans.push(Span::styled(
-                format!("[ {} ", tag),
-                Style::default().fg(theme::BRAND),
-            ));
-            tag_spans.push(Span::styled("×", Style::default().fg(theme::ERROR)));
-            tag_spans.push(Span::styled("] ", Style::default().fg(theme::BRAND)));
+        for (idx, tag) in tags.iter().enumerate() {
+            let style = if focused && focused_tag == Some(idx) {
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default().fg(theme::BRAND)
+            };
+            let delete_style = if focused && focused_tag == Some(idx) {
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default().fg(theme::ERROR)
+            };
+            tag_spans.push(Span::styled(format!("[ {} ", tag), style));
+            tag_spans.push(Span::styled("×", delete_style));
+            tag_spans.push(Span::styled("] ", style));
         }
         lines.push(Line::from(tag_spans));
     }
@@ -121,14 +138,14 @@ mod tests {
 
     #[test]
     fn render_tag_input_empty() {
-        let lines = render_tag_input("", &[], false, None, &[], 60);
+        let lines = render_tag_input("", &[], false, None, None, &[], 60);
         assert_eq!(lines.len(), 1);
     }
 
     #[test]
     fn render_tag_input_with_tags() {
         let tags = vec!["工作".into(), "GitHub".into()];
-        let lines = render_tag_input("", &tags, false, None, &[], 60);
+        let lines = render_tag_input("", &tags, false, None, None, &[], 60);
         assert!(lines.len() >= 2);
     }
 

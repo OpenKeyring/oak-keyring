@@ -22,7 +22,7 @@ expression: backend
 "│              [2026-12-31]                                                    │"
 "│              YYYY-MM-DD                                                      │"
 "│                                                                              │"
-"│  Tags       [                    ]                                           │"
+"│  Tags       [                    ]  Enter Add  ←/→ Select  Del Delete        │"
 "│                                                                              │"
 "│  Notes      [                                                  ] ← Optional  │"
 "└──────────────────────────────────────────────────────────────────────────────┘"

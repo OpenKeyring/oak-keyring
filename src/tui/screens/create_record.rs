@@ -2,7 +2,7 @@
 
 use std::cell::Cell;
 
-use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use unicode_width::UnicodeWidthStr;
 
@@ -80,6 +80,9 @@ impl CreateRecordScreen {
                 ScreenResult::Continue
             }
             KeyCode::Right => {
+                if self.is_tags_focused() && self.form.fields.focus_next_tag() {
+                    return ScreenResult::Continue;
+                }
                 if self.open_focused_dropdown() {
                     return ScreenResult::Continue;
                 }
@@ -92,6 +95,9 @@ impl CreateRecordScreen {
                 }
             }
             KeyCode::Left => {
+                if self.is_tags_focused() && self.form.fields.focus_prev_tag() {
+                    return ScreenResult::Continue;
+                }
                 if self.form.sub_focus_prev() {
                     ScreenResult::Continue
                 } else {
@@ -101,11 +107,16 @@ impl CreateRecordScreen {
                 }
             }
             KeyCode::Esc => self.cancel_form(),
-            KeyCode::Char('s')
-                if key_event
-                    .modifiers
-                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-            {
+            KeyCode::Char('g') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.activate_generate_shortcut()
+            }
+            KeyCode::Char('v') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.activate_visibility_shortcut()
+            }
+            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.activate_copy_shortcut()
+            }
+            KeyCode::Char('s') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.attempt_save()
             }
             KeyCode::Enter => self.handle_enter(),
@@ -128,6 +139,7 @@ impl CreateRecordScreen {
                     self.handle_backspace()
                 }
             }
+            KeyCode::Delete => self.handle_delete(),
             _ => ScreenResult::Continue,
         }
     }
@@ -190,9 +202,7 @@ impl CreateRecordScreen {
             CredentialType::Ssh => 7,
         };
         if focused == tags_idx && !self.form.fields.tag_input.is_empty() {
-            let tag = std::mem::take(&mut self.form.fields.tag_input);
-            if !self.form.fields.tags.contains(&tag) {
-                self.form.fields.tags.push(tag);
+            if self.form.fields.commit_tag_input() {
                 self.form.has_changes = true;
             }
             return ScreenResult::Continue;
@@ -295,8 +305,15 @@ impl CreateRecordScreen {
                     CredentialType::Ssh => 8,
                 };
                 if focused == tags_idx {
-                    self.form.fields.tag_input.push(c);
-                    self.form.has_changes = true;
+                    if matches!(c, ',' | '，') {
+                        if self.form.fields.commit_tag_input() {
+                            self.form.has_changes = true;
+                        }
+                    } else {
+                        self.form.fields.tag_focus = None;
+                        self.form.fields.tag_input.push(c);
+                        self.form.has_changes = true;
+                    }
                 } else if focused == notes_idx {
                     self.form.fields.notes.push(c);
                     self.form.has_changes = true;
@@ -366,11 +383,25 @@ impl CreateRecordScreen {
                     CredentialType::Ssh => 7,
                 };
                 if focused == tags_idx {
-                    self.form.fields.tag_input.pop();
+                    if self.form.fields.tag_input.is_empty() {
+                        if self.form.fields.remove_focused_tag() {
+                            self.form.has_changes = true;
+                            return ScreenResult::Continue;
+                        }
+                    } else {
+                        self.form.fields.tag_input.pop();
+                    }
                 }
             }
         }
         self.form.has_changes = true;
+        ScreenResult::Continue
+    }
+
+    fn handle_delete(&mut self) -> ScreenResult {
+        if self.is_tags_focused() && self.form.fields.remove_focused_tag() {
+            self.form.has_changes = true;
+        }
         ScreenResult::Continue
     }
 
@@ -393,6 +424,10 @@ impl CreateRecordScreen {
         };
         (self.form.focused_field == 0 && self.form.is_credential_type_editable())
             || self.form.focused_field == expiry_idx
+    }
+
+    fn is_tags_focused(&self) -> bool {
+        self.form.footer_focus.is_none() && self.form.focused_field == self.tags_field_index()
     }
 
     fn open_focused_dropdown(&mut self) -> bool {
@@ -419,6 +454,7 @@ impl CreateRecordScreen {
     fn cancel_form(&mut self) -> ScreenResult {
         if self.form.has_changes {
             self.form.show_unsaved_dialog = true;
+            self.form.unsaved_dialog_focus = 0;
             ScreenResult::Continue
         } else {
             ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
@@ -430,6 +466,30 @@ impl CreateRecordScreen {
             FormFooterButton::Save => self.attempt_save(),
             FormFooterButton::Cancel => self.cancel_form(),
         }
+    }
+
+    fn activate_generate_shortcut(&mut self) -> ScreenResult {
+        if self.form.credential_type == CredentialType::Login {
+            self.form.focus_field(4);
+            self.generator.expand();
+        }
+        ScreenResult::Continue
+    }
+
+    fn activate_visibility_shortcut(&mut self) -> ScreenResult {
+        self.form.focus_field(self.shortcut_secret_field_index());
+        self.form.toggle_current_visibility();
+        ScreenResult::Continue
+    }
+
+    fn activate_copy_shortcut(&mut self) -> ScreenResult {
+        self.form.focus_field(self.shortcut_secret_field_index());
+        if let Some(value) = self.form.current_secret_value() {
+            if !value.expose().is_empty() {
+                return ScreenResult::Command(Box::new(Command::CopyRawToClipboard { value }));
+            }
+        }
+        ScreenResult::Continue
     }
 
     /// Handle smart cursor backspace for YYYY-MM-DD date input.
@@ -521,9 +581,23 @@ impl CreateRecordScreen {
         match key {
             KeyCode::Esc | KeyCode::Char('n') => {
                 self.form.show_unsaved_dialog = false;
+                self.form.unsaved_dialog_focus = 0;
                 ScreenResult::Continue
             }
-            KeyCode::Enter | KeyCode::Char('y') => {
+            KeyCode::Tab | KeyCode::Right | KeyCode::Left => {
+                self.form.unsaved_dialog_focus = 1 - self.form.unsaved_dialog_focus;
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => {
+                if self.form.unsaved_dialog_focus == 0 {
+                    self.form.show_unsaved_dialog = false;
+                    ScreenResult::Continue
+                } else {
+                    ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+                }
+            }
+            KeyCode::Char('y') => {
+                self.form.unsaved_dialog_focus = 1;
                 ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
             }
             _ => ScreenResult::Continue,
@@ -771,6 +845,7 @@ enum FormMouseTarget {
     ExpiryOption(usize),
     PasswordButton(PasswordFieldFocus),
     Generator(GeneratorMouseTarget),
+    TagChip(usize),
     Footer(FormFooterButton),
 }
 
@@ -860,6 +935,11 @@ impl CreateRecordScreen {
             FormMouseTarget::Generator(target) => {
                 self.handle_generator_mouse_target(target, is_click)
             }
+            FormMouseTarget::TagChip(index) => {
+                self.form.focus_field(self.tags_field_index());
+                self.form.fields.focus_tag(index);
+                ScreenResult::Continue
+            }
             FormMouseTarget::Footer(button) => {
                 self.form.footer_focus = Some(button);
                 self.form.password_sub_focus = PasswordFieldFocus::Input;
@@ -930,6 +1010,11 @@ impl CreateRecordScreen {
         }
         if content_row == rows.tags {
             return Some(FormMouseTarget::Field(self.tags_field_index()));
+        }
+        if !self.form.fields.tags.is_empty() && content_row == rows.tags + 1 {
+            if let Some(index) = self.tag_chip_at(content_col) {
+                return Some(FormMouseTarget::TagChip(index));
+            }
         }
         if content_row == rows.notes {
             return Some(FormMouseTarget::Field(self.notes_field_index()));
@@ -1002,8 +1087,11 @@ impl CreateRecordScreen {
         let notes = row;
         row += 1 + 1;
 
+        let inner_height = self.last_area.get().height.saturating_sub(2);
+        if row.saturating_add(3) < inner_height {
+            row = inner_height.saturating_sub(3);
+        }
         row += 1; // separator
-        row += 1; // blank
         let footer = row;
 
         FormRowMap {
@@ -1023,12 +1111,10 @@ impl CreateRecordScreen {
     }
 
     fn error_rows_for(&self, field_index: usize) -> u16 {
-        u16::from(
-            self.form
-                .validation_errors
-                .iter()
-                .any(|error| error.field_index == field_index),
-        )
+        u16::from(self.form.validation_errors.iter().any(|error| {
+            error.field_index == field_index
+                && error.message != crate::t!("tui.form.validation_required").as_ref()
+        }))
     }
 
     fn expiry_field_index(&self) -> usize {
@@ -1053,6 +1139,12 @@ impl CreateRecordScreen {
     }
 
     fn secret_field_index(&self) -> usize {
+        match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
+        }
+    }
+
+    fn shortcut_secret_field_index(&self) -> usize {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
         }
@@ -1108,6 +1200,19 @@ impl CreateRecordScreen {
                 PasswordFieldFocus::Copy,
             ]),
         }
+    }
+
+    fn tag_chip_at(&self, content_col: u16) -> Option<usize> {
+        let mut start = crate::tui::components::text_input::FORM_LABEL_WIDTH;
+        let col = content_col as usize;
+        for (index, tag) in self.form.fields.tags.iter().enumerate() {
+            let width = UnicodeWidthStr::width(format!("[ {tag} ×] ").as_str());
+            if col >= start && col < start + width {
+                return Some(index);
+            }
+            start += width;
+        }
+        None
     }
 
     fn handle_generator_mouse_target(
@@ -1399,6 +1504,14 @@ mod tests {
         }
     }
 
+    fn key(code: KeyCode) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(ch: char) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(KeyCode::Char(ch), KeyModifiers::CONTROL)
+    }
+
     #[test]
     fn on_mount_sends_load_tags() {
         let (tx, mut rx) = mpsc::channel(1);
@@ -1488,6 +1601,77 @@ mod tests {
         );
         assert!(matches!(result, ScreenResult::Continue));
         assert!(screen.form.show_unsaved_dialog);
+    }
+
+    #[test]
+    fn unsaved_dialog_esc_cancels_and_keeps_editing() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_unsaved_dialog = true;
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(!screen.form.show_unsaved_dialog);
+    }
+
+    #[test]
+    fn unsaved_dialog_enter_defaults_to_continue_editing() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_unsaved_dialog = true;
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(!screen.form.show_unsaved_dialog);
+    }
+
+    #[test]
+    fn unsaved_dialog_tab_then_enter_discards_and_exits() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_unsaved_dialog = true;
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Tab,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.unsaved_dialog_focus, 1);
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(
+            result,
+            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+        ));
     }
 
     #[test]
@@ -1584,6 +1768,28 @@ mod tests {
     }
 
     #[test]
+    fn required_validation_does_not_render_duplicate_error_rows() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+
+        let result = screen.update(Message::KeyEvent(ctrl('s')), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+
+        let buffer = render_buffer(&screen, 100, 28);
+        for y in buffer.area.y..buffer.area.y + buffer.area.height {
+            let row = (buffer.area.x..buffer.area.x + buffer.area.width)
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .collect::<String>();
+            assert!(
+                !row.contains("│  ← Required") && !row.contains("│  ← 必填"),
+                "required validation should not render a duplicate error row: {row:?}"
+            );
+        }
+    }
+
+    #[test]
     fn focused_dropdown_has_visible_highlight_style() {
         let screen = make_screen();
         let buffer = render_buffer(&screen, 80, 24);
@@ -1666,6 +1872,136 @@ mod tests {
         );
         assert!(title_row > 4, "dialog should be centered over the form");
         assert!(use_row > title_row);
+    }
+
+    #[test]
+    fn tag_input_commits_trimmed_tags_with_comma_separators() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.focus_field(6);
+
+        for ch in " work,personal，work,".chars() {
+            let result = screen.update(Message::KeyEvent(key(KeyCode::Char(ch))), &mut ctx);
+            assert!(matches!(result, ScreenResult::Continue));
+        }
+
+        assert_eq!(screen.form.fields.tags, vec!["work", "personal"]);
+        assert!(screen.form.fields.tag_input.is_empty());
+    }
+
+    #[test]
+    fn tag_input_shows_enter_add_and_delete_hint() {
+        let mut screen = make_screen();
+        screen.form.focus_field(6);
+
+        let buffer = render_buffer(&screen, 120, 32);
+
+        assert!(find_text(&buffer, "Enter Add")
+            .or_else(|| find_text(&buffer, "Enter 添加"))
+            .is_some());
+        assert!(find_text(&buffer, "Del Delete")
+            .or_else(|| find_text(&buffer, "Del 删除"))
+            .is_some());
+    }
+
+    #[test]
+    fn tag_chips_can_be_selected_and_deleted_with_keyboard() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.focus_field(6);
+        screen.form.fields.tags = vec!["work".into(), "personal".into()];
+
+        let result = screen.update(Message::KeyEvent(key(KeyCode::Right)), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.fields.tag_focus, Some(0));
+
+        let result = screen.update(Message::KeyEvent(key(KeyCode::Right)), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.fields.tag_focus, Some(1));
+
+        let result = screen.update(Message::KeyEvent(key(KeyCode::Backspace)), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.fields.tags, vec!["work"]);
+        assert_eq!(screen.form.fields.tag_focus, Some(0));
+    }
+
+    #[test]
+    fn mouse_click_tag_chip_selects_it_for_deletion() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.fields.tags = vec!["work".into(), "personal".into()];
+
+        let buffer = render_buffer(&screen, 120, 32);
+        let (x, y) = find_text(&buffer, "personal").expect("tag chip should render");
+        let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.focused_field, 6);
+        assert_eq!(screen.form.fields.tag_focus, Some(1));
+    }
+
+    #[test]
+    fn form_shortcuts_render_at_bottom() {
+        let screen = make_screen();
+        let buffer = render_buffer(&screen, 100, 32);
+
+        assert!(find_text(&buffer, "Ctrl+G").is_some());
+        assert!(find_text(&buffer, "Ctrl+V").is_some());
+        assert!(find_text(&buffer, "Ctrl+C").is_some());
+        assert!(find_text(&buffer, "Ctrl+S").is_some());
+    }
+
+    #[test]
+    fn ctrl_g_opens_password_generator_from_any_field() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.focus_field(1);
+
+        let result = screen.update(Message::KeyEvent(ctrl('g')), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.generator.expanded);
+        assert_eq!(screen.form.focused_field, 4);
+    }
+
+    #[test]
+    fn ctrl_v_toggles_password_visibility_from_any_field() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.focus_field(1);
+
+        let result = screen.update(Message::KeyEvent(ctrl('v')), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.form.fields.password_visible);
+        assert_eq!(screen.form.focused_field, 4);
+    }
+
+    #[test]
+    fn ctrl_c_copies_password_from_any_field() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.focus_field(1);
+        for ch in "secret".chars() {
+            screen.form.fields.password.as_mut().unwrap().push_char(ch);
+        }
+
+        let result = screen.update(Message::KeyEvent(ctrl('c')), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Command(_)));
+        assert_eq!(screen.form.focused_field, 4);
     }
 
     #[test]

@@ -406,6 +406,7 @@ tui:
     custom_date_placeholder: "YYYY-MM-DD"
     tags_label: "标签"
     tag_add_placeholder: "添加标签..."
+    tag_input_hint: "Enter 添加  ←/→ 选择  Del 删除"
     notes_label: "备注"
     required_marker: "必填"
     optional_marker: "选填"
@@ -426,12 +427,19 @@ tui:
     # Additional form strings
     save_hint: "Ctrl+S 保存"
     cancel_hint: "Esc 取消"
+    shortcut_generate: "生成"
+    shortcut_toggle_visibility: "显示/隐藏"
+    shortcut_copy: "复制"
+    shortcut_save: "保存"
+    shortcut_cancel: "取消"
     weak_password_hint: "当前密码强度为\"弱\"，容易受到暴力破解攻击。"
     weak_password_suggestion: "建议使用生成器创建更强的密码。"
     go_back: "返回修改"
     save_anyway: "直接保存"
     continue_editing: "继续编辑"
     discard_changes: "丢弃"
+    unsaved_cancel_shortcut: "取消并继续编辑"
+    unsaved_discard_shortcut: "放弃并退出"
 
   # ---- U8: Config Screen ----
   config:
