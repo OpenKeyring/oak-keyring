@@ -10,10 +10,10 @@ use crate::t;
 use crate::tui::state::form_state::PasswordFieldFocus;
 use crate::tui::theme;
 
-const FORM_LABEL_WIDTH: usize = 13;
+pub(crate) const FORM_LABEL_WIDTH: usize = 13;
 const FORM_SAFETY_PADDING: usize = 2;
 
-fn display_width(value: &str) -> usize {
+pub(crate) fn display_width(value: &str) -> usize {
     UnicodeWidthStr::width(value)
 }
 
@@ -21,7 +21,7 @@ fn char_width(ch: char) -> usize {
     UnicodeWidthChar::width(ch).unwrap_or(0)
 }
 
-fn pad_to_width(value: &str, width: usize) -> String {
+pub(crate) fn pad_to_width(value: &str, width: usize) -> String {
     let mut padded = value.to_string();
     let current = display_width(&padded);
     if current < width {
@@ -42,6 +42,40 @@ fn truncate_to_width(value: &str, width: usize) -> String {
         used += ch_width;
     }
     out
+}
+
+pub(crate) fn padded_form_label(label: &str) -> String {
+    pad_to_width(&format!("  {}", label.trim()), FORM_LABEL_WIDTH)
+}
+
+pub(crate) fn render_input_box_spans(
+    value: &str,
+    width: usize,
+    focused: bool,
+    style: Style,
+) -> Vec<Span<'static>> {
+    if !focused {
+        let display_value = truncate_to_width(value, width);
+        let padded_value = pad_to_width(&display_value, width);
+        return vec![Span::styled(format!("[{}]", padded_value), style)];
+    }
+
+    let text_width = width.saturating_sub(1);
+    let display_value = truncate_to_width(value, text_width);
+    let used = display_width(&display_value);
+    let rest_width = width.saturating_sub(used + 1);
+    let cursor_style = Style::default()
+        .fg(theme::BG)
+        .bg(theme::PRIMARY)
+        .add_modifier(Modifier::BOLD);
+
+    vec![
+        Span::styled("[", style),
+        Span::styled(display_value, style),
+        Span::styled(" ", cursor_style),
+        Span::styled(" ".repeat(rest_width), style),
+        Span::styled("]", style),
+    ]
 }
 
 /// Render a labeled text input field.
@@ -87,27 +121,21 @@ pub fn render_text_input(
         .saturating_sub(2)
         .saturating_sub(FORM_SAFETY_PADDING)
         .max(1);
-    let display_value = truncate_to_width(&display_value, input_inner_width);
-    let padded_value = pad_to_width(&display_value, input_inner_width);
     let input_style = if has_error {
         Style::default().fg(theme::ERROR).bg(theme::BG_SURFACE)
-    } else if focused {
-        Style::default()
-            .fg(theme::BG)
-            .bg(theme::PRIMARY)
-            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE)
     };
 
-    vec![Line::from(vec![
-        Span::styled(
-            pad_to_width(&format!("  {label}"), FORM_LABEL_WIDTH),
-            label_style,
-        ),
-        Span::styled(format!("[{}]", padded_value), input_style),
-        required_mark,
-    ])]
+    let mut spans = vec![Span::styled(padded_form_label(label), label_style)];
+    spans.extend(render_input_box_spans(
+        &display_value,
+        input_inner_width,
+        focused,
+        input_style,
+    ));
+    spans.push(required_mark);
+    vec![Line::from(spans)]
 }
 
 /// A button descriptor for password input inline buttons.
@@ -147,19 +175,9 @@ pub fn render_password_input_with_buttons(
         .saturating_sub(button_width)
         .saturating_sub(FORM_SAFETY_PADDING)
         .max(1);
-    let display_value = truncate_to_width(&display_value, input_width);
-    let padded = pad_to_width(&display_value, input_width);
-
     let input_focused =
         focused && focused_button.is_none_or(|button| button == PasswordFieldFocus::Input);
-    let input_style = if input_focused {
-        Style::default()
-            .fg(theme::BG)
-            .bg(theme::PRIMARY)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE)
-    };
+    let input_style = Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE);
     let label_style = if focused {
         Style::default()
             .fg(theme::PRIMARY)
@@ -168,13 +186,13 @@ pub fn render_password_input_with_buttons(
         Style::default().fg(theme::TEXT_SECONDARY)
     };
 
-    let mut spans = vec![
-        Span::styled(
-            pad_to_width(&format!("  {label}"), FORM_LABEL_WIDTH),
-            label_style,
-        ),
-        Span::styled(format!("[{}]", padded), input_style),
-    ];
+    let mut spans = vec![Span::styled(padded_form_label(label), label_style)];
+    spans.extend(render_input_box_spans(
+        &display_value,
+        input_width,
+        input_focused,
+        input_style,
+    ));
 
     for btn in buttons {
         let is_focused = focused_button == Some(btn.focus_variant);

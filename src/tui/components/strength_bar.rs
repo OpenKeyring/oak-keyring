@@ -7,11 +7,32 @@ use ratatui::{
 
 use crate::crypto::strength::PasswordStrength;
 use crate::t;
-use crate::tui::theme;
+use crate::tui::{components::text_input, theme};
 
 /// Render the password strength bar as a Line.
 /// Total width: 16 chars for bar + label text.
 pub fn render_strength_bar(strength: &PasswordStrength, unicode: bool) -> Line<'static> {
+    render_strength_bar_with_label(
+        strength,
+        unicode,
+        t!("tui.component_labels.strength").to_string(),
+    )
+}
+
+/// Render the form-aligned password strength bar.
+pub fn render_form_strength_bar(strength: &PasswordStrength, unicode: bool) -> Line<'static> {
+    render_strength_bar_with_label(
+        strength,
+        unicode,
+        text_input::padded_form_label(t!("tui.component_labels.strength").as_ref()),
+    )
+}
+
+fn render_strength_bar_with_label(
+    strength: &PasswordStrength,
+    unicode: bool,
+    label: String,
+) -> Line<'static> {
     let fill = strength.bar_fill as usize;
     let empty = 16 - fill;
     let color = parse_color_hex(strength.level.color_hex());
@@ -28,10 +49,7 @@ pub fn render_strength_bar(strength: &PasswordStrength, unicode: bool) -> Line<'
     };
 
     Line::from(vec![
-        Span::styled(
-            t!("tui.component_labels.strength").to_string(),
-            Style::default().fg(theme::TEXT_SECONDARY),
-        ),
+        Span::styled(label, Style::default().fg(theme::TEXT_SECONDARY)),
         Span::styled(fill_char.repeat(fill), Style::default().fg(color)),
         Span::styled(empty_char.repeat(empty), Style::default().fg(theme::BORDER)),
         Span::raw(" "),
@@ -64,6 +82,20 @@ pub fn render_empty_strength_bar() -> Line<'static> {
     Line::from(vec![
         Span::styled(
             t!("tui.component_labels.strength").to_string(),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled(
+            t!("tui.component_labels.strength_hint").to_string(),
+            Style::default().fg(theme::TEXT_MUTED),
+        ),
+    ])
+}
+
+/// Render empty state strength bar aligned with full-screen form fields.
+pub fn render_form_empty_strength_bar() -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            text_input::padded_form_label(t!("tui.component_labels.strength").as_ref()),
             Style::default().fg(theme::TEXT_SECONDARY),
         ),
         Span::styled(

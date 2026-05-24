@@ -793,7 +793,6 @@ struct FormRowMap {
     account: u16,
     secret: u16,
     passphrase: Option<u16>,
-    generator: Option<(u16, u16)>,
     expiry: u16,
     expiry_options: Option<(u16, u16)>,
     tags: u16,
@@ -878,6 +877,13 @@ impl CreateRecordScreen {
             return None;
         }
 
+        if self.generator.expanded {
+            if let Some(target) = self.hit_test_generator_dialog(column, row) {
+                return Some(FormMouseTarget::Generator(target));
+            }
+            return None;
+        }
+
         let content_row = row.checked_sub(area.y + 1)?;
         let content_col = column.checked_sub(area.x + 1)?;
         let rows = self.form_row_map();
@@ -910,15 +916,6 @@ impl CreateRecordScreen {
         if let Some(passphrase_row) = rows.passphrase {
             if content_row == passphrase_row {
                 return Some(FormMouseTarget::Field(5));
-            }
-        }
-        if let Some((start, len)) = rows.generator {
-            if content_row >= start && content_row < start + len {
-                if let Some(target) =
-                    self.generator_mouse_target(content_col, content_row - start, len)
-                {
-                    return Some(FormMouseTarget::Generator(target));
-                }
             }
         }
         if content_row == rows.expiry {
@@ -966,23 +963,10 @@ impl CreateRecordScreen {
         row += 1 + self.error_rows_for(4);
 
         let mut passphrase = None;
-        let mut generator = None;
         match self.form.credential_type {
             CredentialType::Login => {
                 row += 1; // padding before strength
                 row += 1; // strength row
-                if self.generator.expanded {
-                    row += 1; // padding before embedded generator
-                    let panel_len = crate::tui::components::generator_panel::render_generator_panel(
-                        &self.generator.generator,
-                        true,
-                        self.last_area.get().width,
-                        true,
-                    )
-                    .len() as u16;
-                    generator = Some((row, panel_len));
-                    row += panel_len;
-                }
             }
             CredentialType::Api => {}
             CredentialType::Ssh => {
@@ -1030,7 +1014,6 @@ impl CreateRecordScreen {
             account,
             secret,
             passphrase,
-            generator,
             expiry,
             expiry_options,
             tags,
@@ -1185,6 +1168,36 @@ impl CreateRecordScreen {
             row if row + 1 == panel_len => self.generator_button_target(col),
             _ => None,
         }
+    }
+
+    fn hit_test_generator_dialog(&self, column: u16, row: u16) -> Option<GeneratorMouseTarget> {
+        let area = self.last_area.get();
+        let dialog = crate::tui::screens::form::render::generator_dialog_area(
+            area,
+            &self.generator.generator,
+            true,
+        );
+        if !contains(dialog, column, row) {
+            return None;
+        }
+        let content_col = column.checked_sub(dialog.x + 1)?;
+        let content_row = row.checked_sub(dialog.y + 1)?;
+        let panel_start = 3;
+        if content_row < panel_start {
+            return None;
+        }
+        let panel_len = crate::tui::components::generator_panel::render_generator_panel(
+            &self.generator.generator,
+            true,
+            dialog.width.saturating_sub(2),
+            true,
+        )
+        .len() as u16;
+        let panel_row = content_row - panel_start;
+        if panel_row >= panel_len {
+            return None;
+        }
+        self.generator_mouse_target(content_col, panel_row, panel_len)
     }
 
     fn generator_length_target(&self, col: usize) -> Option<GeneratorMouseTarget> {
@@ -1358,6 +1371,14 @@ mod tests {
             }
         }
         None
+    }
+
+    fn first_symbol_in_row(buffer: &Buffer, row: u16, symbol: &str) -> Option<u16> {
+        (buffer.area.x..buffer.area.x + buffer.area.width).find(|x| {
+            buffer
+                .cell((*x, row))
+                .is_some_and(|cell| cell.symbol() == symbol)
+        })
     }
 
     fn click(column: u16, row: u16) -> MouseEvent {
@@ -1570,6 +1591,81 @@ mod tests {
         let cell = buffer.cell((x, y)).expect("cell should exist");
 
         assert_eq!(cell.bg, crate::tui::theme::PRIMARY);
+    }
+
+    #[test]
+    fn form_auxiliary_controls_align_to_text_input_column() {
+        let mut screen = make_screen();
+        for c in "weak".chars() {
+            screen.form.fields.password.as_mut().unwrap().push_char(c);
+        }
+        screen.form.fields.update_strength();
+
+        let buffer = render_buffer(&screen, 100, 32);
+        let (_, name_row) = find_text(&buffer, "Name").expect("name should render");
+        let (_, type_row) = find_text(&buffer, "Type").expect("type should render");
+        let (_, expiry_row) = find_text(&buffer, "Expiry").expect("expiry should render");
+        let (_, tags_row) = find_text(&buffer, "Tags").expect("tags should render");
+        let (_, strength_row) = find_text(&buffer, "Strength").expect("strength should render");
+
+        let input_col = first_symbol_in_row(&buffer, name_row, "[").expect("name input bracket");
+        assert_eq!(first_symbol_in_row(&buffer, type_row, "["), Some(input_col));
+        assert_eq!(
+            first_symbol_in_row(&buffer, expiry_row, "["),
+            Some(input_col)
+        );
+        assert_eq!(first_symbol_in_row(&buffer, tags_row, "["), Some(input_col));
+
+        let strength_bar_col = (0..100)
+            .find(|x| {
+                buffer
+                    .cell((*x, strength_row))
+                    .is_some_and(|cell| cell.symbol() == crate::tui::theme::ICON_PROGRESS_FILL)
+            })
+            .expect("strength bar should render");
+        assert_eq!(strength_bar_col, input_col);
+    }
+
+    #[test]
+    fn focused_empty_text_input_renders_single_block_cursor() {
+        let mut screen = make_screen();
+        screen.form.focus_field(1);
+
+        let buffer = render_buffer(&screen, 100, 28);
+        let (_, name_row) = find_text(&buffer, "Name").expect("name should render");
+        let input_col = first_symbol_in_row(&buffer, name_row, "[").expect("name input bracket");
+        let cursor_cell = buffer
+            .cell((input_col + 1, name_row))
+            .expect("cursor cell should exist");
+        let next_cell = buffer
+            .cell((input_col + 2, name_row))
+            .expect("next input cell should exist");
+
+        assert_eq!(cursor_cell.bg, crate::tui::theme::PRIMARY);
+        assert_ne!(next_cell.bg, crate::tui::theme::PRIMARY);
+    }
+
+    #[test]
+    fn expanded_generator_renders_as_dialog_over_form() {
+        let mut screen = make_screen();
+        let collapsed_expiry_row = screen.form_row_map().expiry;
+        screen.generator.expand();
+        let expanded_expiry_row = screen.form_row_map().expiry;
+
+        let buffer = render_buffer(&screen, 100, 40);
+        let (_, title_row) = find_text(&buffer, "Password Generator")
+            .or_else(|| find_text(&buffer, "密码生成器"))
+            .expect("generator dialog title should render");
+        let (_, use_row) = find_text(&buffer, "Use Password")
+            .or_else(|| find_text(&buffer, "使用此密码"))
+            .expect("use password action should render");
+
+        assert_eq!(
+            expanded_expiry_row, collapsed_expiry_row,
+            "generator dialog should not insert rows into the form layout"
+        );
+        assert!(title_row > 4, "dialog should be centered over the form");
+        assert!(use_row > title_row);
     }
 
     #[test]

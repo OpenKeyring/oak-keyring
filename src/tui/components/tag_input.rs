@@ -4,24 +4,10 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
-use unicode_width::UnicodeWidthStr;
 
 use crate::t;
 use crate::tui::state::form_state::TagAutocompleteState;
-use crate::tui::theme;
-
-fn display_width(value: &str) -> usize {
-    UnicodeWidthStr::width(value)
-}
-
-fn pad_to_width(value: &str, width: usize) -> String {
-    let mut padded = value.to_string();
-    let current = display_width(&padded);
-    if current < width {
-        padded.push_str(&" ".repeat(width - current));
-    }
-    padded
-}
+use crate::tui::{components::text_input, theme};
 
 fn truncate_to_width(value: &str, width: usize) -> String {
     let mut out = String::new();
@@ -56,18 +42,11 @@ pub fn render_tag_input(
     } else {
         Style::default().fg(theme::TEXT_SECONDARY)
     };
-    let input_style = if focused {
-        Style::default()
-            .fg(theme::BG)
-            .bg(theme::PRIMARY)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE)
-    };
+    let input_style = Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE);
     let label = t!("tui.component_labels.tag").to_string();
     let content_width = width.saturating_sub(2) as usize;
     let input_width = content_width
-        .saturating_sub(display_width(label.as_str()))
+        .saturating_sub(text_input::FORM_LABEL_WIDTH)
         .saturating_sub(2)
         .clamp(1, 20);
     let input_text = if input_text.is_empty() {
@@ -75,16 +54,23 @@ pub fn render_tag_input(
     } else {
         input_text
     };
-    let input_text = pad_to_width(&truncate_to_width(input_text, input_width), input_width);
+    let input_text = truncate_to_width(input_text, input_width);
 
-    lines.push(Line::from(vec![
-        Span::styled(label, label_style),
-        Span::styled(format!("[{}]", input_text), input_style),
-    ]));
+    let mut input_spans = vec![Span::styled(
+        text_input::padded_form_label(&label),
+        label_style,
+    )];
+    input_spans.extend(text_input::render_input_box_spans(
+        &input_text,
+        input_width,
+        focused,
+        input_style,
+    ));
+    lines.push(Line::from(input_spans));
 
     // Tag blocks
     if !tags.is_empty() {
-        let mut tag_spans: Vec<Span> = vec![Span::raw("       ")];
+        let mut tag_spans: Vec<Span> = vec![Span::raw(" ".repeat(text_input::FORM_LABEL_WIDTH))];
         for tag in tags {
             tag_spans.push(Span::styled(
                 format!("[ {} ", tag),
@@ -106,7 +92,7 @@ pub fn render_tag_input(
                     Style::default().fg(theme::TEXT)
                 };
                 lines.push(Line::from(vec![
-                    Span::raw("       "),
+                    Span::raw(" ".repeat(text_input::FORM_LABEL_WIDTH)),
                     Span::styled(format!("  {} ", tag), style),
                 ]));
             }

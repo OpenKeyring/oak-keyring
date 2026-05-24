@@ -5,7 +5,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::tui::theme;
+use crate::tui::{components::text_input, theme};
 
 /// Render a dropdown field (collapsed).
 pub fn render_dropdown(
@@ -40,7 +40,7 @@ pub fn render_dropdown(
     };
 
     Line::from(vec![
-        Span::styled(format!("  {} ", label), label_style),
+        Span::styled(text_input::padded_form_label(label), label_style),
         Span::styled(format!("[ {} {} ]", selected, arrow), value_style),
     ])
 }
@@ -68,7 +68,7 @@ pub fn render_dropdown_expanded(
             Style::default().fg(theme::TEXT)
         };
         lines.push(Line::from(vec![
-            Span::raw("          "),
+            Span::raw(" ".repeat(text_input::FORM_LABEL_WIDTH)),
             Span::styled(format!("  {} ", option), style),
         ]));
     }

@@ -14,6 +14,7 @@ use crate::tui::components::{dropdown, strength_bar, tag_input, text_input};
 use crate::tui::state::form_state::{
     ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus,
 };
+use crate::tui::state::generator_state::GeneratorState;
 use crate::tui::theme;
 use crate::types::credential::CredentialType;
 use unicode_width::UnicodeWidthStr;
@@ -179,23 +180,9 @@ pub fn render_form(
             // Strength bar with breathing room after the password input row.
             lines.push(Line::raw(""));
             if let Some(ref strength) = state.fields.strength {
-                lines.push(strength_bar::render_strength_bar(strength, _unicode));
+                lines.push(strength_bar::render_form_strength_bar(strength, _unicode));
             } else {
-                lines.push(strength_bar::render_empty_strength_bar());
-            }
-
-            // Embedded generator panel (if expanded)
-            if let Some(gen) = generator_state {
-                if gen.expanded {
-                    lines.push(Line::raw(""));
-                    let panel = crate::tui::components::generator_panel::render_generator_panel(
-                        &gen.generator,
-                        true,
-                        area.width,
-                        _unicode,
-                    );
-                    lines.extend(panel);
-                }
+                lines.push(strength_bar::render_form_empty_strength_bar());
             }
         }
         CredentialType::Api => {
@@ -489,6 +476,12 @@ pub fn render_form(
     frame.render_widget(Clear, area);
     frame.render_widget(paragraph, area);
 
+    if let Some(gen) = generator_state {
+        if gen.expanded {
+            render_generator_dialog(frame, area, &gen.generator, _unicode);
+        }
+    }
+
     // Weak password dialog overlay
     if state.show_weak_password_dialog {
         render_weak_password_dialog(frame, area, state.weak_dialog_focus);
@@ -498,6 +491,74 @@ pub fn render_form(
     if state.show_unsaved_dialog {
         render_unsaved_dialog(frame, area);
     }
+}
+
+pub(crate) fn generator_dialog_area(area: Rect, state: &GeneratorState, unicode: bool) -> Rect {
+    let width = if area.width > 68 {
+        64
+    } else {
+        area.width.saturating_sub(4).max(24)
+    };
+    let panel_len = crate::tui::components::generator_panel::render_generator_panel(
+        state,
+        true,
+        width.saturating_sub(2),
+        unicode,
+    )
+    .len() as u16;
+    let height = panel_len
+        .saturating_add(5)
+        .min(area.height.saturating_sub(2));
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    Rect::new(x, y, width, height)
+}
+
+fn render_generator_dialog(frame: &mut Frame, area: Rect, state: &GeneratorState, unicode: bool) {
+    let dialog_area = generator_dialog_area(area, state, unicode);
+    let inner_width = dialog_area.width.saturating_sub(2);
+    let title = t!("tui.generator_overlay.title").to_string();
+    let close_hint = t!("tui.form.cancel_hint").to_string();
+    let title_width = UnicodeWidthStr::width(title.as_str());
+    let hint_width = UnicodeWidthStr::width(close_hint.as_str());
+    let gap = inner_width
+        .saturating_sub(title_width as u16)
+        .saturating_sub(hint_width as u16)
+        .max(1) as usize;
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(
+                title,
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" ".repeat(gap)),
+            Span::styled(close_hint, Style::default().fg(theme::TEXT_SECONDARY)),
+        ]),
+        separator_line(dialog_area.width),
+        Line::raw(""),
+    ];
+    lines.extend(
+        crate::tui::components::generator_panel::render_generator_panel(
+            state,
+            true,
+            inner_width,
+            unicode,
+        ),
+    );
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::BORDER))
+        .style(Style::default().bg(theme::BG));
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(Clear, dialog_area);
+    frame.render_widget(paragraph, dialog_area);
 }
 
 fn title_line(width: u16, title: &str, hint: &str) -> Line<'static> {
