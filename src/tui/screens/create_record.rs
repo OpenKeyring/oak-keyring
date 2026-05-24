@@ -1494,6 +1494,10 @@ mod tests {
         None
     }
 
+    fn contains_required_marker(row: &str) -> bool {
+        row.contains("Required") || (row.contains('←') && row.contains('必') && row.contains('填'))
+    }
+
     fn first_symbol_in_row(buffer: &Buffer, row: u16, symbol: &str) -> Option<u16> {
         (buffer.area.x..buffer.area.x + buffer.area.width).find(|x| {
             buffer
@@ -1776,7 +1780,7 @@ mod tests {
             .filter_map(|x| buffer.cell((x, name_row + 1)).map(|cell| cell.symbol()))
             .collect::<String>();
 
-        assert!(name_line.contains("Required"), "{name_line:?}");
+        assert!(contains_required_marker(&name_line), "{name_line:?}");
         assert!(
             !next_line.trim_start().starts_with(']'),
             "input closing bracket wrapped to next row: {next_line:?}"
@@ -1798,8 +1802,10 @@ mod tests {
             let row = (buffer.area.x..buffer.area.x + buffer.area.width)
                 .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
                 .collect::<String>();
+            let duplicate_required_row = row.contains("│  ← Required")
+                || (row.contains("│  ←") && row.contains('必') && row.contains('填'));
             assert!(
-                !row.contains("│  ← Required") && !row.contains("│  ← 必填"),
+                !duplicate_required_row,
                 "required validation should not render a duplicate error row: {row:?}"
             );
         }

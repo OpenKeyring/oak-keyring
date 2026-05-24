@@ -44,6 +44,7 @@ pub enum CommandResult {
     RecordListLoaded {
         records: Vec<TuiRecord>,
         total: usize,
+        category_counts: RecordCategoryCounts,
     },
     RecordDetailLoaded {
         record: DecryptedRecord,

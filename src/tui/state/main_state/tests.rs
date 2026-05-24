@@ -108,7 +108,7 @@ fn sidebar_build_items_structure() {
     };
     let items = sidebar.build_items();
 
-    assert_eq!(items.len(), 20);
+    assert_eq!(items.len(), 22);
 
     // Verify structure
     assert!(matches!(items[0], SidebarItem::Spacer));
@@ -120,12 +120,14 @@ fn sidebar_build_items_structure() {
     ));
     assert!(matches!(items[12], SidebarItem::Separator));
     assert!(matches!(items[13], SidebarItem::TagHeader));
-    assert!(matches!(items[14], SidebarItem::Tag(ref t, _) if t == "personal"));
-    assert!(matches!(items[15], SidebarItem::Tag(ref t, _) if t == "work"));
+    assert!(matches!(items[14], SidebarItem::Separator));
+    assert!(matches!(items[15], SidebarItem::Tag(ref t, _) if t == "personal"));
     assert!(matches!(items[16], SidebarItem::Separator));
-    assert!(matches!(items[17], SidebarItem::Generator));
+    assert!(matches!(items[17], SidebarItem::Tag(ref t, _) if t == "work"));
     assert!(matches!(items[18], SidebarItem::Separator));
-    assert!(matches!(items[19], SidebarItem::Config));
+    assert!(matches!(items[19], SidebarItem::Generator));
+    assert!(matches!(items[20], SidebarItem::Separator));
+    assert!(matches!(items[21], SidebarItem::Config));
 }
 
 #[test]
@@ -334,7 +336,11 @@ fn record_list_loaded_populates_records_and_total() {
     };
 
     let result = state.update(
-        Message::CommandCompleted(CommandResult::RecordListLoaded { records, total: 10 }),
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records,
+            total: 10,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
+        }),
         &mut ctx,
     );
 
@@ -384,11 +390,54 @@ fn record_list_loaded_updates_status_bar_count() {
     };
 
     let _result = state.update(
-        Message::CommandCompleted(CommandResult::RecordListLoaded { records, total: 5 }),
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records,
+            total: 5,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
+        }),
         &mut ctx,
     );
 
     assert_eq!(state.status_bar.record_count, 5);
+}
+
+#[test]
+fn record_list_loaded_updates_sidebar_category_counts() {
+    use crate::commands::result::CommandResult;
+    use crate::commands::types::RecordCategoryCounts;
+    use crate::commands::Message;
+    use crate::tui::traits::screen::{Screen, ScreenContext};
+    use tokio::sync::mpsc;
+
+    let mut state = MainScreenState::default();
+
+    let (tx, _rx) = mpsc::channel(16);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let _ = state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: Vec::new(),
+            total: 3,
+            category_counts: RecordCategoryCounts {
+                all: 3,
+                favorites: 1,
+                expired: 1,
+                health_issues: 2,
+                trash: 1,
+            },
+        }),
+        &mut ctx,
+    );
+
+    assert_eq!(state.sidebar.category_counts.all, 3);
+    assert_eq!(state.sidebar.category_counts.favorites, 1);
+    assert_eq!(state.sidebar.category_counts.expired, 1);
+    assert_eq!(state.sidebar.category_counts.health_issues, 2);
+    assert_eq!(state.sidebar.category_counts.trash, 1);
 }
 
 #[test]
@@ -411,6 +460,7 @@ fn record_list_loaded_handles_empty_list() {
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: Vec::new(),
             total: 0,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
         }),
         &mut ctx,
     );
@@ -1296,6 +1346,7 @@ fn record_list_loaded_auto_selects_first_when_flag_is_true() {
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: records.clone(),
             total: 2,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
         }),
         &mut ctx,
     );
@@ -1353,6 +1404,7 @@ fn record_list_loaded_auto_select_handles_empty_list() {
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: Vec::new(),
             total: 0,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
         }),
         &mut ctx,
     );
@@ -1405,6 +1457,7 @@ fn record_list_loaded_does_not_auto_select_when_flag_is_false() {
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: records.clone(),
             total: 1,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
         }),
         &mut ctx,
     );
@@ -2034,6 +2087,7 @@ fn record_updated_does_not_refresh_detail_when_record_no_longer_in_filtered_list
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: vec![], // empty — record filtered out
             total: 0,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
         }),
         &mut ctx,
     );
@@ -2283,6 +2337,7 @@ fn record_list_loaded_cursor_recovery_keeps_selection_by_id() {
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: new_records,
             total: 2,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
         }),
         &mut ctx,
     );
@@ -2325,6 +2380,7 @@ fn record_list_loaded_cursor_recovery_falls_back_when_id_disappears() {
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: new_records,
             total: 1,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
         }),
         &mut ctx,
     );
@@ -2367,6 +2423,7 @@ fn record_list_loaded_cursor_recovery_initial_load() {
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: new_records,
             total: 1,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
         }),
         &mut ctx,
     );
@@ -2396,6 +2453,7 @@ fn record_list_loaded_cursor_recovery_keeps_none_when_empty_list() {
         Message::CommandCompleted(CommandResult::RecordListLoaded {
             records: Vec::new(),
             total: 0,
+            category_counts: crate::commands::types::RecordCategoryCounts::default(),
         }),
         &mut ctx,
     );

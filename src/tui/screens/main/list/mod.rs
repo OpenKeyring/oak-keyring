@@ -12,7 +12,7 @@ pub mod items;
 pub mod tests;
 
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
@@ -50,9 +50,9 @@ impl ListPanel {
             return;
         }
 
-        // Split: bar (1 line) + list (remaining)
-        let bar_height = 1u16;
-        let bar_area = Rect::new(area.x, area.y, area.width, bar_height);
+        // Split: sort/search bar + one padding row + list body.
+        let bar_height = 2u16.min(area.height);
+        let bar_area = Rect::new(area.x, area.y, area.width, 1);
         let list_area = Rect::new(
             area.x,
             area.y + bar_height,
@@ -134,15 +134,7 @@ fn render_list(
         })
         .collect();
 
-    let highlight_style = if focused {
-        Style::default()
-            .fg(theme::TEXT)
-            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
-    } else {
-        Style::default().add_modifier(Modifier::DIM)
-    };
-
-    let list = List::new(items).highlight_style(highlight_style);
+    let list = List::new(items);
 
     let mut list_state = ListState::default();
     list_state.select(state.selected_index);

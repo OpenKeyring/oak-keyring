@@ -308,6 +308,8 @@ tui:
     section_credential: "Credential"
     username_label: "Username"
     password_label: "Password"
+    url_label: "URL"
+    notes_label: "Notes"
     copy_button: "Copy"
     show_button: "Show"
     hide_button: "Hide"

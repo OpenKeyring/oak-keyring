@@ -307,6 +307,8 @@ tui:
     section_credential: "身份"
     username_label: "用户名"
     password_label: "密码"
+    url_label: "网址"
+    notes_label: "备注"
     copy_button: "复制"
     show_button: "显示"
     hide_button: "隐藏"

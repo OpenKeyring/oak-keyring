@@ -54,7 +54,7 @@ impl SidebarPanel {
             .and_then(|idx| idx.checked_sub(1))
             .unwrap_or(state.items.len());
         let footer_height = if state.items.len() > footer_start {
-            6.min(area.height)
+            (state.items.len() - footer_start).min(area.height as usize) as u16
         } else {
             0
         };
@@ -253,7 +253,7 @@ fn build_list_item<'a>(
                     ]))
                 }
             } else {
-                let display = format!("{}{} ({})", TAG_INDENT, name, count);
+                let display = format!("{}{}{} ({})", TAG_INDENT, TAG_INDENT, name, count);
                 if is_selected(item, state) {
                     selected_list_item(display, area_width, unicode)
                 } else {
@@ -475,7 +475,10 @@ mod tests {
 
         let fav_label = category_label(&SidebarCategory::Favorites, true);
         assert!(!fav_label.contains('\u{2606}'));
-        assert_eq!(fav_label, t!("tui.main.sidebar_favorites").to_string());
+        assert_eq!(
+            fav_label,
+            format!("[2] {}", t!("tui.main.sidebar_favorites"))
+        );
 
         let expired_label = category_label(&SidebarCategory::Expired, true);
         assert!(!expired_label.is_empty());
@@ -576,7 +579,7 @@ mod tests {
 
         let trash_label = category_label(&SidebarCategory::Trash, false);
         assert!(!trash_label.contains("[DEL]"));
-        assert_eq!(trash_label, t!("tui.main.sidebar_trash").to_string());
+        assert_eq!(trash_label, format!("[5] {}", t!("tui.main.sidebar_trash")));
     }
 
     #[test]
@@ -719,7 +722,7 @@ mod tests {
         };
         state.rebuild();
 
-        let backend = ratatui::backend::TestBackend::new(40, 20);
+        let backend = ratatui::backend::TestBackend::new(40, 24);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {

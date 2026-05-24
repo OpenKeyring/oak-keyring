@@ -41,6 +41,15 @@ impl Default for RecordSort {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RecordCategoryCounts {
+    pub all: usize,
+    pub favorites: usize,
+    pub expired: usize,
+    pub health_issues: usize,
+    pub trash: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldSelector {
     Password,

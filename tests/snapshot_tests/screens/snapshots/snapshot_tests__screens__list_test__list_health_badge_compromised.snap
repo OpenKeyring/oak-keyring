@@ -3,10 +3,10 @@ source: tests/snapshot_tests/screens/list_test.rs
 expression: terminal.backend()
 ---
 "  Sort: [ Created ▼ ]  [ ↓ Descending ]                     "
-"  HackedSite 🔴Leaked                            2024-06-15 " Hidden by multi-width symbols: [(14, " ")]
-"  site.com                                                  "
-"────────────────────────────────────────────────────────────"
 "                                                            "
+"   HackedSite 🔴Leaked                         2024-06-15◀  " Hidden by multi-width symbols: [(15, " ")]
+"   site.com                                                 "
+"────────────────────────────────────────────────────────────"
 "                                                            "
 "                                                            "
 "                                                            "

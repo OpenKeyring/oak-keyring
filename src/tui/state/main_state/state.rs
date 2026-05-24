@@ -175,6 +175,7 @@ impl SidebarState {
                     .get(&tag.id)
                     .map(|m| m.record_count)
                     .unwrap_or(0);
+                items.push(SidebarItem::Separator);
                 items.push(SidebarItem::Tag(tag.name.clone(), count));
             }
         }
@@ -726,7 +727,11 @@ impl Screen for MainScreenState {
                         }
                         ScreenResult::Continue
                     }
-                    CommandResult::RecordListLoaded { records, total } => {
+                    CommandResult::RecordListLoaded {
+                        records,
+                        total,
+                        category_counts,
+                    } => {
                         // Save previous selected record id for id-based recovery
                         let prev_selected_id = self
                             .list
@@ -736,6 +741,14 @@ impl Screen for MainScreenState {
                         self.list.records = records;
                         self.list.total_count = total;
                         self.status_bar.record_count = total;
+                        self.sidebar.category_counts = CategoryCounts {
+                            all: category_counts.all,
+                            favorites: category_counts.favorites,
+                            expired: category_counts.expired,
+                            health_issues: category_counts.health_issues,
+                            trash: category_counts.trash,
+                        };
+                        self.sidebar.rebuild();
 
                         if self.list_auto_select && !self.list.records.is_empty() {
                             // Auto-select first record (sidebar filter change or record creation)
@@ -1571,6 +1584,9 @@ impl MainScreenState {
                 }
                 return ScreenResult::Continue;
             }
+            if row_in_list == 1 {
+                return ScreenResult::Continue;
+            }
 
             let item_height = if crate::tui::terminal::WidthTier::from_width(list_rect.width)
                 == crate::tui::terminal::WidthTier::Minimum
@@ -1579,7 +1595,7 @@ impl MainScreenState {
             } else {
                 3
             };
-            let index = ((row_in_list - 1) / item_height) as usize + self.list.scroll_offset;
+            let index = ((row_in_list - 2) / item_height) as usize + self.list.scroll_offset;
             if index < self.list.records.len() && self.list.selected_index != Some(index) {
                 self.list.selected_index = Some(index);
                 self.list.adjust_scroll();

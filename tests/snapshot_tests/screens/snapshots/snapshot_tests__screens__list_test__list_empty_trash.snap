@@ -3,12 +3,12 @@ source: tests/snapshot_tests/screens/list_test.rs
 expression: terminal.backend()
 ---
 "  Sort: [ Created ▼ ]  [ ↓ Descending ]                     "
+"                                                            "
 "                             🗑                              "
 "                                                            "
 "                       Trash is empty                       "
 "                                                            "
 "             Deleted passwords will appear here             "
-"                                                            "
 "                                                            "
 "                                                            "
 "                                                            "

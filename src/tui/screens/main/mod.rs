@@ -756,7 +756,7 @@ fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
 
     let paragraph = Paragraph::new(Line::from(Span::styled(
         line,
-        Style::default().fg(theme::BORDER),
+        Style::default().fg(theme::TEXT_SECONDARY),
     )));
     frame.render_widget(paragraph, area);
 }
@@ -765,16 +765,18 @@ fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
 ///
 /// Draws separator lines at the boundaries between sidebar|list and list|detail.
 fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas) {
-    let sep_style = Style::default().fg(theme::TEXT_SECONDARY);
-    let sep_char = PANEL_SEPARATOR.chars().next().unwrap_or('|');
+    let sep_style = Style::default().fg(theme::TEXT);
+    let sep_char = PANEL_SEPARATOR.to_string();
 
     for sep_rect in [areas.sidebar_list_separator, areas.list_detail_separator] {
         if sep_rect.width == 0 || sep_rect.height == 0 {
             continue;
         }
-        let line: String = std::iter::repeat_n(sep_char, sep_rect.height as usize).collect();
-        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
-        frame.render_widget(paragraph, sep_rect);
+        for y in sep_rect.y..sep_rect.y.saturating_add(sep_rect.height) {
+            frame
+                .buffer_mut()
+                .set_string(sep_rect.x, y, &sep_char, sep_style);
+        }
     }
 }
 
@@ -800,6 +802,38 @@ mod tests {
         assert_eq!(screen.cycle_focus(PanelId::Sidebar), PanelId::List);
         assert_eq!(screen.cycle_focus(PanelId::List), PanelId::Detail);
         assert_eq!(screen.cycle_focus(PanelId::Detail), PanelId::Sidebar);
+    }
+
+    #[test]
+    fn vertical_separators_are_drawn_on_every_content_row() {
+        let backend = ratatui::backend::TestBackend::new(80, 12);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let areas = layout::calculate_layout(frame.area(), 80);
+                render_vertical_separators(frame, &areas);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let areas = layout::calculate_layout(Rect::new(0, 0, 80, 12), 80);
+        for y in 0..areas.sidebar.height {
+            assert_eq!(
+                buffer
+                    .cell((areas.sidebar_list_separator.x, y))
+                    .expect("sidebar separator cell")
+                    .symbol(),
+                PANEL_SEPARATOR
+            );
+            assert_eq!(
+                buffer
+                    .cell((areas.list_detail_separator.x, y))
+                    .expect("detail separator cell")
+                    .symbol(),
+                PANEL_SEPARATOR
+            );
+        }
     }
 
     #[test]

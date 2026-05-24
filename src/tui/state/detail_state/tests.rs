@@ -244,10 +244,17 @@ fn build_from_login_record() {
     assert_eq!(data.name, "GitHub");
     assert!(data.is_favorite);
     assert_eq!(data.fields.len(), 4); // username, password, url, notes
-    assert_eq!(data.fields[0].label, t!("tui.entry.username_label"));
+    assert_eq!(
+        data.fields[0].label,
+        t!("tui.password_detail.username_label")
+    );
     assert!(matches!(data.fields[0].value, FieldValue::Plain(ref s) if s == "octocat"));
-    assert_eq!(data.fields[1].label, t!("tui.entry.password_label"));
+    assert_eq!(
+        data.fields[1].label,
+        t!("tui.password_detail.password_label")
+    );
     assert!(matches!(data.fields[1].value, FieldValue::Masked));
+    assert_eq!(data.fields[2].label, t!("tui.password_detail.url_label"));
     assert_eq!(data.tags, vec!["dev"]);
 }
 
