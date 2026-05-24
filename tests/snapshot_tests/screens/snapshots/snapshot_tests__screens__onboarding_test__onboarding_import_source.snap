@@ -2,7 +2,9 @@
 source: tests/snapshot_tests/screens/onboarding_test.rs
 expression: backend
 ---
-"                                                                                "
+"                  ░█▀█░█▀█░█▀▀░█▀█░█░█░█▀▀░█░█░█▀▄░▀█▀░█▀█░█▀▀                  "
+"                  ░█░█░█▀▀░█▀▀░█░█░█▀▄░█▀▀░░█░░█▀▄░░█░░█░█░█░█                  "
+"                  ░▀▀▀░▀░░░▀▀▀░▀░▀░▀░▀░▀▀▀░░▀░░▀░▀░▀▀▀░▀░▀░▀▀▀                  "
 "                                                                                "
 "          Step 2/6 · Select Import Source                                       "
 "                                                                                "
@@ -24,5 +26,3 @@ expression: backend
 "          Password: password                                                    "
 "                                                                                "
 "          ↑↓: navigate | Tab: cycle fields | Enter: validate | Esc: ba          "
-"                                                                                "
-"                                                                                "

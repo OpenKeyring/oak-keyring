@@ -1,0 +1,19 @@
+{
+  "name": "@openkeyring/ok-darwin-x64",
+  "version": "0.7.3",
+  "description": "Open-Keyring ok binary for macOS Intel",
+  "scripts": {
+    "prepack": "node ../check-binary.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ]
+}

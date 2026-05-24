@@ -13,6 +13,8 @@ use ratatui::widgets::{Block, Paragraph};
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
 use crate::t;
+use crate::tui::screens::onboarding::views_setup::{header_rows, render_header};
+use crate::tui::terminal::WidthTier;
 use crate::tui::theme::{self, BRAND, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED};
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
@@ -440,38 +442,51 @@ impl ScreenTrait for DatabaseRecoveryScreen {
     }
 
     fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        let content_area = Self::centered_content(area, 17);
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let use_onboarding_header =
+            matches!(self.origin, DatabaseRecoveryOrigin::OnboardingRestore);
+        let brand_rows = if use_onboarding_header {
+            header_rows(wide)
+        } else {
+            1
+        };
+        let separator_rows = if use_onboarding_header { 0 } else { 1 };
+        let content_area = Self::centered_content(area, 15 + brand_rows + separator_rows);
 
         let rows = Layout::vertical([
-            Constraint::Length(1), // brand
-            Constraint::Length(1), // separator
-            Constraint::Length(2), // title
-            Constraint::Length(2), // instruction
-            Constraint::Length(6), // content area
-            Constraint::Length(1), // error/hint
-            Constraint::Length(1), // hotkeys
-            Constraint::Length(1), // step
+            Constraint::Length(brand_rows),     // logo or brand
+            Constraint::Length(separator_rows), // separator for compact startup recovery
+            Constraint::Length(2),              // title
+            Constraint::Length(2),              // instruction
+            Constraint::Length(6),              // content area
+            Constraint::Length(1),              // error/hint
+            Constraint::Length(1),              // hotkeys
+            Constraint::Length(1),              // step
         ])
         .split(content_area);
 
-        // Brand
-        let brand = Paragraph::new(Line::from(vec![
-            Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
-            Span::styled(
-                "OpenKeyring",
-                Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
-            ),
-        ]))
-        .alignment(Alignment::Center);
-        frame.render_widget(brand, rows[0]);
+        if use_onboarding_header {
+            render_header(frame, rows[0], wide);
+        } else {
+            // Brand
+            let brand = Paragraph::new(Line::from(vec![
+                Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
+                Span::styled(
+                    "OpenKeyring",
+                    Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
+                ),
+            ]))
+            .alignment(Alignment::Center);
+            frame.render_widget(brand, rows[0]);
 
-        // Separator
-        let sep = Paragraph::new(Line::from(Span::styled(
-            "─────────────────────────────",
-            Style::default().fg(TEXT_MUTED),
-        )))
-        .alignment(Alignment::Center);
-        frame.render_widget(sep, rows[1]);
+            // Separator
+            let sep = Paragraph::new(Line::from(Span::styled(
+                "─────────────────────────────",
+                Style::default().fg(TEXT_MUTED),
+            )))
+            .alignment(Alignment::Center);
+            frame.render_widget(sep, rows[1]);
+        }
 
         // Title + instruction vary by mode
         match self.mode {
@@ -1081,6 +1096,8 @@ impl DatabaseRecoveryScreen {
 mod tests {
     use super::*;
     use crate::tui::traits::screen::{Screen, ScreenContext};
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent {
@@ -1105,11 +1122,35 @@ mod tests {
         }
     }
 
+    fn render_database_recovery_buffer(
+        screen: &DatabaseRecoveryScreen,
+        width: u16,
+        height: u16,
+    ) -> ratatui::buffer::Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                screen.view(frame, frame.area());
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
     #[test]
     fn starts_on_source_selection() {
         let screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::OnboardingRestore);
         assert_eq!(screen.mode, DatabaseRecoveryMode::SourceSelection);
         assert_eq!(screen.focus, DatabaseRecoveryFocus::Cloud);
+    }
+
+    #[test]
+    fn onboarding_restore_renders_ascii_logo_on_tall_terminal() {
+        let screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::OnboardingRestore);
+
+        let buffer = render_database_recovery_buffer(&screen, 80, 24);
+
+        assert!(format!("{buffer:?}").contains("░█▀█"));
     }
 
     #[test]
@@ -1125,7 +1166,8 @@ mod tests {
         screen.focus = DatabaseRecoveryFocus::Okb;
         screen.mode = DatabaseRecoveryMode::OkbPathInput;
         screen.handle_key_for_test(key(KeyCode::Enter));
-        assert_eq!(screen.error.as_deref(), Some("Enter a .okb path."));
+        let expected = t!("tui.entry.db_recovery_okb_empty_error").to_string();
+        assert_eq!(screen.error.as_deref(), Some(expected.as_str()));
     }
 
     #[test]

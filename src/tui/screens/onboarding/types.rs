@@ -15,6 +15,7 @@ pub enum RecoveryFocus {
     #[default]
     CopyButton,
     RegenerateButton,
+    LearnMoreToggle,
     ConfirmCheckbox,
 }
 

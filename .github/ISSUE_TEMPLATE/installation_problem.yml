@@ -1,0 +1,80 @@
+name: Installation problem
+description: Report a problem installing or launching oak-keyring.
+title: "[Install]: "
+labels: ["installation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The first preview supports macOS Apple Silicon and Intel only. Linux and Windows are not supported yet. Do not include passwords, vault files, recovery words, OAuth secrets, tokens, or private logs.
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS Apple Silicon
+        - macOS Intel
+        - Linux (not supported in current preview)
+        - Windows (not supported in current preview)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS version
+      placeholder: "14.5"
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Install method
+      options:
+        - GitHub Release unsigned build
+        - npm bundled binary package
+        - Developer source build
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: oak-keyring version
+      description: If installation completed, run `ok --version`.
+      placeholder: "ok 0.7.3"
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or action
+      description: What command did you run, or what file did you open?
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or errors
+      description: Paste exact errors or short logs after removing secrets and private data.
+      render: text
+  - type: checkboxes
+    id: preview_boundary
+    attributes:
+      label: Preview boundary
+      options:
+        - label: I understand that this first preview supports macOS Apple Silicon and Intel only.
+          required: true
+        - label: I removed passwords, vault files, recovery words, OAuth secrets, tokens, and private logs.
+          required: true

@@ -24,6 +24,9 @@ pub enum EffectKind {
     ModalAppear,
     ModalDismiss,
     BrandDissolve,
+    OnboardingIntro,
+    OnboardingForward,
+    OnboardingBack,
     ScreenIn,
     ScreenOut,
 }

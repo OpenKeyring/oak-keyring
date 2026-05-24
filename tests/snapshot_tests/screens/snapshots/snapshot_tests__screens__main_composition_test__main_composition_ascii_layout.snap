@@ -1,12 +1,13 @@
 ---
 source: tests/snapshot_tests/screens/main_composition_test.rs
+assertion_line: 428
 expression: ascii_backend
 ---
 "All (2)                                   Sort: [ Created   GitHub Account                          "
-"* Favorites (1)                           GitHub Accountye  octocat                                 "
+"* Favorites (1)                           GitHub Account <  octocat                                 "
 "Expired                                   octocat         *                                         "
 "                                                                                                    "
-"                                          Personal Emailye  ---------------------                   "
+"                                          Personal Email    ---------------------                   "
 "                                          alice@example.co                                          "
 "                                                            Login                                   "
 "                                                                                                    "

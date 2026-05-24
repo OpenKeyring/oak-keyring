@@ -31,16 +31,21 @@ impl OnboardingScreen {
 
     // ── Mouse handling ───────────────────────────────────────────────────────
 
-    pub(crate) fn handle_mouse(&mut self, event: MouseEvent) -> ScreenResult {
+    pub(crate) fn handle_mouse(
+        &mut self,
+        event: MouseEvent,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                self.handle_mouse_click(event.column, event.row)
+                self.handle_mouse_click(event.column, event.row, ctx)
             }
+            MouseEventKind::Moved => self.handle_mouse_hover(event.column, event.row),
             _ => ScreenResult::Continue,
         }
     }
 
-    fn handle_mouse_click(&mut self, col: u16, row: u16) -> ScreenResult {
+    fn handle_mouse_click(&mut self, col: u16, row: u16, ctx: &mut ScreenContext) -> ScreenResult {
         match self.current_step {
             OnboardingStep::Welcome => {
                 for i in 0..self.welcome_card_areas.len() {
@@ -51,18 +56,69 @@ impl OnboardingScreen {
                     }
                 }
             }
+            OnboardingStep::RecoveryDisplay => {
+                return self.handle_recovery_display_click(col, row, ctx);
+            }
             OnboardingStep::RecoveryVerify { .. } => {
-                for (i, area_cell) in self.verify_box_areas.iter().enumerate() {
-                    let area = area_cell.get();
-                    if contains(area, col, row) {
-                        self.verify_focus_index = i;
-                        return ScreenResult::Continue;
-                    }
-                }
+                self.focus_verify_box_at(col, row);
             }
             _ => {}
         }
         ScreenResult::Continue
+    }
+
+    fn handle_mouse_hover(&mut self, col: u16, row: u16) -> ScreenResult {
+        match self.current_step {
+            OnboardingStep::Welcome => {
+                for i in 0..self.welcome_card_areas.len() {
+                    let area = self.welcome_card_areas[i].get();
+                    if contains(area, col, row) {
+                        if self.welcome_selected != i {
+                            self.welcome_selected = i;
+                        }
+                        return ScreenResult::Continue;
+                    }
+                }
+            }
+            OnboardingStep::RecoveryDisplay => {
+                let focus_targets = [
+                    RecoveryFocus::CopyButton,
+                    RecoveryFocus::RegenerateButton,
+                    RecoveryFocus::LearnMoreToggle,
+                    RecoveryFocus::ConfirmCheckbox,
+                    RecoveryFocus::ConfirmCheckbox, // next step button shares checkbox area
+                ];
+                for (i, area_cell) in self.recovery_action_areas.iter().enumerate() {
+                    let area = area_cell.get();
+                    if contains(area, col, row) {
+                        let new_focus = if i == 4 && !self.recovery_confirmed {
+                            return ScreenResult::Continue;
+                        } else {
+                            focus_targets[i]
+                        };
+                        if self.recovery_focus != new_focus {
+                            self.recovery_focus = new_focus;
+                        }
+                        return ScreenResult::Continue;
+                    }
+                }
+            }
+            OnboardingStep::RecoveryVerify { .. } => {
+                self.focus_verify_box_at(col, row);
+            }
+            _ => {}
+        }
+        ScreenResult::Continue
+    }
+
+    fn focus_verify_box_at(&mut self, col: u16, row: u16) {
+        for (i, area_cell) in self.verify_box_areas.iter().enumerate() {
+            let area = area_cell.get();
+            if contains(area, col, row) {
+                self.verify_focus_index = i;
+                return;
+            }
+        }
     }
 
     fn select_welcome_path(&mut self) -> ScreenResult {
@@ -72,17 +128,68 @@ impl OnboardingScreen {
             0 => {
                 self.selected_path = Some(OnboardingPath::CreateNew);
                 self.generate_recovery_words(lang);
-                self.current_step = OnboardingStep::RecoveryDisplay;
+                self.set_step_forward(OnboardingStep::RecoveryDisplay);
             }
             1 => {
                 self.selected_path = Some(OnboardingPath::Restore);
+                self.pending_motion =
+                    Some(crate::tui::state::animation::EffectKind::OnboardingForward);
                 return ScreenResult::NavigateTo(Screen::KeyRecovery);
             }
             2 => {
                 self.selected_path = Some(OnboardingPath::Import);
-                self.current_step = OnboardingStep::ImportSource;
+                self.set_step_forward(OnboardingStep::ImportSource);
             }
             _ => {}
+        }
+        ScreenResult::Continue
+    }
+
+    fn handle_recovery_display_click(
+        &mut self,
+        col: u16,
+        row: u16,
+        ctx: &mut ScreenContext,
+    ) -> ScreenResult {
+        for (i, area_cell) in self.recovery_action_areas.iter().enumerate() {
+            let area = area_cell.get();
+            if !contains(area, col, row) {
+                continue;
+            }
+            match i {
+                0 => {
+                    self.recovery_focus = RecoveryFocus::CopyButton;
+                    if let Some(words) = &self.recovery_words {
+                        let cmd = Command::CopyRawToClipboard {
+                            value: words.to_phrase_secure(),
+                        };
+                        ctx.send_system_command(cmd);
+                        self.clipboard_copied = true;
+                        self.clipboard_clear_seconds = ctx.config.general.clipboard_clear_seconds;
+                    }
+                }
+                1 => {
+                    self.recovery_focus = RecoveryFocus::RegenerateButton;
+                    const LANGUAGES: [&str; 3] = ["auto", "en", "zh-CN"];
+                    let lang = LANGUAGES[self.language_index];
+                    self.generate_recovery_words(lang);
+                    self.recovery_confirmed = false;
+                    self.clipboard_copied = false;
+                }
+                2 => self.learn_more_expanded = !self.learn_more_expanded,
+                3 => self.recovery_confirmed = !self.recovery_confirmed,
+                4 => {
+                    if self.recovery_confirmed {
+                        self.clipboard_copied = false;
+                        self.generate_verify_positions();
+                        self.set_step_forward(OnboardingStep::RecoveryVerify {
+                            positions: self.verify_positions,
+                        });
+                    }
+                }
+                _ => {}
+            }
+            return ScreenResult::Continue;
         }
         ScreenResult::Continue
     }
@@ -126,7 +233,8 @@ impl OnboardingScreen {
             KeyCode::Tab | KeyCode::Right => {
                 self.recovery_focus = match self.recovery_focus {
                     RecoveryFocus::CopyButton => RecoveryFocus::RegenerateButton,
-                    RecoveryFocus::RegenerateButton => RecoveryFocus::ConfirmCheckbox,
+                    RecoveryFocus::RegenerateButton => RecoveryFocus::LearnMoreToggle,
+                    RecoveryFocus::LearnMoreToggle => RecoveryFocus::ConfirmCheckbox,
                     RecoveryFocus::ConfirmCheckbox => RecoveryFocus::CopyButton,
                 };
                 ScreenResult::Continue
@@ -135,7 +243,8 @@ impl OnboardingScreen {
                 self.recovery_focus = match self.recovery_focus {
                     RecoveryFocus::CopyButton => RecoveryFocus::ConfirmCheckbox,
                     RecoveryFocus::RegenerateButton => RecoveryFocus::CopyButton,
-                    RecoveryFocus::ConfirmCheckbox => RecoveryFocus::RegenerateButton,
+                    RecoveryFocus::LearnMoreToggle => RecoveryFocus::RegenerateButton,
+                    RecoveryFocus::ConfirmCheckbox => RecoveryFocus::LearnMoreToggle,
                 };
                 ScreenResult::Continue
             }
@@ -159,25 +268,35 @@ impl OnboardingScreen {
                     self.clipboard_copied = false;
                     ScreenResult::Continue
                 }
+                RecoveryFocus::LearnMoreToggle => {
+                    self.learn_more_expanded = !self.learn_more_expanded;
+                    ScreenResult::Continue
+                }
                 RecoveryFocus::ConfirmCheckbox => {
                     if self.recovery_confirmed {
+                        self.clipboard_copied = false;
                         self.generate_verify_positions();
-                        self.current_step = OnboardingStep::RecoveryVerify {
+                        self.set_step_forward(OnboardingStep::RecoveryVerify {
                             positions: self.verify_positions,
-                        };
+                        });
                     }
                     ScreenResult::Continue
                 }
             },
             KeyCode::Char(' ') => {
-                // Space toggles checkbox when it is focused
+                // Space toggles learn_more_expanded when LearnMoreToggle is focused
+                if self.recovery_focus == RecoveryFocus::LearnMoreToggle {
+                    self.learn_more_expanded = !self.learn_more_expanded;
+                }
+                // Space toggles checkbox when ConfirmCheckbox is focused
                 if self.recovery_focus == RecoveryFocus::ConfirmCheckbox {
                     self.recovery_confirmed = !self.recovery_confirmed;
                 }
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::Welcome;
+                self.clipboard_copied = false;
+                self.set_step_back(OnboardingStep::Welcome);
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -199,7 +318,7 @@ impl OnboardingScreen {
             }
             KeyCode::Enter => self.submit_recovery_verify(),
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::RecoveryDisplay;
+                self.set_step_back(OnboardingStep::RecoveryDisplay);
                 ScreenResult::Continue
             }
             KeyCode::Backspace => {
@@ -230,7 +349,7 @@ impl OnboardingScreen {
         });
         if all_correct {
             self.verify_errors = [false; 4];
-            self.current_step = OnboardingStep::SetPassword;
+            self.set_step_forward(OnboardingStep::SetPassword);
         } else {
             // Mark mismatches
             for (i, &pos) in self.verify_positions.iter().enumerate() {
@@ -253,7 +372,7 @@ impl OnboardingScreen {
     ) -> ScreenResult {
         match key.code {
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::Welcome;
+                self.set_step_back(OnboardingStep::Welcome);
                 ScreenResult::Continue
             }
             _ => {
@@ -269,7 +388,7 @@ impl OnboardingScreen {
                                     return ScreenResult::Continue;
                                 }
                                 // Advance to SecurityAdvisory
-                                self.current_step = OnboardingStep::SecurityAdvisory;
+                                self.set_step_forward(OnboardingStep::SecurityAdvisory);
                             }
                             Err(_) => {
                                 self.error =
@@ -287,11 +406,11 @@ impl OnboardingScreen {
     pub(crate) fn handle_security_advisory_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
             KeyCode::Enter => {
-                self.current_step = OnboardingStep::SetPassword;
+                self.set_step_forward(OnboardingStep::SetPassword);
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::RecoveryInput;
+                self.set_step_back(OnboardingStep::RecoveryInput);
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -383,7 +502,7 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::Welcome;
+                self.set_step_back(OnboardingStep::Welcome);
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -424,7 +543,7 @@ impl OnboardingScreen {
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.current_step = OnboardingStep::ImportSource;
+                self.set_step_back(OnboardingStep::ImportSource);
                 ScreenResult::Continue
             }
             _ => ScreenResult::Continue,
@@ -445,15 +564,15 @@ impl OnboardingScreen {
                 // Go back based on path
                 match self.selected_path {
                     Some(OnboardingPath::CreateNew) | Some(OnboardingPath::Import) => {
-                        self.current_step = OnboardingStep::RecoveryVerify {
+                        self.set_step_back(OnboardingStep::RecoveryVerify {
                             positions: self.verify_positions,
-                        };
+                        });
                     }
                     Some(OnboardingPath::Restore) => {
-                        self.current_step = OnboardingStep::SecurityAdvisory;
+                        self.set_step_back(OnboardingStep::SecurityAdvisory);
                     }
                     None => {
-                        self.current_step = OnboardingStep::Welcome;
+                        self.set_step_back(OnboardingStep::Welcome);
                     }
                 }
                 ScreenResult::Continue
@@ -468,7 +587,7 @@ impl OnboardingScreen {
         match result {
             CommandResult::RecoveryKeyUnlocked => {
                 // Recovery key was accepted — advance to SecurityAdvisory
-                self.current_step = OnboardingStep::SecurityAdvisory;
+                self.set_step_forward(OnboardingStep::SecurityAdvisory);
                 ScreenResult::Continue
             }
             CommandResult::ImportValidated {
@@ -479,7 +598,7 @@ impl OnboardingScreen {
                     self.import_session_id = Some(session_id);
                     self.import_preview = Some(preview);
                     self.error = None;
-                    self.current_step = OnboardingStep::ImportPreview;
+                    self.set_step_forward(OnboardingStep::ImportPreview);
                 }
                 ScreenResult::Continue
             }
@@ -489,7 +608,7 @@ impl OnboardingScreen {
                     const LANGUAGES: [&str; 3] = ["auto", "en", "zh-CN"];
                     let lang = LANGUAGES[self.language_index];
                     self.generate_recovery_words(lang);
-                    self.current_step = OnboardingStep::RecoveryDisplay;
+                    self.set_step_forward(OnboardingStep::RecoveryDisplay);
                 }
                 ScreenResult::Continue
             }
