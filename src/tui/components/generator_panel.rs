@@ -85,7 +85,6 @@ pub fn render_generator_panel(
         ),
     ]));
 
-    // Strength bar
     if let Some(ref strength) = state.strength {
         lines.push(strength_bar::render_strength_bar(strength, unicode));
     } else {
@@ -105,7 +104,7 @@ pub fn render_generator_panel(
     let action_label = if is_embedded {
         t!("tui.generator.use_password").to_string()
     } else {
-        t!("tui.notification.copied_to_clipboard").to_string()
+        t!("tui.generator.copy").to_string()
     };
     let action_style = if state.focus == GeneratorFocus::ActionButton {
         Style::default()
@@ -178,7 +177,7 @@ fn render_random_toggles(state: &GeneratorState) -> Vec<Line<'static>> {
 
     let toggles = [
         (0, uppercase.as_str(), state.random_config.uppercase, true),
-        (1, lowercase.as_str(), true, false),
+        (1, lowercase.as_str(), state.random_config.lowercase, true),
         (2, digits.as_str(), state.random_config.digits, true),
         (3, symbols.as_str(), state.random_config.symbols, true),
     ];

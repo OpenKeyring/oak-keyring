@@ -9,7 +9,7 @@ expression: backend
 "│  Type │  Password Generator                                Esc Cancel│       │"
 "│       │──────────────────────────────────────────────────────────────│       │"
 "│  Name │                                                              │uired  │"
-"│       │  Length [ 16 ]  [-] █░░░░░░░░░░░ [+]                         │       │"
+"│       │  Length [ 16 ]  [-] ██░░░░░░░░░░░░░░░░░░ [+]                 │       │"
 "│  URL  │                                                              │ional  │"
 "│       │  [✓] Uppercase  [✓] Lowercase  [✓] Digits  [✓] Symbols       │       │"
 "│  Usern│                                                              │uired  │"

@@ -641,13 +641,29 @@ impl CreateRecordScreen {
                 _ => ScreenResult::Continue,
             },
             GeneratorFocus::Toggle(idx) => match key {
-                KeyCode::Left | KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') => {
+                KeyCode::Left => {
+                    self.generator.generator.focus_prev_toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Right => {
+                    self.generator.generator.focus_next_toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
                     self.toggle_generator_option(idx);
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
             },
             GeneratorFocus::SeparatorInput => match key {
+                KeyCode::Left => {
+                    self.generator.generator.focus_prev_toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Right => {
+                    self.generator.generator.focus_next_toggle();
+                    ScreenResult::Continue
+                }
                 KeyCode::Char(c) => {
                     self.generator.generator.memorable_config.separator = c.to_string();
                     self.generator.generator.regenerate();
@@ -1318,7 +1334,7 @@ impl CreateRecordScreen {
         let minus_start = label_width + value_width + 2;
         let minus_end = minus_start + 3;
         let bar_start = minus_end + 1;
-        let plus_start = bar_start + 12 + 1;
+        let plus_start = bar_start + crate::tui::components::length_slider::SLIDER_BAR_WIDTH + 1;
         let plus_end = plus_start + 3;
 
         if col >= minus_start && col < minus_end {

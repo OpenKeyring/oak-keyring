@@ -366,7 +366,7 @@ tui:
     strength_weak: "弱"
     strength_fair: "中等"
     strength_strong: "强"
-    strength_very_strong: "极强"
+    strength_very_strong: "Excellent"
     style_label: "风格"
     style_random: "Random"
     style_memorable: "Memorable"
@@ -1051,6 +1051,7 @@ tui:
   # ---- Generator Overlay ----
   generator_overlay:
     title: "  密码生成器"
+    close_hint: "Esc 退出"
 
   # ---- Sync Conflict ----
   sync:
