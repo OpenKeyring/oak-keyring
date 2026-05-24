@@ -26,6 +26,13 @@ pub enum PasswordFieldFocus {
     Paste,
 }
 
+/// Focusable footer action buttons in the create/edit form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormFooterButton {
+    Save,
+    Cancel,
+}
+
 /// Expiry options for the dropdown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpiryOption {
@@ -196,6 +203,8 @@ pub struct FormState {
     /// Sub-focus within the currently focused password/sensitive field.
     /// Only meaningful when `focused_field` points to a field with inline buttons.
     pub password_sub_focus: PasswordFieldFocus,
+    /// Mouse/keyboard focus for footer action buttons. `None` means a form field is focused.
+    pub footer_focus: Option<FormFooterButton>,
 }
 
 /// Tag autocomplete dropdown state.
@@ -232,6 +241,7 @@ impl FormState {
             weak_dialog_focus: 0,
             show_unsaved_dialog: false,
             password_sub_focus: PasswordFieldFocus::Input,
+            footer_focus: None,
         }
     }
 
@@ -253,6 +263,7 @@ impl FormState {
             self.fields.tags = tags;
             self.fields.notes = notes;
             self.focused_field = 0;
+            self.footer_focus = None;
             self.has_changes = true;
         }
     }
@@ -260,6 +271,10 @@ impl FormState {
     /// Get the ordered list of inline buttons for the currently focused field.
     /// Returns `None` if the focused field does not have inline buttons.
     pub fn inline_buttons(&self) -> Option<Vec<PasswordFieldFocus>> {
+        if self.footer_focus.is_some() {
+            return None;
+        }
+
         let focused = self.focused_field;
         let ct = self.credential_type;
         match ct {
@@ -414,19 +429,52 @@ impl FormState {
 
     /// Move focus to next field.
     pub fn focus_next(&mut self) {
+        if let Some(button) = self.footer_focus {
+            self.footer_focus = match button {
+                FormFooterButton::Save => Some(FormFooterButton::Cancel),
+                FormFooterButton::Cancel => Some(FormFooterButton::Cancel),
+            };
+            self.password_sub_focus = PasswordFieldFocus::Input;
+            return;
+        }
+
         let count = self.field_count();
         if self.focused_field < count - 1 {
             self.focused_field += 1;
+            self.password_sub_focus = PasswordFieldFocus::Input;
+        } else {
+            self.footer_focus = Some(FormFooterButton::Save);
             self.password_sub_focus = PasswordFieldFocus::Input;
         }
     }
 
     /// Move focus to previous field.
     pub fn focus_prev(&mut self) {
+        if let Some(button) = self.footer_focus {
+            match button {
+                FormFooterButton::Cancel => {
+                    self.footer_focus = Some(FormFooterButton::Save);
+                }
+                FormFooterButton::Save => {
+                    self.footer_focus = None;
+                    self.focused_field = self.field_count().saturating_sub(1);
+                }
+            }
+            self.password_sub_focus = PasswordFieldFocus::Input;
+            return;
+        }
+
         if self.focused_field > 0 {
             self.focused_field -= 1;
             self.password_sub_focus = PasswordFieldFocus::Input;
         }
+    }
+
+    /// Set field focus directly, clearing footer and inline-button focus.
+    pub fn focus_field(&mut self, field_index: usize) {
+        self.focused_field = field_index.min(self.field_count().saturating_sub(1));
+        self.footer_focus = None;
+        self.password_sub_focus = PasswordFieldFocus::Input;
     }
 
     /// Whether the credential type dropdown is interactive.

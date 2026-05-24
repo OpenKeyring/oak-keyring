@@ -1,12 +1,18 @@
 //! Create record screen (U7).
 
-use crossterm::event::KeyCode;
+use std::cell::Cell;
+
+use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::Rect;
+use unicode_width::UnicodeWidthStr;
 
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
 use crate::tui::screens::form::validation;
-use crate::tui::state::form_state::{ExpiryOption, FormState};
-use crate::tui::state::generator_state::EmbeddedGeneratorState;
+use crate::tui::state::form_state::{
+    ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus,
+};
+use crate::tui::state::generator_state::{EmbeddedGeneratorState, GenerationStyle, GeneratorFocus};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::credential::CredentialType;
 use crate::types::sensitive::SensitiveInput;
@@ -16,6 +22,7 @@ pub struct CreateRecordScreen {
     pub form: FormState,
     pub generator: EmbeddedGeneratorState,
     pub all_tags: Vec<String>,
+    last_area: Cell<Rect>,
 }
 
 impl Default for CreateRecordScreen {
@@ -30,6 +37,7 @@ impl CreateRecordScreen {
             form: FormState::new_create(),
             generator: EmbeddedGeneratorState::new(),
             all_tags: Vec::new(),
+            last_area: Cell::new(Rect::default()),
         }
     }
 
@@ -72,6 +80,9 @@ impl CreateRecordScreen {
                 ScreenResult::Continue
             }
             KeyCode::Right => {
+                if self.open_focused_dropdown() {
+                    return ScreenResult::Continue;
+                }
                 if self.form.sub_focus_next() {
                     ScreenResult::Continue
                 } else {
@@ -89,14 +100,7 @@ impl CreateRecordScreen {
                     ScreenResult::Continue
                 }
             }
-            KeyCode::Esc => {
-                if self.form.has_changes {
-                    self.form.show_unsaved_dialog = true;
-                    ScreenResult::Continue
-                } else {
-                    ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
-                }
-            }
+            KeyCode::Esc => self.cancel_form(),
             KeyCode::Char('s')
                 if key_event
                     .modifiers
@@ -105,6 +109,11 @@ impl CreateRecordScreen {
                 self.attempt_save()
             }
             KeyCode::Enter => self.handle_enter(),
+            KeyCode::Char(' ')
+                if self.is_dropdown_focused() || self.form.footer_focus.is_some() =>
+            {
+                self.handle_enter()
+            }
             KeyCode::Char(c) => {
                 if self.is_custom_date_focused() {
                     self.handle_date_char(c)
@@ -126,6 +135,10 @@ impl CreateRecordScreen {
     fn handle_enter(&mut self) -> ScreenResult {
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
+
+        if let Some(button) = self.form.footer_focus {
+            return self.activate_footer_button(button);
+        }
 
         // Check inline button actions first
         match self.form.password_sub_focus {
@@ -189,9 +202,12 @@ impl CreateRecordScreen {
     }
 
     fn handle_char_input(&mut self, c: char) -> ScreenResult {
+        if self.form.footer_focus.is_some() {
+            return ScreenResult::Continue;
+        }
+
         // If sub-focus is on a button, don't accept text input
-        if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
-        {
+        if self.form.password_sub_focus != PasswordFieldFocus::Input {
             return ScreenResult::Continue;
         }
 
@@ -291,9 +307,12 @@ impl CreateRecordScreen {
     }
 
     fn handle_backspace(&mut self) -> ScreenResult {
+        if self.form.footer_focus.is_some() {
+            return ScreenResult::Continue;
+        }
+
         // If sub-focus is on a button, don't delete text
-        if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
-        {
+        if self.form.password_sub_focus != PasswordFieldFocus::Input {
             return ScreenResult::Continue;
         }
 
@@ -362,6 +381,55 @@ impl CreateRecordScreen {
             CredentialType::Ssh => 6,
         };
         self.form.focused_field == expiry_idx && self.form.fields.expires_at == ExpiryOption::Custom
+    }
+
+    fn is_dropdown_focused(&self) -> bool {
+        if self.form.footer_focus.is_some() {
+            return false;
+        }
+        let expiry_idx = match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api => 5,
+            CredentialType::Ssh => 6,
+        };
+        (self.form.focused_field == 0 && self.form.is_credential_type_editable())
+            || self.form.focused_field == expiry_idx
+    }
+
+    fn open_focused_dropdown(&mut self) -> bool {
+        if self.form.footer_focus.is_some() {
+            return false;
+        }
+        if self.form.focused_field == 0 && self.form.is_credential_type_editable() {
+            self.form.credential_dropdown.expanded = true;
+            return true;
+        }
+
+        let expiry_idx = match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api => 5,
+            CredentialType::Ssh => 6,
+        };
+        if self.form.focused_field == expiry_idx {
+            self.form.expiry_dropdown.expanded = true;
+            return true;
+        }
+
+        false
+    }
+
+    fn cancel_form(&mut self) -> ScreenResult {
+        if self.form.has_changes {
+            self.form.show_unsaved_dialog = true;
+            ScreenResult::Continue
+        } else {
+            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+        }
+    }
+
+    fn activate_footer_button(&mut self, button: FormFooterButton) -> ScreenResult {
+        match button {
+            FormFooterButton::Save => self.attempt_save(),
+            FormFooterButton::Cancel => self.cancel_form(),
+        }
     }
 
     /// Handle smart cursor backspace for YYYY-MM-DD date input.
@@ -468,20 +536,117 @@ impl CreateRecordScreen {
                 self.generator.collapse();
                 ScreenResult::Continue
             }
-            KeyCode::Enter => {
-                if self.generator.generator.focus
-                    == crate::tui::state::generator_state::GeneratorFocus::ActionButton
-                {
-                    let pw = self.generator.use_password();
-                    self.form.fields.password = Some(SensitiveInput::from(pw));
-                    self.form.fields.update_strength();
-                    self.form.has_changes = true;
-                    return ScreenResult::Continue;
-                }
+            KeyCode::Tab | KeyCode::Down => {
+                self.generator_focus_next();
+                ScreenResult::Continue
+            }
+            KeyCode::BackTab | KeyCode::Up => {
+                self.generator_focus_prev();
+                ScreenResult::Continue
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => self.activate_generator_focus(),
+            KeyCode::Char('r') => {
                 self.generator.generator.regenerate();
                 ScreenResult::Continue
             }
+            _ => self.handle_generator_focus_key(key),
+        }
+    }
+
+    fn handle_generator_focus_key(&mut self, key: KeyCode) -> ScreenResult {
+        match self.generator.generator.focus {
+            GeneratorFocus::LengthSlider => match key {
+                KeyCode::Left | KeyCode::Char('-') => {
+                    self.generator.generator.decrement_length();
+                    ScreenResult::Continue
+                }
+                KeyCode::Right | KeyCode::Char('+') => {
+                    self.generator.generator.increment_length();
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            GeneratorFocus::Toggle(idx) => match key {
+                KeyCode::Left | KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.toggle_generator_option(idx);
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            GeneratorFocus::SeparatorInput => match key {
+                KeyCode::Char(c) => {
+                    self.generator.generator.memorable_config.separator = c.to_string();
+                    self.generator.generator.regenerate();
+                    ScreenResult::Continue
+                }
+                KeyCode::Backspace => {
+                    self.generator.generator.memorable_config.separator = "-".to_string();
+                    self.generator.generator.regenerate();
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
             _ => ScreenResult::Continue,
+        }
+    }
+
+    fn activate_generator_focus(&mut self) -> ScreenResult {
+        match self.generator.generator.focus {
+            GeneratorFocus::ActionButton => {
+                let pw = self.generator.use_password();
+                self.form.fields.password = Some(SensitiveInput::from(pw));
+                self.form.fields.update_strength();
+                self.form.has_changes = true;
+                ScreenResult::Continue
+            }
+            GeneratorFocus::RegenerateButton => {
+                self.generator.generator.regenerate();
+                ScreenResult::Continue
+            }
+            GeneratorFocus::Toggle(idx) => {
+                self.toggle_generator_option(idx);
+                ScreenResult::Continue
+            }
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn toggle_generator_option(&mut self, idx: usize) {
+        if self.generator.generator.style == GenerationStyle::Random {
+            self.generator.generator.toggle_char_type(idx);
+        } else if self.generator.generator.style == GenerationStyle::Memorable && idx == 0 {
+            self.generator.generator.memorable_config.capitalize =
+                !self.generator.generator.memorable_config.capitalize;
+            self.generator.generator.regenerate();
+        }
+    }
+
+    fn embedded_generator_focus_order(&self) -> Vec<GeneratorFocus> {
+        self.generator
+            .generator
+            .focus_order()
+            .into_iter()
+            .filter(|focus| *focus != GeneratorFocus::StyleSelector)
+            .collect()
+    }
+
+    fn generator_focus_next(&mut self) {
+        let order = self.embedded_generator_focus_order();
+        if let Some(idx) = order
+            .iter()
+            .position(|focus| *focus == self.generator.generator.focus)
+        {
+            self.generator.generator.focus = order[(idx + 1) % order.len()];
+        }
+    }
+
+    fn generator_focus_prev(&mut self) {
+        let order = self.embedded_generator_focus_order();
+        if let Some(idx) = order
+            .iter()
+            .position(|focus| *focus == self.generator.generator.focus)
+        {
+            self.generator.generator.focus = order[(idx + order.len() - 1) % order.len()];
         }
     }
 
@@ -499,7 +664,7 @@ impl CreateRecordScreen {
                 }
                 ScreenResult::Continue
             }
-            KeyCode::Enter | KeyCode::Char(' ') => {
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char(' ') => {
                 let ct = match self.form.credential_dropdown.selected_index {
                     0 => CredentialType::Login,
                     1 => CredentialType::Api,
@@ -509,7 +674,7 @@ impl CreateRecordScreen {
                 self.form.credential_dropdown.expanded = false;
                 ScreenResult::Continue
             }
-            KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Left => {
                 self.form.credential_dropdown.expanded = false;
                 ScreenResult::Continue
             }
@@ -532,13 +697,13 @@ impl CreateRecordScreen {
                 }
                 ScreenResult::Continue
             }
-            KeyCode::Enter | KeyCode::Char(' ') => {
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char(' ') => {
                 self.form.fields.expires_at = options[self.form.expiry_dropdown.selected_index].1;
                 self.form.expiry_dropdown.expanded = false;
                 self.form.has_changes = true;
                 ScreenResult::Continue
             }
-            KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Left => {
                 self.form.expiry_dropdown.expanded = false;
                 ScreenResult::Continue
             }
@@ -561,6 +726,7 @@ impl Screen for CreateRecordScreen {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key, ctx),
+            Message::MouseEvent(event) => self.handle_mouse(event),
             Message::CommandCompleted(result) => match result {
                 CommandResult::TagsLoaded { tags, tag_stats: _ } => {
                     self.all_tags = tags.into_iter().map(|tag| tag.name).collect();
@@ -574,6 +740,7 @@ impl Screen for CreateRecordScreen {
     }
 
     fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        self.last_area.set(area);
         crate::tui::screens::form::render::render_form(
             frame,
             area,
@@ -595,12 +762,548 @@ impl Screen for CreateRecordScreen {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FormMouseTarget {
+    Field(usize),
+    CredentialDropdown,
+    CredentialOption(usize),
+    ExpiryDropdown,
+    ExpiryOption(usize),
+    PasswordButton(PasswordFieldFocus),
+    Generator(GeneratorMouseTarget),
+    Footer(FormFooterButton),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GeneratorMouseTarget {
+    LengthSlider,
+    LengthMinus,
+    LengthPlus,
+    Toggle(usize),
+    Regenerate,
+    Action,
+}
+
+#[derive(Default)]
+struct FormRowMap {
+    credential: u16,
+    credential_options: Option<(u16, u16)>,
+    name: u16,
+    url: u16,
+    account: u16,
+    secret: u16,
+    passphrase: Option<u16>,
+    generator: Option<(u16, u16)>,
+    expiry: u16,
+    expiry_options: Option<(u16, u16)>,
+    tags: u16,
+    notes: u16,
+    footer: u16,
+}
+
+impl CreateRecordScreen {
+    fn handle_mouse(&mut self, event: MouseEvent) -> ScreenResult {
+        let is_click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
+        let is_move = matches!(event.kind, MouseEventKind::Moved);
+        if !is_click && !is_move {
+            return ScreenResult::Continue;
+        }
+
+        let Some(target) = self.hit_test(event.column, event.row) else {
+            return ScreenResult::Continue;
+        };
+
+        match target {
+            FormMouseTarget::Field(index) => {
+                self.form.focus_field(index);
+                ScreenResult::Continue
+            }
+            FormMouseTarget::CredentialDropdown => {
+                self.form.focus_field(0);
+                if is_click {
+                    self.form.credential_dropdown.expanded =
+                        !self.form.credential_dropdown.expanded;
+                }
+                ScreenResult::Continue
+            }
+            FormMouseTarget::CredentialOption(index) => {
+                self.form.focus_field(0);
+                self.form.credential_dropdown.selected_index = index.min(2);
+                if is_click {
+                    return self.handle_credential_dropdown(KeyCode::Enter);
+                }
+                ScreenResult::Continue
+            }
+            FormMouseTarget::ExpiryDropdown => {
+                self.form.focus_field(self.expiry_field_index());
+                if is_click {
+                    self.form.expiry_dropdown.expanded = !self.form.expiry_dropdown.expanded;
+                }
+                ScreenResult::Continue
+            }
+            FormMouseTarget::ExpiryOption(index) => {
+                self.form.focus_field(self.expiry_field_index());
+                self.form.expiry_dropdown.selected_index =
+                    index.min(ExpiryOption::all_options().len().saturating_sub(1));
+                if is_click {
+                    return self.handle_expiry_dropdown(KeyCode::Enter);
+                }
+                ScreenResult::Continue
+            }
+            FormMouseTarget::PasswordButton(button) => {
+                self.form.focus_field(self.secret_field_index());
+                self.form.password_sub_focus = button;
+                if is_click {
+                    return self.handle_enter();
+                }
+                ScreenResult::Continue
+            }
+            FormMouseTarget::Generator(target) => {
+                self.handle_generator_mouse_target(target, is_click)
+            }
+            FormMouseTarget::Footer(button) => {
+                self.form.footer_focus = Some(button);
+                self.form.password_sub_focus = PasswordFieldFocus::Input;
+                if is_click {
+                    return self.activate_footer_button(button);
+                }
+                ScreenResult::Continue
+            }
+        }
+    }
+
+    fn hit_test(&self, column: u16, row: u16) -> Option<FormMouseTarget> {
+        let area = self.last_area.get();
+        if area.width == 0 || area.height == 0 || !contains(area, column, row) {
+            return None;
+        }
+
+        let content_row = row.checked_sub(area.y + 1)?;
+        let content_col = column.checked_sub(area.x + 1)?;
+        let rows = self.form_row_map();
+
+        if content_row == rows.credential {
+            return Some(FormMouseTarget::CredentialDropdown);
+        }
+        if let Some((start, len)) = rows.credential_options {
+            if content_row >= start && content_row < start + len {
+                return Some(FormMouseTarget::CredentialOption(
+                    (content_row - start) as usize,
+                ));
+            }
+        }
+        if content_row == rows.name {
+            return Some(FormMouseTarget::Field(1));
+        }
+        if content_row == rows.url {
+            return Some(FormMouseTarget::Field(2));
+        }
+        if content_row == rows.account {
+            return Some(FormMouseTarget::Field(3));
+        }
+        if content_row == rows.secret {
+            if let Some(button) = self.password_button_at(content_col, area.width) {
+                return Some(FormMouseTarget::PasswordButton(button));
+            }
+            return Some(FormMouseTarget::Field(self.secret_field_index()));
+        }
+        if let Some(passphrase_row) = rows.passphrase {
+            if content_row == passphrase_row {
+                return Some(FormMouseTarget::Field(5));
+            }
+        }
+        if let Some((start, len)) = rows.generator {
+            if content_row >= start && content_row < start + len {
+                if let Some(target) =
+                    self.generator_mouse_target(content_col, content_row - start, len)
+                {
+                    return Some(FormMouseTarget::Generator(target));
+                }
+            }
+        }
+        if content_row == rows.expiry {
+            return Some(FormMouseTarget::ExpiryDropdown);
+        }
+        if let Some((start, len)) = rows.expiry_options {
+            if content_row >= start && content_row < start + len {
+                return Some(FormMouseTarget::ExpiryOption(
+                    (content_row - start) as usize,
+                ));
+            }
+        }
+        if content_row == rows.tags {
+            return Some(FormMouseTarget::Field(self.tags_field_index()));
+        }
+        if content_row == rows.notes {
+            return Some(FormMouseTarget::Field(self.notes_field_index()));
+        }
+        if content_row == rows.footer {
+            if let Some(button) = footer_button_at(content_col) {
+                return Some(FormMouseTarget::Footer(button));
+            }
+        }
+
+        None
+    }
+
+    fn form_row_map(&self) -> FormRowMap {
+        let mut row = 3;
+        let credential = row;
+        let credential_options = if self.form.credential_dropdown.expanded {
+            Some((row + 1, 3))
+        } else {
+            None
+        };
+        row += 1 + credential_options.map_or(0, |(_, len)| len) + 1;
+
+        let name = row;
+        row += 1 + self.error_rows_for(1) + 1;
+        let url = row;
+        row += 1 + 1;
+        let account = row;
+        row += 1 + self.error_rows_for(3) + 1;
+        let secret = row;
+        row += 1 + self.error_rows_for(4);
+
+        let mut passphrase = None;
+        let mut generator = None;
+        match self.form.credential_type {
+            CredentialType::Login => {
+                row += 1; // padding before strength
+                row += 1; // strength row
+                if self.generator.expanded {
+                    row += 1; // padding before embedded generator
+                    let panel_len = crate::tui::components::generator_panel::render_generator_panel(
+                        &self.generator.generator,
+                        true,
+                        self.last_area.get().width,
+                        true,
+                    )
+                    .len() as u16;
+                    generator = Some((row, panel_len));
+                    row += panel_len;
+                }
+            }
+            CredentialType::Api => {}
+            CredentialType::Ssh => {
+                row += 2; // optional marker + blank after private key
+                passphrase = Some(row);
+                row += 2; // passphrase row + optional marker
+            }
+        }
+        row += 1;
+
+        let expiry = row;
+        let expiry_options = if self.form.expiry_dropdown.expanded {
+            Some((row + 1, ExpiryOption::all_options().len() as u16))
+        } else {
+            None
+        };
+        row += 1 + expiry_options.map_or(0, |(_, len)| len);
+        if self.form.fields.expires_at == ExpiryOption::Custom {
+            row += 2;
+        }
+        row += 1;
+
+        let tags = row;
+        row += 1;
+        if !self.form.fields.tags.is_empty() {
+            row += 1;
+        }
+        if let Some(ac) = &self.form.tag_autocomplete {
+            row += ac.matches.len() as u16;
+        }
+        row += 1;
+
+        let notes = row;
+        row += 1 + 1;
+
+        row += 1; // separator
+        row += 1; // blank
+        let footer = row;
+
+        FormRowMap {
+            credential,
+            credential_options,
+            name,
+            url,
+            account,
+            secret,
+            passphrase,
+            generator,
+            expiry,
+            expiry_options,
+            tags,
+            notes,
+            footer,
+        }
+    }
+
+    fn error_rows_for(&self, field_index: usize) -> u16 {
+        u16::from(
+            self.form
+                .validation_errors
+                .iter()
+                .any(|error| error.field_index == field_index),
+        )
+    }
+
+    fn expiry_field_index(&self) -> usize {
+        match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api => 5,
+            CredentialType::Ssh => 6,
+        }
+    }
+
+    fn tags_field_index(&self) -> usize {
+        match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api => 6,
+            CredentialType::Ssh => 7,
+        }
+    }
+
+    fn notes_field_index(&self) -> usize {
+        match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api => 7,
+            CredentialType::Ssh => 8,
+        }
+    }
+
+    fn secret_field_index(&self) -> usize {
+        match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
+        }
+    }
+
+    fn password_button_at(&self, content_col: u16, width: u16) -> Option<PasswordFieldFocus> {
+        let buttons = self.secret_row_buttons()?;
+        let labels: Vec<String> = buttons
+            .iter()
+            .map(|button| match button {
+                PasswordFieldFocus::Generate => crate::t!("tui.form.generate_button").to_string(),
+                PasswordFieldFocus::Show => crate::t!("tui.form.show_button").to_string(),
+                PasswordFieldFocus::Copy => crate::t!("tui.form.copy_button").to_string(),
+                PasswordFieldFocus::Paste => crate::t!("tui.form.paste_button").to_string(),
+                PasswordFieldFocus::Input => String::new(),
+            })
+            .collect();
+        let button_width = labels
+            .iter()
+            .map(|label| UnicodeWidthStr::width(format!(" [ {label} ]").as_str()))
+            .sum::<usize>()
+            + labels.len();
+        let content_width = width.saturating_sub(2) as usize;
+        let input_width = content_width
+            .saturating_sub(13)
+            .saturating_sub(button_width)
+            .saturating_sub(2)
+            .max(1);
+        let mut start = 13 + input_width + 2;
+        let col = content_col as usize;
+        for (button, label) in buttons.into_iter().zip(labels) {
+            start += 1;
+            let text_width = UnicodeWidthStr::width(format!("[ {label} ]").as_str());
+            if col >= start && col < start + text_width {
+                return Some(button);
+            }
+            start += text_width;
+        }
+        None
+    }
+
+    fn secret_row_buttons(&self) -> Option<Vec<PasswordFieldFocus>> {
+        match self.form.credential_type {
+            CredentialType::Login => Some(vec![
+                PasswordFieldFocus::Generate,
+                PasswordFieldFocus::Show,
+                PasswordFieldFocus::Copy,
+            ]),
+            CredentialType::Api => Some(vec![PasswordFieldFocus::Show, PasswordFieldFocus::Copy]),
+            CredentialType::Ssh => Some(vec![
+                PasswordFieldFocus::Show,
+                PasswordFieldFocus::Paste,
+                PasswordFieldFocus::Copy,
+            ]),
+        }
+    }
+
+    fn handle_generator_mouse_target(
+        &mut self,
+        target: GeneratorMouseTarget,
+        is_click: bool,
+    ) -> ScreenResult {
+        self.form.password_sub_focus = PasswordFieldFocus::Input;
+        self.form.footer_focus = None;
+        match target {
+            GeneratorMouseTarget::LengthSlider => {
+                self.generator.generator.focus = GeneratorFocus::LengthSlider;
+            }
+            GeneratorMouseTarget::LengthMinus => {
+                self.generator.generator.focus = GeneratorFocus::LengthSlider;
+                if is_click {
+                    self.generator.generator.decrement_length();
+                }
+            }
+            GeneratorMouseTarget::LengthPlus => {
+                self.generator.generator.focus = GeneratorFocus::LengthSlider;
+                if is_click {
+                    self.generator.generator.increment_length();
+                }
+            }
+            GeneratorMouseTarget::Toggle(idx) => {
+                self.generator.generator.focus = GeneratorFocus::Toggle(idx);
+                if is_click {
+                    self.toggle_generator_option(idx);
+                }
+            }
+            GeneratorMouseTarget::Regenerate => {
+                self.generator.generator.focus = GeneratorFocus::RegenerateButton;
+                if is_click {
+                    self.generator.generator.regenerate();
+                }
+            }
+            GeneratorMouseTarget::Action => {
+                self.generator.generator.focus = GeneratorFocus::ActionButton;
+                if is_click {
+                    return self.activate_generator_focus();
+                }
+            }
+        }
+        ScreenResult::Continue
+    }
+
+    fn generator_mouse_target(
+        &self,
+        content_col: u16,
+        panel_row: u16,
+        panel_len: u16,
+    ) -> Option<GeneratorMouseTarget> {
+        let col = content_col as usize;
+        match panel_row {
+            0 => self.generator_length_target(col),
+            2 => self.generator_options_target(col),
+            row if row + 1 == panel_len => self.generator_button_target(col),
+            _ => None,
+        }
+    }
+
+    fn generator_length_target(&self, col: usize) -> Option<GeneratorMouseTarget> {
+        let label = match self.generator.generator.style {
+            GenerationStyle::Random | GenerationStyle::Pin => {
+                crate::t!("tui.generator.length").to_string()
+            }
+            GenerationStyle::Memorable => crate::t!("tui.generator.word_count").to_string(),
+        };
+        let value = self.generator.generator.current_length();
+        let label_width = UnicodeWidthStr::width(format!("  {label} ").as_str());
+        let value_width = UnicodeWidthStr::width(format!("[ {value} ]").as_str());
+        let minus_start = label_width + value_width + 2;
+        let minus_end = minus_start + 3;
+        let bar_start = minus_end + 1;
+        let plus_start = bar_start + 12 + 1;
+        let plus_end = plus_start + 3;
+
+        if col >= minus_start && col < minus_end {
+            Some(GeneratorMouseTarget::LengthMinus)
+        } else if col >= plus_start && col < plus_end {
+            Some(GeneratorMouseTarget::LengthPlus)
+        } else if col >= label_width && col < plus_end {
+            Some(GeneratorMouseTarget::LengthSlider)
+        } else {
+            None
+        }
+    }
+
+    fn generator_options_target(&self, col: usize) -> Option<GeneratorMouseTarget> {
+        match self.generator.generator.style {
+            GenerationStyle::Random => {
+                let labels = [
+                    crate::t!("tui.generator.uppercase").to_string(),
+                    crate::t!("tui.generator.lowercase").to_string(),
+                    crate::t!("tui.generator.digits").to_string(),
+                    crate::t!("tui.generator.symbols").to_string(),
+                ];
+                let mut start = 2usize;
+                for (idx, label) in labels.iter().enumerate() {
+                    let enabled = self.generator.generator.is_toggle_enabled(idx);
+                    let check = if enabled { "✓" } else { " " };
+                    let width = UnicodeWidthStr::width(format!("[{check}] {label}  ").as_str());
+                    if self.generator.generator.is_toggle_interactive(idx)
+                        && col >= start
+                        && col < start + width
+                    {
+                        return Some(GeneratorMouseTarget::Toggle(idx));
+                    }
+                    start += width;
+                }
+                None
+            }
+            GenerationStyle::Memorable => {
+                let label = crate::t!("tui.generator.capitalize").to_string();
+                let width = UnicodeWidthStr::width(format!("[✓] {label}").as_str());
+                if col >= 2 && col < 2 + width {
+                    Some(GeneratorMouseTarget::Toggle(0))
+                } else {
+                    None
+                }
+            }
+            GenerationStyle::Pin => None,
+        }
+    }
+
+    fn generator_button_target(&self, col: usize) -> Option<GeneratorMouseTarget> {
+        let regen = crate::t!("tui.generator.regenerate").to_string();
+        let action = crate::t!("tui.generator.use_password").to_string();
+        let regen_start = 5usize;
+        let regen_width = UnicodeWidthStr::width(format!(" [ {regen} ] ").as_str());
+        let action_start = regen_start + regen_width + 8;
+        let action_width = UnicodeWidthStr::width(format!(" [ {action} ] ").as_str());
+
+        if col >= regen_start && col < regen_start + regen_width {
+            Some(GeneratorMouseTarget::Regenerate)
+        } else if col >= action_start && col < action_start + action_width {
+            Some(GeneratorMouseTarget::Action)
+        } else {
+            None
+        }
+    }
+}
+
+fn footer_button_at(content_col: u16) -> Option<FormFooterButton> {
+    let save = crate::t!("tui.form.save_button").to_string();
+    let cancel = crate::t!("tui.form.cancel_button").to_string();
+    let save_start = 2usize;
+    let save_width = UnicodeWidthStr::width(format!("[ {save} ]").as_str());
+    let cancel_start = save_start + save_width + 2;
+    let cancel_width = UnicodeWidthStr::width(format!("[ {cancel} ]").as_str());
+    let col = content_col as usize;
+    if col >= save_start && col < save_start + save_width {
+        Some(FormFooterButton::Save)
+    } else if col >= cancel_start && col < cancel_start + cancel_width {
+        Some(FormFooterButton::Cancel)
+    } else {
+        None
+    }
+}
+
+fn contains(area: Rect, col: u16, row: u16) -> bool {
+    col >= area.x
+        && col < area.x.saturating_add(area.width)
+        && row >= area.y
+        && row < area.y.saturating_add(area.height)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::commands::result::CommandResult;
+    use crate::tui::state::form_state::PasswordFieldFocus;
+    use crate::tui::state::generator_state::GeneratorFocus;
     use crate::types::tag::Tag;
-    use crossterm::event::{KeyCode, KeyModifiers};
+    use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+    use ratatui::Terminal;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
 
@@ -624,6 +1327,54 @@ mod tests {
                 command_tx: tx,
                 config: &self.config,
             }
+        }
+    }
+
+    fn render_buffer(screen: &CreateRecordScreen, width: u16, height: u16) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                screen.view(frame, frame.area());
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn find_text(buffer: &Buffer, needle: &str) -> Option<(u16, u16)> {
+        let needle_chars: Vec<char> = needle.chars().collect();
+        for y in buffer.area.y..buffer.area.y + buffer.area.height {
+            let row: Vec<String> = (buffer.area.x..buffer.area.x + buffer.area.width)
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .map(ToOwned::to_owned)
+                .collect();
+            for start in 0..row.len() {
+                if needle_chars.iter().enumerate().all(|(offset, ch)| {
+                    row.get(start + offset)
+                        .is_some_and(|cell| cell == &ch.to_string())
+                }) {
+                    return Some((buffer.area.x + start as u16, y));
+                }
+            }
+        }
+        None
+    }
+
+    fn click(column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    fn mouse_move(column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Moved,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
         }
     }
 
@@ -716,6 +1467,192 @@ mod tests {
         );
         assert!(matches!(result, ScreenResult::Continue));
         assert!(screen.form.show_unsaved_dialog);
+    }
+
+    #[test]
+    fn right_arrow_on_type_field_opens_dropdown() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.form.credential_dropdown.expanded);
+        assert_eq!(screen.form.focused_field, 0);
+    }
+
+    #[test]
+    fn mouse_click_show_password_button_toggles_visibility() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        for c in "secret".chars() {
+            screen.form.fields.password.as_mut().unwrap().push_char(c);
+        }
+
+        let buffer = render_buffer(&screen, 100, 28);
+        let (x, y) = find_text(&buffer, "Show").expect("show button should be rendered");
+        let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.form.fields.password_visible);
+        assert_eq!(screen.form.focused_field, 4);
+        assert_eq!(screen.form.password_sub_focus, PasswordFieldFocus::Show);
+    }
+
+    #[test]
+    fn mouse_click_type_dropdown_opens_options() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+
+        let buffer = render_buffer(&screen, 100, 28);
+        let (x, y) = find_text(&buffer, "Login").expect("type dropdown should be rendered");
+        let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.form.credential_dropdown.expanded);
+        assert_eq!(screen.form.focused_field, 0);
+    }
+
+    #[test]
+    fn mouse_hover_save_button_sets_footer_focus() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+
+        let buffer = render_buffer(&screen, 100, 28);
+        let (x, y) = find_text(&buffer, "Save").expect("save button should be rendered");
+        let result = screen.update(Message::MouseEvent(mouse_move(x, y)), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(
+            screen.form.footer_focus,
+            Some(crate::tui::state::form_state::FormFooterButton::Save)
+        );
+    }
+
+    #[test]
+    fn empty_required_fields_stay_on_one_row() {
+        let screen = make_screen();
+        let buffer = render_buffer(&screen, 80, 24);
+        let (_, name_row) = find_text(&buffer, "Name").expect("name field should render");
+        let name_line = (0..80)
+            .filter_map(|x| buffer.cell((x, name_row)).map(|cell| cell.symbol()))
+            .collect::<String>();
+        let next_line = (0..80)
+            .filter_map(|x| buffer.cell((x, name_row + 1)).map(|cell| cell.symbol()))
+            .collect::<String>();
+
+        assert!(name_line.contains("Required"), "{name_line:?}");
+        assert!(
+            !next_line.trim_start().starts_with(']'),
+            "input closing bracket wrapped to next row: {next_line:?}"
+        );
+    }
+
+    #[test]
+    fn focused_dropdown_has_visible_highlight_style() {
+        let screen = make_screen();
+        let buffer = render_buffer(&screen, 80, 24);
+        let (x, y) = find_text(&buffer, "Login").expect("focused type value should render");
+        let cell = buffer.cell((x, y)).expect("cell should exist");
+
+        assert_eq!(cell.bg, crate::tui::theme::PRIMARY);
+    }
+
+    #[test]
+    fn unicode_input_values_do_not_expand_form_rows() {
+        let mut screen = make_screen();
+        screen.form.fields.name = "求求了的".into();
+        screen.form.fields.url = "例子.example".into();
+        screen.form.fields.username = Some("用户甲".into());
+        screen.form.fields.tag_input = "等dddddd".into();
+        screen.form.fields.notes = "备注中文".into();
+
+        let rows = screen.form_row_map();
+        let buffer = render_buffer(&screen, 80, 32);
+        for (text, row) in [
+            ("name", rows.name + 1),
+            ("url", rows.url + 1),
+            ("account", rows.account + 1),
+            ("tags", rows.tags + 1),
+            ("notes", rows.notes + 1),
+        ] {
+            let next_line = (1..79)
+                .filter_map(|x| buffer.cell((x, row + 1)).map(|cell| cell.symbol()))
+                .collect::<String>();
+            assert!(
+                next_line.trim().is_empty(),
+                "{text:?} input wrapped into next row: {next_line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn embedded_generator_arrow_keys_adjust_parameters() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.generator.expand();
+        screen.generator.generator.random_config.length = 16;
+        screen.generator.generator.focus = GeneratorFocus::LengthSlider;
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.generator.generator.random_config.length, 17);
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Down,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.generator.generator.focus, GeneratorFocus::Toggle(0));
+    }
+
+    #[test]
+    fn mouse_click_embedded_generator_plus_increments_length() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.generator.expand();
+        screen.generator.generator.random_config.length = 16;
+        screen.generator.generator.focus = GeneratorFocus::LengthSlider;
+
+        let buffer = render_buffer(&screen, 100, 40);
+        let (x, y) = find_text(&buffer, "[+]").expect("generator plus button should render");
+        let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.generator.generator.random_config.length, 17);
+        assert_eq!(
+            screen.generator.generator.focus,
+            GeneratorFocus::LengthSlider
+        );
     }
 
     #[test]

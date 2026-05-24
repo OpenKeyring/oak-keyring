@@ -6,8 +6,8 @@ use uuid::Uuid;
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
 use crate::tui::screens::form::validation;
-use crate::tui::state::form_state::{ExpiryOption, FormState};
-use crate::tui::state::generator_state::EmbeddedGeneratorState;
+use crate::tui::state::form_state::{ExpiryOption, FormFooterButton, FormState};
+use crate::tui::state::generator_state::{EmbeddedGeneratorState, GenerationStyle, GeneratorFocus};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::credential::CredentialType;
 use crate::types::sensitive::SensitiveInput;
@@ -82,6 +82,9 @@ impl EditRecordScreen {
                 ScreenResult::Continue
             }
             KeyCode::Right => {
+                if self.open_focused_dropdown() {
+                    return ScreenResult::Continue;
+                }
                 if self.form.sub_focus_next() {
                     ScreenResult::Continue
                 } else {
@@ -97,14 +100,7 @@ impl EditRecordScreen {
                     ScreenResult::Continue
                 }
             }
-            KeyCode::Esc => {
-                if self.form.has_changes {
-                    self.form.show_unsaved_dialog = true;
-                    ScreenResult::Continue
-                } else {
-                    ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
-                }
-            }
+            KeyCode::Esc => self.cancel_form(),
             KeyCode::Char('s')
                 if key_event
                     .modifiers
@@ -113,6 +109,7 @@ impl EditRecordScreen {
                 self.attempt_save()
             }
             KeyCode::Enter => self.handle_enter(),
+            KeyCode::Char(' ') if self.form.footer_focus.is_some() => self.handle_enter(),
             KeyCode::Char(c) => {
                 if self.is_custom_date_focused() {
                     self.handle_date_char(c)
@@ -133,6 +130,10 @@ impl EditRecordScreen {
 
     fn handle_enter(&mut self) -> ScreenResult {
         let ct = self.form.credential_type;
+
+        if let Some(button) = self.form.footer_focus {
+            return self.activate_footer_button(button);
+        }
 
         // Check inline button actions first
         match self.form.password_sub_focus {
@@ -191,6 +192,10 @@ impl EditRecordScreen {
     }
 
     fn handle_char_input(&mut self, c: char) -> ScreenResult {
+        if self.form.footer_focus.is_some() {
+            return ScreenResult::Continue;
+        }
+
         // If sub-focus is on a button, don't accept text input
         if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
         {
@@ -293,6 +298,10 @@ impl EditRecordScreen {
     }
 
     fn handle_backspace(&mut self) -> ScreenResult {
+        if self.form.footer_focus.is_some() {
+            return ScreenResult::Continue;
+        }
+
         // If sub-focus is on a button, don't delete text
         if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
         {
@@ -366,6 +375,21 @@ impl EditRecordScreen {
         self.form.focused_field == expiry_idx && self.form.fields.expires_at == ExpiryOption::Custom
     }
 
+    fn open_focused_dropdown(&mut self) -> bool {
+        if self.form.footer_focus.is_some() {
+            return false;
+        }
+        let expiry_idx = match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api => 5,
+            CredentialType::Ssh => 6,
+        };
+        if self.form.focused_field == expiry_idx {
+            self.form.expiry_dropdown.expanded = true;
+            return true;
+        }
+        false
+    }
+
     /// Handle smart cursor backspace for YYYY-MM-DD date input.
     fn handle_date_backspace(&mut self) -> ScreenResult {
         if let Some(ref mut date) = self.form.fields.custom_date {
@@ -418,6 +442,22 @@ impl EditRecordScreen {
         }
 
         self.update_record_command()
+    }
+
+    fn cancel_form(&mut self) -> ScreenResult {
+        if self.form.has_changes {
+            self.form.show_unsaved_dialog = true;
+            ScreenResult::Continue
+        } else {
+            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+        }
+    }
+
+    fn activate_footer_button(&mut self, button: FormFooterButton) -> ScreenResult {
+        match button {
+            FormFooterButton::Save => self.attempt_save(),
+            FormFooterButton::Cancel => self.cancel_form(),
+        }
     }
 
     fn update_record_command(&mut self) -> ScreenResult {
@@ -481,20 +521,117 @@ impl EditRecordScreen {
                 self.generator.collapse();
                 ScreenResult::Continue
             }
-            KeyCode::Enter => {
-                if self.generator.generator.focus
-                    == crate::tui::state::generator_state::GeneratorFocus::ActionButton
-                {
-                    let pw = self.generator.use_password();
-                    self.form.fields.password = Some(SensitiveInput::from(pw));
-                    self.form.fields.update_strength();
-                    self.form.has_changes = true;
-                    return ScreenResult::Continue;
-                }
+            KeyCode::Tab | KeyCode::Down => {
+                self.generator_focus_next();
+                ScreenResult::Continue
+            }
+            KeyCode::BackTab | KeyCode::Up => {
+                self.generator_focus_prev();
+                ScreenResult::Continue
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => self.activate_generator_focus(),
+            KeyCode::Char('r') => {
                 self.generator.generator.regenerate();
                 ScreenResult::Continue
             }
+            _ => self.handle_generator_focus_key(key),
+        }
+    }
+
+    fn handle_generator_focus_key(&mut self, key: KeyCode) -> ScreenResult {
+        match self.generator.generator.focus {
+            GeneratorFocus::LengthSlider => match key {
+                KeyCode::Left | KeyCode::Char('-') => {
+                    self.generator.generator.decrement_length();
+                    ScreenResult::Continue
+                }
+                KeyCode::Right | KeyCode::Char('+') => {
+                    self.generator.generator.increment_length();
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            GeneratorFocus::Toggle(idx) => match key {
+                KeyCode::Left | KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.toggle_generator_option(idx);
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            GeneratorFocus::SeparatorInput => match key {
+                KeyCode::Char(c) => {
+                    self.generator.generator.memorable_config.separator = c.to_string();
+                    self.generator.generator.regenerate();
+                    ScreenResult::Continue
+                }
+                KeyCode::Backspace => {
+                    self.generator.generator.memorable_config.separator = "-".to_string();
+                    self.generator.generator.regenerate();
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
             _ => ScreenResult::Continue,
+        }
+    }
+
+    fn activate_generator_focus(&mut self) -> ScreenResult {
+        match self.generator.generator.focus {
+            GeneratorFocus::ActionButton => {
+                let pw = self.generator.use_password();
+                self.form.fields.password = Some(SensitiveInput::from(pw));
+                self.form.fields.update_strength();
+                self.form.has_changes = true;
+                ScreenResult::Continue
+            }
+            GeneratorFocus::RegenerateButton => {
+                self.generator.generator.regenerate();
+                ScreenResult::Continue
+            }
+            GeneratorFocus::Toggle(idx) => {
+                self.toggle_generator_option(idx);
+                ScreenResult::Continue
+            }
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn toggle_generator_option(&mut self, idx: usize) {
+        if self.generator.generator.style == GenerationStyle::Random {
+            self.generator.generator.toggle_char_type(idx);
+        } else if self.generator.generator.style == GenerationStyle::Memorable && idx == 0 {
+            self.generator.generator.memorable_config.capitalize =
+                !self.generator.generator.memorable_config.capitalize;
+            self.generator.generator.regenerate();
+        }
+    }
+
+    fn embedded_generator_focus_order(&self) -> Vec<GeneratorFocus> {
+        self.generator
+            .generator
+            .focus_order()
+            .into_iter()
+            .filter(|focus| *focus != GeneratorFocus::StyleSelector)
+            .collect()
+    }
+
+    fn generator_focus_next(&mut self) {
+        let order = self.embedded_generator_focus_order();
+        if let Some(idx) = order
+            .iter()
+            .position(|focus| *focus == self.generator.generator.focus)
+        {
+            self.generator.generator.focus = order[(idx + 1) % order.len()];
+        }
+    }
+
+    fn generator_focus_prev(&mut self) {
+        let order = self.embedded_generator_focus_order();
+        if let Some(idx) = order
+            .iter()
+            .position(|focus| *focus == self.generator.generator.focus)
+        {
+            self.generator.generator.focus = order[(idx + order.len() - 1) % order.len()];
         }
     }
 
@@ -513,13 +650,13 @@ impl EditRecordScreen {
                 }
                 ScreenResult::Continue
             }
-            KeyCode::Enter | KeyCode::Char(' ') => {
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char(' ') => {
                 self.form.fields.expires_at = options[self.form.expiry_dropdown.selected_index].1;
                 self.form.expiry_dropdown.expanded = false;
                 self.form.has_changes = true;
                 ScreenResult::Continue
             }
-            KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Left => {
                 self.form.expiry_dropdown.expanded = false;
                 ScreenResult::Continue
             }
@@ -872,6 +1009,29 @@ mod tests {
         assert!(matches!(result, ScreenResult::Continue));
         assert!(!screen.form.show_weak_password_dialog);
         assert_eq!(screen.form.weak_dialog_focus, 0);
+    }
+
+    #[test]
+    fn footer_cancel_enter_navigates_to_main_without_changes() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.footer_focus = Some(FormFooterButton::Cancel);
+        screen.form.has_changes = false;
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+
+        assert!(matches!(
+            result,
+            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+        ));
     }
 
     #[test]

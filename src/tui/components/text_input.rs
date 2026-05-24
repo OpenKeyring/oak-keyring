@@ -4,17 +4,52 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::t;
 use crate::tui::state::form_state::PasswordFieldFocus;
 use crate::tui::theme;
 
+const FORM_LABEL_WIDTH: usize = 13;
+const FORM_SAFETY_PADDING: usize = 2;
+
+fn display_width(value: &str) -> usize {
+    UnicodeWidthStr::width(value)
+}
+
+fn char_width(ch: char) -> usize {
+    UnicodeWidthChar::width(ch).unwrap_or(0)
+}
+
+fn pad_to_width(value: &str, width: usize) -> String {
+    let mut padded = value.to_string();
+    let current = display_width(&padded);
+    if current < width {
+        padded.push_str(&" ".repeat(width - current));
+    }
+    padded
+}
+
+fn truncate_to_width(value: &str, width: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in value.chars() {
+        let ch_width = char_width(ch);
+        if used + ch_width > width {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
+    out
+}
+
 /// Render a labeled text input field.
 pub fn render_text_input(
     label: &str,
     value: &str,
-    _focused: bool,
-    _has_error: bool,
+    focused: bool,
+    has_error: bool,
     is_required: bool,
     is_masked: bool,
     width: u16,
@@ -25,7 +60,13 @@ pub fn render_text_input(
         value.to_string()
     };
 
-    let label_style = Style::default().fg(theme::TEXT_SECONDARY);
+    let label_style = if focused {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
+    };
     let required_mark = if is_required {
         Span::styled(
             t!("tui.component_labels.required").to_string(),
@@ -38,19 +79,33 @@ pub fn render_text_input(
         )
     };
 
-    let input_inner_width = width.saturating_sub(label.len() as u16 + 4);
-    let padded_value = format!(
-        "{:<width$}",
-        display_value,
-        width = input_inner_width as usize
-    );
+    let marker_width = display_width(required_mark.content.as_ref());
+    let content_width = width.saturating_sub(2) as usize;
+    let input_inner_width = content_width
+        .saturating_sub(FORM_LABEL_WIDTH)
+        .saturating_sub(marker_width)
+        .saturating_sub(2)
+        .saturating_sub(FORM_SAFETY_PADDING)
+        .max(1);
+    let display_value = truncate_to_width(&display_value, input_inner_width);
+    let padded_value = pad_to_width(&display_value, input_inner_width);
+    let input_style = if has_error {
+        Style::default().fg(theme::ERROR).bg(theme::BG_SURFACE)
+    } else if focused {
+        Style::default()
+            .fg(theme::BG)
+            .bg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE)
+    };
 
     vec![Line::from(vec![
-        Span::styled(format!("  {} ", label), label_style),
         Span::styled(
-            format!("[{}]", padded_value),
-            Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE),
+            pad_to_width(&format!("  {label}"), FORM_LABEL_WIDTH),
+            label_style,
         ),
+        Span::styled(format!("[{}]", padded_value), input_style),
         required_mark,
     ])]
 }
@@ -81,22 +136,42 @@ pub fn render_password_input_with_buttons(
     } else {
         theme::ICON_PASSWORD_MASK.repeat(value.chars().count())
     };
-    let input_width = width.saturating_sub(label.len() as u16 + buttons.len() as u16 * 12 + 4);
-    let padded = format!("{:<width$}", display_value, width = input_width as usize);
+    let button_width: usize = buttons
+        .iter()
+        .map(|button| display_width(&format!(" [ {} ]", button.label)))
+        .sum::<usize>()
+        + buttons.len();
+    let content_width = width.saturating_sub(2) as usize;
+    let input_width = content_width
+        .saturating_sub(FORM_LABEL_WIDTH)
+        .saturating_sub(button_width)
+        .saturating_sub(FORM_SAFETY_PADDING)
+        .max(1);
+    let display_value = truncate_to_width(&display_value, input_width);
+    let padded = pad_to_width(&display_value, input_width);
 
-    let input_style = if focused {
+    let input_focused =
+        focused && focused_button.is_none_or(|button| button == PasswordFieldFocus::Input);
+    let input_style = if input_focused {
         Style::default()
-            .fg(theme::TEXT)
-            .bg(theme::BG_SURFACE)
+            .fg(theme::BG)
+            .bg(theme::PRIMARY)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE)
     };
+    let label_style = if focused {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
+    };
 
     let mut spans = vec![
         Span::styled(
-            format!("  {} ", label),
-            Style::default().fg(theme::TEXT_SECONDARY),
+            pad_to_width(&format!("  {label}"), FORM_LABEL_WIDTH),
+            label_style,
         ),
         Span::styled(format!("[{}]", padded), input_style),
     ];

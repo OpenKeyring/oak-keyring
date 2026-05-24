@@ -1,8 +1,10 @@
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
+use oak_keyring::crypto::strength::evaluate_strength;
 use oak_keyring::tui::screens::create_record::CreateRecordScreen;
 use oak_keyring::tui::state::form_state::{TagAutocompleteState, ValidationError};
+use oak_keyring::tui::state::generator_state::GeneratorFocus;
 use oak_keyring::tui::traits::screen::Screen;
 use oak_keyring::types::credential::CredentialType;
 use oak_keyring::types::sensitive::SensitiveInput;
@@ -127,6 +129,9 @@ fn create_record_embedded_generator() {
     let _locale = snapshot_locale();
     let mut screen = CreateRecordScreen::new();
     screen.generator.expand();
+    screen.generator.generator.preview = sensitive("CorrectHorse42!");
+    screen.generator.generator.strength = Some(evaluate_strength("CorrectHorse42!"));
+    screen.generator.generator.focus = GeneratorFocus::ActionButton;
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("create_record_embedded_generator", backend);
 }

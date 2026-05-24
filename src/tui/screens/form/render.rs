@@ -11,9 +11,12 @@ use ratatui::{
 use crate::t;
 use crate::tui::components::text_input::PasswordButton;
 use crate::tui::components::{dropdown, strength_bar, tag_input, text_input};
-use crate::tui::state::form_state::{ExpiryOption, FormState, PasswordFieldFocus};
+use crate::tui::state::form_state::{
+    ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus,
+};
 use crate::tui::theme;
 use crate::types::credential::CredentialType;
+use unicode_width::UnicodeWidthStr;
 
 /// Render the full-screen form.
 pub fn render_form(
@@ -30,20 +33,11 @@ pub fn render_form(
     };
 
     let mut lines = vec![
-        // Title bar
-        Line::from(vec![
-            Span::styled(
-                format!("  {}", title),
-                Style::default()
-                    .fg(theme::TEXT)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("                                        "),
-            Span::styled(
-                format!(" {}", t!("tui.form.cancel_hint")),
-                Style::default().fg(theme::TEXT_SECONDARY),
-            ),
-        ]),
+        title_line(
+            area.width,
+            title.as_ref(),
+            t!("tui.form.cancel_hint").as_ref(),
+        ),
         separator_line(area.width),
         Line::raw(""),
     ];
@@ -182,7 +176,8 @@ pub fn render_form(
                 lines.push(error_line(&err.message));
             }
 
-            // Strength bar on next line
+            // Strength bar with breathing room after the password input row.
+            lines.push(Line::raw(""));
             if let Some(ref strength) = state.fields.strength {
                 lines.push(strength_bar::render_strength_bar(strength, _unicode));
             } else {
@@ -470,17 +465,15 @@ pub fn render_form(
     lines.push(separator_line(area.width));
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
-        Span::raw("                     "),
+        Span::raw("  "),
         Span::styled(
-            format!(" {} ", t!("tui.form.save_button")),
-            Style::default()
-                .fg(theme::PRIMARY)
-                .add_modifier(Modifier::BOLD),
+            format!("[ {} ]", t!("tui.form.save_button")),
+            footer_button_style(state.footer_focus, FormFooterButton::Save, true),
         ),
         Span::raw("  "),
         Span::styled(
-            format!(" {} ", t!("tui.form.cancel_button")),
-            Style::default().fg(theme::TEXT_SECONDARY),
+            format!("[ {} ]", t!("tui.form.cancel_button")),
+            footer_button_style(state.footer_focus, FormFooterButton::Cancel, false),
         ),
     ]));
 
@@ -504,6 +497,48 @@ pub fn render_form(
     // Unsaved changes dialog overlay
     if state.show_unsaved_dialog {
         render_unsaved_dialog(frame, area);
+    }
+}
+
+fn title_line(width: u16, title: &str, hint: &str) -> Line<'static> {
+    let left = format!("  {title}");
+    let right = format!("{hint}  ");
+    let content_width = width.saturating_sub(2) as usize;
+    let left_width = UnicodeWidthStr::width(left.as_str());
+    let right_width = UnicodeWidthStr::width(right.as_str());
+    let gap = content_width
+        .saturating_sub(left_width + right_width)
+        .max(1);
+
+    Line::from(vec![
+        Span::styled(
+            left,
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" ".repeat(gap)),
+        Span::styled(right, Style::default().fg(theme::TEXT_SECONDARY)),
+    ])
+}
+
+fn footer_button_style(
+    focus: Option<FormFooterButton>,
+    button: FormFooterButton,
+    primary: bool,
+) -> Style {
+    let base = if primary {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
+    };
+
+    if focus == Some(button) {
+        base.add_modifier(Modifier::REVERSED)
+    } else {
+        base
     }
 }
 

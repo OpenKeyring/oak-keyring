@@ -4,39 +4,82 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::t;
 use crate::tui::state::form_state::TagAutocompleteState;
 use crate::tui::theme;
 
+fn display_width(value: &str) -> usize {
+    UnicodeWidthStr::width(value)
+}
+
+fn pad_to_width(value: &str, width: usize) -> String {
+    let mut padded = value.to_string();
+    let current = display_width(&padded);
+    if current < width {
+        padded.push_str(&" ".repeat(width - current));
+    }
+    padded
+}
+
+fn truncate_to_width(value: &str, width: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in value.chars() {
+        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + ch_width > width {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
+    out
+}
+
 /// Render the tag input area.
 pub fn render_tag_input(
     input_text: &str,
     tags: &[String],
-    _focused: bool,
+    focused: bool,
     autocomplete: Option<&TagAutocompleteState>,
     _existing_tags: &[String],
-    _width: u16,
+    width: u16,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
 
     // Input row
+    let label_style = if focused {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
+    };
+    let input_style = if focused {
+        Style::default()
+            .fg(theme::BG)
+            .bg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE)
+    };
+    let label = t!("tui.component_labels.tag").to_string();
+    let content_width = width.saturating_sub(2) as usize;
+    let input_width = content_width
+        .saturating_sub(display_width(label.as_str()))
+        .saturating_sub(2)
+        .clamp(1, 20);
+    let input_text = if input_text.is_empty() {
+        " "
+    } else {
+        input_text
+    };
+    let input_text = pad_to_width(&truncate_to_width(input_text, input_width), input_width);
+
     lines.push(Line::from(vec![
-        Span::styled(
-            t!("tui.component_labels.tag").to_string(),
-            Style::default().fg(theme::TEXT_SECONDARY),
-        ),
-        Span::styled(
-            format!(
-                "[{:<20}]",
-                if input_text.is_empty() {
-                    " "
-                } else {
-                    input_text
-                }
-            ),
-            Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE),
-        ),
+        Span::styled(label, label_style),
+        Span::styled(format!("[{}]", input_text), input_style),
     ]));
 
     // Tag blocks
