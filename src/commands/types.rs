@@ -258,6 +258,7 @@ pub enum ConfirmVariant {
         record_id: Uuid,
         record_name: String,
     },
+    QuitApp,
 }
 
 /// Confirm dialog state

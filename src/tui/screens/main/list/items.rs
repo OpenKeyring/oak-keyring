@@ -290,14 +290,16 @@ pub(super) fn build_record_item<'a>(
         sub_spans.extend(ListPanel::highlight_match(&record.subtitle, &terms));
         Line::from(sub_spans)
     } else {
-        Line::from(Span::styled(
-            format!("  {}", record.subtitle),
-            subtitle_style,
-        ))
+        let text = format!("  {}", record.subtitle);
+        let padding =
+            " ".repeat((area_width as usize).saturating_sub(Line::from(text.clone()).width()));
+        Line::from(Span::styled(format!("{}{}", text, padding), subtitle_style))
     };
 
-    // ── Line 3: Blank separator (empty line) ──
-    let separator_line = Line::from("");
+    // ── Line 3: Separator ──
+    let sep_char = if unicode { '\u{2500}' } else { '-' };
+    let sep_text: String = std::iter::repeat_n(sep_char, area_width as usize).collect();
+    let separator_line = Line::from(Span::styled(sep_text, Style::default().fg(theme::BORDER)));
 
     if is_min_width {
         ListItem::new(vec![title_line, separator_line])

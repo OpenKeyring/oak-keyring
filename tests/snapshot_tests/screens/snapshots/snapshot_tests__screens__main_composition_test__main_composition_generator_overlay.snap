@@ -2,13 +2,13 @@
 source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
-"                                        │  Sort: [ Created│  GitHub Account                         "
-"  All (2)                            ◄     GitHub Account    octocat                                "
+"                                        │                 │                                         "
+"  [1] All (2)                        ◄                                                              "
 "                      ┌──────────────────────────────────────────────────────┐                      "
-"  Favorites (1)       │  Password Generator                       Esc Close  │                      "
-"  Expired (0)         │──────────────────────────────────────────────────────│───                   "
+"  [2] Favorites (1)   │  Password Generator                       Esc Close  │                      "
+"  [3] Expired (0)     │──────────────────────────────────────────────────────│                      "
 "                      │                                                      │                      "
-"                      │  Style [ Random ]  [ Memorable ]  [ PIN ]            │                      "
+"                      │  Style [ Random ]  [ Memorable ]  [ PIN ]            │───                   "
 "                      │──────────────────────────────────────────────────────│                      "
 "                      │                                                      │                      "
 "                      │  Length [ 16 ]  [-] ██░░░░░░░░░░░░░░░░░░ [+]         │                      "
@@ -25,4 +25,4 @@ expression: backend
 "                      │                                                      │                      "
 "                      │      [ Regenerate ]          [ Copy ]                │                      "
 "──────────────────────│                                                      │──────────────────────"
-"  Ctrl+K Search  N New└──────────────────────────────────────────────────────┘                      "
+"  Ctrl+K Search  Ctrl+└──────────────────────────────────────────────────────┘3 │ — Not configured  "

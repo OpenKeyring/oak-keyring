@@ -2,8 +2,10 @@
 use super::*;
 use crate::commands::types::{
     ConfirmButton, ConfirmDialogState, ConfirmVariant, FieldSelector, Overlay, RecordFilter,
+    Screen as ScreenEnum,
 };
 use crate::commands::{Command, Message};
+use crate::tui::state::list_state::ListPanelState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::{SecureStr, Tag};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -507,10 +509,6 @@ fn tag_header_toggle_expands_and_collapses() {
         .position(|i| matches!(i, SidebarItem::TagHeader))
         .unwrap();
     sidebar.selected_index = header_idx;
-    assert!(!sidebar.tags_expanded);
-
-    // Toggle: collapsed -> expanded
-    sidebar.toggle_tags();
     assert!(sidebar.tags_expanded);
 
     // Toggle: expanded -> collapsed, focus returns to TagHeader
@@ -520,6 +518,10 @@ fn tag_header_toggle_expands_and_collapses() {
         sidebar.items[sidebar.selected_index],
         SidebarItem::TagHeader
     ));
+
+    // Toggle: collapsed -> expanded
+    sidebar.toggle_tags();
+    assert!(sidebar.tags_expanded);
 }
 
 #[test]
@@ -715,11 +717,153 @@ fn key_event_with_modifiers(
     }
 }
 
+fn mouse_move(column: u16, row: u16) -> crossterm::event::MouseEvent {
+    use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+    MouseEvent {
+        kind: MouseEventKind::Moved,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+fn mouse_click(column: u16, row: u16) -> crossterm::event::MouseEvent {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
 #[test]
 fn default_state_has_no_active_overlay() {
     let state = MainScreenState::default();
     assert!(!state.overlay_manager.is_active());
     assert!(state.pending_animation.is_none());
+}
+
+#[test]
+fn sidebar_tags_are_expanded_by_default() {
+    let state = MainScreenState::default();
+    assert!(state.sidebar.tags_expanded);
+}
+
+#[test]
+fn ctrl_k_enters_search_from_sidebar() {
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Sidebar;
+    let mut ctx = make_ctx();
+
+    let result = state.update(
+        Message::KeyEvent(key_event_with_modifiers(
+            KeyCode::Char('k'),
+            KeyModifiers::CONTROL,
+        )),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.focused_panel, PanelId::List);
+    assert!(state.list.is_searching());
+}
+
+#[test]
+fn left_right_arrows_switch_main_panels() {
+    let mut state = MainScreenState::default();
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Right)), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.focused_panel, PanelId::List);
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Right)), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.focused_panel, PanelId::Detail);
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Left)), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.focused_panel, PanelId::List);
+}
+
+#[test]
+fn number_shortcuts_select_sidebar_categories() {
+    let mut state = MainScreenState::default();
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('4'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    assert_eq!(state.current_filter, RecordFilter::HealthIssues);
+    assert_eq!(state.focused_panel, PanelId::Sidebar);
+}
+
+#[test]
+fn ctrl_g_opens_generator_and_ctrl_p_opens_config() {
+    let mut state = MainScreenState::default();
+    let mut ctx = make_ctx();
+
+    let result = state.update(
+        Message::KeyEvent(key_event_with_modifiers(
+            KeyCode::Char('g'),
+            KeyModifiers::CONTROL,
+        )),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.overlay_manager.is_active());
+
+    let mut state = MainScreenState::default();
+    let result = state.update(
+        Message::KeyEvent(key_event_with_modifiers(
+            KeyCode::Char('p'),
+            KeyModifiers::CONTROL,
+        )),
+        &mut ctx,
+    );
+    assert!(matches!(
+        result,
+        ScreenResult::NavigateTo(ScreenEnum::Config)
+    ));
+}
+
+#[test]
+fn mouse_hover_list_row_selects_record_and_loads_detail() {
+    let mut state = MainScreenState::default();
+    let mut first = make_test_record(None);
+    first.name = "First".to_string();
+    let mut second = make_test_record(None);
+    second.name = "Second".to_string();
+    let second_id = second.id;
+    state.list = ListPanelState::with_records(vec![first, second]);
+    state.focused_panel = PanelId::Sidebar;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::MouseEvent(mouse_move(42, 7)), &mut ctx);
+
+    assert_eq!(state.focused_panel, PanelId::List);
+    assert_eq!(state.list.selected_index, Some(1));
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::LoadRecordDetail { id } => assert_eq!(id, second_id),
+            other => panic!("expected LoadRecordDetail, got {other:?}"),
+        },
+        other => panic!("expected command result, got {other:?}"),
+    }
+}
+
+#[test]
+fn mouse_click_list_sort_bar_changes_sort() {
+    let mut state = MainScreenState::default();
+    let original = state.current_sort.field;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::MouseEvent(mouse_click(33, 2)), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    assert_ne!(state.current_sort.field, original);
+    assert_eq!(state.focused_panel, PanelId::List);
 }
 
 #[test]
@@ -799,6 +943,7 @@ fn copy_generated_password_maps_to_command() {
     {
         gen_state.preview =
             crate::types::sensitive::SensitiveInput::from("test-password-123".to_string());
+        gen_state.focus = crate::tui::state::generator_state::GeneratorFocus::ActionButton;
     }
 
     // Enter key triggers copy in generator overlay
@@ -822,6 +967,43 @@ fn copy_generated_password_maps_to_command() {
     } else {
         panic!("Expected Command result, got {:?}", result);
     }
+}
+
+#[test]
+fn q_key_opens_quit_confirm_on_main_screen() {
+    let mut state = MainScreenState::default();
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('q'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    match state.overlay_manager.get() {
+        Some(crate::tui::screens::main::overlay::ActiveOverlay::ConfirmDialog {
+            variant,
+            focused_button,
+        }) => {
+            assert!(matches!(variant, ConfirmVariant::QuitApp));
+            assert_eq!(*focused_button, ConfirmButton::Cancel);
+        }
+        other => panic!("expected quit confirm overlay, got {other:?}"),
+    }
+}
+
+#[test]
+fn quit_confirm_requires_explicit_confirm_before_exit() {
+    let mut state = MainScreenState::default();
+    let mut ctx = make_ctx();
+
+    let _ = state.update(Message::KeyEvent(key_event(KeyCode::Char('q'))), &mut ctx);
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Enter)), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(!state.overlay_manager.is_active());
+
+    let _ = state.update(Message::KeyEvent(key_event(KeyCode::Char('q'))), &mut ctx);
+    let _ = state.update(Message::KeyEvent(key_event(KeyCode::Tab)), &mut ctx);
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Enter)), &mut ctx);
+    assert!(matches!(result, ScreenResult::ExitApp));
 }
 
 #[test]

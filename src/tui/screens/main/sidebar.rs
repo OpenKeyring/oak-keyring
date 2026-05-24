@@ -47,8 +47,31 @@ impl SidebarPanel {
             return;
         }
 
-        let items: Vec<ListItem<'_>> = state
+        let footer_start = state
             .items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::Generator))
+            .and_then(|idx| idx.checked_sub(1))
+            .unwrap_or(state.items.len());
+        let footer_height = if state.items.len() > footer_start {
+            6.min(area.height)
+        } else {
+            0
+        };
+        let nav_area = Rect::new(
+            area.x,
+            area.y,
+            area.width,
+            area.height.saturating_sub(footer_height),
+        );
+        let footer_area = Rect::new(
+            area.x,
+            area.y + area.height.saturating_sub(footer_height),
+            area.width,
+            footer_height,
+        );
+
+        let items: Vec<ListItem<'_>> = state.items[..footer_start]
             .iter()
             .map(|item| build_list_item(item, state, unicode, area.width))
             .collect();
@@ -56,9 +79,22 @@ impl SidebarPanel {
         let list = List::new(items);
 
         let mut list_state = ListState::default();
-        list_state.select(Some(state.selected_index));
+        list_state.select((state.selected_index < footer_start).then_some(state.selected_index));
 
-        frame.render_stateful_widget(list, area, &mut list_state);
+        frame.render_stateful_widget(list, nav_area, &mut list_state);
+
+        if footer_height > 0 {
+            let footer_items: Vec<ListItem<'_>> = state.items[footer_start..]
+                .iter()
+                .map(|item| build_list_item(item, state, unicode, area.width))
+                .collect();
+            let footer_list = List::new(footer_items);
+            let mut footer_state = ListState::default();
+            footer_state.select(
+                (state.selected_index >= footer_start).then(|| state.selected_index - footer_start),
+            );
+            frame.render_stateful_widget(footer_list, footer_area, &mut footer_state);
+        }
 
         // Read the scroll offset after rendering to position inline rename correctly
         let list_offset = list_state.offset();
@@ -83,9 +119,9 @@ fn build_list_item<'a>(
         SidebarItem::Spacer => ListItem::new(Line::from("")),
         SidebarItem::Brand => ListItem::new(Line::from(Span::styled(
             if unicode {
-                format!("{} OpenKeyring", theme::ICON_LOCK)
+                format!("  {} OpenKeyring", theme::ICON_LOCK)
             } else {
-                format!("{} OpenKeyring", theme::ascii::ICON_LOCK)
+                format!("  {} OpenKeyring", theme::ascii::ICON_LOCK)
             },
             Style::default()
                 .fg(theme::BRAND)
@@ -298,11 +334,11 @@ fn display_width(text: &str) -> usize {
 fn category_label(category: &SidebarCategory, unicode: bool) -> String {
     let _ = unicode;
     match category {
-        SidebarCategory::All => t!("tui.main.sidebar_all").to_string(),
-        SidebarCategory::Favorites => t!("tui.main.sidebar_favorites").to_string(),
-        SidebarCategory::Expired => t!("tui.main.sidebar_expired").to_string(),
-        SidebarCategory::HealthIssues => t!("tui.main.sidebar_health").to_string(),
-        SidebarCategory::Trash => t!("tui.main.sidebar_trash").to_string(),
+        SidebarCategory::All => format!("[1] {}", t!("tui.main.sidebar_all")),
+        SidebarCategory::Favorites => format!("[2] {}", t!("tui.main.sidebar_favorites")),
+        SidebarCategory::Expired => format!("[3] {}", t!("tui.main.sidebar_expired")),
+        SidebarCategory::HealthIssues => format!("[4] {}", t!("tui.main.sidebar_health")),
+        SidebarCategory::Trash => format!("[5] {}", t!("tui.main.sidebar_trash")),
     }
 }
 

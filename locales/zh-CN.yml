@@ -351,6 +351,9 @@ tui:
     weak_password_body: "此密码强度较弱，是否仍要保存？"
     save_anyway: "仍然保存"
     warning_title: "警告"
+    quit_title: "退出 OpenKeyring？"
+    quit_body: "确定要退出吗？"
+    quit_button: "退出"
 
   # ---- U6: Password Generator ----
   generator:
@@ -970,8 +973,8 @@ tui:
     sync_failed: "同步失败"
     sync_offline: "离线"
     sync_not_configured: "未配置"
-    shortcuts_sidebar_list: "Ctrl+K搜索  n新建  e编辑  d删除  F1帮助"
-    shortcuts_sidebar_list_ascii: "Ctrl+K 搜索  N 新建  E 编辑  D 删除  F1 帮助"
+    shortcuts_sidebar_list: "Ctrl+K搜索  Ctrl+G生成  Ctrl+P配置  q退出"
+    shortcuts_sidebar_list_ascii: "Ctrl+K 搜索  Ctrl+G 生成  Ctrl+P 配置  Q 退出"
     shortcuts_detail: "c复制密码  u复制用户名  p显示/隐藏  e编辑  d删除  F1帮助"
     shortcuts_detail_ascii: "C 复制密码  U 复制用户名  P 显示/隐藏  E 编辑  D 删除  F1 帮助"
     shortcuts_trash_list: "r恢复  D永久删除  a清空回收站  F1帮助"

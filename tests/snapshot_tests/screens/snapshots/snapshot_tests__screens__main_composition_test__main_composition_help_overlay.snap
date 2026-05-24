@@ -3,12 +3,12 @@ source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
 "                      ┌──────────────────────── Help ────────────────────────┐                      "
-"  All (2)             │ Navigation                │  Multiselect             │                      "
+"  [1] All (2)         │ Navigation                │  Multiselect             │                      "
 "                      │  ↑/k       Move up        │   Space                  │                      "
-"  Favorites (1)       │Select/Deselect                                       │                      "
-"  Expired (0)         │  ↓/j       Move down      │   j/k       Move up/down │───                   "
+"  [2] Favorites (1)   │Select/Deselect                                       │                      "
+"  [3] Expired (0)     │  ↓/j       Move down      │   j/k       Move up/down │                      "
 "                      │  Tab       Switch panel   │   a         Select       │                      "
-"                      │all/Deselect                                          │                      "
+"                      │all/Deselect                                          │───                   "
 "                      │  Enter     Confirm        │   d         Batch delete │                      "
 "                      │  Esc       Back/Close     │   t         Batch tag    │                      "
 "                      │                           │   Esc/v     Exit         │                      "
@@ -25,4 +25,4 @@ expression: backend
 "                      │  l         Audit log      │                          │                      "
 "                      │  q         Quit           │                          │                      "
 "──────────────────────│                           │                          │──────────────────────"
-"  Ctrl+K Search  N New└──────────────────────────────────────────────────────┘                      "
+"  Ctrl+K Search  Ctrl+└──────────────────────────────────────────────────────┘3 │ — Not configured  "

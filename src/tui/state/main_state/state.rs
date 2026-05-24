@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{layout::Rect, Frame};
 use uuid::Uuid;
 
@@ -120,7 +120,7 @@ impl Default for SidebarState {
         let mut state = Self {
             items: Vec::new(),
             selected_index: 0,
-            tags_expanded: false,
+            tags_expanded: true,
             tag_scroll_offset: 0,
             tag_management_mode: false,
             tag_management: TagManagementState::default(),
@@ -639,6 +639,7 @@ impl Screen for MainScreenState {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key),
+            Message::MouseEvent(event) => self.handle_mouse(event),
             Message::HealthCheckProgress { current, total } => {
                 self.status_bar.health_check_progress = Some((current, total));
                 ScreenResult::Continue
@@ -1191,6 +1192,12 @@ impl MainScreenState {
             }
         }
 
+        if self.is_global_search_shortcut(key) {
+            self.focused_panel = PanelId::List;
+            self.list.enter_search();
+            return ScreenResult::Continue;
+        }
+
         // Check sidebar Enter for Generator/Config navigation
         if self.focused_panel == PanelId::Sidebar && key.code == KeyCode::Enter {
             match self.sidebar.items.get(self.sidebar.selected_index) {
@@ -1206,13 +1213,8 @@ impl MainScreenState {
             }
         }
 
-        if self.focused_panel == PanelId::List
-            && is_search_shortcut(key)
-            && !self.list.is_searching()
-            && !self.list.is_visual()
-        {
-            self.list.enter_search();
-            return ScreenResult::Continue;
+        if let Some(result) = self.handle_global_navigation_key(key) {
+            return result;
         }
 
         // Sidebar j/k — filter change triggers LoadRecordList
@@ -1390,10 +1392,28 @@ impl MainScreenState {
 
         // Layer 2: Global shortcuts
         match key.code {
+            KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.overlay_manager.open(Overlay::PasswordGenerator);
+                self.pending_animation = Some(EffectKind::ModalAppear);
+                ScreenResult::Continue
+            }
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                ScreenResult::NavigateTo(ScreenEnum::Config)
+            }
             KeyCode::Char('g') => ScreenResult::NavigateTo(ScreenEnum::Config),
             KeyCode::Char('l') => ScreenResult::NavigateTo(ScreenEnum::AuditLog),
             KeyCode::F(1) => {
                 self.overlay_manager.open(Overlay::Help);
+                self.pending_animation = Some(EffectKind::ModalAppear);
+                ScreenResult::Continue
+            }
+            KeyCode::Char('q') if key.modifiers.is_empty() => {
+                self.overlay_manager.open(Overlay::ConfirmDialog(
+                    crate::commands::types::ConfirmDialogState {
+                        variant: ConfirmVariant::QuitApp,
+                        focused_button: crate::commands::types::ConfirmButton::Cancel,
+                    },
+                ));
                 self.pending_animation = Some(EffectKind::ModalAppear);
                 ScreenResult::Continue
             }
@@ -1457,6 +1477,124 @@ impl MainScreenState {
         }
     }
 
+    fn is_global_search_shortcut(&self, key: KeyEvent) -> bool {
+        is_search_shortcut(key) && !self.list.is_searching() && !self.list.is_visual()
+    }
+
+    fn handle_global_navigation_key(&mut self, key: KeyEvent) -> Option<ScreenResult> {
+        let sidebar_is_renaming =
+            self.sidebar.is_tag_management() && self.sidebar.tag_management.is_renaming();
+        if sidebar_is_renaming {
+            return None;
+        }
+
+        match key.code {
+            KeyCode::Left if key.modifiers.is_empty() => {
+                self.focused_panel = match self.focused_panel {
+                    PanelId::Sidebar => PanelId::Sidebar,
+                    PanelId::List => PanelId::Sidebar,
+                    PanelId::Detail => PanelId::List,
+                };
+                Some(ScreenResult::Continue)
+            }
+            KeyCode::Right if key.modifiers.is_empty() => {
+                self.focused_panel = match self.focused_panel {
+                    PanelId::Sidebar => PanelId::List,
+                    PanelId::List => PanelId::Detail,
+                    PanelId::Detail => PanelId::Detail,
+                };
+                Some(ScreenResult::Continue)
+            }
+            KeyCode::Char(ch) if key.modifiers.is_empty() => {
+                let category = match ch {
+                    '1' => Some(SidebarCategory::All),
+                    '2' => Some(SidebarCategory::Favorites),
+                    '3' => Some(SidebarCategory::Expired),
+                    '4' => Some(SidebarCategory::HealthIssues),
+                    '5' => Some(SidebarCategory::Trash),
+                    _ => None,
+                }?;
+                self.focused_panel = PanelId::Sidebar;
+                self.sidebar.select_category(category);
+                let filter = category.to_filter();
+                if filter != self.current_filter {
+                    self.current_filter = filter.clone();
+                    self.detail.clear();
+                    self.list_auto_select = true;
+                    Some(ScreenResult::Command(Box::new(Command::LoadRecordList {
+                        filter,
+                        sort: self.current_sort.clone(),
+                    })))
+                } else {
+                    Some(ScreenResult::Continue)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn handle_mouse(&mut self, event: MouseEvent) -> ScreenResult {
+        let is_hover = matches!(event.kind, MouseEventKind::Moved);
+        let is_click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
+        if !is_hover && !is_click {
+            return ScreenResult::Continue;
+        }
+
+        let (width, height) = crossterm::terminal::size().unwrap_or((100, 24));
+        let area = Rect::new(0, 0, width, height);
+        let layout = crate::tui::screens::main::layout::calculate_layout(area, width);
+        let list_rect = top_padded_rect(layout.list, 2);
+        let detail_rect = top_padded_rect(layout.detail, 2);
+
+        if contains_rect(layout.sidebar, event.column, event.row) {
+            self.focused_panel = PanelId::Sidebar;
+            return ScreenResult::Continue;
+        }
+
+        if contains_rect(list_rect, event.column, event.row) {
+            self.focused_panel = PanelId::List;
+            let row_in_list = event.row.saturating_sub(list_rect.y);
+            if row_in_list == 0 {
+                if is_click && !self.list.is_searching() && !self.list.is_visual() {
+                    let col_in_list = event.column.saturating_sub(list_rect.x);
+                    if col_in_list < list_rect.width / 2 {
+                        self.list.cycle_sort_field();
+                        self.current_sort.field = self.list.sort.field;
+                    } else {
+                        self.list.toggle_sort_direction();
+                        self.current_sort.direction = self.list.sort.direction;
+                    }
+                    return ScreenResult::Command(Box::new(Command::LoadRecordList {
+                        filter: self.current_filter.clone(),
+                        sort: self.current_sort.clone(),
+                    }));
+                }
+                return ScreenResult::Continue;
+            }
+
+            let item_height = if crate::tui::terminal::WidthTier::from_width(list_rect.width)
+                == crate::tui::terminal::WidthTier::Minimum
+            {
+                2
+            } else {
+                3
+            };
+            let index = ((row_in_list - 1) / item_height) as usize + self.list.scroll_offset;
+            if index < self.list.records.len() && self.list.selected_index != Some(index) {
+                self.list.selected_index = Some(index);
+                self.list.adjust_scroll();
+                let id = self.list.records[index].id;
+                return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
+            }
+            return ScreenResult::Continue;
+        }
+
+        if contains_rect(detail_rect, event.column, event.row) {
+            self.focused_panel = PanelId::Detail;
+        }
+        ScreenResult::Continue
+    }
+
     fn handle_overlay_result(&mut self, result: OverlayKeyResult) -> ScreenResult {
         match result {
             OverlayKeyResult::Consumed => ScreenResult::Continue,
@@ -1504,6 +1642,7 @@ impl MainScreenState {
                     ConfirmVariant::TagDelete { tag_name, .. } => {
                         ScreenResult::Command(Box::new(Command::DeleteTag { name: tag_name }))
                     }
+                    ConfirmVariant::QuitApp => ScreenResult::ExitApp,
                 }
             }
             OverlayKeyResult::BatchAddTag {
@@ -1547,6 +1686,23 @@ fn is_search_shortcut(key: KeyEvent) -> bool {
         && key
             .modifiers
             .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META)
+}
+
+fn contains_rect(rect: Rect, column: u16, row: u16) -> bool {
+    column >= rect.x
+        && column < rect.x.saturating_add(rect.width)
+        && row >= rect.y
+        && row < rect.y.saturating_add(rect.height)
+}
+
+fn top_padded_rect(area: Rect, padding: u16) -> Rect {
+    let applied = padding.min(area.height);
+    Rect::new(
+        area.x,
+        area.y + applied,
+        area.width,
+        area.height.saturating_sub(applied),
+    )
 }
 
 /// Convert a [`DetailFieldKind`] to the corresponding [`FieldSelector`] for

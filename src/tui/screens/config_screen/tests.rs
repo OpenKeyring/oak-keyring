@@ -89,10 +89,9 @@ fn j_key_at_bottom_boundary_moves_focus_to_footer() {
     let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('j'))), &mut ctx);
     assert!(matches!(result, ScreenResult::Continue));
     // At bottom boundary, focus moves to footer instead of wrapping
-    assert!(screen.state.footer_focus.is_some());
     assert!(matches!(
         screen.state.footer_focus,
-        Some(crate::tui::state::config_state::FooterButton::ExitProgram)
+        Some(crate::tui::state::config_state::FooterButton::Close)
     ));
 }
 
@@ -112,7 +111,7 @@ fn k_key_at_top_boundary_triggers_flash() {
 }
 
 #[test]
-fn q_key_returns_exit_app() {
+fn q_key_does_not_exit_from_config_screen() {
     let mut screen = ConfigScreen::new();
 
     let (tx, _rx) = mpsc::channel(1);
@@ -120,7 +119,30 @@ fn q_key_returns_exit_app() {
     let mut ctx = test_context(&tx, &config);
 
     let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('q'))), &mut ctx);
-    assert!(matches!(result, ScreenResult::ExitApp));
+    assert!(matches!(result, ScreenResult::Continue));
+}
+
+#[test]
+fn config_footer_has_only_close_action() {
+    let mut screen = ConfigScreen::new();
+    screen.state.focused_item = 6;
+
+    let (tx, _rx) = mpsc::channel(1);
+    let config = AppConfig::default();
+    let mut ctx = test_context(&tx, &config);
+
+    let result = screen.update(Message::KeyEvent(make_key(KeyCode::Char('j'))), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(
+        screen.state.footer_focus,
+        Some(crate::tui::state::config_state::FooterButton::Close)
+    );
+
+    let result = screen.update(Message::KeyEvent(make_key(KeyCode::Enter)), &mut ctx);
+    assert!(matches!(
+        result,
+        ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+    ));
 }
 
 #[test]
