@@ -110,7 +110,7 @@ pub struct EmptyStateWidget;
 impl EmptyStateWidget {
     pub fn view(frame: &mut Frame, area: Rect, variant: &EmptyStateVariant, unicode: bool) {
         let icon = variant.icon(unicode);
-        let lines = vec![
+        let content = vec![
             Line::from(Span::styled(
                 format!("  {}  ", icon),
                 Style::default()
@@ -128,6 +128,9 @@ impl EmptyStateWidget {
                 Style::default().fg(theme::TEXT_MUTED),
             )),
         ];
+        let top_pad = area.height.saturating_sub(content.len() as u16) / 2;
+        let mut lines: Vec<Line> = (0..top_pad).map(|_| Line::from("")).collect();
+        lines.extend(content);
         let para = Paragraph::new(lines)
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true });
