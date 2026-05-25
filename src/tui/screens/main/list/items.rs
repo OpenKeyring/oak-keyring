@@ -13,8 +13,8 @@ use crate::tui::theme;
 
 use super::ListPanel;
 
-const ITEM_LEFT_PADDING: &str = "   ";
-const SELECTED_MARKER_RIGHT_PADDING: usize = 3;
+const ITEM_LEFT_PADDING: &str = "  ";
+const SELECTED_MARKER_RIGHT_PADDING: usize = 4;
 
 impl ListPanel {
     /// Highlight matching portions of `text` that match `search_terms` (case-insensitive).
@@ -161,7 +161,7 @@ pub(super) fn build_record_item<'a>(
     record: &crate::types::record::TuiRecord,
     is_selected: bool,
     is_visual_selected: bool,
-    focused: bool,
+    _focused: bool,
     unicode: bool,
     area_width: u16,
     search_query: Option<&str>,
@@ -199,25 +199,41 @@ pub(super) fn build_record_item<'a>(
     // Determine right-side content: omit timestamp when space is too narrow
     // to display it fully, avoiding mid-word truncation like "ye" from "yesterday".
     let indicator_str = if is_selected { marker } else { "" };
-    let name_len = prefix_str.chars().count() + record.name.chars().count();
-    let right_min_width = timestamp.chars().count() + indicator_str.chars().count();
-    let available_after_name = (area_width as usize)
-        .saturating_sub(name_len)
-        .saturating_sub(badge_str.chars().count());
-
-    let mut right_part = if available_after_name >= right_min_width {
-        format!("{timestamp}{indicator_str}")
+    let name_width = display_width(&prefix_str) + display_width(&record.name);
+    let badge_width = display_width(badge_str);
+    let selected_marker_padding = if is_selected {
+        SELECTED_MARKER_RIGHT_PADDING
     } else {
-        indicator_str.to_string()
+        0
     };
-    if is_selected {
-        right_part.push_str(&" ".repeat(SELECTED_MARKER_RIGHT_PADDING));
-    }
+    let full_right_width =
+        display_width(&timestamp) + display_width(indicator_str) + selected_marker_padding;
+    let marker_only_width = display_width(indicator_str) + selected_marker_padding;
+    let available_after_name = (area_width as usize)
+        .saturating_sub(name_width)
+        .saturating_sub(badge_width);
+
+    let (right_part, right_width) = if available_after_name >= full_right_width {
+        (
+            format!(
+                "{}{}{}",
+                timestamp,
+                indicator_str,
+                " ".repeat(selected_marker_padding)
+            ),
+            full_right_width,
+        )
+    } else {
+        (
+            format!("{}{}", indicator_str, " ".repeat(selected_marker_padding)),
+            marker_only_width,
+        )
+    };
 
     let padding_len = (area_width as usize)
-        .saturating_sub(name_len)
-        .saturating_sub(badge_str.chars().count())
-        .saturating_sub(right_part.chars().count());
+        .saturating_sub(name_width)
+        .saturating_sub(badge_width)
+        .saturating_sub(right_width);
 
     let base_style = if is_visual_selected {
         Style::default()
@@ -225,12 +241,9 @@ pub(super) fn build_record_item<'a>(
             .fg(theme::TEXT)
             .add_modifier(Modifier::DIM)
     } else if is_selected {
-        let modifier = if focused {
-            Modifier::REVERSED | Modifier::BOLD
-        } else {
-            Modifier::REVERSED
-        };
-        Style::default().fg(theme::TEXT).add_modifier(modifier)
+        Style::default()
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::REVERSED)
     } else {
         Style::default().fg(theme::TEXT)
     };
@@ -279,9 +292,9 @@ pub(super) fn build_record_item<'a>(
             .bg(theme::BRAND)
             .fg(theme::TEXT_SECONDARY)
             .add_modifier(Modifier::DIM)
-    } else if is_selected && focused {
+    } else if is_selected {
         Style::default()
-            .fg(theme::TEXT_SECONDARY)
+            .fg(theme::TEXT)
             .add_modifier(Modifier::REVERSED)
     } else {
         Style::default().fg(theme::TEXT_SECONDARY)
@@ -326,7 +339,7 @@ pub(super) fn build_trash_item<'a>(
     record: &crate::types::record::TuiRecord,
     is_selected: bool,
     is_visual_selected: bool,
-    focused: bool,
+    _focused: bool,
     unicode: bool,
     area_width: u16,
     retention_days: u32,
@@ -343,7 +356,7 @@ pub(super) fn build_trash_item<'a>(
     } else {
         String::new()
     };
-    let name_len = prefix_str.chars().count() + record.name.chars().count();
+    let name_len = display_width(&prefix_str) + display_width(&record.name);
     let padding_len = (area_width as usize)
         .saturating_sub(name_len)
         .saturating_sub(right_part.chars().count());
@@ -354,12 +367,9 @@ pub(super) fn build_trash_item<'a>(
             .fg(theme::TEXT)
             .add_modifier(Modifier::DIM)
     } else if is_selected {
-        let modifier = if focused {
-            Modifier::REVERSED | Modifier::BOLD
-        } else {
-            Modifier::REVERSED
-        };
-        Style::default().fg(theme::TEXT).add_modifier(modifier)
+        Style::default()
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::REVERSED)
     } else {
         Style::default().fg(theme::TEXT)
     };
@@ -427,4 +437,8 @@ pub(super) fn build_trash_item<'a>(
     } else {
         ListItem::new(vec![title_line, meta_line, separator_line])
     }
+}
+
+fn display_width(text: &str) -> usize {
+    Line::from(text.to_string()).width()
 }

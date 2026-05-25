@@ -71,8 +71,8 @@ impl MainScreen {
     ) {
         let terminal_width = frame.area().width;
         let areas = calculate_layout(area, terminal_width);
-        let list_area = top_padded(areas.list, 2);
-        let detail_area = top_padded(areas.detail, 2);
+        let list_area = top_padded(areas.list, 1);
+        let detail_area = top_padded(areas.detail, 1);
 
         // 1. Sidebar
         let sidebar_focused = focused_panel == PanelId::Sidebar;
@@ -834,6 +834,48 @@ mod tests {
                 PANEL_SEPARATOR
             );
         }
+    }
+
+    fn find_text(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<(u16, u16)> {
+        let needle_chars: Vec<char> = needle.chars().collect();
+        for y in buffer.area.y..buffer.area.y + buffer.area.height {
+            let row: Vec<String> = (buffer.area.x..buffer.area.x + buffer.area.width)
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .map(ToOwned::to_owned)
+                .collect();
+            for start in 0..row.len() {
+                if needle_chars.iter().enumerate().all(|(offset, ch)| {
+                    row.get(start + offset)
+                        .is_some_and(|cell| cell == &ch.to_string())
+                }) {
+                    return Some((buffer.area.x + start as u16, y));
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn list_and_detail_start_on_the_logo_row() {
+        let screen = MainScreen::new();
+        let state = MainScreenState::default();
+        let backend = ratatui::backend::TestBackend::new(120, 30);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                screen.view(frame, frame.area(), &state, PanelId::List, true);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let (_, logo_y) = find_text(buffer, "OpenKeyring").expect("logo should render");
+        let (_, sort_y) = find_text(buffer, "Sort").expect("sort bar should render");
+
+        assert_eq!(
+            sort_y, logo_y,
+            "list sort bar should align vertically with the sidebar logo"
+        );
     }
 
     #[test]

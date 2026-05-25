@@ -130,17 +130,18 @@ fn build_list_item<'a>(
         SidebarItem::Category(category) => {
             let label = category_label(category, unicode);
             let count = category_count(category, &state.category_counts);
-            let count_str = format_count(count);
+            let count_str = format_count(count, unicode);
             let text = format!("  {}{}", label, count_str);
 
             if is_selected(item, state) {
                 selected_list_item(text, area_width, unicode)
             } else {
-                ListItem::new(Line::from(vec![
+                let mut spans = vec![
                     Span::raw("  "),
                     Span::styled(label, Style::default().fg(theme::TEXT)),
-                    Span::styled(count_str, Style::default().fg(theme::TEXT_SECONDARY)),
-                ]))
+                ];
+                spans.extend(count_badge_spans(count, unicode));
+                ListItem::new(Line::from(spans))
             }
         }
         SidebarItem::Separator => {
@@ -356,9 +357,39 @@ fn category_count(
     }
 }
 
-/// Format a count as a right-aligned badge string (e.g. "(42)").
-fn format_count(count: usize) -> String {
-    format!(" ({})", count)
+/// Format a count as a compact badge string, capped at 99+.
+fn format_count(count: usize, unicode: bool) -> String {
+    let count_label = count_label(count);
+    if unicode {
+        format!(" \u{e0b6}{}\u{e0b4}", count_label)
+    } else {
+        format!(" [{}]", count_label)
+    }
+}
+
+fn count_label(count: usize) -> String {
+    if count > 99 {
+        "99+".to_string()
+    } else {
+        count.to_string()
+    }
+}
+
+fn count_badge_spans(count: usize, unicode: bool) -> Vec<Span<'static>> {
+    let label = count_label(count);
+    if unicode {
+        vec![
+            Span::raw(" "),
+            Span::styled("\u{e0b6}", Style::default().fg(theme::PRIMARY)),
+            Span::styled(label, Style::default().fg(theme::TEXT).bg(theme::PRIMARY)),
+            Span::styled("\u{e0b4}", Style::default().fg(theme::PRIMARY)),
+        ]
+    } else {
+        vec![Span::styled(
+            format!(" [{}]", label),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        )]
+    }
 }
 
 /// Render the inline rename edit box overlay on top of the current tag item.
@@ -460,12 +491,18 @@ mod tests {
 
     #[test]
     fn format_count_nonzero() {
-        assert_eq!(format_count(42), " (42)");
+        assert_eq!(format_count(42, true), " \u{e0b6}42\u{e0b4}");
     }
 
     #[test]
     fn format_count_zero() {
-        assert_eq!(format_count(0), " (0)");
+        assert_eq!(format_count(0, true), " \u{e0b6}0\u{e0b4}");
+    }
+
+    #[test]
+    fn format_count_caps_at_99_plus() {
+        assert_eq!(format_count(128, true), " \u{e0b6}99+\u{e0b4}");
+        assert_eq!(format_count(128, false), " [99+]");
     }
 
     #[test]
@@ -505,8 +542,10 @@ mod tests {
         let rendered = render_sidebar(&state, 36, 24);
 
         assert!(rendered.contains("🔐 OpenKeyring"));
-        assert!(rendered.contains("All (128)"));
-        assert!(rendered.contains("Favorites (12)"));
+        assert!(rendered.contains("All"));
+        assert!(rendered.contains("99+"));
+        assert!(rendered.contains("Favorites"));
+        assert!(rendered.contains("12"));
         assert!(rendered.contains("◄"));
         assert!(!rendered.contains("☆"));
         assert!(!rendered.contains("🗑"));

@@ -6,6 +6,7 @@ use super::items::{build_record_item, build_trash_item, health_badge};
 use super::*;
 use crate::commands::types::{HealthIssue, SortDirection, SortField};
 use crate::tui::components::empty_state::EmptyStateVariant;
+use crate::tui::i18n::LocaleGuard;
 use crate::tui::state::list_state::{SearchState, VisualState};
 use crate::types::credential::CredentialType;
 use crate::types::record::TuiRecord;
@@ -349,16 +350,63 @@ fn selected_record_marker_keeps_right_padding() {
     let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
 
     assert_eq!(
-        buffer.cell((60, 2)).expect("marker cell").symbol(),
+        buffer.cell((59, 2)).expect("marker cell").symbol(),
         "\u{25C0}",
-        "selected marker should leave three columns of right padding"
+        "selected marker should leave four columns of right padding"
     );
-    for x in 61..64 {
+    for x in 60..64 {
         assert_eq!(
             buffer.cell((x, 2)).expect("right padding cell").symbol(),
             " "
         );
     }
+}
+
+#[test]
+fn selected_record_title_and_subtitle_use_same_reverse_style() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+
+    let title_cell = buffer.cell((2, 2)).expect("selected title cell exists");
+    let subtitle_cell = buffer.cell((2, 3)).expect("selected subtitle cell exists");
+    assert!(
+        title_cell.style().add_modifier.contains(Modifier::REVERSED),
+        "selected title should be reversed"
+    );
+    assert!(
+        subtitle_cell
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED),
+        "selected subtitle should be reversed"
+    );
+    assert_eq!(
+        title_cell.style().fg,
+        subtitle_cell.style().fg,
+        "selected title and subtitle should use the same foreground so the highlight reads as one block"
+    );
+}
+
+#[test]
+fn selected_chinese_timestamp_is_not_split_by_char_width_math() {
+    let _guard = LocaleGuard::zh_cn();
+    let mut record = make_record(Uuid::new_v4(), "dd1", "ddddddd");
+    record.updated_at = Utc::now() - chrono::Duration::try_days(1).unwrap();
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 30, 8, true, true, RecordFilter::All);
+    let title_line = (0..30)
+        .map(|x| buffer.cell((x, 2)).expect("title row cell").symbol())
+        .collect::<String>();
+
+    assert!(
+        title_line.contains('昨') && title_line.contains('天'),
+        "selected item should render both Chinese relative timestamp characters: {title_line:?}"
+    );
 }
 
 #[test]
@@ -386,6 +434,7 @@ fn render_zero_area() {
 
 #[test]
 fn sort_field_labels() {
+    let _guard = LocaleGuard::en();
     assert_eq!(sort_field_label(&SortField::CreatedAt), "Created");
     assert_eq!(sort_field_label(&SortField::UpdatedAt), "Updated");
     assert_eq!(sort_field_label(&SortField::Name), "Name");
@@ -394,6 +443,7 @@ fn sort_field_labels() {
 
 #[test]
 fn sort_direction_labels_unicode() {
+    let _guard = LocaleGuard::en();
     let (icon, label) = sort_direction_label(&SortDirection::Desc, true);
     assert_eq!(icon, "\u{2193}"); // ↓
     assert_eq!(label, "Descending");
@@ -405,6 +455,7 @@ fn sort_direction_labels_unicode() {
 
 #[test]
 fn sort_direction_labels_ascii() {
+    let _guard = LocaleGuard::en();
     let (icon, label) = sort_direction_label(&SortDirection::Desc, false);
     assert_eq!(icon, "v");
     assert_eq!(label, "Descending");
