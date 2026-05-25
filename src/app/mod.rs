@@ -2,7 +2,10 @@ use std::io;
 use std::time::Duration;
 
 use crate::instance_lock::InstanceLock;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -126,7 +129,12 @@ impl App {
         // Terminal setup.
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        crossterm::execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -152,7 +160,12 @@ impl App {
         terminal::clear_terminal_title();
         disable_raw_mode()?;
         let stdout = terminal.backend_mut();
-        crossterm::execute!(stdout, LeaveAlternateScreen, DisableMouseCapture)?;
+        crossterm::execute!(
+            stdout,
+            PopKeyboardEnhancementFlags,
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
 
         if let Some(handle) = executor_handle {
             let ok = rt.block_on(wait_for_executor_shutdown(handle));
