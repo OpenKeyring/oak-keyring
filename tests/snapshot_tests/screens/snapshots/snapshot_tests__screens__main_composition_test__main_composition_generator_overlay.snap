@@ -3,10 +3,10 @@ source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
 "                                        │                       │                                   "
-"  [1] All 2                        ◄  │  Sort: [ Created ▼ ]  │  GitHub Account                   "
+"  [1] All                          2  │  Sort: [ Created ▼ ]  │  GitHub Account                   "
 "                      ┌──────────────────────────────────────────────────────┐                      "
-"  [2] Favorites 1   │  Password Generator                       Esc Close  │                      "
-"  [3] Expired 0     │──────────────────────────────────────────────────────│                      "
+"  [2] Favorites       │  Password Generator                       Esc Close  │                      "
+"  [3] Expired         │──────────────────────────────────────────────────────│                      "
 "                      │                                                      │──────                "
 "                      │  Style [ Random ]  [ Memorable ]  [ PIN ]            │                      "
 "                      │──────────────────────────────────────────────────────│                      "

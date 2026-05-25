@@ -3,10 +3,10 @@ source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
 "                                        │                       │                                   "
-"  [1] All 2                        ◄  │  Sort: [ Created ▼ ]  │  GitHub Account                   "
+"  [1] All                          2  │  Sort: [ Created ▼ ]  │  GitHub Account                   "
 "                                        │                       │  octocat                          "
-"  [2] Favorites 1                     │  GitHub Account  ◀    │★                                  "
-"  [3] Expired 0                       │  octocat              │                                   "
+"  [2] Favorites                    1  │  GitHub Account  ◀    │★                                  "
+"  [3] Expired                      0  │  octocat              │                                   "
 "                                        │───────────────────────│  ─────────────────                "
 "                                        │  Personal Email       │                                   "
 "                          ┌────────────────── Warning ───────────────────┐                          "

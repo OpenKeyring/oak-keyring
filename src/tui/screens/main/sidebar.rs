@@ -6,7 +6,7 @@
 //! selection highlighting.
 
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
@@ -22,7 +22,7 @@ const SEPARATOR_ASCII: char = '-';
 
 /// Indentation prefix for tag items.
 const TAG_INDENT: &str = "  ";
-const SELECTED_MARKER_RIGHT_PADDING: usize = 2;
+const BADGE_RIGHT_PADDING: usize = 2;
 
 /// Panel responsible for rendering the sidebar navigation.
 pub struct SidebarPanel;
@@ -130,18 +130,11 @@ fn build_list_item<'a>(
         SidebarItem::Category(category) => {
             let label = category_label(category, unicode);
             let count = category_count(category, &state.category_counts);
-            let count_str = format_count(count, unicode);
-            let text = format!("  {}{}", label, count_str);
 
             if is_selected(item, state) {
-                selected_list_item(text, area_width, unicode)
+                selected_category_item(label, count, area_width, unicode)
             } else {
-                let mut spans = vec![
-                    Span::raw("  "),
-                    Span::styled(label, Style::default().fg(theme::TEXT)),
-                ];
-                spans.extend(count_badge_spans(count, unicode));
-                ListItem::new(Line::from(spans))
+                ListItem::new(category_line(label, count, area_width, unicode, false))
             }
         }
         SidebarItem::Separator => {
@@ -180,7 +173,7 @@ fn build_list_item<'a>(
                     )
                 };
                 if is_selected(item, state) {
-                    selected_list_item(format!("  {}", header_text), area_width, unicode)
+                    selected_list_item(format!("  {}", header_text), area_width)
                 } else {
                     ListItem::new(Line::from(Span::styled(
                         format!("  {}", header_text),
@@ -213,7 +206,7 @@ fn build_list_item<'a>(
                 };
                 let label = format!("{} # {}", icon, t!(label_key));
                 if is_selected(item, state) {
-                    selected_list_item(format!("  {}", label), area_width, unicode)
+                    selected_list_item(format!("  {}", label), area_width)
                 } else {
                     ListItem::new(Line::from(Span::styled(
                         format!("  {}", label),
@@ -237,7 +230,6 @@ fn build_list_item<'a>(
                     selected_list_item(
                         format!("{}{} {}", display, " ".repeat(padding_width), edit_icon),
                         area_width,
-                        unicode,
                     )
                 } else {
                     ListItem::new(Line::from(vec![
@@ -256,7 +248,7 @@ fn build_list_item<'a>(
             } else {
                 let display = format!("{}{}{} ({})", TAG_INDENT, TAG_INDENT, name, count);
                 if is_selected(item, state) {
-                    selected_list_item(display, area_width, unicode)
+                    selected_list_item(display, area_width)
                 } else {
                     ListItem::new(Line::from(Span::styled(
                         display,
@@ -268,7 +260,7 @@ fn build_list_item<'a>(
         SidebarItem::Generator => {
             let label = format!("  {}", t!("tui.main.sidebar_generator"));
             if is_selected(item, state) {
-                selected_list_item(label, area_width, unicode)
+                selected_list_item(label, area_width)
             } else {
                 ListItem::new(Line::from(Span::styled(
                     label,
@@ -279,7 +271,7 @@ fn build_list_item<'a>(
         SidebarItem::Config => {
             let label = format!("  {}", t!("tui.main.sidebar_config"));
             if is_selected(item, state) {
-                selected_list_item(label, area_width, unicode)
+                selected_list_item(label, area_width)
             } else {
                 ListItem::new(Line::from(Span::styled(
                     label,
@@ -294,26 +286,10 @@ fn is_selected(item: &SidebarItem, state: &SidebarState) -> bool {
     item.is_selectable() && state.items.get(state.selected_index) == Some(item)
 }
 
-fn selected_list_item(text: String, area_width: u16, unicode: bool) -> ListItem<'static> {
-    let marker = if unicode { "\u{25C4}" } else { "<" };
+fn selected_list_item(text: String, area_width: u16) -> ListItem<'static> {
     let text_width = display_width(&text);
-    let marker_width = display_width(marker);
-    let right_padding = SELECTED_MARKER_RIGHT_PADDING.min(
-        (area_width as usize)
-            .saturating_sub(marker_width)
-            .saturating_sub(1),
-    );
-    let padding = (area_width as usize)
-        .saturating_sub(text_width)
-        .saturating_sub(marker_width)
-        .saturating_sub(right_padding);
-    let full_text = format!(
-        "{}{}{}{}",
-        text,
-        " ".repeat(padding),
-        marker,
-        " ".repeat(right_padding)
-    );
+    let padding = (area_width as usize).saturating_sub(text_width);
+    let full_text = format!("{}{}", text, " ".repeat(padding));
     let blank_text = " ".repeat(area_width as usize);
     let style = Style::default()
         .fg(theme::TEXT)
@@ -325,6 +301,57 @@ fn selected_list_item(text: String, area_width: u16, unicode: bool) -> ListItem<
         Line::from(Span::styled(blank_text, style)),
     ])
     .style(style)
+}
+
+fn selected_category_item(
+    label: String,
+    count: usize,
+    area_width: u16,
+    unicode: bool,
+) -> ListItem<'static> {
+    let blank_text = " ".repeat(area_width as usize);
+    let style = Style::default()
+        .fg(theme::TEXT)
+        .add_modifier(Modifier::REVERSED | Modifier::BOLD);
+
+    ListItem::new(vec![
+        Line::from(Span::styled(blank_text.clone(), style)),
+        category_line(label, count, area_width, unicode, true),
+        Line::from(Span::styled(blank_text, style)),
+    ])
+    .style(style)
+}
+
+fn category_line(
+    label: String,
+    count: usize,
+    area_width: u16,
+    unicode: bool,
+    selected: bool,
+) -> Line<'static> {
+    let prefix = "  ";
+    let badge = format_count(count, unicode);
+    let used_width = display_width(prefix) + display_width(&label) + display_width(&badge);
+    let padding_width = (area_width as usize)
+        .saturating_sub(used_width)
+        .saturating_sub(BADGE_RIGHT_PADDING);
+
+    let text_style = if selected {
+        Style::default()
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT)
+    };
+
+    let mut spans = vec![
+        Span::styled(prefix, text_style),
+        Span::styled(label, text_style),
+        Span::styled(" ".repeat(padding_width), text_style),
+    ];
+    spans.extend(count_badge_spans(count, unicode, selected));
+    spans.push(Span::styled(" ".repeat(BADGE_RIGHT_PADDING), text_style));
+    Line::from(spans)
 }
 
 fn display_width(text: &str) -> usize {
@@ -361,9 +388,9 @@ fn category_count(
 fn format_count(count: usize, unicode: bool) -> String {
     let count_label = count_label(count);
     if unicode {
-        format!(" \u{e0b6}{}\u{e0b4}", count_label)
+        format!("\u{e0b6}{}\u{e0b4}", count_label)
     } else {
-        format!(" [{}]", count_label)
+        format!("[{}]", count_label)
     }
 }
 
@@ -375,19 +402,41 @@ fn count_label(count: usize) -> String {
     }
 }
 
-fn count_badge_spans(count: usize, unicode: bool) -> Vec<Span<'static>> {
+fn count_badge_spans(count: usize, unicode: bool, selected: bool) -> Vec<Span<'static>> {
     let label = count_label(count);
+    let selected_style = Style::default()
+        .fg(Color::White)
+        .bg(theme::WARNING)
+        .add_modifier(Modifier::REVERSED | Modifier::BOLD);
     if unicode {
-        vec![
-            Span::raw(" "),
-            Span::styled("\u{e0b6}", Style::default().fg(theme::PRIMARY)),
-            Span::styled(label, Style::default().fg(theme::TEXT).bg(theme::PRIMARY)),
-            Span::styled("\u{e0b4}", Style::default().fg(theme::PRIMARY)),
-        ]
+        if selected {
+            vec![
+                Span::styled("\u{e0b6}", selected_style),
+                Span::styled(label, selected_style),
+                Span::styled("\u{e0b4}", selected_style),
+            ]
+        } else {
+            vec![
+                Span::styled("\u{e0b6}", Style::default().fg(theme::WARNING)),
+                Span::styled(
+                    label,
+                    Style::default()
+                        .fg(theme::BG)
+                        .bg(theme::WARNING)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("\u{e0b4}", Style::default().fg(theme::WARNING)),
+            ]
+        }
+    } else if selected {
+        vec![Span::styled(format!("[{}]", label), selected_style)]
     } else {
         vec![Span::styled(
-            format!(" [{}]", label),
-            Style::default().fg(theme::TEXT_SECONDARY),
+            format!("[{}]", label),
+            Style::default()
+                .fg(theme::BG)
+                .bg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
         )]
     }
 }
@@ -479,6 +528,15 @@ mod tests {
     use ratatui::Terminal;
 
     fn render_sidebar(state: &SidebarState, width: u16, height: u16) -> String {
+        let buffer = render_sidebar_buffer(state, width, height);
+        format!("{:?}", buffer)
+    }
+
+    fn render_sidebar_buffer(
+        state: &SidebarState,
+        width: u16,
+        height: u16,
+    ) -> ratatui::buffer::Buffer {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
@@ -486,23 +544,29 @@ mod tests {
                 SidebarPanel::view(frame, frame.area(), state, true, true);
             })
             .unwrap();
-        format!("{:?}", terminal.backend().buffer())
+        terminal.backend().buffer().clone()
+    }
+
+    fn row_text(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+        (0..buffer.area.width)
+            .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+            .collect()
     }
 
     #[test]
     fn format_count_nonzero() {
-        assert_eq!(format_count(42, true), " \u{e0b6}42\u{e0b4}");
+        assert_eq!(format_count(42, true), "\u{e0b6}42\u{e0b4}");
     }
 
     #[test]
     fn format_count_zero() {
-        assert_eq!(format_count(0, true), " \u{e0b6}0\u{e0b4}");
+        assert_eq!(format_count(0, true), "\u{e0b6}0\u{e0b4}");
     }
 
     #[test]
     fn format_count_caps_at_99_plus() {
-        assert_eq!(format_count(128, true), " \u{e0b6}99+\u{e0b4}");
-        assert_eq!(format_count(128, false), " [99+]");
+        assert_eq!(format_count(128, true), "\u{e0b6}99+\u{e0b4}");
+        assert_eq!(format_count(128, false), "[99+]");
     }
 
     #[test]
@@ -546,13 +610,13 @@ mod tests {
         assert!(rendered.contains("99+"));
         assert!(rendered.contains("Favorites"));
         assert!(rendered.contains("12"));
-        assert!(rendered.contains("◄"));
+        assert!(!rendered.contains("◄"));
         assert!(!rendered.contains("☆"));
         assert!(!rendered.contains("🗑"));
     }
 
     #[test]
-    fn selected_category_arrow_points_left_and_block_is_reversed_between_separators() {
+    fn category_badge_is_right_aligned_with_orange_fill() {
         let mut state = SidebarState {
             category_counts: CategoryCounts {
                 all: 128,
@@ -566,29 +630,60 @@ mod tests {
         state.select_category(SidebarCategory::All);
         state.rebuild();
 
-        let backend = TestBackend::new(36, 10);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal
-            .draw(|frame| {
-                SidebarPanel::view(frame, frame.area(), &state, true, true);
-            })
-            .unwrap();
+        let buffer = render_sidebar_buffer(&state, 36, 16);
+        let row = row_text(&buffer, 7);
 
-        let buffer = terminal.backend().buffer();
+        assert!(
+            row.ends_with("12  "),
+            "badge should be right-aligned with two columns of right padding: {row:?}"
+        );
+
+        let left = buffer.cell((30, 7)).expect("badge left edge");
+        let label = buffer.cell((31, 7)).expect("badge text");
+        let right = buffer.cell((33, 7)).expect("badge right edge");
+        assert_eq!(left.style().fg, Some(theme::WARNING));
+        assert_eq!(label.style().bg, Some(theme::WARNING));
+        assert_eq!(right.style().fg, Some(theme::WARNING));
+    }
+
+    #[test]
+    fn selected_category_has_no_marker_and_reverses_badge_text() {
+        let mut state = SidebarState {
+            category_counts: CategoryCounts {
+                all: 128,
+                favorites: 12,
+                expired: 3,
+                health_issues: 3,
+                trash: 5,
+            },
+            ..Default::default()
+        };
+        state.select_category(SidebarCategory::All);
+        state.rebuild();
+
+        let buffer = render_sidebar_buffer(&state, 36, 10);
         let selected_top = 3;
         let selected_center = 4;
         let selected_bottom = 5;
-        let arrow = buffer
-            .cell((33, selected_center))
-            .expect("right-padded selected row marker cell should exist");
-        assert_eq!(arrow.symbol(), "\u{25C4}");
+        let row = row_text(&buffer, selected_center);
 
-        for x in 34..=35 {
-            let cell = buffer
-                .cell((x, selected_center))
-                .unwrap_or_else(|| panic!("cell ({}, {}) missing", x, selected_center));
-            assert_eq!(cell.symbol(), " ");
-        }
+        assert!(
+            !row.contains('\u{25C4}'),
+            "selected row should not show a marker"
+        );
+        assert!(
+            row.ends_with("99+  "),
+            "selected badge should be right-aligned with right padding: {row:?}"
+        );
+
+        let badge_text = buffer
+            .cell((30, selected_center))
+            .expect("selected badge text should exist");
+        assert_eq!(badge_text.style().fg, Some(ratatui::style::Color::White));
+        assert!(
+            badge_text.style().add_modifier.contains(Modifier::REVERSED),
+            "selected badge should be reversed"
+        );
 
         for y in selected_top..=selected_bottom {
             for x in 0..36 {

@@ -3,10 +3,10 @@ source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
 "                                        │                       │                                   "
-"  [1] All 2                        ◄  │  VISUAL (1 selected)  │                                   "
+"  [1] All                          2  │  VISUAL (1 selected)  │                                   "
 "                                        │                       │                                   "
-"  [2] Favorites 1                     │  GitHub Account  ◀    │  tui.batch.selected_count         "
-"  [3] Expired 0                       │  octocat              │                                   "
+"  [2] Favorites                    1  │  GitHub Account  ◀    │  tui.batch.selected_count         "
+"  [3] Expired                      0  │  octocat              │                                   "
 "                                        │───────────────────────│  ─────────────────                "
 "                                        │  Personal Email       │                                   "
 "                                        │  alice@example.com    │  •  GitHub Account                "
