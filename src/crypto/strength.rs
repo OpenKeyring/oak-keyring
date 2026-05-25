@@ -16,7 +16,7 @@ impl StrengthLevel {
             StrengthLevel::Weak => "弱",
             StrengthLevel::Fair => "中等",
             StrengthLevel::Strong => "强",
-            StrengthLevel::VeryStrong => "极强",
+            StrengthLevel::VeryStrong => "Excellent",
         }
     }
 
@@ -56,10 +56,10 @@ pub fn evaluate_strength(password: &str) -> PasswordStrength {
         (StrengthLevel::Weak, 6)
     } else if len <= 15 && char_types == 3 {
         (StrengthLevel::Fair, 9)
-    } else if len <= 23 && char_types == 4 {
-        (StrengthLevel::Strong, 12)
-    } else if len >= 24 && char_types == 4 {
+    } else if char_types == 4 && len >= 20 {
         (StrengthLevel::VeryStrong, 16)
+    } else if char_types == 4 {
+        (StrengthLevel::Strong, 12)
     } else {
         (StrengthLevel::Weak, 6)
     };
@@ -118,8 +118,8 @@ mod tests {
     }
 
     #[test]
-    fn test_very_strong_24_chars() {
-        let result = evaluate_strength("abcd1234ABCD!@ababcd1234");
+    fn test_excellent_20_chars() {
+        let result = evaluate_strength("abcd1234ABCD!@abcd12");
         assert_eq!(result.level, StrengthLevel::VeryStrong);
         assert_eq!(result.bar_fill, 16);
     }
@@ -137,7 +137,7 @@ mod tests {
         assert_eq!(StrengthLevel::Weak.label_zh(), "弱");
         assert_eq!(StrengthLevel::Fair.label_zh(), "中等");
         assert_eq!(StrengthLevel::Strong.label_zh(), "强");
-        assert_eq!(StrengthLevel::VeryStrong.label_zh(), "极强");
+        assert_eq!(StrengthLevel::VeryStrong.label_zh(), "Excellent");
     }
 
     #[test]

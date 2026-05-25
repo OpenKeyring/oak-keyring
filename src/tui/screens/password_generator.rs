@@ -112,18 +112,35 @@ impl PasswordGeneratorScreen {
                 }
                 _ => ScreenResult::Continue,
             },
-            GeneratorFocus::Toggle(idx) => {
-                self.hint_message = None;
-                if self.state.style == GenerationStyle::Random {
-                    self.state.toggle_char_type(idx);
-                } else if self.state.style == GenerationStyle::Memorable && idx == 0 {
-                    self.state.memorable_config.capitalize =
-                        !self.state.memorable_config.capitalize;
-                    self.state.regenerate();
+            GeneratorFocus::Toggle(idx) => match key {
+                KeyCode::Left => {
+                    self.hint_message = None;
+                    self.state.focus_prev_toggle();
+                    ScreenResult::Continue
                 }
-                ScreenResult::Continue
-            }
+                KeyCode::Right => {
+                    self.hint_message = None;
+                    self.state.focus_next_toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.hint_message = None;
+                    self.toggle_generator_option(idx);
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
             GeneratorFocus::SeparatorInput => match key {
+                KeyCode::Left => {
+                    self.hint_message = None;
+                    self.state.focus_prev_toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Right => {
+                    self.hint_message = None;
+                    self.state.focus_next_toggle();
+                    ScreenResult::Continue
+                }
                 KeyCode::Char(c) => {
                     self.hint_message = None;
                     self.state.memorable_config.separator = c.to_string();
@@ -139,6 +156,15 @@ impl PasswordGeneratorScreen {
                 _ => ScreenResult::Continue,
             },
             _ => ScreenResult::Continue,
+        }
+    }
+
+    fn toggle_generator_option(&mut self, idx: usize) {
+        if self.state.style == GenerationStyle::Random {
+            self.state.toggle_char_type(idx);
+        } else if self.state.style == GenerationStyle::Memorable && idx == 0 {
+            self.state.memorable_config.capitalize = !self.state.memorable_config.capitalize;
+            self.state.regenerate();
         }
     }
 
@@ -454,6 +480,35 @@ mod tests {
             &mut ctx,
         );
         assert_eq!(screen.state.random_config.uppercase, !was_upper);
+    }
+
+    #[test]
+    fn memorable_left_right_moves_between_capitalize_and_separator() {
+        let mut screen = PasswordGeneratorScreen::new();
+        screen.state.set_style(GenerationStyle::Memorable);
+        screen.state.focus = GeneratorFocus::Toggle(0);
+        let mut ctx = ScreenContext {
+            command_tx: &tokio::sync::mpsc::channel(1).0,
+            config: &Default::default(),
+        };
+
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Right,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert_eq!(screen.state.focus, GeneratorFocus::SeparatorInput);
+
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Left,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert_eq!(screen.state.focus, GeneratorFocus::Toggle(0));
     }
 
     #[test]

@@ -311,7 +311,8 @@ fn default_confirm_button(variant: &ConfirmVariant) -> ConfirmButton {
         ConfirmVariant::HardDelete { .. }
         | ConfirmVariant::EmptyTrash { .. }
         | ConfirmVariant::TagDelete { .. }
-        | ConfirmVariant::BatchHardDelete { .. } => ConfirmButton::Cancel,
+        | ConfirmVariant::BatchHardDelete { .. }
+        | ConfirmVariant::QuitApp => ConfirmButton::Cancel,
         // Reversible actions — default to Confirm.
         ConfirmVariant::SoftDelete { .. }
         | ConfirmVariant::BatchSoftDelete { .. }

@@ -13,6 +13,9 @@ use crate::tui::theme;
 
 use super::ListPanel;
 
+const ITEM_LEFT_PADDING: &str = "   ";
+const SELECTED_MARKER_RIGHT_PADDING: usize = 3;
+
 impl ListPanel {
     /// Highlight matching portions of `text` that match `search_terms` (case-insensitive).
     ///
@@ -163,7 +166,7 @@ pub(super) fn build_record_item<'a>(
     area_width: u16,
     search_query: Option<&str>,
 ) -> ListItem<'a> {
-    let indicator = if unicode { " \u{25C0}" } else { " <" }; // ◀ / <
+    let marker = if unicode { "\u{25C0}" } else { "<" }; // ◀ / <
     let is_min_width = WidthTier::from_width(area_width) == WidthTier::Minimum;
 
     // ── Line 1: Title ──
@@ -171,7 +174,7 @@ pub(super) fn build_record_item<'a>(
     let timestamp = format_relative_time(&record.updated_at);
 
     // Build name spans: prefix (plain) + highlighted name (if search active)
-    let prefix_str = format!("  {}", type_prefix);
+    let prefix_str = format!("{}{}", ITEM_LEFT_PADDING, type_prefix);
 
     // Priority: Compromised > Weak > Duplicate > Expired (matches S3 spec)
     let badge = if is_min_width {
@@ -195,18 +198,21 @@ pub(super) fn build_record_item<'a>(
 
     // Determine right-side content: omit timestamp when space is too narrow
     // to display it fully, avoiding mid-word truncation like "ye" from "yesterday".
-    let indicator_str = if is_selected { indicator } else { "" };
+    let indicator_str = if is_selected { marker } else { "" };
     let name_len = prefix_str.chars().count() + record.name.chars().count();
     let right_min_width = timestamp.chars().count() + indicator_str.chars().count();
     let available_after_name = (area_width as usize)
         .saturating_sub(name_len)
         .saturating_sub(badge_str.chars().count());
 
-    let right_part = if available_after_name >= right_min_width {
+    let mut right_part = if available_after_name >= right_min_width {
         format!("{timestamp}{indicator_str}")
     } else {
         indicator_str.to_string()
     };
+    if is_selected {
+        right_part.push_str(&" ".repeat(SELECTED_MARKER_RIGHT_PADDING));
+    }
 
     let padding_len = (area_width as usize)
         .saturating_sub(name_len)
@@ -218,10 +224,13 @@ pub(super) fn build_record_item<'a>(
             .bg(theme::BRAND)
             .fg(theme::TEXT)
             .add_modifier(Modifier::DIM)
-    } else if is_selected && focused {
-        Style::default()
-            .fg(theme::TEXT)
-            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else if is_selected {
+        let modifier = if focused {
+            Modifier::REVERSED | Modifier::BOLD
+        } else {
+            Modifier::REVERSED
+        };
+        Style::default().fg(theme::TEXT).add_modifier(modifier)
     } else {
         Style::default().fg(theme::TEXT)
     };
@@ -279,7 +288,7 @@ pub(super) fn build_record_item<'a>(
     };
 
     // Build subtitle with optional search highlighting
-    let subtitle_prefix = "  ";
+    let subtitle_prefix = ITEM_LEFT_PADDING;
     let subtitle_line = if let Some(query) = search_query {
         let terms: Vec<String> = query
             .to_lowercase()
@@ -290,14 +299,16 @@ pub(super) fn build_record_item<'a>(
         sub_spans.extend(ListPanel::highlight_match(&record.subtitle, &terms));
         Line::from(sub_spans)
     } else {
-        Line::from(Span::styled(
-            format!("  {}", record.subtitle),
-            subtitle_style,
-        ))
+        let text = format!("{}{}", ITEM_LEFT_PADDING, record.subtitle);
+        let padding =
+            " ".repeat((area_width as usize).saturating_sub(Line::from(text.clone()).width()));
+        Line::from(Span::styled(format!("{}{}", text, padding), subtitle_style))
     };
 
-    // ── Line 3: Blank separator (empty line) ──
-    let separator_line = Line::from("");
+    // ── Line 3: Separator ──
+    let sep_char = if unicode { '\u{2500}' } else { '-' };
+    let sep_text: String = std::iter::repeat_n(sep_char, area_width as usize).collect();
+    let separator_line = Line::from(Span::styled(sep_text, Style::default().fg(theme::BORDER)));
 
     if is_min_width {
         ListItem::new(vec![title_line, separator_line])
@@ -320,14 +331,18 @@ pub(super) fn build_trash_item<'a>(
     area_width: u16,
     retention_days: u32,
 ) -> ListItem<'a> {
-    let indicator = if unicode { " \u{25C0}" } else { " <" };
+    let marker = if unicode { "\u{25C0}" } else { "<" };
     let is_min_width = WidthTier::from_width(area_width) == WidthTier::Minimum;
 
     // ── Line 1: Title with type prefix ──
     let type_prefix = format_type_prefix(&record.credential_type);
-    let prefix_str = format!("  {}", type_prefix);
+    let prefix_str = format!("{}{}", ITEM_LEFT_PADDING, type_prefix);
 
-    let right_part = if is_selected { indicator } else { "" };
+    let right_part = if is_selected {
+        format!("{}{}", marker, " ".repeat(SELECTED_MARKER_RIGHT_PADDING))
+    } else {
+        String::new()
+    };
     let name_len = prefix_str.chars().count() + record.name.chars().count();
     let padding_len = (area_width as usize)
         .saturating_sub(name_len)
@@ -338,10 +353,13 @@ pub(super) fn build_trash_item<'a>(
             .bg(theme::BRAND)
             .fg(theme::TEXT)
             .add_modifier(Modifier::DIM)
-    } else if is_selected && focused {
-        Style::default()
-            .fg(theme::TEXT)
-            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else if is_selected {
+        let modifier = if focused {
+            Modifier::REVERSED | Modifier::BOLD
+        } else {
+            Modifier::REVERSED
+        };
+        Style::default().fg(theme::TEXT).add_modifier(modifier)
     } else {
         Style::default().fg(theme::TEXT)
     };
@@ -350,7 +368,7 @@ pub(super) fn build_trash_item<'a>(
         Span::styled(prefix_str, base_style),
         Span::styled(record.name.clone(), base_style),
         Span::styled(" ".repeat(padding_len), base_style),
-        Span::styled(right_part.to_string(), base_style),
+        Span::styled(right_part, base_style),
     ];
     let title_line = Line::from(title_spans);
 
@@ -363,7 +381,7 @@ pub(super) fn build_trash_item<'a>(
     let days_ago_text = format_days_since_deletion(&deleted_at);
 
     let mut meta_spans = vec![Span::styled(
-        format!("  {}", days_ago_text),
+        format!("{}{}", ITEM_LEFT_PADDING, days_ago_text),
         Style::default().fg(theme::TEXT_SECONDARY),
     )];
 

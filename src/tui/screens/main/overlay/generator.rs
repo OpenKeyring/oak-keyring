@@ -7,6 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::t;
 use crate::tui::components::generator_panel;
@@ -18,21 +19,7 @@ pub fn render_generator(frame: &mut Frame, area: Rect, state: &GeneratorState, u
     let dialog_w: u16 = 56.min(area.width);
     let dialog_area = centered_rect(dialog_w, area);
 
-    let mut lines = vec![
-        // Title bar
-        Line::from(vec![
-            Span::styled(
-                t!("tui.generator_overlay.title").to_string(),
-                Style::default()
-                    .fg(theme::TEXT)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("                              "),
-            Span::styled("✕", Style::default().fg(theme::TEXT_SECONDARY)),
-        ]),
-        separator_line(),
-        Line::raw(""),
-    ];
+    let mut lines = vec![title_line(dialog_w), separator_line(), Line::raw("")];
 
     // Generator panel content
     let panel_lines = generator_panel::render_generator_panel(state, false, dialog_w, unicode);
@@ -63,11 +50,11 @@ pub enum GeneratorAction {
 pub fn handle_key(key: crossterm::event::KeyCode, state: &mut GeneratorState) -> GeneratorAction {
     use crossterm::event::KeyCode;
     match key {
-        KeyCode::Tab => {
+        KeyCode::Tab | KeyCode::Down => {
             state.focus_next();
             GeneratorAction::None
         }
-        KeyCode::BackTab => {
+        KeyCode::BackTab | KeyCode::Up => {
             state.focus_prev();
             GeneratorAction::None
         }
@@ -82,7 +69,23 @@ pub fn handle_key(key: crossterm::event::KeyCode, state: &mut GeneratorState) ->
                 state.regenerate();
                 GeneratorAction::Regenerate
             }
-            _ => GeneratorAction::CopyToClipboard,
+            GeneratorFocus::Toggle(idx) => {
+                toggle_focused_option(idx, state);
+                GeneratorAction::None
+            }
+            _ => GeneratorAction::None,
+        },
+        KeyCode::Char(' ') => match state.focus {
+            GeneratorFocus::Toggle(idx) => {
+                toggle_focused_option(idx, state);
+                GeneratorAction::None
+            }
+            GeneratorFocus::ActionButton => GeneratorAction::CopyToClipboard,
+            GeneratorFocus::RegenerateButton => {
+                state.regenerate();
+                GeneratorAction::Regenerate
+            }
+            _ => GeneratorAction::None,
         },
         _ => match state.focus {
             GeneratorFocus::StyleSelector => match key {
@@ -116,15 +119,24 @@ pub fn handle_key(key: crossterm::event::KeyCode, state: &mut GeneratorState) ->
                 _ => GeneratorAction::None,
             },
             GeneratorFocus::Toggle(idx) => {
-                if state.style == GenerationStyle::Random {
-                    state.toggle_char_type(idx);
-                } else if state.style == GenerationStyle::Memorable && idx == 0 {
-                    state.memorable_config.capitalize = !state.memorable_config.capitalize;
-                    state.regenerate();
+                match key {
+                    KeyCode::Left => state.focus_prev_toggle(),
+                    KeyCode::Right => state.focus_next_toggle(),
+                    _ => {
+                        let _ = idx;
+                    }
                 }
                 GeneratorAction::None
             }
             GeneratorFocus::SeparatorInput => match key {
+                KeyCode::Left => {
+                    state.focus_prev_toggle();
+                    GeneratorAction::None
+                }
+                KeyCode::Right => {
+                    state.focus_next_toggle();
+                    GeneratorAction::None
+                }
                 KeyCode::Char(c) => {
                     state.memorable_config.separator = c.to_string();
                     state.regenerate();
@@ -140,6 +152,34 @@ pub fn handle_key(key: crossterm::event::KeyCode, state: &mut GeneratorState) ->
             _ => GeneratorAction::None,
         },
     }
+}
+
+fn toggle_focused_option(idx: usize, state: &mut GeneratorState) {
+    if state.style == GenerationStyle::Random {
+        state.toggle_char_type(idx);
+    } else if state.style == GenerationStyle::Memorable && idx == 0 {
+        state.memorable_config.capitalize = !state.memorable_config.capitalize;
+        state.regenerate();
+    }
+}
+
+fn title_line(dialog_width: u16) -> Line<'static> {
+    let content_width = dialog_width.saturating_sub(2) as usize;
+    let title = t!("tui.generator_overlay.title").to_string();
+    let hint = t!("tui.generator_overlay.close_hint").to_string();
+    let used = UnicodeWidthStr::width(title.as_str()) + UnicodeWidthStr::width(hint.as_str()) + 2;
+    let spacer = content_width.saturating_sub(used);
+    Line::from(vec![
+        Span::styled(
+            title,
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" ".repeat(spacer)),
+        Span::styled(hint, Style::default().fg(theme::TEXT_SECONDARY)),
+        Span::raw("  "),
+    ])
 }
 
 fn separator_line() -> Line<'static> {
@@ -169,6 +209,16 @@ mod tests {
     }
 
     #[test]
+    fn handle_down_and_up_move_focus() {
+        let mut state = GeneratorState::new();
+        let initial = state.focus;
+        handle_key(KeyCode::Down, &mut state);
+        assert_ne!(state.focus, initial);
+        handle_key(KeyCode::Up, &mut state);
+        assert_eq!(state.focus, initial);
+    }
+
+    #[test]
     fn handle_esc_closes() {
         let mut state = GeneratorState::new();
         assert!(matches!(
@@ -194,6 +244,18 @@ mod tests {
             handle_key(KeyCode::Enter, &mut state),
             GeneratorAction::CopyToClipboard
         ));
+    }
+
+    #[test]
+    fn handle_enter_on_toggle_updates_random_option() {
+        let mut state = GeneratorState::new();
+        state.focus = GeneratorFocus::Toggle(2);
+        assert!(state.random_config.digits);
+        assert!(matches!(
+            handle_key(KeyCode::Enter, &mut state),
+            GeneratorAction::None
+        ));
+        assert!(!state.random_config.digits);
     }
 
     #[test]

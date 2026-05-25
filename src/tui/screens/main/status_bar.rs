@@ -71,7 +71,7 @@ impl StatusBarPanel {
         let sync_text = sync_indicator_text(&state.sync_status, unicode);
         let status_msg = status_message_text(&state.status_message);
 
-        let mut all_spans = vec![
+        let mut left_spans = vec![
             Span::styled("  ", shortcut_style),
             Span::styled(shortcuts, shortcut_style),
         ];
@@ -83,8 +83,8 @@ impl StatusBarPanel {
             } else {
                 VISUAL_INDICATOR_ASCII
             };
-            all_spans.push(Span::styled(SEPARATOR, sep_style));
-            all_spans.push(Span::styled(
+            left_spans.push(Span::styled(SEPARATOR, sep_style));
+            left_spans.push(Span::styled(
                 format!(" {} ", indicator),
                 Style::default()
                     .fg(theme::TEXT)
@@ -93,8 +93,7 @@ impl StatusBarPanel {
             ));
         }
 
-        all_spans.push(Span::styled(SEPARATOR, sep_style));
-        all_spans.push(Span::styled(VERSION, version_style));
+        let mut right_spans = vec![Span::styled(VERSION, version_style)];
 
         // Health Check status — show phase-appropriate message
         use crate::tui::state::main_state::HealthCheckPhase;
@@ -102,8 +101,8 @@ impl StatusBarPanel {
             HealthCheckPhase::Checking => {
                 let icon = if unicode { theme::ICON_SEARCH } else { "[?]" };
                 let text = t!("tui.health.checking");
-                all_spans.push(Span::styled(SEPARATOR, sep_style));
-                all_spans.push(Span::styled(
+                right_spans.push(Span::styled(SEPARATOR, sep_style));
+                right_spans.push(Span::styled(
                     format!("{} {}", icon, text),
                     Style::default().fg(theme::PRIMARY).bg(bar_bg),
                 ));
@@ -120,8 +119,8 @@ impl StatusBarPanel {
                     compromised = compromised,
                     duplicate = duplicate_groups
                 );
-                all_spans.push(Span::styled(SEPARATOR, sep_style));
-                all_spans.push(Span::styled(
+                right_spans.push(Span::styled(SEPARATOR, sep_style));
+                right_spans.push(Span::styled(
                     format!("{} {}", icon, text),
                     Style::default().fg(theme::WARNING).bg(bar_bg),
                 ));
@@ -132,8 +131,8 @@ impl StatusBarPanel {
                 } else {
                     format!("+ {}", t!("tui.health.all_secure"))
                 };
-                all_spans.push(Span::styled(SEPARATOR, sep_style));
-                all_spans.push(Span::styled(
+                right_spans.push(Span::styled(SEPARATOR, sep_style));
+                right_spans.push(Span::styled(
                     text,
                     Style::default().fg(theme::SUCCESS).bg(bar_bg),
                 ));
@@ -148,8 +147,8 @@ impl StatusBarPanel {
                 } else {
                     format!("- {}", t!("tui.health.skipped_short"))
                 };
-                all_spans.push(Span::styled(SEPARATOR, sep_style));
-                all_spans.push(Span::styled(
+                right_spans.push(Span::styled(SEPARATOR, sep_style));
+                right_spans.push(Span::styled(
                     text,
                     Style::default().fg(theme::TEXT_MUTED).bg(bar_bg),
                 ));
@@ -159,14 +158,25 @@ impl StatusBarPanel {
             }
         }
 
-        all_spans.push(Span::styled(SEPARATOR, sep_style));
-        all_spans.push(Span::styled(sync_text, sync_style));
+        right_spans.push(Span::styled(SEPARATOR, sep_style));
+        right_spans.push(Span::styled(sync_text, sync_style));
 
         // Add status message if present
         if let Some(msg) = status_msg {
-            all_spans.push(Span::styled(SEPARATOR, sep_style));
-            all_spans.push(Span::styled(msg, msg_style));
+            right_spans.push(Span::styled(SEPARATOR, sep_style));
+            right_spans.push(Span::styled(msg, msg_style));
         }
+
+        right_spans.push(Span::styled("  ", shortcut_style));
+        let left_width = Line::from(left_spans.clone()).width();
+        let right_width = Line::from(right_spans.clone()).width();
+        let spacer = area
+            .width
+            .saturating_sub(left_width as u16)
+            .saturating_sub(right_width as u16) as usize;
+        let mut all_spans = left_spans;
+        all_spans.push(Span::styled(" ".repeat(spacer), shortcut_style));
+        all_spans.extend(right_spans);
 
         let paragraph = Paragraph::new(Line::from(all_spans)).style(Style::default().bg(bar_bg));
 
@@ -308,7 +318,7 @@ mod tests {
     #[test]
     fn shortcuts_sidebar_unicode() {
         let text = shortcuts_text(PanelId::Sidebar, true, false);
-        assert!(text.contains('\u{2318}')); // ⌘
+        assert!(text.contains("Ctrl+K"));
     }
 
     #[test]

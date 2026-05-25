@@ -71,6 +71,8 @@ impl MainScreen {
     ) {
         let terminal_width = frame.area().width;
         let areas = calculate_layout(area, terminal_width);
+        let list_area = top_padded(areas.list, 2);
+        let detail_area = top_padded(areas.detail, 2);
 
         // 1. Sidebar
         let sidebar_focused = focused_panel == PanelId::Sidebar;
@@ -86,7 +88,7 @@ impl MainScreen {
         let list_focused = focused_panel == PanelId::List;
         list::ListPanel::view(
             frame,
-            areas.list,
+            list_area,
             &state.list,
             list_focused,
             unicode,
@@ -110,7 +112,7 @@ impl MainScreen {
         };
         self.detail.view(
             frame,
-            areas.detail,
+            detail_area,
             &state.detail,
             detail_focused,
             unicode,
@@ -173,6 +175,15 @@ impl MainScreen {
         let mut messages = Vec::new();
         let mut overlay = None;
         let result_command: Option<Box<Command>> = None;
+
+        if key.code == KeyCode::F(1) {
+            return MainKeyResult {
+                messages,
+                overlay: Some(Overlay::Help),
+                command: None,
+                focused_panel: None,
+            };
+        }
 
         // If inline rename is active, route all keys to it first
         if state.sidebar.is_tag_management() && state.sidebar.tag_management.is_renaming() {
@@ -350,7 +361,7 @@ impl MainScreen {
                         }
                     }
                     KeyCode::Char('k')
-                        if key.modifiers.contains(KeyModifiers::CONTROL)
+                        if is_search_shortcut(key)
                             && !state.list.is_searching()
                             && !state.list.is_visual() =>
                     {
@@ -726,6 +737,13 @@ fn sort_sidebar_tags(sidebar: &mut crate::tui::state::main_state::SidebarState) 
     sidebar.sort_tags_by_current_order();
 }
 
+fn is_search_shortcut(key: KeyEvent) -> bool {
+    key.code == KeyCode::Char('k')
+        && key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META)
+}
+
 /// Render the horizontal separator line between content panels and the status bar.
 fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
     if area.width == 0 || area.height == 0 {
@@ -738,7 +756,7 @@ fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
 
     let paragraph = Paragraph::new(Line::from(Span::styled(
         line,
-        Style::default().fg(theme::BORDER),
+        Style::default().fg(theme::TEXT_SECONDARY),
     )));
     frame.render_widget(paragraph, area);
 }
@@ -747,34 +765,29 @@ fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
 ///
 /// Draws separator lines at the boundaries between sidebar|list and list|detail.
 fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas) {
-    let sep_style = Style::default().fg(theme::BORDER);
-    let sep_char = PANEL_SEPARATOR.chars().next().unwrap_or('|');
+    let sep_style = Style::default().fg(theme::TEXT);
+    let sep_char = PANEL_SEPARATOR.to_string();
 
-    // Separator between sidebar and list
-    if areas.sidebar.width > 0 && areas.list.width > 0 {
-        let x = areas.sidebar.x + areas.sidebar.width;
-        // Only render if there is no overlap (the separator column was not
-        // allocated to any panel — it visually sits on the border).
-        // We render into a 1-column-wide strip at the panel boundary.
-        let sep_rect = Rect::new(
-            x.saturating_sub(1),
-            areas.sidebar.y,
-            1,
-            areas.sidebar.height,
-        );
-        let line: String = std::iter::repeat_n(sep_char, sep_rect.height as usize).collect();
-        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
-        frame.render_widget(paragraph, sep_rect);
+    for sep_rect in [areas.sidebar_list_separator, areas.list_detail_separator] {
+        if sep_rect.width == 0 || sep_rect.height == 0 {
+            continue;
+        }
+        for y in sep_rect.y..sep_rect.y.saturating_add(sep_rect.height) {
+            frame
+                .buffer_mut()
+                .set_string(sep_rect.x, y, &sep_char, sep_style);
+        }
     }
+}
 
-    // Separator between list and detail
-    if areas.list.width > 0 && areas.detail.width > 0 {
-        let x = areas.list.x + areas.list.width;
-        let sep_rect = Rect::new(x.saturating_sub(1), areas.list.y, 1, areas.list.height);
-        let line: String = std::iter::repeat_n(sep_char, sep_rect.height as usize).collect();
-        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
-        frame.render_widget(paragraph, sep_rect);
-    }
+fn top_padded(area: Rect, padding: u16) -> Rect {
+    let applied = padding.min(area.height);
+    Rect::new(
+        area.x,
+        area.y + applied,
+        area.width,
+        area.height.saturating_sub(applied),
+    )
 }
 
 #[cfg(test)]
@@ -789,6 +802,38 @@ mod tests {
         assert_eq!(screen.cycle_focus(PanelId::Sidebar), PanelId::List);
         assert_eq!(screen.cycle_focus(PanelId::List), PanelId::Detail);
         assert_eq!(screen.cycle_focus(PanelId::Detail), PanelId::Sidebar);
+    }
+
+    #[test]
+    fn vertical_separators_are_drawn_on_every_content_row() {
+        let backend = ratatui::backend::TestBackend::new(80, 12);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let areas = layout::calculate_layout(frame.area(), 80);
+                render_vertical_separators(frame, &areas);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let areas = layout::calculate_layout(Rect::new(0, 0, 80, 12), 80);
+        for y in 0..areas.sidebar.height {
+            assert_eq!(
+                buffer
+                    .cell((areas.sidebar_list_separator.x, y))
+                    .expect("sidebar separator cell")
+                    .symbol(),
+                PANEL_SEPARATOR
+            );
+            assert_eq!(
+                buffer
+                    .cell((areas.list_detail_separator.x, y))
+                    .expect("detail separator cell")
+                    .symbol(),
+                PANEL_SEPARATOR
+            );
+        }
     }
 
     #[test]
@@ -985,6 +1030,26 @@ mod tests {
         let key = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL);
         screen.handle_key_event(key, &mut state, PanelId::List);
         assert!(state.list.is_searching());
+    }
+
+    #[test]
+    fn super_k_enters_search_mode_when_terminal_sends_it() {
+        let mut state = MainScreenState::default();
+        let screen = MainScreen::new();
+        let key = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER);
+        screen.handle_key_event(key, &mut state, PanelId::List);
+        assert!(state.list.is_searching());
+    }
+
+    #[test]
+    fn f1_opens_help_overlay_from_list() {
+        let mut state = MainScreenState::default();
+        let screen = MainScreen::new();
+        let key = KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE);
+
+        let result = screen.handle_key_event(key, &mut state, PanelId::List);
+
+        assert!(matches!(result.overlay, Some(Overlay::Help)));
     }
 
     #[test]

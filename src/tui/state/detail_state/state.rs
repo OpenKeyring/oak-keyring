@@ -360,14 +360,14 @@ impl DetailPanelState {
                 let subtitle = url.clone().unwrap_or_default();
                 let fields = vec![
                     DetailField {
-                        label: t!("tui.entry.username_label").to_string(),
+                        label: t!("tui.password_detail.username_label").to_string(),
                         value: FieldValue::Plain(username.clone()),
                         copyable: true,
                         toggleable: false,
                         kind: DetailFieldKind::Username,
                     },
                     DetailField {
-                        label: t!("tui.entry.password_label").to_string(),
+                        label: t!("tui.password_detail.password_label").to_string(),
                         value: FieldValue::Masked,
                         copyable: true,
                         toggleable: true,
@@ -377,7 +377,7 @@ impl DetailPanelState {
                 let mut all_fields = fields;
                 if let Some(ref u) = url {
                     all_fields.push(DetailField {
-                        label: t!("tui.entry.url_label").to_string(),
+                        label: t!("tui.password_detail.url_label").to_string(),
                         value: FieldValue::Plain(u.clone()),
                         copyable: true,
                         toggleable: false,
@@ -386,7 +386,7 @@ impl DetailPanelState {
                 }
                 if let Some(ref n) = notes {
                     all_fields.push(DetailField {
-                        label: t!("tui.entry.notes_label").to_string(),
+                        label: t!("tui.password_detail.notes_label").to_string(),
                         value: FieldValue::Plain(n.clone()),
                         copyable: true,
                         toggleable: false,
@@ -428,14 +428,14 @@ impl DetailPanelState {
                 let subtitle = url.clone().unwrap_or_default();
                 let mut fields = vec![
                     DetailField {
-                        label: t!("tui.entry.app_id_label").to_string(),
+                        label: t!("tui.password_detail.app_id_label").to_string(),
                         value: FieldValue::Plain(app_id.clone()),
                         copyable: true,
                         toggleable: false,
                         kind: DetailFieldKind::AppId,
                     },
                     DetailField {
-                        label: t!("tui.entry.secret_key_label").to_string(),
+                        label: t!("tui.password_detail.secret_key_label").to_string(),
                         value: FieldValue::Masked,
                         copyable: true,
                         toggleable: true,
@@ -444,7 +444,7 @@ impl DetailPanelState {
                 ];
                 if let Some(ref u) = url {
                     fields.push(DetailField {
-                        label: t!("tui.entry.url_label").to_string(),
+                        label: t!("tui.password_detail.url_label").to_string(),
                         value: FieldValue::Plain(u.clone()),
                         copyable: true,
                         toggleable: false,
@@ -453,7 +453,7 @@ impl DetailPanelState {
                 }
                 if let Some(ref n) = notes {
                     fields.push(DetailField {
-                        label: t!("tui.entry.notes_label").to_string(),
+                        label: t!("tui.password_detail.notes_label").to_string(),
                         value: FieldValue::Plain(n.clone()),
                         copyable: true,
                         toggleable: false,
@@ -494,14 +494,14 @@ impl DetailPanelState {
                 let expiry_status = ExpiryStatus::from_date(*expires_at);
                 let mut fields = vec![
                     DetailField {
-                        label: t!("tui.entry.public_key_label").to_string(),
+                        label: t!("tui.password_detail.public_key_label").to_string(),
                         value: FieldValue::Plain(public_key.clone()),
                         copyable: true,
                         toggleable: false,
                         kind: DetailFieldKind::PublicKey,
                     },
                     DetailField {
-                        label: t!("tui.entry.private_key_label").to_string(),
+                        label: t!("tui.password_detail.private_key_label").to_string(),
                         value: FieldValue::Masked,
                         copyable: true,
                         toggleable: true,
@@ -517,7 +517,7 @@ impl DetailPanelState {
                 });
                 if let Some(ref n) = notes {
                     fields.push(DetailField {
-                        label: t!("tui.entry.notes_label").to_string(),
+                        label: t!("tui.password_detail.notes_label").to_string(),
                         value: FieldValue::Plain(n.clone()),
                         copyable: true,
                         toggleable: false,

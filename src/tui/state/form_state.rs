@@ -26,6 +26,13 @@ pub enum PasswordFieldFocus {
     Paste,
 }
 
+/// Focusable footer action buttons in the create/edit form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormFooterButton {
+    Save,
+    Cancel,
+}
+
 /// Expiry options for the dropdown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpiryOption {
@@ -112,6 +119,7 @@ pub struct FormFields {
     pub custom_date: Option<String>,
     pub tags: Vec<String>,
     pub tag_input: String,
+    pub tag_focus: Option<usize>,
     pub notes: String,
 }
 
@@ -136,6 +144,7 @@ impl FormFields {
             custom_date: None,
             tags: Vec::new(),
             tag_input: String::new(),
+            tag_focus: None,
             notes: String::new(),
         };
         fields.init_for_type(credential_type);
@@ -174,6 +183,78 @@ impl FormFields {
             }
         }
     }
+
+    /// Commit the current tag input as one trimmed tag.
+    ///
+    /// Returns true when a new tag was added. Empty and duplicate tags are
+    /// cleared from the transient input but do not mutate the saved tag list.
+    pub fn commit_tag_input(&mut self) -> bool {
+        let tag = self.tag_input.trim().to_string();
+        self.tag_input.clear();
+        if tag.is_empty() || self.fields_contains_tag(&tag) {
+            return false;
+        }
+        self.tags.push(tag);
+        self.tag_focus = None;
+        true
+    }
+
+    fn fields_contains_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|existing| existing == tag)
+    }
+
+    pub fn focus_tag(&mut self, index: usize) -> bool {
+        if self.tags.is_empty() {
+            self.tag_focus = None;
+            return false;
+        }
+        self.tag_input.clear();
+        self.tag_focus = Some(index.min(self.tags.len() - 1));
+        true
+    }
+
+    pub fn focus_prev_tag(&mut self) -> bool {
+        if self.tags.is_empty() || !self.tag_input.is_empty() {
+            self.tag_focus = None;
+            return false;
+        }
+        let next = self
+            .tag_focus
+            .map(|idx| idx.saturating_sub(1))
+            .unwrap_or_else(|| self.tags.len() - 1);
+        self.tag_focus = Some(next);
+        true
+    }
+
+    pub fn focus_next_tag(&mut self) -> bool {
+        if self.tags.is_empty() || !self.tag_input.is_empty() {
+            self.tag_focus = None;
+            return false;
+        }
+        let next = self
+            .tag_focus
+            .map(|idx| (idx + 1).min(self.tags.len() - 1))
+            .unwrap_or(0);
+        self.tag_focus = Some(next);
+        true
+    }
+
+    pub fn remove_focused_tag(&mut self) -> bool {
+        let Some(index) = self.tag_focus else {
+            return false;
+        };
+        if index >= self.tags.len() {
+            self.tag_focus = None;
+            return false;
+        }
+        self.tags.remove(index);
+        self.tag_focus = if self.tags.is_empty() {
+            None
+        } else {
+            Some(index.min(self.tags.len() - 1))
+        };
+        true
+    }
 }
 
 /// Complete form state.
@@ -193,9 +274,13 @@ pub struct FormState {
     /// Focus index within the weak password dialog: 0 = "Go Back", 1 = "Save Anyway".
     pub weak_dialog_focus: usize,
     pub show_unsaved_dialog: bool,
+    /// Focus index within the unsaved dialog: 0 = "Continue Editing", 1 = "Discard".
+    pub unsaved_dialog_focus: usize,
     /// Sub-focus within the currently focused password/sensitive field.
     /// Only meaningful when `focused_field` points to a field with inline buttons.
     pub password_sub_focus: PasswordFieldFocus,
+    /// Mouse/keyboard focus for footer action buttons. `None` means a form field is focused.
+    pub footer_focus: Option<FormFooterButton>,
 }
 
 /// Tag autocomplete dropdown state.
@@ -231,7 +316,9 @@ impl FormState {
             show_weak_password_dialog: false,
             weak_dialog_focus: 0,
             show_unsaved_dialog: false,
+            unsaved_dialog_focus: 0,
             password_sub_focus: PasswordFieldFocus::Input,
+            footer_focus: None,
         }
     }
 
@@ -253,6 +340,7 @@ impl FormState {
             self.fields.tags = tags;
             self.fields.notes = notes;
             self.focused_field = 0;
+            self.footer_focus = None;
             self.has_changes = true;
         }
     }
@@ -260,6 +348,10 @@ impl FormState {
     /// Get the ordered list of inline buttons for the currently focused field.
     /// Returns `None` if the focused field does not have inline buttons.
     pub fn inline_buttons(&self) -> Option<Vec<PasswordFieldFocus>> {
+        if self.footer_focus.is_some() {
+            return None;
+        }
+
         let focused = self.focused_field;
         let ct = self.credential_type;
         match ct {
@@ -414,18 +506,66 @@ impl FormState {
 
     /// Move focus to next field.
     pub fn focus_next(&mut self) {
+        if let Some(button) = self.footer_focus {
+            self.footer_focus = match button {
+                FormFooterButton::Save => Some(FormFooterButton::Cancel),
+                FormFooterButton::Cancel => Some(FormFooterButton::Cancel),
+            };
+            self.password_sub_focus = PasswordFieldFocus::Input;
+            self.fields.tag_focus = None;
+            return;
+        }
+
         let count = self.field_count();
         if self.focused_field < count - 1 {
             self.focused_field += 1;
             self.password_sub_focus = PasswordFieldFocus::Input;
+            self.fields.tag_focus = None;
+        } else {
+            self.footer_focus = Some(FormFooterButton::Save);
+            self.password_sub_focus = PasswordFieldFocus::Input;
+            self.fields.tag_focus = None;
         }
     }
 
     /// Move focus to previous field.
     pub fn focus_prev(&mut self) {
+        if let Some(button) = self.footer_focus {
+            match button {
+                FormFooterButton::Cancel => {
+                    self.footer_focus = Some(FormFooterButton::Save);
+                }
+                FormFooterButton::Save => {
+                    self.footer_focus = None;
+                    self.focused_field = self.field_count().saturating_sub(1);
+                }
+            }
+            self.password_sub_focus = PasswordFieldFocus::Input;
+            self.fields.tag_focus = None;
+            return;
+        }
+
         if self.focused_field > 0 {
             self.focused_field -= 1;
             self.password_sub_focus = PasswordFieldFocus::Input;
+            self.fields.tag_focus = None;
+        }
+    }
+
+    /// Set field focus directly, clearing footer and inline-button focus.
+    pub fn focus_field(&mut self, field_index: usize) {
+        self.focused_field = field_index.min(self.field_count().saturating_sub(1));
+        self.footer_focus = None;
+        self.password_sub_focus = PasswordFieldFocus::Input;
+        if self.focused_field != self.tags_field_index() {
+            self.fields.tag_focus = None;
+        }
+    }
+
+    pub fn tags_field_index(&self) -> usize {
+        match self.credential_type {
+            CredentialType::Login | CredentialType::Api => 6,
+            CredentialType::Ssh => 7,
         }
     }
 

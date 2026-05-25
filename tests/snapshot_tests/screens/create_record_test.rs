@@ -1,8 +1,10 @@
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
+use oak_keyring::crypto::strength::evaluate_strength;
 use oak_keyring::tui::screens::create_record::CreateRecordScreen;
 use oak_keyring::tui::state::form_state::{TagAutocompleteState, ValidationError};
+use oak_keyring::tui::state::generator_state::GeneratorFocus;
 use oak_keyring::tui::traits::screen::Screen;
 use oak_keyring::types::credential::CredentialType;
 use oak_keyring::types::sensitive::SensitiveInput;
@@ -85,6 +87,17 @@ fn create_record_weak_password_dialog() {
 }
 
 #[test]
+fn create_record_unsaved_dialog() {
+    let _locale = snapshot_locale();
+    let mut screen = CreateRecordScreen::new();
+    screen.form.fields.name = "Changed Account".to_string();
+    screen.form.has_changes = true;
+    screen.form.show_unsaved_dialog = true;
+    let backend = render_screen(&screen, 80, 24);
+    insta::assert_snapshot!("create_record_unsaved_dialog", backend);
+}
+
+#[test]
 fn create_record_api_key() {
     let _locale = snapshot_locale();
     let mut screen = CreateRecordScreen::new();
@@ -127,6 +140,9 @@ fn create_record_embedded_generator() {
     let _locale = snapshot_locale();
     let mut screen = CreateRecordScreen::new();
     screen.generator.expand();
+    screen.generator.generator.preview = sensitive("CorrectHorse42!");
+    screen.generator.generator.strength = Some(evaluate_strength("CorrectHorse42!"));
+    screen.generator.generator.focus = GeneratorFocus::ActionButton;
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("create_record_embedded_generator", backend);
 }

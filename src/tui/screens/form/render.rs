@@ -11,9 +11,13 @@ use ratatui::{
 use crate::t;
 use crate::tui::components::text_input::PasswordButton;
 use crate::tui::components::{dropdown, strength_bar, tag_input, text_input};
-use crate::tui::state::form_state::{ExpiryOption, FormState, PasswordFieldFocus};
+use crate::tui::state::form_state::{
+    ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus,
+};
+use crate::tui::state::generator_state::GeneratorState;
 use crate::tui::theme;
 use crate::types::credential::CredentialType;
+use unicode_width::UnicodeWidthStr;
 
 /// Render the full-screen form.
 pub fn render_form(
@@ -30,20 +34,11 @@ pub fn render_form(
     };
 
     let mut lines = vec![
-        // Title bar
-        Line::from(vec![
-            Span::styled(
-                format!("  {}", title),
-                Style::default()
-                    .fg(theme::TEXT)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("                                        "),
-            Span::styled(
-                format!(" {}", t!("tui.form.cancel_hint")),
-                Style::default().fg(theme::TEXT_SECONDARY),
-            ),
-        ]),
+        title_line(
+            area.width,
+            title.as_ref(),
+            t!("tui.form.cancel_hint").as_ref(),
+        ),
         separator_line(area.width),
         Line::raw(""),
     ];
@@ -94,7 +89,9 @@ pub fn render_form(
         area.width,
     ));
     if let Some(err) = name_error {
-        lines.push(error_line(&err.message));
+        if should_render_error_line(&err.message) {
+            lines.push(error_line(&err.message));
+        }
     }
     lines.push(Line::raw(""));
 
@@ -129,7 +126,9 @@ pub fn render_form(
                 area.width,
             ));
             if let Some(err) = user_error {
-                lines.push(error_line(&err.message));
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
+                }
             }
             lines.push(Line::raw(""));
 
@@ -179,28 +178,17 @@ pub fn render_form(
             );
             lines.extend(password_row);
             if let Some(err) = pw_error {
-                lines.push(error_line(&err.message));
-            }
-
-            // Strength bar on next line
-            if let Some(ref strength) = state.fields.strength {
-                lines.push(strength_bar::render_strength_bar(strength, _unicode));
-            } else {
-                lines.push(strength_bar::render_empty_strength_bar());
-            }
-
-            // Embedded generator panel (if expanded)
-            if let Some(gen) = generator_state {
-                if gen.expanded {
-                    lines.push(Line::raw(""));
-                    let panel = crate::tui::components::generator_panel::render_generator_panel(
-                        &gen.generator,
-                        true,
-                        area.width,
-                        _unicode,
-                    );
-                    lines.extend(panel);
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
                 }
+            }
+
+            // Strength bar with breathing room after the password input row.
+            lines.push(Line::raw(""));
+            if let Some(ref strength) = state.fields.strength {
+                lines.push(strength_bar::render_form_strength_bar(strength, _unicode));
+            } else {
+                lines.push(strength_bar::render_form_empty_strength_bar());
             }
         }
         CredentialType::Api => {
@@ -216,7 +204,9 @@ pub fn render_form(
                 area.width,
             ));
             if let Some(err) = appid_error {
-                lines.push(error_line(&err.message));
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
+                }
             }
             lines.push(Line::raw(""));
 
@@ -289,7 +279,9 @@ pub fn render_form(
                 area.width,
             ));
             if let Some(err) = pubkey_error {
-                lines.push(error_line(&err.message));
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
+                }
             }
             lines.push(Line::raw(""));
 
@@ -444,6 +436,7 @@ pub fn render_form(
         &state.fields.tag_input,
         &state.fields.tags,
         focused == tags_idx,
+        state.fields.tag_focus,
         state.tag_autocomplete.as_ref(),
         all_tags,
         area.width,
@@ -466,23 +459,27 @@ pub fn render_form(
     ));
     lines.push(Line::raw(""));
 
+    let inner_height = area.height.saturating_sub(2) as usize;
+    let footer_rows = 3usize;
+    while lines.len().saturating_add(footer_rows) < inner_height {
+        lines.push(Line::raw(""));
+    }
+
     // Bottom buttons
     lines.push(separator_line(area.width));
-    lines.push(Line::raw(""));
     lines.push(Line::from(vec![
-        Span::raw("                     "),
+        Span::raw("  "),
         Span::styled(
-            format!(" {} ", t!("tui.form.save_button")),
-            Style::default()
-                .fg(theme::PRIMARY)
-                .add_modifier(Modifier::BOLD),
+            format!("[ {} ]", t!("tui.form.save_button")),
+            footer_button_style(state.footer_focus, FormFooterButton::Save, true),
         ),
         Span::raw("  "),
         Span::styled(
-            format!(" {} ", t!("tui.form.cancel_button")),
-            Style::default().fg(theme::TEXT_SECONDARY),
+            format!("[ {} ]", t!("tui.form.cancel_button")),
+            footer_button_style(state.footer_focus, FormFooterButton::Cancel, false),
         ),
     ]));
+    lines.push(shortcut_line());
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -496,6 +493,12 @@ pub fn render_form(
     frame.render_widget(Clear, area);
     frame.render_widget(paragraph, area);
 
+    if let Some(gen) = generator_state {
+        if gen.expanded {
+            render_generator_dialog(frame, area, &gen.generator, _unicode);
+        }
+    }
+
     // Weak password dialog overlay
     if state.show_weak_password_dialog {
         render_weak_password_dialog(frame, area, state.weak_dialog_focus);
@@ -503,8 +506,149 @@ pub fn render_form(
 
     // Unsaved changes dialog overlay
     if state.show_unsaved_dialog {
-        render_unsaved_dialog(frame, area);
+        render_unsaved_dialog(frame, area, state.unsaved_dialog_focus);
     }
+}
+
+pub(crate) fn generator_dialog_area(area: Rect, state: &GeneratorState, unicode: bool) -> Rect {
+    let width = if area.width > 68 {
+        64
+    } else {
+        area.width.saturating_sub(4).max(24)
+    };
+    let panel_len = crate::tui::components::generator_panel::render_generator_panel(
+        state,
+        true,
+        width.saturating_sub(2),
+        unicode,
+    )
+    .len() as u16;
+    let height = panel_len
+        .saturating_add(5)
+        .min(area.height.saturating_sub(2));
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    Rect::new(x, y, width, height)
+}
+
+fn render_generator_dialog(frame: &mut Frame, area: Rect, state: &GeneratorState, unicode: bool) {
+    let dialog_area = generator_dialog_area(area, state, unicode);
+    let inner_width = dialog_area.width.saturating_sub(2);
+    let title = t!("tui.generator_overlay.title").to_string();
+    let close_hint = t!("tui.form.cancel_hint").to_string();
+    let title_width = UnicodeWidthStr::width(title.as_str());
+    let hint_width = UnicodeWidthStr::width(close_hint.as_str());
+    let gap = inner_width
+        .saturating_sub(title_width as u16)
+        .saturating_sub(hint_width as u16)
+        .max(1) as usize;
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(
+                title,
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" ".repeat(gap)),
+            Span::styled(close_hint, Style::default().fg(theme::TEXT_SECONDARY)),
+        ]),
+        separator_line(dialog_area.width),
+        Line::raw(""),
+    ];
+    lines.extend(
+        crate::tui::components::generator_panel::render_generator_panel(
+            state,
+            true,
+            inner_width,
+            unicode,
+        ),
+    );
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::BORDER))
+        .style(Style::default().bg(theme::BG));
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(Clear, dialog_area);
+    frame.render_widget(paragraph, dialog_area);
+}
+
+fn title_line(width: u16, title: &str, hint: &str) -> Line<'static> {
+    let left = format!("  {title}");
+    let right = format!("{hint}  ");
+    let content_width = width.saturating_sub(2) as usize;
+    let left_width = UnicodeWidthStr::width(left.as_str());
+    let right_width = UnicodeWidthStr::width(right.as_str());
+    let gap = content_width
+        .saturating_sub(left_width + right_width)
+        .max(1);
+
+    Line::from(vec![
+        Span::styled(
+            left,
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" ".repeat(gap)),
+        Span::styled(right, Style::default().fg(theme::TEXT_SECONDARY)),
+    ])
+}
+
+fn footer_button_style(
+    focus: Option<FormFooterButton>,
+    button: FormFooterButton,
+    primary: bool,
+) -> Style {
+    let base = if primary {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
+    };
+
+    if focus == Some(button) {
+        base.add_modifier(Modifier::REVERSED)
+    } else {
+        base
+    }
+}
+
+fn shortcut_line() -> Line<'static> {
+    Line::from(vec![
+        Span::raw("  "),
+        Span::styled("Ctrl+G", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_generate")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Ctrl+V", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_toggle_visibility")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Ctrl+C", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_copy")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Ctrl+S", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_save")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Esc", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}", t!("tui.form.shortcut_cancel")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+    ])
 }
 
 fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
@@ -574,7 +718,26 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
     frame.render_widget(p, dialog_area);
 }
 
-fn render_unsaved_dialog(frame: &mut Frame, area: Rect) {
+fn render_unsaved_dialog(frame: &mut Frame, area: Rect, focus: usize) {
+    let key_style = Style::default()
+        .fg(theme::PRIMARY)
+        .add_modifier(Modifier::BOLD);
+    let continue_style = if focus == 0 {
+        Style::default()
+            .fg(theme::BG)
+            .bg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::PRIMARY)
+    };
+    let discard_style = if focus == 1 {
+        Style::default()
+            .fg(theme::BG)
+            .bg(theme::ERROR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::ERROR)
+    };
     let lines = vec![
         Line::from(Span::styled(
             format!("  {}", t!("tui.overlay.unsaved_title")),
@@ -582,27 +745,35 @@ fn render_unsaved_dialog(frame: &mut Frame, area: Rect) {
                 .fg(theme::TEXT)
                 .add_modifier(Modifier::BOLD),
         )),
-        separator_line(40),
+        separator_line(52),
         Line::raw(""),
         Line::from(Span::raw(format!("  {}", t!("tui.overlay.unsaved_body")))),
         Line::raw(""),
-        separator_line(40),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Esc", key_style),
+            Span::raw(format!(" {}    ", t!("tui.form.unsaved_cancel_shortcut"))),
+            Span::styled("Enter", key_style),
+            Span::raw(format!(" {}", t!("tui.form.unsaved_discard_shortcut"))),
+        ]),
+        Line::raw(""),
+        separator_line(52),
         Line::raw(""),
         Line::from(vec![
-            Span::raw("      "),
+            Span::raw("        "),
             Span::styled(
                 format!(" {} ", t!("tui.form.continue_editing")),
-                Style::default().fg(theme::PRIMARY),
+                continue_style,
             ),
-            Span::raw("    "),
+            Span::raw("      "),
             Span::styled(
                 format!(" {} ", t!("tui.form.discard_changes")),
-                Style::default().fg(theme::ERROR),
+                discard_style,
             ),
         ]),
     ];
-    let w = 40.min(area.width);
-    let h = 9.min(area.height);
+    let w = 52.min(area.width);
+    let h = 12.min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     let dialog_area = Rect::new(x, y, w, h);
@@ -628,4 +799,8 @@ fn error_line(msg: &str) -> Line<'static> {
         format!("  {}", msg),
         Style::default().fg(theme::ERROR),
     ))
+}
+
+fn should_render_error_line(msg: &str) -> bool {
+    msg != t!("tui.form.validation_required").as_ref()
 }

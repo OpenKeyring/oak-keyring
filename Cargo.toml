@@ -43,6 +43,7 @@ tokio = { version = "1", features = ["full", "signal"] }
 ratatui = "0.30"
 crossterm = "0.29"
 tachyonfx = "0.22.0"
+unicode-width = "0.2"
 
 # Serialization & Config
 serde = { version = "1", features = ["derive"] }

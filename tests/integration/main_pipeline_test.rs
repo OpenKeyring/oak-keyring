@@ -178,6 +178,7 @@ fn full_pipeline_mount_to_detail_display() {
         CommandResult::RecordListLoaded {
             records: vec![record],
             total: 1,
+            category_counts: oak_keyring::commands::types::RecordCategoryCounts::default(),
         },
     );
     assert!(matches!(result, ScreenResult::Continue));
@@ -493,6 +494,7 @@ fn sidebar_filter_reload_pipeline() {
         CommandResult::RecordListLoaded {
             records: Vec::new(),
             total: 0,
+            category_counts: oak_keyring::commands::types::RecordCategoryCounts::default(),
         },
     );
     assert!(matches!(result, ScreenResult::Continue));
@@ -649,6 +651,7 @@ fn health_issue_display_pipeline() {
         CommandResult::RecordListLoaded {
             records: vec![record],
             total: 1,
+            category_counts: oak_keyring::commands::types::RecordCategoryCounts::default(),
         },
     );
 

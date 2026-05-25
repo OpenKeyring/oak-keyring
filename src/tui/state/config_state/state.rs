@@ -8,7 +8,6 @@ use crate::config::*;
 /// Focusable buttons in the config footer bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FooterButton {
-    ExitProgram,
     Close,
 }
 

@@ -11,6 +11,7 @@ use crate::types::credential::CredentialType;
 use crate::types::record::TuiRecord;
 use chrono::Utc;
 use ratatui::backend::TestBackend;
+use ratatui::style::Modifier;
 use ratatui::text::Span;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -166,6 +167,24 @@ fn render_snapshot(
     format!("{:?}", buf)
 }
 
+fn render_buffer(
+    state: &ListPanelState,
+    width: u16,
+    height: u16,
+    focused: bool,
+    unicode: bool,
+    filter: RecordFilter,
+) -> ratatui::buffer::Buffer {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            ListPanel::view(frame, frame.area(), state, focused, unicode, filter, 30);
+        })
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
 #[test]
 fn render_empty_state_no_passwords() {
     let state = ListPanelState::default();
@@ -266,6 +285,80 @@ fn render_ascii_mode() {
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, false, RecordFilter::All);
     assert!(!result.is_empty());
+}
+
+#[test]
+fn selected_record_is_reversed_even_when_list_is_not_focused() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, false, true, RecordFilter::All);
+
+    // Row 0 is the sort bar, row 1 is the padding row, row 2 is the title.
+    let title_cell = buffer.cell((3, 2)).expect("selected title cell exists");
+    assert!(
+        title_cell.style().add_modifier.contains(Modifier::REVERSED),
+        "selected title should be reverse highlighted even when the list panel is not focused"
+    );
+}
+
+#[test]
+fn selected_record_highlight_does_not_include_separator_line() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+
+    let separator_cell = buffer
+        .cell((0, 4))
+        .expect("selected item separator cell exists");
+    assert!(
+        !separator_cell
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED),
+        "record separator line should not be part of the reverse-highlighted item body"
+    );
+}
+
+#[test]
+fn sort_bar_has_padding_before_first_record() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+
+    let padding_row = (0..64)
+        .map(|x| buffer.cell((x, 1)).expect("padding row cell").symbol())
+        .collect::<String>();
+    assert!(
+        padding_row.trim().is_empty(),
+        "sort bar should have one blank padding row before the first record"
+    );
+}
+
+#[test]
+fn selected_record_marker_keeps_right_padding() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+
+    assert_eq!(
+        buffer.cell((60, 2)).expect("marker cell").symbol(),
+        "\u{25C0}",
+        "selected marker should leave three columns of right padding"
+    );
+    for x in 61..64 {
+        assert_eq!(
+            buffer.cell((x, 2)).expect("right padding cell").symbol(),
+            " "
+        );
+    }
 }
 
 #[test]
