@@ -6,7 +6,7 @@
 //! selection highlighting.
 
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
@@ -402,42 +402,25 @@ fn count_label(count: usize) -> String {
     }
 }
 
-fn count_badge_spans(count: usize, unicode: bool, selected: bool) -> Vec<Span<'static>> {
+fn count_badge_spans(count: usize, unicode: bool, _selected: bool) -> Vec<Span<'static>> {
     let label = count_label(count);
-    let selected_style = Style::default()
-        .fg(Color::White)
+    let badge_reset = Modifier::REVERSED | Modifier::BOLD;
+    let badge_edge_style = Style::default()
+        .fg(theme::WARNING)
+        .remove_modifier(badge_reset);
+    let badge_text_style = Style::default()
+        .fg(theme::BG)
         .bg(theme::WARNING)
-        .add_modifier(Modifier::REVERSED | Modifier::BOLD);
+        .add_modifier(Modifier::BOLD)
+        .remove_modifier(Modifier::REVERSED);
     if unicode {
-        if selected {
-            vec![
-                Span::styled("\u{e0b6}", selected_style),
-                Span::styled(label, selected_style),
-                Span::styled("\u{e0b4}", selected_style),
-            ]
-        } else {
-            vec![
-                Span::styled("\u{e0b6}", Style::default().fg(theme::WARNING)),
-                Span::styled(
-                    label,
-                    Style::default()
-                        .fg(theme::BG)
-                        .bg(theme::WARNING)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("\u{e0b4}", Style::default().fg(theme::WARNING)),
-            ]
-        }
-    } else if selected {
-        vec![Span::styled(format!("[{}]", label), selected_style)]
+        vec![
+            Span::styled("\u{e0b6}", badge_edge_style),
+            Span::styled(label, badge_text_style),
+            Span::styled("\u{e0b4}", badge_edge_style),
+        ]
     } else {
-        vec![Span::styled(
-            format!("[{}]", label),
-            Style::default()
-                .fg(theme::BG)
-                .bg(theme::WARNING)
-                .add_modifier(Modifier::BOLD),
-        )]
+        vec![Span::styled(format!("[{}]", label), badge_text_style)]
     }
 }
 
@@ -647,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_category_has_no_marker_and_reverses_badge_text() {
+    fn selected_category_has_no_marker_and_keeps_badge_style() {
         let mut state = SidebarState {
             category_counts: CategoryCounts {
                 all: 128,
@@ -676,17 +659,33 @@ mod tests {
             "selected badge should be right-aligned with right padding: {row:?}"
         );
 
+        let badge_left = buffer
+            .cell((29, selected_center))
+            .expect("selected badge left edge should exist");
         let badge_text = buffer
             .cell((30, selected_center))
             .expect("selected badge text should exist");
-        assert_eq!(badge_text.style().fg, Some(ratatui::style::Color::White));
-        assert!(
-            badge_text.style().add_modifier.contains(Modifier::REVERSED),
-            "selected badge should be reversed"
-        );
+        let badge_right = buffer
+            .cell((33, selected_center))
+            .expect("selected badge right edge should exist");
+
+        assert_eq!(badge_left.style().fg, Some(theme::WARNING));
+        assert_eq!(badge_text.style().fg, Some(theme::BG));
+        assert_eq!(badge_text.style().bg, Some(theme::WARNING));
+        assert_eq!(badge_right.style().fg, Some(theme::WARNING));
+        for (x, cell) in [(29, badge_left), (30, badge_text), (33, badge_right)] {
+            assert!(
+                !cell.style().add_modifier.contains(Modifier::REVERSED),
+                "selected badge cell {} should keep normal badge styling",
+                x
+            );
+        }
 
         for y in selected_top..=selected_bottom {
             for x in 0..36 {
+                if y == selected_center && (29..=33).contains(&x) {
+                    continue;
+                }
                 let cell = buffer
                     .cell((x, y))
                     .unwrap_or_else(|| panic!("cell ({}, {}) missing", x, y));
