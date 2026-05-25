@@ -49,7 +49,7 @@ pub fn calculate_layout(area: Rect, terminal_width: u16) -> MainLayoutAreas {
         .width
         .saturating_sub(sw)
         .saturating_sub(separator_width);
-    let list_width = (content_width as u32 * 30 / 100) as u16;
+    let list_width = (content_width as u32 * 40 / 100) as u16;
     let detail_width = content_width.saturating_sub(list_width);
 
     let sidebar = Rect::new(area.x, area.y, sw, main_height);
