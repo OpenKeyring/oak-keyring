@@ -523,6 +523,9 @@ pub struct MainScreenState {
     /// longer appears in the reloaded list (e.g. filtered view), detail is
     /// cleared instead.
     pub pending_detail_refresh: Option<Uuid>,
+    /// Last known terminal area, updated during view(). Used by handle_mouse
+    /// for hit-testing without calling crossterm::terminal::size() at event time.
+    pub terminal_area: Rect,
 }
 
 impl Default for MainScreenState {
@@ -543,6 +546,7 @@ impl Default for MainScreenState {
             pending_animation: None,
             list_auto_select: false,
             pending_detail_refresh: None,
+            terminal_area: Rect::new(0, 0, 100, 24),
         }
     }
 }
@@ -640,7 +644,11 @@ impl Screen for MainScreenState {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key),
-            Message::MouseEvent(event) => self.handle_mouse(event),
+            Message::MouseEvent(event) => self.handle_mouse(event, self.terminal_area),
+            Message::Resize { width, height } => {
+                self.terminal_area = Rect::new(0, 0, width, height);
+                ScreenResult::Continue
+            }
             Message::HealthCheckProgress { current, total } => {
                 self.status_bar.health_check_progress = Some((current, total));
                 ScreenResult::Continue
@@ -1546,16 +1554,15 @@ impl MainScreenState {
         }
     }
 
-    fn handle_mouse(&mut self, event: MouseEvent) -> ScreenResult {
+    fn handle_mouse(&mut self, event: MouseEvent, terminal_area: Rect) -> ScreenResult {
         let is_hover = matches!(event.kind, MouseEventKind::Moved);
         let is_click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
         if !is_hover && !is_click {
             return ScreenResult::Continue;
         }
 
-        let (width, height) = crossterm::terminal::size().unwrap_or((100, 24));
-        let area = Rect::new(0, 0, width, height);
-        let layout = crate::tui::screens::main::layout::calculate_layout(area, width);
+        let layout =
+            crate::tui::screens::main::layout::calculate_layout(terminal_area, terminal_area.width);
         let list_rect = top_padded_rect(layout.list, 2);
         let detail_rect = top_padded_rect(layout.detail, 2);
 

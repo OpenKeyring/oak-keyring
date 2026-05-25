@@ -909,7 +909,10 @@ fn mouse_click_list_sort_bar_changes_sort() {
     let original = state.current_sort.field;
     let mut ctx = make_ctx();
 
-    let result = state.update(Message::MouseEvent(mouse_click(33, 2)), &mut ctx);
+    // Default terminal_area is Rect(0,0,100,24). With sidebar_width=40,
+    // list_rect = top_padded(Rect(42,0,17,22), 2) = Rect(42,2,17,20).
+    // Click (45,2): row_in_list=0 (sort bar), col_in_list=3 < 8 → cycle_sort_field.
+    let result = state.update(Message::MouseEvent(mouse_click(45, 2)), &mut ctx);
 
     assert!(matches!(result, ScreenResult::Command(_)));
     assert_ne!(state.current_sort.field, original);
