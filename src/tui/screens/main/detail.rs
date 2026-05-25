@@ -48,9 +48,7 @@ impl DetailPanel {
 
     fn render_empty(&self, frame: &mut Frame, area: Rect, unicode: bool) {
         let icon = if unicode { "\u{1F510}" } else { "[?]" };
-        let lines = vec![
-            Line::from(""),
-            Line::from(""),
+        let content_lines = vec![
             Line::from(Span::styled(
                 format!("  {}", icon),
                 Style::default().fg(theme::TEXT_MUTED),
@@ -65,6 +63,10 @@ impl DetailPanel {
                 Style::default().fg(theme::TEXT_MUTED),
             )),
         ];
+        let content_height = content_lines.len() as u16;
+        let top_pad = area.height.saturating_sub(content_height) / 2;
+        let mut lines: Vec<Line> = (0..top_pad).map(|_| Line::from("")).collect();
+        lines.extend(content_lines);
         let para = Paragraph::new(lines).alignment(Alignment::Center);
         frame.render_widget(para, area);
     }
