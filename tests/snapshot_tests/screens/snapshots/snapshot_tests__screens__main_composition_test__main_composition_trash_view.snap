@@ -11,11 +11,11 @@ expression: backend
 "                                        │  Expired API Key      │                                   "
 "                                        │  Deleted 20 days ago  │                                   "
 "                                        │───────────────────────│                                   "
+"                                        │                       │                                   "
 "                                        │                       │                 🔐                " Hidden by multi-width symbols: [(83, " ")]
 "                                        │                       │                                   "
 "                                        │                       │  Select a password to view details"
 "                                        │                       │     Press Enter to view details   "
-"                                        │                       │                                   "
 "                                        │                       │                                   "
 "                                        │                       │                                   "
 "                                        │                       │                                   "

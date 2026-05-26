@@ -401,9 +401,7 @@ impl GeneratorState {
     /// First focusable element in the options section.
     fn first_option_focus(&self) -> GeneratorFocus {
         match self.style {
-            GenerationStyle::Random | GenerationStyle::Memorable => {
-                GeneratorFocus::Toggle(0)
-            }
+            GenerationStyle::Random | GenerationStyle::Memorable => GeneratorFocus::Toggle(0),
             GenerationStyle::Pin => GeneratorFocus::RegenerateButton,
         }
     }

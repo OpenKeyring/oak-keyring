@@ -92,18 +92,8 @@ pub fn render_generator_panel(
         }
     });
     let border_style = Style::default().fg(theme::BORDER);
-    let top_border = format!(
-        "{}{}{}",
-        BOX_TL,
-        BOX_H.repeat(inner_width),
-        BOX_TR
-    );
-    let bottom_border = format!(
-        "{}{}{}",
-        BOX_BL,
-        BOX_H.repeat(inner_width),
-        BOX_BR
-    );
+    let top_border = format!("{}{}{}", BOX_TL, BOX_H.repeat(inner_width), BOX_TR);
+    let bottom_border = format!("{}{}{}", BOX_BL, BOX_H.repeat(inner_width), BOX_BR);
     lines.push(Line::from(Span::styled(
         format!("  {}", top_border),
         border_style,
@@ -111,13 +101,7 @@ pub fn render_generator_panel(
     lines.push(Line::from(vec![
         Span::styled(format!("  {} ", BOX_V), border_style),
         Span::styled(password_text, Style::default().fg(theme::TEXT)),
-        Span::styled(
-            format!(
-                " {}",
-                BOX_V
-            ),
-            border_style,
-        ),
+        Span::styled(format!(" {}", BOX_V), border_style),
     ]));
     lines.push(Line::from(Span::styled(
         format!("  {}", bottom_border),

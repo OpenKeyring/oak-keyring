@@ -14,6 +14,7 @@ pub mod db;
 pub mod errors;
 pub mod executor;
 pub mod instance_lock;
+pub mod logging;
 pub mod paths;
 pub mod security;
 pub mod services;

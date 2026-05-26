@@ -11,11 +11,11 @@ expression: backend
 "                                        │                       │                                   "
 "                                        │                       │                                   "
 "                                        │                       │                                   "
-"                                        │                       │                 🔐                " Hidden by multi-width symbols: [(83, " ")]
-"                                        │         🔍            │                                   " Hidden by multi-width symbols: [(51, " ")]
-"                                        │                       │  Select a password to view details"
-"                                        │   No results found    │     Press Enter to view details   "
 "                                        │                       │                                   "
+"                                        │         🔍            │                 🔐                " Hidden by multi-width symbols: [(51, " "), (83, " ")]
+"                                        │                       │                                   "
+"                                        │   No results found    │  Select a password to view details"
+"                                        │                       │     Press Enter to view details   "
 "                                        │    No matches for     │                                   "
 "                                        │       'missing'       │                                   "
 "                                        │                       │                                   "
