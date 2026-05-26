@@ -11,6 +11,14 @@ use crate::tui::components::strength_bar;
 use crate::tui::state::generator_state::{GenerationStyle, GeneratorFocus, GeneratorState};
 use crate::tui::theme;
 
+/// Characters for the password input box border.
+const BOX_TL: &str = "\u{250c}"; // ┌
+const BOX_TR: &str = "\u{2510}"; // ┐
+const BOX_BL: &str = "\u{2514}"; // └
+const BOX_BR: &str = "\u{2518}"; // ┘
+const BOX_H: &str = "\u{2500}"; // ─
+const BOX_V: &str = "\u{2502}"; // │
+
 /// Render the generator panel content (used by both standalone and embedded).
 /// Returns a vector of Lines to be composed into a Paragraph.
 pub fn render_generator_panel(
@@ -72,40 +80,51 @@ pub fn render_generator_panel(
         }
     }
 
-    lines.push(Line::raw(""));
     lines.push(separator_line(width));
+
+    // Preview — wrapped in a bordered input box
+    let inner_width = width.saturating_sub(6) as usize; // 2 padding + 2 borders + margins
+    let password_text: String = state.preview_expose(|s: &str| {
+        if s.len() > inner_width {
+            format!("{}...", &s[..inner_width.saturating_sub(3)])
+        } else {
+            s.to_owned()
+        }
+    });
+    let border_style = Style::default().fg(theme::BORDER);
+    let top_border = format!("{}{}{}", BOX_TL, BOX_H.repeat(inner_width), BOX_TR);
+    let bottom_border = format!("{}{}{}", BOX_BL, BOX_H.repeat(inner_width), BOX_BR);
+    lines.push(Line::from(Span::styled(
+        format!("  {}", top_border),
+        border_style,
+    )));
+    lines.push(Line::from(vec![
+        Span::styled(format!("  {} ", BOX_V), border_style),
+        Span::styled(password_text, Style::default().fg(theme::TEXT)),
+        Span::styled(format!(" {}", BOX_V), border_style),
+    ]));
+    lines.push(Line::from(Span::styled(
+        format!("  {}", bottom_border),
+        border_style,
+    )));
+
+    // Padding between password box and strength bar (issue 3)
     lines.push(Line::raw(""));
 
-    // Preview
-    lines.push(Line::from(vec![
-        Span::styled("  ", Style::default()),
-        Span::styled(
-            state.preview_expose(|s| s.to_owned()),
-            Style::default().fg(theme::TEXT),
-        ),
-    ]));
-
-    // Strength bar
     if let Some(ref strength) = state.strength {
         lines.push(strength_bar::render_strength_bar(strength, unicode));
     } else {
         lines.push(strength_bar::render_empty_strength_bar());
     }
 
-    lines.push(Line::raw(""));
     lines.push(separator_line(width));
     lines.push(Line::raw(""));
 
-    // Buttons
+    // Buttons with shortcut hints
     let regen_style = if state.focus == GeneratorFocus::RegenerateButton {
         Style::default().add_modifier(Modifier::REVERSED)
     } else {
         Style::default().fg(theme::TEXT_SECONDARY)
-    };
-    let action_label = if is_embedded {
-        t!("tui.generator.use_password").to_string()
-    } else {
-        t!("tui.notification.copied_to_clipboard").to_string()
     };
     let action_style = if state.focus == GeneratorFocus::ActionButton {
         Style::default()
@@ -114,15 +133,18 @@ pub fn render_generator_panel(
     } else {
         Style::default().fg(theme::PRIMARY)
     };
+    let regen_text = format!(" {}(r) ", t!("tui.generator.regenerate"));
+    let action_text = if is_embedded {
+        format!(" {}(y) ", t!("tui.generator.use_password"))
+    } else {
+        format!(" {}(c) ", t!("tui.generator.copy"))
+    };
 
     lines.push(Line::from(vec![
-        Span::raw("     "),
-        Span::styled(
-            format!(" [ {} ] ", t!("tui.generator.regenerate")),
-            regen_style,
-        ),
+        Span::raw("  "),
+        Span::styled(format!("[{}]", regen_text), regen_style),
         Span::raw("        "),
-        Span::styled(format!(" [ {} ] ", action_label), action_style),
+        Span::styled(format!("[{}]", action_text), action_style),
     ]));
 
     lines
@@ -145,6 +167,8 @@ fn render_style_selector(state: &GeneratorState) -> Line<'static> {
         ),
     ];
 
+    let row_focused = state.focus == GeneratorFocus::StyleSelector;
+
     let mut spans = vec![Span::styled(
         format!("  {} ", t!("tui.generator.style_label")),
         Style::default().fg(theme::TEXT_SECONDARY),
@@ -154,13 +178,18 @@ fn render_style_selector(state: &GeneratorState) -> Line<'static> {
             spans.push(Span::raw("  "));
         }
         let is_selected = state.style == *style_type;
-        let is_focused = state.focus == GeneratorFocus::StyleSelector && is_selected;
-        let s = if is_selected {
+        let s = if is_selected && row_focused {
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+        } else if is_selected {
             Style::default()
                 .fg(theme::PRIMARY)
                 .add_modifier(Modifier::BOLD)
-        } else if is_focused {
-            Style::default().add_modifier(Modifier::REVERSED)
+        } else if row_focused {
+            Style::default()
+                .fg(theme::TEXT_SECONDARY)
+                .add_modifier(Modifier::REVERSED)
         } else {
             Style::default().fg(theme::TEXT_SECONDARY)
         };
@@ -178,7 +207,7 @@ fn render_random_toggles(state: &GeneratorState) -> Vec<Line<'static>> {
 
     let toggles = [
         (0, uppercase.as_str(), state.random_config.uppercase, true),
-        (1, lowercase.as_str(), true, false),
+        (1, lowercase.as_str(), state.random_config.lowercase, true),
         (2, digits.as_str(), state.random_config.digits, true),
         (3, symbols.as_str(), state.random_config.symbols, true),
     ];

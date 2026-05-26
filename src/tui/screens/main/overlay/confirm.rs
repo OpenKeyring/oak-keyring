@@ -133,6 +133,7 @@ fn confirm_label_for(variant: &ConfirmVariant) -> String {
         }
         ConfirmVariant::TagDelete { .. } => t!("tui.tag.confirm_delete_tag").to_string(),
         ConfirmVariant::Restore { .. } => t!("tui.trash.restore_button").to_string(),
+        ConfirmVariant::QuitApp => t!("tui.overlay.quit_button").to_string(),
     }
 }
 
@@ -310,6 +311,18 @@ fn build_dialog_parts(
             ))];
             (
                 format!(" {} ", t!("tui.trash.restore_title")),
+                lines,
+                confirm_label_for(variant),
+            )
+        }
+
+        ConfirmVariant::QuitApp => {
+            let lines = vec![Line::from(Span::styled(
+                t!("tui.overlay.quit_body").to_string(),
+                Style::default().fg(theme::TEXT),
+            ))];
+            (
+                format!(" {} ", t!("tui.overlay.quit_title")),
                 lines,
                 confirm_label_for(variant),
             )

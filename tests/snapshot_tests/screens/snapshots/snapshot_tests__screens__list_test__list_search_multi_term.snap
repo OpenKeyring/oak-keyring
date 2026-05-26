@@ -3,13 +3,13 @@ source: tests/snapshot_tests/screens/list_test.rs
 expression: terminal.backend()
 ---
 "  🔍 Search: git api_                                       " Hidden by multi-width symbols: [(3, " ")]
-"  GitHub API                                    2024-06-15 ◀"
+"                                                            "
+"  GitHub API                               2024-06-15◀      "
 "  api.github.com                                            "
-"                                                            "
-"  GitLab SSH                                      2024-06-15"
+"────────────────────────────────────────────────────────────"
+"  GitLab SSH                                    2024-06-15  "
 "  ssh.gitlab.com                                            "
-"                                                            "
-"                                                            "
+"────────────────────────────────────────────────────────────"
 "                                                            "
 "                                                            "
 "                                                            "

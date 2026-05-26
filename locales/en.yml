@@ -308,6 +308,8 @@ tui:
     section_credential: "Credential"
     username_label: "Username"
     password_label: "Password"
+    url_label: "URL"
+    notes_label: "Notes"
     copy_button: "Copy"
     show_button: "Show"
     hide_button: "Hide"
@@ -353,6 +355,9 @@ tui:
     weak_password_body: "This password is weak. Save anyway?"
     save_anyway: "Save Anyway"
     warning_title: "Warning"
+    quit_title: "Quit OpenKeyring?"
+    quit_body: "Are you sure you want to quit?"
+    quit_button: "Quit"
 
   # ---- U6: Password Generator ----
   generator:
@@ -369,7 +374,7 @@ tui:
     strength_weak: "Weak"
     strength_fair: "Fair"
     strength_strong: "Strong"
-    strength_very_strong: "Very Strong"
+    strength_very_strong: "Excellent"
     style_label: "Style"
     style_random: "Random"
     style_memorable: "Memorable"
@@ -407,6 +412,7 @@ tui:
     custom_date_placeholder: "YYYY-MM-DD"
     tags_label: "Tags"
     tag_add_placeholder: "Add tag..."
+    tag_input_hint: "Enter Add  ←/→ Select  Del Delete"
     notes_label: "Notes"
     required_marker: "Required"
     optional_marker: "Optional"
@@ -427,12 +433,19 @@ tui:
     # Additional form strings
     save_hint: "Ctrl+S Save"
     cancel_hint: "Esc Cancel"
+    shortcut_generate: "Generate"
+    shortcut_toggle_visibility: "Show/Hide"
+    shortcut_copy: "Copy"
+    shortcut_save: "Save"
+    shortcut_cancel: "Cancel"
     weak_password_hint: "Current password strength is \"Weak\" and vulnerable to brute force attacks."
     weak_password_suggestion: "Consider using the generator to create a stronger password."
     go_back: "Go Back"
     save_anyway: "Save Anyway"
     continue_editing: "Continue Editing"
     discard_changes: "Discard"
+    unsaved_cancel_shortcut: "Cancel and stay"
+    unsaved_discard_shortcut: "Discard and exit"
 
   # ---- U8: Config Screen ----
   config:
@@ -965,8 +978,8 @@ tui:
     sync_offline: "Offline"
     sync_not_configured: "Not configured"
     # ---- Status bar shortcut strings ----
-    shortcuts_sidebar_list: "⌘K Search  N New  E Edit  D Delete  F1 Help"
-    shortcuts_sidebar_list_ascii: "Ctrl+K Search  N New  E Edit  D Delete  F1 Help"
+    shortcuts_sidebar_list: "Ctrl+K Search  Ctrl+G Gen  Ctrl+P Cfg  Q Quit"
+    shortcuts_sidebar_list_ascii: "Ctrl+K Search  Ctrl+G Gen  Ctrl+P Cfg  Q Quit"
     shortcuts_detail: "c CopyPwd  u CopyUser  p Show/Hide  e Edit  d Delete  F1 Help"
     shortcuts_detail_ascii: "C CopyPwd  U CopyUser  P Show/Hide  E Edit  D Delete  F1 Help"
     shortcuts_trash_list: "r Restore  D PermDelete  A EmptyTrash  F1 Help"
@@ -1046,6 +1059,7 @@ tui:
   # ---- Generator Overlay ----
   generator_overlay:
     title: "  Password Generator"
+    close_hint: "Esc Close"
 
   # ---- Sync Conflict ----
   sync:

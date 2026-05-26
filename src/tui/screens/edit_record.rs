@@ -1,13 +1,13 @@
 //! Edit record screen (U7).
 
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use uuid::Uuid;
 
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
 use crate::tui::screens::form::validation;
-use crate::tui::state::form_state::{ExpiryOption, FormState};
-use crate::tui::state::generator_state::EmbeddedGeneratorState;
+use crate::tui::state::form_state::{ExpiryOption, FormFooterButton, FormState};
+use crate::tui::state::generator_state::{EmbeddedGeneratorState, GenerationStyle, GeneratorFocus};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::credential::CredentialType;
 use crate::types::sensitive::SensitiveInput;
@@ -82,6 +82,12 @@ impl EditRecordScreen {
                 ScreenResult::Continue
             }
             KeyCode::Right => {
+                if self.is_tags_focused() && self.form.fields.focus_next_tag() {
+                    return ScreenResult::Continue;
+                }
+                if self.open_focused_dropdown() {
+                    return ScreenResult::Continue;
+                }
                 if self.form.sub_focus_next() {
                     ScreenResult::Continue
                 } else {
@@ -90,6 +96,9 @@ impl EditRecordScreen {
                 }
             }
             KeyCode::Left => {
+                if self.is_tags_focused() && self.form.fields.focus_prev_tag() {
+                    return ScreenResult::Continue;
+                }
                 if self.form.sub_focus_prev() {
                     ScreenResult::Continue
                 } else {
@@ -97,22 +106,21 @@ impl EditRecordScreen {
                     ScreenResult::Continue
                 }
             }
-            KeyCode::Esc => {
-                if self.form.has_changes {
-                    self.form.show_unsaved_dialog = true;
-                    ScreenResult::Continue
-                } else {
-                    ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
-                }
+            KeyCode::Esc => self.cancel_form(),
+            KeyCode::Char('g') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.activate_generate_shortcut()
             }
-            KeyCode::Char('s')
-                if key_event
-                    .modifiers
-                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-            {
+            KeyCode::Char('v') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.activate_visibility_shortcut()
+            }
+            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.activate_copy_shortcut()
+            }
+            KeyCode::Char('s') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.attempt_save()
             }
             KeyCode::Enter => self.handle_enter(),
+            KeyCode::Char(' ') if self.form.footer_focus.is_some() => self.handle_enter(),
             KeyCode::Char(c) => {
                 if self.is_custom_date_focused() {
                     self.handle_date_char(c)
@@ -127,12 +135,17 @@ impl EditRecordScreen {
                     self.handle_backspace()
                 }
             }
+            KeyCode::Delete => self.handle_delete(),
             _ => ScreenResult::Continue,
         }
     }
 
     fn handle_enter(&mut self) -> ScreenResult {
         let ct = self.form.credential_type;
+
+        if let Some(button) = self.form.footer_focus {
+            return self.activate_footer_button(button);
+        }
 
         // Check inline button actions first
         match self.form.password_sub_focus {
@@ -179,9 +192,7 @@ impl EditRecordScreen {
             CredentialType::Ssh => 7,
         };
         if self.form.focused_field == tags_idx && !self.form.fields.tag_input.is_empty() {
-            let tag = std::mem::take(&mut self.form.fields.tag_input);
-            if !self.form.fields.tags.contains(&tag) {
-                self.form.fields.tags.push(tag);
+            if self.form.fields.commit_tag_input() {
                 self.form.has_changes = true;
             }
             return ScreenResult::Continue;
@@ -191,6 +202,10 @@ impl EditRecordScreen {
     }
 
     fn handle_char_input(&mut self, c: char) -> ScreenResult {
+        if self.form.footer_focus.is_some() {
+            return ScreenResult::Continue;
+        }
+
         // If sub-focus is on a button, don't accept text input
         if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
         {
@@ -281,8 +296,15 @@ impl EditRecordScreen {
                     CredentialType::Ssh => 8,
                 };
                 if focused == tags_idx {
-                    self.form.fields.tag_input.push(c);
-                    self.form.has_changes = true;
+                    if matches!(c, ',' | '，') {
+                        if self.form.fields.commit_tag_input() {
+                            self.form.has_changes = true;
+                        }
+                    } else {
+                        self.form.fields.tag_focus = None;
+                        self.form.fields.tag_input.push(c);
+                        self.form.has_changes = true;
+                    }
                 } else if focused == notes_idx {
                     self.form.fields.notes.push(c);
                     self.form.has_changes = true;
@@ -293,6 +315,10 @@ impl EditRecordScreen {
     }
 
     fn handle_backspace(&mut self) -> ScreenResult {
+        if self.form.footer_focus.is_some() {
+            return ScreenResult::Continue;
+        }
+
         // If sub-focus is on a button, don't delete text
         if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
         {
@@ -349,11 +375,25 @@ impl EditRecordScreen {
                     CredentialType::Ssh => 7,
                 };
                 if focused == tags_idx {
-                    self.form.fields.tag_input.pop();
+                    if self.form.fields.tag_input.is_empty() {
+                        if self.form.fields.remove_focused_tag() {
+                            self.form.has_changes = true;
+                            return ScreenResult::Continue;
+                        }
+                    } else {
+                        self.form.fields.tag_input.pop();
+                    }
                 }
             }
         }
         self.form.has_changes = true;
+        ScreenResult::Continue
+    }
+
+    fn handle_delete(&mut self) -> ScreenResult {
+        if self.is_tags_focused() && self.form.fields.remove_focused_tag() {
+            self.form.has_changes = true;
+        }
         ScreenResult::Continue
     }
 
@@ -364,6 +404,29 @@ impl EditRecordScreen {
             CredentialType::Ssh => 6,
         };
         self.form.focused_field == expiry_idx && self.form.fields.expires_at == ExpiryOption::Custom
+    }
+
+    fn open_focused_dropdown(&mut self) -> bool {
+        if self.form.footer_focus.is_some() {
+            return false;
+        }
+        let expiry_idx = match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api => 5,
+            CredentialType::Ssh => 6,
+        };
+        if self.form.focused_field == expiry_idx {
+            self.form.expiry_dropdown.expanded = true;
+            return true;
+        }
+        false
+    }
+
+    fn is_tags_focused(&self) -> bool {
+        let tags_idx = match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api => 6,
+            CredentialType::Ssh => 7,
+        };
+        self.form.footer_focus.is_none() && self.form.focused_field == tags_idx
     }
 
     /// Handle smart cursor backspace for YYYY-MM-DD date input.
@@ -420,6 +483,53 @@ impl EditRecordScreen {
         self.update_record_command()
     }
 
+    fn cancel_form(&mut self) -> ScreenResult {
+        if self.form.has_changes {
+            self.form.show_unsaved_dialog = true;
+            self.form.unsaved_dialog_focus = 0;
+            ScreenResult::Continue
+        } else {
+            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+        }
+    }
+
+    fn activate_footer_button(&mut self, button: FormFooterButton) -> ScreenResult {
+        match button {
+            FormFooterButton::Save => self.attempt_save(),
+            FormFooterButton::Cancel => self.cancel_form(),
+        }
+    }
+
+    fn activate_generate_shortcut(&mut self) -> ScreenResult {
+        if self.form.credential_type == CredentialType::Login {
+            self.form.focus_field(4);
+            self.generator.expand();
+        }
+        ScreenResult::Continue
+    }
+
+    fn activate_visibility_shortcut(&mut self) -> ScreenResult {
+        self.form.focus_field(self.shortcut_secret_field_index());
+        self.form.toggle_current_visibility();
+        ScreenResult::Continue
+    }
+
+    fn activate_copy_shortcut(&mut self) -> ScreenResult {
+        self.form.focus_field(self.shortcut_secret_field_index());
+        if let Some(value) = self.form.current_secret_value() {
+            if !value.expose().is_empty() {
+                return ScreenResult::Command(Box::new(Command::CopyRawToClipboard { value }));
+            }
+        }
+        ScreenResult::Continue
+    }
+
+    fn shortcut_secret_field_index(&self) -> usize {
+        match self.form.credential_type {
+            CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
+        }
+    }
+
     fn update_record_command(&mut self) -> ScreenResult {
         ScreenResult::Command(Box::new(Command::UpdateRecord {
             id: self.record_id.unwrap_or_else(Uuid::nil),
@@ -466,9 +576,23 @@ impl EditRecordScreen {
         match key {
             KeyCode::Esc | KeyCode::Char('n') => {
                 self.form.show_unsaved_dialog = false;
+                self.form.unsaved_dialog_focus = 0;
                 ScreenResult::Continue
             }
-            KeyCode::Enter | KeyCode::Char('y') => {
+            KeyCode::Tab | KeyCode::Right | KeyCode::Left => {
+                self.form.unsaved_dialog_focus = 1 - self.form.unsaved_dialog_focus;
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => {
+                if self.form.unsaved_dialog_focus == 0 {
+                    self.form.show_unsaved_dialog = false;
+                    ScreenResult::Continue
+                } else {
+                    ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+                }
+            }
+            KeyCode::Char('y') => {
+                self.form.unsaved_dialog_focus = 1;
                 ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
             }
             _ => ScreenResult::Continue,
@@ -481,20 +605,184 @@ impl EditRecordScreen {
                 self.generator.collapse();
                 ScreenResult::Continue
             }
-            KeyCode::Enter => {
-                if self.generator.generator.focus
-                    == crate::tui::state::generator_state::GeneratorFocus::ActionButton
-                {
+            KeyCode::Down => {
+                self.generator.generator.focus_section_down();
+                ScreenResult::Continue
+            }
+            KeyCode::Up => {
+                self.generator.generator.focus_section_up();
+                ScreenResult::Continue
+            }
+            KeyCode::Tab => {
+                self.generator_focus_next();
+                ScreenResult::Continue
+            }
+            KeyCode::BackTab => {
+                self.generator_focus_prev();
+                ScreenResult::Continue
+            }
+            KeyCode::Char('r') => {
+                self.generator.generator.regenerate();
+                ScreenResult::Continue
+            }
+            KeyCode::Char('y') => {
+                if self.generator.generator.focus == GeneratorFocus::SeparatorInput {
+                    self.generator.generator.memorable_config.separator = "y".to_string();
+                    self.generator.generator.regenerate();
+                } else {
                     let pw = self.generator.use_password();
                     self.form.fields.password = Some(SensitiveInput::from(pw));
                     self.form.fields.update_strength();
                     self.form.has_changes = true;
-                    return ScreenResult::Continue;
                 }
+                ScreenResult::Continue
+            }
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                if self.generator.generator.focus == GeneratorFocus::SeparatorInput {
+                    self.generator.generator.memorable_config.separator = "+".to_string();
+                    self.generator.generator.regenerate();
+                } else {
+                    self.generator.generator.increment_length();
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Char('-') => {
+                if self.generator.generator.focus == GeneratorFocus::SeparatorInput {
+                    self.generator.generator.memorable_config.separator = "-".to_string();
+                    self.generator.generator.regenerate();
+                } else {
+                    self.generator.generator.decrement_length();
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => self.activate_generator_focus(),
+            _ => self.handle_generator_focus_key(key),
+        }
+    }
+
+    fn handle_generator_focus_key(&mut self, key: KeyCode) -> ScreenResult {
+        match self.generator.generator.focus {
+            GeneratorFocus::LengthSlider => match key {
+                KeyCode::Left => {
+                    self.generator.generator.decrement_length();
+                    ScreenResult::Continue
+                }
+                KeyCode::Right => {
+                    self.generator.generator.increment_length();
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            GeneratorFocus::Toggle(idx) => match key {
+                KeyCode::Left => {
+                    self.generator.generator.focus_prev_toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Right => {
+                    self.generator.generator.focus_next_toggle();
+                    ScreenResult::Continue
+                }
+                _ => {
+                    let _ = idx;
+                    ScreenResult::Continue
+                }
+            },
+            GeneratorFocus::SeparatorInput => match key {
+                KeyCode::Left => {
+                    self.generator.generator.focus_prev_toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Right => {
+                    self.generator.generator.focus_next_toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Char(c) => {
+                    self.generator.generator.memorable_config.separator = c.to_string();
+                    self.generator.generator.regenerate();
+                    ScreenResult::Continue
+                }
+                KeyCode::Backspace => {
+                    self.generator.generator.memorable_config.separator = "-".to_string();
+                    self.generator.generator.regenerate();
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            GeneratorFocus::RegenerateButton => match key {
+                KeyCode::Right => {
+                    self.generator.generator.focus = GeneratorFocus::ActionButton;
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            GeneratorFocus::ActionButton => match key {
+                KeyCode::Left => {
+                    self.generator.generator.focus = GeneratorFocus::RegenerateButton;
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn activate_generator_focus(&mut self) -> ScreenResult {
+        match self.generator.generator.focus {
+            GeneratorFocus::ActionButton => {
+                let pw = self.generator.use_password();
+                self.form.fields.password = Some(SensitiveInput::from(pw));
+                self.form.fields.update_strength();
+                self.form.has_changes = true;
+                ScreenResult::Continue
+            }
+            GeneratorFocus::RegenerateButton => {
                 self.generator.generator.regenerate();
                 ScreenResult::Continue
             }
+            GeneratorFocus::Toggle(idx) => {
+                self.toggle_generator_option(idx);
+                ScreenResult::Continue
+            }
             _ => ScreenResult::Continue,
+        }
+    }
+
+    fn toggle_generator_option(&mut self, idx: usize) {
+        if self.generator.generator.style == GenerationStyle::Random {
+            self.generator.generator.toggle_char_type(idx);
+        } else if self.generator.generator.style == GenerationStyle::Memorable && idx == 0 {
+            self.generator.generator.memorable_config.capitalize =
+                !self.generator.generator.memorable_config.capitalize;
+            self.generator.generator.regenerate();
+        }
+    }
+
+    fn embedded_generator_focus_order(&self) -> Vec<GeneratorFocus> {
+        self.generator
+            .generator
+            .focus_order()
+            .into_iter()
+            .filter(|focus| *focus != GeneratorFocus::StyleSelector)
+            .collect()
+    }
+
+    fn generator_focus_next(&mut self) {
+        let order = self.embedded_generator_focus_order();
+        if let Some(idx) = order
+            .iter()
+            .position(|focus| *focus == self.generator.generator.focus)
+        {
+            self.generator.generator.focus = order[(idx + 1) % order.len()];
+        }
+    }
+
+    fn generator_focus_prev(&mut self) {
+        let order = self.embedded_generator_focus_order();
+        if let Some(idx) = order
+            .iter()
+            .position(|focus| *focus == self.generator.generator.focus)
+        {
+            self.generator.generator.focus = order[(idx + order.len() - 1) % order.len()];
         }
     }
 
@@ -513,13 +801,13 @@ impl EditRecordScreen {
                 }
                 ScreenResult::Continue
             }
-            KeyCode::Enter | KeyCode::Char(' ') => {
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char(' ') => {
                 self.form.fields.expires_at = options[self.form.expiry_dropdown.selected_index].1;
                 self.form.expiry_dropdown.expanded = false;
                 self.form.has_changes = true;
                 ScreenResult::Continue
             }
-            KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Left => {
                 self.form.expiry_dropdown.expanded = false;
                 ScreenResult::Continue
             }
@@ -691,6 +979,13 @@ mod tests {
 
     fn make_screen() -> EditRecordScreen {
         EditRecordScreen::default()
+    }
+
+    fn ctrl(ch: char) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(ch),
+            crossterm::event::KeyModifiers::CONTROL,
+        )
     }
 
     struct TestEnv {
@@ -872,6 +1167,137 @@ mod tests {
         assert!(matches!(result, ScreenResult::Continue));
         assert!(!screen.form.show_weak_password_dialog);
         assert_eq!(screen.form.weak_dialog_focus, 0);
+    }
+
+    #[test]
+    fn footer_cancel_enter_navigates_to_main_without_changes() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.footer_focus = Some(FormFooterButton::Cancel);
+        screen.form.has_changes = false;
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+
+        assert!(matches!(
+            result,
+            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+        ));
+    }
+
+    #[test]
+    fn ctrl_shortcuts_work_on_edit_form() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.focus_field(1);
+        for ch in "secret".chars() {
+            screen.form.fields.password.as_mut().unwrap().push_char(ch);
+        }
+
+        let result = screen.update(Message::KeyEvent(ctrl('v')), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.form.fields.password_visible);
+        assert_eq!(screen.form.focused_field, 4);
+
+        let result = screen.update(Message::KeyEvent(ctrl('c')), &mut ctx);
+        assert!(matches!(result, ScreenResult::Command(_)));
+
+        let result = screen.update(Message::KeyEvent(ctrl('g')), &mut ctx);
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.generator.expanded);
+    }
+
+    #[test]
+    fn tag_chips_can_be_selected_and_deleted_on_edit_form() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.focus_field(6);
+        screen.form.fields.tags = vec!["work".into(), "personal".into()];
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Right,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.fields.tag_focus, Some(0));
+
+        let result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Delete,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.fields.tags, vec!["personal"]);
+        assert_eq!(screen.form.fields.tag_focus, Some(0));
+    }
+
+    #[test]
+    fn unsaved_dialog_shortcuts_match_rendered_hint_on_edit_form() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.show_unsaved_dialog = true;
+
+        let cancel_result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(cancel_result, ScreenResult::Continue));
+        assert!(!screen.form.show_unsaved_dialog);
+
+        screen.form.show_unsaved_dialog = true;
+        let default_result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(default_result, ScreenResult::Continue));
+        assert!(!screen.form.show_unsaved_dialog);
+
+        screen.form.show_unsaved_dialog = true;
+        let tab_result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Tab,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(tab_result, ScreenResult::Continue));
+        assert_eq!(screen.form.unsaved_dialog_focus, 1);
+
+        let exit_result = screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert!(matches!(
+            exit_result,
+            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+        ));
     }
 
     #[test]

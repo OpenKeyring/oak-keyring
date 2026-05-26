@@ -549,19 +549,19 @@ fn list_search_highlight_cell_styles() {
     let buf = terminal.backend().buffer();
     let warning = ratatui::style::Color::Rgb(255, 158, 100);
 
-    // y=0: search bar.  y=1: first record title line ("  GitHub...")
-    // "  " prefix occupies x=0,1.  "G" starts at x=2.
-    // Search term "git" matches "Git" case-insensitively → x=2,3,4 highlighted.
+    // y=0: search bar. y=1: padding row. y=2: first record title line ("  GitHub...")
+    // "  " prefix occupies x=0,1. "G" starts at x=2.
+    // Search term "git" matches "Git" case-insensitively -> x=2,3,4 highlighted.
 
     // Highlighted cells (G,i,t) must have WARNING fg + BOLD modifier
     for x in 2..=4 {
         let cell = buf
-            .cell((x, 1))
-            .unwrap_or_else(|| panic!("cell ({}, 1) missing", x));
+            .cell((x, 2))
+            .unwrap_or_else(|| panic!("cell ({}, 2) missing", x));
         assert_eq!(
             cell.style().fg,
             Some(warning),
-            "cell ({}, 1) should have WARNING fg for highlighted 'Git', got {:?}",
+            "cell ({}, 2) should have WARNING fg for highlighted 'Git', got {:?}",
             x,
             cell.style().fg
         );
@@ -569,7 +569,7 @@ fn list_search_highlight_cell_styles() {
             cell.style()
                 .add_modifier
                 .contains(ratatui::style::Modifier::BOLD),
-            "cell ({}, 1) should have BOLD modifier for highlighted 'Git'",
+            "cell ({}, 2) should have BOLD modifier for highlighted 'Git'",
             x
         );
     }
@@ -577,12 +577,12 @@ fn list_search_highlight_cell_styles() {
     // Non-highlighted cells (H,u,b) must NOT have WARNING fg
     for x in 5..=7 {
         let cell = buf
-            .cell((x, 1))
-            .unwrap_or_else(|| panic!("cell ({}, 1) missing", x));
+            .cell((x, 2))
+            .unwrap_or_else(|| panic!("cell ({}, 2) missing", x));
         assert_ne!(
             cell.style().fg,
             Some(warning),
-            "cell ({}, 1) should NOT have WARNING fg for non-matching 'Hub', got {:?}",
+            "cell ({}, 2) should NOT have WARNING fg for non-matching 'Hub', got {:?}",
             x,
             cell.style().fg
         );

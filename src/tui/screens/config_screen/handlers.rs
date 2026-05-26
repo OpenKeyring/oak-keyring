@@ -82,11 +82,11 @@ impl ConfigScreen {
                 if was_at_bottom {
                     // At bottom of content — move focus to footer
                     self.state.footer_focus =
-                        Some(crate::tui::state::config_state::FooterButton::ExitProgram);
+                        Some(crate::tui::state::config_state::FooterButton::Close);
                 }
                 ScreenResult::Continue
             }
-            (KeyCode::Char('q'), KeyModifiers::NONE) => ScreenResult::ExitApp,
+            (KeyCode::Char('q'), KeyModifiers::NONE) => ScreenResult::Continue,
             (KeyCode::PageUp, _) => {
                 if self.state.overlay.is_none() {
                     let visible_height = self.state.terminal_height.saturating_sub(4);
@@ -251,26 +251,14 @@ impl ConfigScreen {
         use crate::tui::state::config_state::FooterButton;
         match key.code {
             KeyCode::Tab | KeyCode::Right => {
-                self.state.footer_focus = match self.state.footer_focus {
-                    Some(FooterButton::ExitProgram) => Some(FooterButton::Close),
-                    Some(FooterButton::Close) => Some(FooterButton::ExitProgram),
-                    None => Some(FooterButton::ExitProgram),
-                };
+                self.state.footer_focus = Some(FooterButton::Close);
                 ScreenResult::Continue
             }
             KeyCode::BackTab | KeyCode::Left => {
-                self.state.footer_focus = match self.state.footer_focus {
-                    Some(FooterButton::ExitProgram) => Some(FooterButton::Close),
-                    Some(FooterButton::Close) => Some(FooterButton::ExitProgram),
-                    None => Some(FooterButton::Close),
-                };
+                self.state.footer_focus = Some(FooterButton::Close);
                 ScreenResult::Continue
             }
             KeyCode::Enter => match self.state.footer_focus {
-                Some(FooterButton::ExitProgram) => {
-                    // Graceful shutdown via the event loop
-                    ScreenResult::ExitApp
-                }
                 Some(FooterButton::Close) => {
                     if self.state.has_changes {
                         self.state.overlay = Some(ConfigOverlay::UnsavedChanges {

@@ -6,11 +6,13 @@ use super::items::{build_record_item, build_trash_item, health_badge};
 use super::*;
 use crate::commands::types::{HealthIssue, SortDirection, SortField};
 use crate::tui::components::empty_state::EmptyStateVariant;
+use crate::tui::i18n::LocaleGuard;
 use crate::tui::state::list_state::{SearchState, VisualState};
 use crate::types::credential::CredentialType;
 use crate::types::record::TuiRecord;
 use chrono::Utc;
 use ratatui::backend::TestBackend;
+use ratatui::style::Modifier;
 use ratatui::text::Span;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -166,6 +168,24 @@ fn render_snapshot(
     format!("{:?}", buf)
 }
 
+fn render_buffer(
+    state: &ListPanelState,
+    width: u16,
+    height: u16,
+    focused: bool,
+    unicode: bool,
+    filter: RecordFilter,
+) -> ratatui::buffer::Buffer {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            ListPanel::view(frame, frame.area(), state, focused, unicode, filter, 30);
+        })
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
 #[test]
 fn render_empty_state_no_passwords() {
     let state = ListPanelState::default();
@@ -269,6 +289,133 @@ fn render_ascii_mode() {
 }
 
 #[test]
+fn selected_record_is_reversed_even_when_list_is_not_focused() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, false, true, RecordFilter::All);
+
+    // Row 0 is the sort bar, row 1 is the padding row, row 2 is the title.
+    let title_cell = buffer.cell((3, 2)).expect("selected title cell exists");
+    assert!(
+        title_cell.style().add_modifier.contains(Modifier::REVERSED),
+        "selected title should be reverse highlighted even when the list panel is not focused"
+    );
+}
+
+#[test]
+fn selected_record_highlight_does_not_include_separator_line() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+
+    let separator_cell = buffer
+        .cell((0, 4))
+        .expect("selected item separator cell exists");
+    assert!(
+        !separator_cell
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED),
+        "record separator line should not be part of the reverse-highlighted item body"
+    );
+}
+
+#[test]
+fn sort_bar_has_padding_before_first_record() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+
+    let padding_row = (0..64)
+        .map(|x| buffer.cell((x, 1)).expect("padding row cell").symbol())
+        .collect::<String>();
+    assert!(
+        padding_row.trim().is_empty(),
+        "sort bar should have one blank padding row before the first record"
+    );
+}
+
+#[test]
+fn selected_record_marker_keeps_right_padding() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+
+    assert_eq!(
+        buffer.cell((57, 2)).expect("marker cell").symbol(),
+        "\u{25C0}",
+        "selected marker should leave four columns of right padding plus right margin"
+    );
+    for x in 58..62 {
+        assert_eq!(
+            buffer.cell((x, 2)).expect("right padding cell").symbol(),
+            " "
+        );
+    }
+    for x in 62..64 {
+        assert_eq!(
+            buffer.cell((x, 2)).expect("right margin cell").symbol(),
+            " "
+        );
+    }
+}
+
+#[test]
+fn selected_record_title_and_subtitle_use_same_reverse_style() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+
+    let title_cell = buffer.cell((2, 2)).expect("selected title cell exists");
+    let subtitle_cell = buffer.cell((2, 3)).expect("selected subtitle cell exists");
+    assert!(
+        title_cell.style().add_modifier.contains(Modifier::REVERSED),
+        "selected title should be reversed"
+    );
+    assert!(
+        subtitle_cell
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED),
+        "selected subtitle should be reversed"
+    );
+    assert_eq!(
+        title_cell.style().fg,
+        subtitle_cell.style().fg,
+        "selected title and subtitle should use the same foreground so the highlight reads as one block"
+    );
+}
+
+#[test]
+fn selected_chinese_timestamp_is_not_split_by_char_width_math() {
+    let _guard = LocaleGuard::zh_cn();
+    let mut record = make_record(Uuid::new_v4(), "dd1", "ddddddd");
+    record.updated_at = Utc::now() - chrono::Duration::try_days(1).unwrap();
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 30, 8, true, true, RecordFilter::All);
+    let title_line = (0..30)
+        .map(|x| buffer.cell((x, 2)).expect("title row cell").symbol())
+        .collect::<String>();
+
+    assert!(
+        title_line.contains('昨') && title_line.contains('天'),
+        "selected item should render both Chinese relative timestamp characters: {title_line:?}"
+    );
+}
+
+#[test]
 fn render_zero_area() {
     let state = ListPanelState::default();
     // Should not panic
@@ -293,6 +440,7 @@ fn render_zero_area() {
 
 #[test]
 fn sort_field_labels() {
+    let _guard = LocaleGuard::en();
     assert_eq!(sort_field_label(&SortField::CreatedAt), "Created");
     assert_eq!(sort_field_label(&SortField::UpdatedAt), "Updated");
     assert_eq!(sort_field_label(&SortField::Name), "Name");
@@ -301,6 +449,7 @@ fn sort_field_labels() {
 
 #[test]
 fn sort_direction_labels_unicode() {
+    let _guard = LocaleGuard::en();
     let (icon, label) = sort_direction_label(&SortDirection::Desc, true);
     assert_eq!(icon, "\u{2193}"); // ↓
     assert_eq!(label, "Descending");
@@ -312,6 +461,7 @@ fn sort_direction_labels_unicode() {
 
 #[test]
 fn sort_direction_labels_ascii() {
+    let _guard = LocaleGuard::en();
     let (icon, label) = sort_direction_label(&SortDirection::Desc, false);
     assert_eq!(icon, "v");
     assert_eq!(label, "Descending");

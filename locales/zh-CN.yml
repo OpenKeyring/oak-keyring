@@ -307,6 +307,8 @@ tui:
     section_credential: "身份"
     username_label: "用户名"
     password_label: "密码"
+    url_label: "网址"
+    notes_label: "备注"
     copy_button: "复制"
     show_button: "显示"
     hide_button: "隐藏"
@@ -351,6 +353,9 @@ tui:
     weak_password_body: "此密码强度较弱，是否仍要保存？"
     save_anyway: "仍然保存"
     warning_title: "警告"
+    quit_title: "退出 OpenKeyring？"
+    quit_body: "确定要退出吗？"
+    quit_button: "退出"
 
   # ---- U6: Password Generator ----
   generator:
@@ -366,7 +371,7 @@ tui:
     strength_weak: "弱"
     strength_fair: "中等"
     strength_strong: "强"
-    strength_very_strong: "极强"
+    strength_very_strong: "Excellent"
     style_label: "风格"
     style_random: "Random"
     style_memorable: "Memorable"
@@ -406,6 +411,7 @@ tui:
     custom_date_placeholder: "YYYY-MM-DD"
     tags_label: "标签"
     tag_add_placeholder: "添加标签..."
+    tag_input_hint: "Enter 添加  ←/→ 选择  Del 删除"
     notes_label: "备注"
     required_marker: "必填"
     optional_marker: "选填"
@@ -426,12 +432,19 @@ tui:
     # Additional form strings
     save_hint: "Ctrl+S 保存"
     cancel_hint: "Esc 取消"
+    shortcut_generate: "生成"
+    shortcut_toggle_visibility: "显示/隐藏"
+    shortcut_copy: "复制"
+    shortcut_save: "保存"
+    shortcut_cancel: "取消"
     weak_password_hint: "当前密码强度为\"弱\"，容易受到暴力破解攻击。"
     weak_password_suggestion: "建议使用生成器创建更强的密码。"
     go_back: "返回修改"
     save_anyway: "直接保存"
     continue_editing: "继续编辑"
     discard_changes: "丢弃"
+    unsaved_cancel_shortcut: "取消并继续编辑"
+    unsaved_discard_shortcut: "放弃并退出"
 
   # ---- U8: Config Screen ----
   config:
@@ -962,8 +975,8 @@ tui:
     sync_failed: "同步失败"
     sync_offline: "离线"
     sync_not_configured: "未配置"
-    shortcuts_sidebar_list: "⌘K搜索  n新建  e编辑  d删除  F1帮助"
-    shortcuts_sidebar_list_ascii: "Ctrl+K 搜索  N 新建  E 编辑  D 删除  F1 帮助"
+    shortcuts_sidebar_list: "Ctrl+K搜索  Ctrl+G生成  Ctrl+P配置  q退出"
+    shortcuts_sidebar_list_ascii: "Ctrl+K 搜索  Ctrl+G 生成  Ctrl+P 配置  Q 退出"
     shortcuts_detail: "c复制密码  u复制用户名  p显示/隐藏  e编辑  d删除  F1帮助"
     shortcuts_detail_ascii: "C 复制密码  U 复制用户名  P 显示/隐藏  E 编辑  D 删除  F1 帮助"
     shortcuts_trash_list: "r恢复  D永久删除  a清空回收站  F1帮助"
@@ -1043,6 +1056,7 @@ tui:
   # ---- Generator Overlay ----
   generator_overlay:
     title: "  密码生成器"
+    close_hint: "Esc 退出"
 
   # ---- Sync Conflict ----
   sync:

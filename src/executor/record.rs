@@ -2,7 +2,9 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::commands::types::{FieldSelector, RecordFilter, RecordSort};
+use crate::commands::types::{
+    FieldSelector, HealthReport, RecordCategoryCounts, RecordFilter, RecordSort,
+};
 use crate::commands::{CommandResult, InternalCommand};
 use crate::crypto::password::{
     generate_memorable_password, generate_pin, generate_random_password,
@@ -177,66 +179,122 @@ pub fn handle_load_record_list(
     filter: RecordFilter,
     sort: RecordSort,
 ) -> CommandResult {
-    match executor
-        .vault_mut()
-        .and_then(|v| v.list_records(&filter, &sort))
-    {
-        Ok(mut records) => {
-            // Spec Compliance: Populate health fields from cached health_report.
-            // When no health report exists, is_expired stays false (set by vault
-            // service) — we do NOT fall back to expires_at < now. Per spec §11.2,
-            // "已过期" depends solely on persisted health state.
-            if let Some(report) = &executor.health_report {
-                for record in &mut records {
-                    record.has_weak_password = report.weak_passwords.contains(&record.id);
-                    record.is_compromised = report.compromised.contains(&record.id);
-                    record.duplicate_group_size = report
-                        .duplicate_passwords
-                        .iter()
-                        .find(|group| group.contains(&record.id))
-                        .map(|group| group.len());
-                    record.is_expired = report.expired.contains(&record.id);
-                }
-            }
-
-            // Expired filter: use report.expired instead of expires_at < now.
-            // When no health report is available, no records appear in the
-            // expired category — per spec §11.2.
-            if matches!(filter, RecordFilter::Expired) {
-                if let Some(report) = &executor.health_report {
-                    let expired_set: std::collections::HashSet<Uuid> =
-                        report.expired.iter().copied().collect();
-                    records.retain(|r| expired_set.contains(&r.id));
-                } else {
-                    // No health report — no expired records to show.
-                    records.clear();
-                }
-            }
-
-            // HealthIssues filter: the vault service returns all active records;
-            // we filter here where the health_report is available.
-            if matches!(filter, RecordFilter::HealthIssues) {
-                if let Some(report) = &executor.health_report {
-                    records.retain(|r| {
-                        report.weak_passwords.contains(&r.id)
-                            || report
-                                .duplicate_passwords
-                                .iter()
-                                .any(|group| group.contains(&r.id))
-                            || report.compromised.contains(&r.id)
-                            || report.expired.contains(&r.id)
-                    });
-                } else {
-                    // No health report available — no health issues to show
-                    records.clear();
-                }
-            }
-
+    match load_record_list_with_counts(executor, filter, sort) {
+        Ok((records, category_counts)) => {
             let total = records.len();
-            CommandResult::RecordListLoaded { records, total }
+            CommandResult::RecordListLoaded {
+                records,
+                total,
+                category_counts,
+            }
         }
         Err(e) => vault_error(e, "Failed to load record list"),
     }
+}
+
+fn load_record_list_with_counts(
+    executor: &mut CommandExecutor,
+    filter: RecordFilter,
+    sort: RecordSort,
+) -> Result<
+    (Vec<crate::types::TuiRecord>, RecordCategoryCounts),
+    crate::errors::mapping::vault::VaultError,
+> {
+    let health_report = executor.health_report.clone();
+    let mut active_records = executor
+        .vault_mut()
+        .and_then(|v| v.list_records(&RecordFilter::All, &sort))?;
+    populate_health_fields(&mut active_records, health_report.as_ref());
+
+    let trash_records = executor
+        .vault_mut()
+        .and_then(|v| v.list_records(&RecordFilter::Trash, &sort))?;
+
+    let category_counts = RecordCategoryCounts {
+        all: active_records.len(),
+        favorites: active_records.iter().filter(|r| r.is_favorite).count(),
+        expired: if health_report.is_some() {
+            active_records.iter().filter(|r| r.is_expired).count()
+        } else {
+            0
+        },
+        health_issues: if health_report.is_some() {
+            active_records
+                .iter()
+                .filter(|r| has_record_health_issue(r))
+                .count()
+        } else {
+            0
+        },
+        trash: trash_records.len(),
+    };
+
+    let records = match filter {
+        RecordFilter::All => active_records,
+        RecordFilter::Favorites => active_records
+            .into_iter()
+            .filter(|record| record.is_favorite)
+            .collect(),
+        RecordFilter::Expired => {
+            if health_report.is_some() {
+                active_records
+                    .into_iter()
+                    .filter(|record| record.is_expired)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        }
+        RecordFilter::HealthIssues => {
+            if health_report.is_some() {
+                active_records
+                    .into_iter()
+                    .filter(has_record_health_issue)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        }
+        RecordFilter::Trash => trash_records,
+        RecordFilter::Tag(tag_name) => active_records
+            .into_iter()
+            .filter(|record| record.tags.iter().any(|tag| tag == &tag_name))
+            .collect(),
+        RecordFilter::Search(query) => {
+            let query = query.to_lowercase();
+            active_records
+                .into_iter()
+                .filter(|record| {
+                    record.name.to_lowercase().contains(&query)
+                        || record.subtitle.to_lowercase().contains(&query)
+                })
+                .collect()
+        }
+    };
+
+    Ok((records, category_counts))
+}
+
+fn populate_health_fields(records: &mut [crate::types::TuiRecord], report: Option<&HealthReport>) {
+    if let Some(report) = report {
+        for record in records {
+            record.has_weak_password = report.weak_passwords.contains(&record.id);
+            record.is_compromised = report.compromised.contains(&record.id);
+            record.duplicate_group_size = report
+                .duplicate_passwords
+                .iter()
+                .find(|group| group.contains(&record.id))
+                .map(|group| group.len());
+            record.is_expired = report.expired.contains(&record.id);
+        }
+    }
+}
+
+fn has_record_health_issue(record: &crate::types::TuiRecord) -> bool {
+    record.has_weak_password
+        || record.is_compromised
+        || record.duplicate_group_size.is_some()
+        || record.is_expired
 }
 
 #[tracing::instrument(skip_all)]

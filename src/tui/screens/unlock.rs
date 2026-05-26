@@ -8,6 +8,8 @@ use crate::commands::result::CommandResult;
 use crate::commands::types::Screen;
 use crate::commands::{Command, Message};
 use crate::t;
+use crate::tui::screens::onboarding::views_setup::{header_rows, render_header};
+use crate::tui::terminal::WidthTier;
 use crate::tui::theme::{
     self, Styles, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY, WARNING,
 };
@@ -78,14 +80,19 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
     }
 
     fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        use ratatui::layout::Position;
         use ratatui::layout::{Alignment, Constraint, Layout};
         use ratatui::text::{Line, Span};
         use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
+        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
+        let header_height = header_rows(wide);
+        let content_height = header_height + 17;
+
         // Vertical centering
         let outer = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(18),
+            Constraint::Length(content_height),
             Constraint::Fill(1),
         ])
         .split(area);
@@ -101,13 +108,6 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         .split(center_area);
 
         let content_area = h_layout[1];
-
-        // Brand title
-        let brand = Paragraph::new(Line::from(vec![Span::styled(
-            "OpenKeyring",
-            Styles::brand_text().add_modifier(ratatui::style::Modifier::BOLD),
-        )]))
-        .alignment(Alignment::Center);
 
         // Tagline
         let tagline_line = Line::from(vec![
@@ -169,6 +169,7 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         } else {
             self.masked_input()
         };
+        let input_cursor_offset = 4 + display_text.chars().count() as u16;
 
         let placeholder: String = match self.mode {
             UnlockMode::Password => t!("tui.entry.unlock_prompt").to_string(),
@@ -306,19 +307,19 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
 
         // -- Render --
         let rows = Layout::vertical([
-            Constraint::Length(1), // 0: brand
-            Constraint::Length(1), // 1: tagline
-            Constraint::Length(2), // 2: empty + divider
-            Constraint::Length(1), // 3: empty
-            Constraint::Length(5), // 4: input block
-            Constraint::Length(2), // 5: empty + hint
-            Constraint::Length(2), // 6: empty + divider
-            Constraint::Length(2), // 7: empty + status
-            Constraint::Length(2), // 8: empty + mode hint
+            Constraint::Length(header_height), // 0: logo or brand
+            Constraint::Length(1),             // 1: tagline
+            Constraint::Length(2),             // 2: empty + divider
+            Constraint::Length(1),             // 3: empty
+            Constraint::Length(5),             // 4: input block
+            Constraint::Length(2),             // 5: empty + hint
+            Constraint::Length(2),             // 6: empty + divider
+            Constraint::Length(2),             // 7: empty + status
+            Constraint::Length(2),             // 8: empty + mode hint
         ])
         .split(content_area);
 
-        frame.render_widget(brand, rows[0]);
+        render_header(frame, rows[0], wide);
         frame.render_widget(tagline, rows[1]);
 
         let divider_area1 =
@@ -338,6 +339,13 @@ impl crate::tui::traits::screen::Screen for UnlockScreen {
         let inner_content_xy = Layout::horizontal([Constraint::Length(2), Constraint::Fill(1)])
             .split(inner_content_y)[1];
         frame.render_widget(input_text, inner_content_xy);
+        if matches!(self.state, UnlockPhase::Idle | UnlockPhase::Failed)
+            && inner_content_xy.width > 0
+            && inner_content_xy.height > 0
+        {
+            let cursor_x = inner_content_xy.x + input_cursor_offset.min(inner_content_xy.width - 1);
+            frame.set_cursor_position(Position::new(cursor_x, inner_content_xy.y));
+        }
 
         let hint_area =
             Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(rows[5])[1];
@@ -510,6 +518,10 @@ impl UnlockScreen {
 mod tests {
     use super::*;
     use crate::tui::traits::screen::Screen as ScreenTrait;
+    use ratatui::backend::{Backend, TestBackend};
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Position;
+    use ratatui::Terminal;
 
     fn sensitive(s: &str) -> SensitiveInput {
         let mut input = SensitiveInput::new();
@@ -517,6 +529,46 @@ mod tests {
             input.push_char(c);
         }
         input
+    }
+
+    fn render_unlock_buffer(screen: &UnlockScreen, width: u16, height: u16) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                screen.view(frame, frame.area());
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn render_unlock_cursor_position(screen: &UnlockScreen, width: u16, height: u16) -> Position {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                screen.view(frame, frame.area());
+            })
+            .unwrap();
+        terminal.backend_mut().get_cursor_position().unwrap()
+    }
+
+    fn find_text(buffer: &Buffer, needle: &str) -> Option<Position> {
+        let area = buffer.area;
+        let needle_symbols: Vec<String> = needle.chars().map(|ch| ch.to_string()).collect();
+        for y in area.y..area.y + area.height {
+            for x in area.x..area.x + area.width {
+                let matches = needle_symbols.iter().enumerate().all(|(offset, symbol)| {
+                    let x = x + offset as u16;
+                    x < area.x + area.width
+                        && buffer.cell((x, y)).expect("cell should exist").symbol() == symbol
+                });
+                if matches {
+                    return Some(Position { x, y });
+                }
+            }
+        }
+        None
     }
 
     #[test]
@@ -563,6 +615,28 @@ mod tests {
         let masked = screen.masked_input();
         assert_eq!(masked, "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}");
         assert!(!masked.contains('h'));
+    }
+
+    #[test]
+    fn unlock_renders_ascii_logo_on_tall_terminal() {
+        let screen = UnlockScreen::default();
+
+        let rendered = format!("{:?}", render_unlock_buffer(&screen, 80, 24));
+
+        assert!(rendered.contains("░█▀█"));
+    }
+
+    #[test]
+    fn empty_password_field_sets_terminal_cursor_at_placeholder() {
+        crate::tui::i18n::init("en");
+        let screen = UnlockScreen::default();
+
+        let buffer = render_unlock_buffer(&screen, 80, 24);
+        let prompt_position =
+            find_text(&buffer, "Enter master password").expect("prompt should be rendered");
+        let cursor = render_unlock_cursor_position(&screen, 80, 24);
+
+        assert_eq!(cursor, prompt_position);
     }
 
     #[test]

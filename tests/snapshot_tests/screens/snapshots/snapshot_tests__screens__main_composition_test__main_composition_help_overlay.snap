@@ -2,12 +2,12 @@
 source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
-"All (2)               ┌──────────────────────── Help ────────────────────────┐                      "
-"☆ Favorites (1)       │ Navigation                │  Multiselect             │                      "
-"Expired               │  ↑/k       Move up        │   Space                  │                      "
-"                      │Select/Deselect                                       │                      "
-"                      │  ↓/j       Move down      │   j/k       Move up/down │───                   "
-"                      │  Tab       Switch panel   │   a         Select       │                      "
+"                      ┌──────────────────────── Help ────────────────────────┐                      "
+"  [1] All             │ Navigation                │  Multiselect             │unt                   "
+"                      │  ↑/k       Move up        │   Space                  │                      "
+"  [2] Favorites       │Select/Deselect                                       │                      "
+"  [3] Expired         │  ↓/j       Move down      │   j/k       Move up/down │                      "
+"                      │  Tab       Switch panel   │   a         Select       │──────                "
 "                      │all/Deselect                                          │                      "
 "                      │  Enter     Confirm        │   d         Batch delete │                      "
 "                      │  Esc       Back/Close     │   t         Batch tag    │                      "
@@ -17,7 +17,7 @@ expression: backend
 "                      │  Ctrl+K    Search         │  Tag Management          │                      "
 "                      │  n         New            │   m         Add tag      │                      "
 "                      │  e         Edit           │   r         Rename tag   │                      "
-"                      │  d         Delete         │   d         Delete tag   │                      "
+"                      │  d         Delete         │   d         Delete tag   │rsonal]               "
 "                      │  f         Favorite       │   s         Save         │                      "
 "                      │  s         Sort           │                          │                      "
 "                      │  v         Multiselect mode│  Sync                   │                      "
@@ -25,4 +25,4 @@ expression: backend
 "                      │  l         Audit log      │                          │                      "
 "                      │  q         Quit           │                          │                      "
 "──────────────────────│                           │                          │──────────────────────"
-"  ⌘K Search  N New  E └──────────────────────────────────────────────────────┘                      "
+"  Ctrl+K Search  Ctrl+└──────────────────────────────────────────────────────┘3 │ — Not configured  "

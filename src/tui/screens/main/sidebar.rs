@@ -22,6 +22,7 @@ const SEPARATOR_ASCII: char = '-';
 
 /// Indentation prefix for tag items.
 const TAG_INDENT: &str = "  ";
+const BADGE_RIGHT_PADDING: usize = 2;
 
 /// Panel responsible for rendering the sidebar navigation.
 pub struct SidebarPanel;
@@ -46,20 +47,54 @@ impl SidebarPanel {
             return;
         }
 
-        let items: Vec<ListItem<'_>> = state
+        let footer_start = state
             .items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::Generator))
+            .and_then(|idx| idx.checked_sub(1))
+            .unwrap_or(state.items.len());
+        let footer_height = if state.items.len() > footer_start {
+            (state.items.len() - footer_start).min(area.height as usize) as u16
+        } else {
+            0
+        };
+        let nav_area = Rect::new(
+            area.x,
+            area.y,
+            area.width,
+            area.height.saturating_sub(footer_height),
+        );
+        let footer_area = Rect::new(
+            area.x,
+            area.y + area.height.saturating_sub(footer_height),
+            area.width,
+            footer_height,
+        );
+
+        let items: Vec<ListItem<'_>> = state.items[..footer_start]
             .iter()
             .map(|item| build_list_item(item, state, unicode, area.width))
             .collect();
 
-        let highlight_style = Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD);
-
-        let list = List::new(items).highlight_style(highlight_style);
+        let list = List::new(items);
 
         let mut list_state = ListState::default();
-        list_state.select(Some(state.selected_index));
+        list_state.select((state.selected_index < footer_start).then_some(state.selected_index));
 
-        frame.render_stateful_widget(list, area, &mut list_state);
+        frame.render_stateful_widget(list, nav_area, &mut list_state);
+
+        if footer_height > 0 {
+            let footer_items: Vec<ListItem<'_>> = state.items[footer_start..]
+                .iter()
+                .map(|item| build_list_item(item, state, unicode, area.width))
+                .collect();
+            let footer_list = List::new(footer_items);
+            let mut footer_state = ListState::default();
+            footer_state.select(
+                (state.selected_index >= footer_start).then(|| state.selected_index - footer_start),
+            );
+            frame.render_stateful_widget(footer_list, footer_area, &mut footer_state);
+        }
 
         // Read the scroll offset after rendering to position inline rename correctly
         let list_offset = list_state.offset();
@@ -81,8 +116,13 @@ fn build_list_item<'a>(
     area_width: u16,
 ) -> ListItem<'a> {
     match item {
+        SidebarItem::Spacer => ListItem::new(Line::from("")),
         SidebarItem::Brand => ListItem::new(Line::from(Span::styled(
-            "OpenKeyring",
+            if unicode {
+                format!("  {} OpenKeyring", theme::ICON_LOCK)
+            } else {
+                format!("  {} OpenKeyring", theme::ascii::ICON_LOCK)
+            },
             Style::default()
                 .fg(theme::BRAND)
                 .add_modifier(Modifier::BOLD),
@@ -90,12 +130,12 @@ fn build_list_item<'a>(
         SidebarItem::Category(category) => {
             let label = category_label(category, unicode);
             let count = category_count(category, &state.category_counts);
-            let count_str = format_count(count);
 
-            ListItem::new(Line::from(vec![
-                Span::styled(label, Style::default().fg(theme::TEXT)),
-                Span::styled(count_str, Style::default().fg(theme::TEXT_SECONDARY)),
-            ]))
+            if is_selected(item, state) {
+                selected_category_item(label, count, area_width, unicode)
+            } else {
+                ListItem::new(category_line(label, count, area_width, unicode, false))
+            }
         }
         SidebarItem::Separator => {
             let sep_char = if unicode {
@@ -132,10 +172,14 @@ fn build_list_item<'a>(
                         tags_label, manage_label, sort_by_label, down_icon
                     )
                 };
-                ListItem::new(Line::from(Span::styled(
-                    header_text,
-                    Style::default().fg(theme::TEXT_SECONDARY),
-                )))
+                if is_selected(item, state) {
+                    selected_list_item(format!("  {}", header_text), area_width)
+                } else {
+                    ListItem::new(Line::from(Span::styled(
+                        format!("  {}", header_text),
+                        Style::default().fg(theme::TEXT_SECONDARY),
+                    )))
+                }
             } else {
                 let (icon, label_key) = if unicode {
                     (
@@ -161,10 +205,14 @@ fn build_list_item<'a>(
                     )
                 };
                 let label = format!("{} # {}", icon, t!(label_key));
-                ListItem::new(Line::from(Span::styled(
-                    label,
-                    Style::default().fg(theme::TEXT_SECONDARY),
-                )))
+                if is_selected(item, state) {
+                    selected_list_item(format!("  {}", label), area_width)
+                } else {
+                    ListItem::new(Line::from(Span::styled(
+                        format!("  {}", label),
+                        Style::default().fg(theme::TEXT_SECONDARY),
+                    )))
+                }
             }
         }
         SidebarItem::Tag(name, count) => {
@@ -178,71 +226,147 @@ fn build_list_item<'a>(
                     .saturating_sub(name_chars)
                     .saturating_sub(edit_icon.chars().count() + delete_icon.chars().count() + 4);
 
-                ListItem::new(Line::from(vec![
-                    Span::styled(display, Style::default().fg(theme::TEXT)),
-                    Span::styled(" ".repeat(padding_width), Style::default().fg(theme::TEXT)),
-                    Span::styled(
-                        format!(" {}", edit_icon),
-                        Style::default().fg(theme::PRIMARY),
-                    ),
-                    Span::styled(
-                        format!(" {}", delete_icon),
-                        Style::default().fg(theme::ERROR),
-                    ),
-                ]))
+                if is_selected(item, state) {
+                    selected_list_item(
+                        format!("{}{} {}", display, " ".repeat(padding_width), edit_icon),
+                        area_width,
+                    )
+                } else {
+                    ListItem::new(Line::from(vec![
+                        Span::styled(display, Style::default().fg(theme::TEXT)),
+                        Span::styled(" ".repeat(padding_width), Style::default().fg(theme::TEXT)),
+                        Span::styled(
+                            format!(" {}", edit_icon),
+                            Style::default().fg(theme::PRIMARY),
+                        ),
+                        Span::styled(
+                            format!(" {}", delete_icon),
+                            Style::default().fg(theme::ERROR),
+                        ),
+                    ]))
+                }
             } else {
-                let display = format!("{}{} ({})", TAG_INDENT, name, count);
+                let display = format!("{}{}{} ({})", TAG_INDENT, TAG_INDENT, name, count);
+                if is_selected(item, state) {
+                    selected_list_item(display, area_width)
+                } else {
+                    ListItem::new(Line::from(Span::styled(
+                        display,
+                        Style::default().fg(theme::TEXT),
+                    )))
+                }
+            }
+        }
+        SidebarItem::Generator => {
+            let label = format!("  {}", t!("tui.main.sidebar_generator"));
+            if is_selected(item, state) {
+                selected_list_item(label, area_width)
+            } else {
                 ListItem::new(Line::from(Span::styled(
-                    display,
+                    label,
                     Style::default().fg(theme::TEXT),
                 )))
             }
         }
-        SidebarItem::Generator => {
-            let label = if unicode {
-                format!("\u{2726} {}", t!("tui.main.sidebar_generator"))
-            } else {
-                format!("* {}", t!("tui.main.sidebar_generator"))
-            };
-            ListItem::new(Line::from(Span::styled(
-                label,
-                Style::default().fg(theme::TEXT_SECONDARY),
-            )))
-        }
         SidebarItem::Config => {
-            let label = if unicode {
-                format!("\u{2726} {}", t!("tui.main.sidebar_config"))
+            let label = format!("  {}", t!("tui.main.sidebar_config"));
+            if is_selected(item, state) {
+                selected_list_item(label, area_width)
             } else {
-                format!("* {}", t!("tui.main.sidebar_config"))
-            };
-            ListItem::new(Line::from(Span::styled(
-                label,
-                Style::default().fg(theme::TEXT_SECONDARY),
-            )))
+                ListItem::new(Line::from(Span::styled(
+                    label,
+                    Style::default().fg(theme::TEXT),
+                )))
+            }
         }
     }
 }
 
+fn is_selected(item: &SidebarItem, state: &SidebarState) -> bool {
+    item.is_selectable() && state.items.get(state.selected_index) == Some(item)
+}
+
+fn selected_list_item(text: String, area_width: u16) -> ListItem<'static> {
+    let text_width = display_width(&text);
+    let padding = (area_width as usize).saturating_sub(text_width);
+    let full_text = format!("{}{}", text, " ".repeat(padding));
+    let blank_text = " ".repeat(area_width as usize);
+    let style = Style::default()
+        .fg(theme::TEXT)
+        .add_modifier(Modifier::REVERSED | Modifier::BOLD);
+
+    ListItem::new(vec![
+        Line::from(Span::styled(blank_text.clone(), style)),
+        Line::from(Span::styled(full_text, style)),
+        Line::from(Span::styled(blank_text, style)),
+    ])
+    .style(style)
+}
+
+fn selected_category_item(
+    label: String,
+    count: usize,
+    area_width: u16,
+    unicode: bool,
+) -> ListItem<'static> {
+    let blank_text = " ".repeat(area_width as usize);
+    let style = Style::default()
+        .fg(theme::TEXT)
+        .add_modifier(Modifier::REVERSED | Modifier::BOLD);
+
+    ListItem::new(vec![
+        Line::from(Span::styled(blank_text.clone(), style)),
+        category_line(label, count, area_width, unicode, true),
+        Line::from(Span::styled(blank_text, style)),
+    ])
+    .style(style)
+}
+
+fn category_line(
+    label: String,
+    count: usize,
+    area_width: u16,
+    unicode: bool,
+    selected: bool,
+) -> Line<'static> {
+    let prefix = "  ";
+    let badge = format_count(count, unicode);
+    let used_width = display_width(prefix) + display_width(&label) + display_width(&badge);
+    let padding_width = (area_width as usize)
+        .saturating_sub(used_width)
+        .saturating_sub(BADGE_RIGHT_PADDING);
+
+    let text_style = if selected {
+        Style::default()
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT)
+    };
+
+    let mut spans = vec![
+        Span::styled(prefix, text_style),
+        Span::styled(label, text_style),
+        Span::styled(" ".repeat(padding_width), text_style),
+    ];
+    spans.extend(count_badge_spans(count, unicode, selected));
+    spans.push(Span::styled(" ".repeat(BADGE_RIGHT_PADDING), text_style));
+    Line::from(spans)
+}
+
+fn display_width(text: &str) -> usize {
+    Line::from(text.to_string()).width()
+}
+
 /// Return the display label for a sidebar category.
 fn category_label(category: &SidebarCategory, unicode: bool) -> String {
+    let _ = unicode;
     match category {
-        SidebarCategory::All => t!("tui.main.sidebar_all").to_string(),
-        SidebarCategory::Favorites => {
-            if unicode {
-                format!("\u{2606} {}", t!("tui.main.sidebar_favorites"))
-            } else {
-                format!("* {}", t!("tui.main.sidebar_favorites"))
-            }
-        }
-        SidebarCategory::Expired => t!("tui.main.sidebar_expired").to_string(),
-        SidebarCategory::HealthIssues => t!("tui.main.sidebar_health").to_string(),
-        SidebarCategory::Trash => {
-            if unicode {
-                format!("\u{1F5D1} {}", t!("tui.main.sidebar_trash"))
-            } else {
-                format!("[DEL] {}", t!("tui.main.sidebar_trash"))
-            }
-        }
+        SidebarCategory::All => format!("[1] {}", t!("tui.main.sidebar_all")),
+        SidebarCategory::Favorites => format!("[2] {}", t!("tui.main.sidebar_favorites")),
+        SidebarCategory::Expired => format!("[3] {}", t!("tui.main.sidebar_expired")),
+        SidebarCategory::HealthIssues => format!("[4] {}", t!("tui.main.sidebar_health")),
+        SidebarCategory::Trash => format!("[5] {}", t!("tui.main.sidebar_trash")),
     }
 }
 
@@ -260,12 +384,46 @@ fn category_count(
     }
 }
 
-/// Format a count as a right-aligned badge string (e.g. "(42)").
-fn format_count(count: usize) -> String {
-    if count > 0 {
-        format!(" ({})", count)
+/// Format a count as a compact badge string, capped at 99+.
+fn format_count(count: usize, unicode: bool) -> String {
+    let count_label = count_label(count);
+    if unicode {
+        format!("\u{e0b6}{}\u{e0b4}", count_label)
     } else {
-        String::new()
+        format!("[{}]", count_label)
+    }
+}
+
+fn count_label(count: usize) -> String {
+    if count > 99 {
+        "99+".to_string()
+    } else {
+        count.to_string()
+    }
+}
+
+fn count_badge_spans(count: usize, unicode: bool, selected: bool) -> Vec<Span<'static>> {
+    let label = count_label(count);
+    let badge_reset = Modifier::REVERSED | Modifier::BOLD;
+    let mut badge_edge_style = Style::default()
+        .fg(theme::WARNING)
+        .remove_modifier(badge_reset);
+    if selected {
+        badge_edge_style = badge_edge_style.bg(theme::TEXT);
+    }
+    let badge_text_style = Style::default()
+        .fg(theme::BG)
+        .bg(theme::WARNING)
+        .add_modifier(Modifier::BOLD)
+        .remove_modifier(Modifier::REVERSED);
+    if unicode {
+        vec![
+            Span::styled("\u{e0b6}", badge_edge_style),
+            Span::styled(label, badge_text_style),
+            Span::styled("\u{e0b4}", badge_edge_style),
+        ]
+    } else {
+        vec![Span::styled(format!("[{}]", label), badge_text_style)]
     }
 }
 
@@ -352,25 +510,62 @@ fn render_inline_rename(
 mod tests {
     use super::*;
     use crate::tui::state::main_state::{CategoryCounts, SidebarState};
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn render_sidebar(state: &SidebarState, width: u16, height: u16) -> String {
+        let buffer = render_sidebar_buffer(state, width, height);
+        format!("{:?}", buffer)
+    }
+
+    fn render_sidebar_buffer(
+        state: &SidebarState,
+        width: u16,
+        height: u16,
+    ) -> ratatui::buffer::Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                SidebarPanel::view(frame, frame.area(), state, true, true);
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn row_text(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+        (0..buffer.area.width)
+            .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+            .collect()
+    }
 
     #[test]
     fn format_count_nonzero() {
-        assert_eq!(format_count(42), " (42)");
+        assert_eq!(format_count(42, true), "\u{e0b6}42\u{e0b4}");
     }
 
     #[test]
     fn format_count_zero() {
-        assert_eq!(format_count(0), "");
+        assert_eq!(format_count(0, true), "\u{e0b6}0\u{e0b4}");
+    }
+
+    #[test]
+    fn format_count_caps_at_99_plus() {
+        assert_eq!(format_count(128, true), "\u{e0b6}99+\u{e0b4}");
+        assert_eq!(format_count(128, false), "[99+]");
     }
 
     #[test]
     fn category_labels_unicode() {
-        // Note: These tests now check that labels are non-empty and contain expected icons
         let all_label = category_label(&SidebarCategory::All, true);
         assert!(!all_label.is_empty());
 
         let fav_label = category_label(&SidebarCategory::Favorites, true);
-        assert!(fav_label.contains('\u{2606}')); // ☆ icon
+        assert!(!fav_label.contains('\u{2606}'));
+        assert_eq!(
+            fav_label,
+            format!("[2] {}", t!("tui.main.sidebar_favorites"))
+        );
 
         let expired_label = category_label(&SidebarCategory::Expired, true);
         assert!(!expired_label.is_empty());
@@ -380,19 +575,149 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_renders_branded_spacious_categories() {
+        let mut state = SidebarState {
+            category_counts: CategoryCounts {
+                all: 128,
+                favorites: 12,
+                expired: 3,
+                health_issues: 3,
+                trash: 5,
+            },
+            ..Default::default()
+        };
+        state.select_category(SidebarCategory::All);
+        state.rebuild();
+
+        let rendered = render_sidebar(&state, 36, 24);
+
+        assert!(rendered.contains("🔐 OpenKeyring"));
+        assert!(rendered.contains("All"));
+        assert!(rendered.contains("99+"));
+        assert!(rendered.contains("Favorites"));
+        assert!(rendered.contains("12"));
+        assert!(!rendered.contains("◄"));
+        assert!(!rendered.contains("☆"));
+        assert!(!rendered.contains("🗑"));
+    }
+
+    #[test]
+    fn category_badge_is_right_aligned_with_orange_fill() {
+        let mut state = SidebarState {
+            category_counts: CategoryCounts {
+                all: 128,
+                favorites: 12,
+                expired: 3,
+                health_issues: 3,
+                trash: 5,
+            },
+            ..Default::default()
+        };
+        state.select_category(SidebarCategory::All);
+        state.rebuild();
+
+        let buffer = render_sidebar_buffer(&state, 36, 16);
+        let row = row_text(&buffer, 7);
+
+        assert!(
+            row.ends_with("12  "),
+            "badge should be right-aligned with two columns of right padding: {row:?}"
+        );
+
+        let left = buffer.cell((30, 7)).expect("badge left edge");
+        let label = buffer.cell((31, 7)).expect("badge text");
+        let right = buffer.cell((33, 7)).expect("badge right edge");
+        assert_eq!(left.style().fg, Some(theme::WARNING));
+        assert_eq!(label.style().bg, Some(theme::WARNING));
+        assert_eq!(right.style().fg, Some(theme::WARNING));
+    }
+
+    #[test]
+    fn selected_category_has_no_marker_and_keeps_badge_style() {
+        let mut state = SidebarState {
+            category_counts: CategoryCounts {
+                all: 128,
+                favorites: 12,
+                expired: 3,
+                health_issues: 3,
+                trash: 5,
+            },
+            ..Default::default()
+        };
+        state.select_category(SidebarCategory::All);
+        state.rebuild();
+
+        let buffer = render_sidebar_buffer(&state, 36, 10);
+        let selected_top = 3;
+        let selected_center = 4;
+        let selected_bottom = 5;
+        let row = row_text(&buffer, selected_center);
+
+        assert!(
+            !row.contains('\u{25C4}'),
+            "selected row should not show a marker"
+        );
+        assert!(
+            row.ends_with("99+  "),
+            "selected badge should be right-aligned with right padding: {row:?}"
+        );
+
+        let badge_left = buffer
+            .cell((29, selected_center))
+            .expect("selected badge left edge should exist");
+        let badge_text = buffer
+            .cell((30, selected_center))
+            .expect("selected badge text should exist");
+        let badge_right = buffer
+            .cell((33, selected_center))
+            .expect("selected badge right edge should exist");
+
+        assert_eq!(badge_left.style().fg, Some(theme::WARNING));
+        assert_eq!(badge_left.style().bg, Some(theme::TEXT));
+        assert_eq!(badge_text.style().fg, Some(theme::BG));
+        assert_eq!(badge_text.style().bg, Some(theme::WARNING));
+        assert_eq!(badge_right.style().fg, Some(theme::WARNING));
+        assert_eq!(badge_right.style().bg, Some(theme::TEXT));
+        for (x, cell) in [(29, badge_left), (30, badge_text), (33, badge_right)] {
+            assert!(
+                !cell.style().add_modifier.contains(Modifier::REVERSED),
+                "selected badge cell {} should keep normal badge styling",
+                x
+            );
+        }
+
+        for y in selected_top..=selected_bottom {
+            for x in 0..36 {
+                if y == selected_center && (29..=33).contains(&x) {
+                    continue;
+                }
+                let cell = buffer
+                    .cell((x, y))
+                    .unwrap_or_else(|| panic!("cell ({}, {}) missing", x, y));
+                assert!(
+                    cell.style().add_modifier.contains(Modifier::REVERSED),
+                    "selected block cell ({}, {}) should be reversed",
+                    x,
+                    y
+                );
+            }
+        }
+    }
+
+    #[test]
     fn category_labels_ascii() {
-        // Note: These tests now check that labels are non-empty and contain expected markers
         let all_label = category_label(&SidebarCategory::All, false);
         assert!(!all_label.is_empty());
 
         let fav_label = category_label(&SidebarCategory::Favorites, false);
-        assert!(fav_label.contains('*'));
+        assert!(!fav_label.contains('*'));
 
         let expired_label = category_label(&SidebarCategory::Expired, false);
         assert!(!expired_label.is_empty());
 
         let trash_label = category_label(&SidebarCategory::Trash, false);
-        assert!(trash_label.contains("[DEL]"));
+        assert!(!trash_label.contains("[DEL]"));
+        assert_eq!(trash_label, format!("[5] {}", t!("tui.main.sidebar_trash")));
     }
 
     #[test]
@@ -464,7 +789,13 @@ mod tests {
         ];
         for item in items_to_test {
             let list_item = build_list_item(item, &state, true, 50);
-            assert_eq!(list_item.height(), 1, "expected height 1 for {:?}", item);
+            let expected_height = if is_selected(item, &state) { 3 } else { 1 };
+            assert_eq!(
+                list_item.height(),
+                expected_height,
+                "unexpected height for {:?}",
+                item
+            );
         }
     }
 
@@ -529,7 +860,7 @@ mod tests {
         };
         state.rebuild();
 
-        let backend = ratatui::backend::TestBackend::new(40, 20);
+        let backend = ratatui::backend::TestBackend::new(40, 24);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {

@@ -157,18 +157,8 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
         }
     }
 
-    // Footer bar: keyboard hints + [Exit Program] red + [Close] blue
-    let exit_label = t!("tui.config.exit_program");
+    // Footer bar: keyboard hints + [Close]
     let close_label = t!("tui.config.close");
-
-    let exit_style = match state.footer_focus {
-        Some(crate::tui::state::config_state::FooterButton::ExitProgram) => Style::default()
-            .fg(theme::TEXT)
-            .add_modifier(Modifier::BOLD | Modifier::REVERSED),
-        _ => Style::default()
-            .fg(theme::ERROR)
-            .add_modifier(Modifier::BOLD),
-    };
 
     let close_style = match state.footer_focus {
         Some(crate::tui::state::config_state::FooterButton::Close) => Style::default()
@@ -179,12 +169,10 @@ pub fn render(frame: &mut Frame, area: Rect, state: &ConfigScreenState) {
 
     let footer = Line::from(vec![
         Span::styled(
-            " \u{2191}\u{2193} scroll  Tab switch  Enter confirm  Esc close  q exit ",
+            " \u{2191}\u{2193} scroll  Tab switch  Enter confirm  Esc close ",
             Style::default().fg(theme::TEXT_SECONDARY),
         ),
         Span::raw("  "),
-        Span::styled(format!("[ {} ]", exit_label), exit_style),
-        Span::raw(" "),
         Span::styled(format!("[ {} ]", close_label), close_style),
     ]);
     let footer_widget = Paragraph::new(footer).style(Style::default().bg(theme::BG_BAR));

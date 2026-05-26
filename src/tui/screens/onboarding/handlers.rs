@@ -178,14 +178,12 @@ impl OnboardingScreen {
                 }
                 2 => self.learn_more_expanded = !self.learn_more_expanded,
                 3 => self.recovery_confirmed = !self.recovery_confirmed,
-                4 => {
-                    if self.recovery_confirmed {
-                        self.clipboard_copied = false;
-                        self.generate_verify_positions();
-                        self.set_step_forward(OnboardingStep::RecoveryVerify {
-                            positions: self.verify_positions,
-                        });
-                    }
+                4 if self.recovery_confirmed => {
+                    self.clipboard_copied = false;
+                    self.generate_verify_positions();
+                    self.set_step_forward(OnboardingStep::RecoveryVerify {
+                        positions: self.verify_positions,
+                    });
                 }
                 _ => {}
             }

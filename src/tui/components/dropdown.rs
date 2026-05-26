@@ -5,20 +5,32 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::tui::theme;
+use crate::tui::{components::text_input, theme};
 
 /// Render a dropdown field (collapsed).
 pub fn render_dropdown(
     label: &str,
     selected: &str,
-    _focused: bool,
+    focused: bool,
     disabled: bool,
     unicode: bool,
 ) -> Line<'static> {
     let value_style = if disabled {
         Style::default().fg(theme::TEXT_MUTED)
+    } else if focused {
+        Style::default()
+            .fg(theme::BG)
+            .bg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme::PRIMARY)
+    };
+    let label_style = if focused {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
     };
 
     let arrow = if unicode {
@@ -28,10 +40,7 @@ pub fn render_dropdown(
     };
 
     Line::from(vec![
-        Span::styled(
-            format!("  {} ", label),
-            Style::default().fg(theme::TEXT_SECONDARY),
-        ),
+        Span::styled(text_input::padded_form_label(label), label_style),
         Span::styled(format!("[ {} {} ]", selected, arrow), value_style),
     ])
 }
@@ -59,7 +68,7 @@ pub fn render_dropdown_expanded(
             Style::default().fg(theme::TEXT)
         };
         lines.push(Line::from(vec![
-            Span::raw("          "),
+            Span::raw(" ".repeat(text_input::FORM_LABEL_WIDTH)),
             Span::styled(format!("  {} ", option), style),
         ]));
     }

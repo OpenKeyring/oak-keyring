@@ -48,8 +48,7 @@ impl DetailPanel {
 
     fn render_empty(&self, frame: &mut Frame, area: Rect, unicode: bool) {
         let icon = if unicode { "\u{1F510}" } else { "[?]" };
-        let lines = vec![
-            Line::from(""),
+        let content_lines = vec![
             Line::from(""),
             Line::from(Span::styled(
                 format!("  {}", icon),
@@ -65,6 +64,10 @@ impl DetailPanel {
                 Style::default().fg(theme::TEXT_MUTED),
             )),
         ];
+        let content_height = content_lines.len() as u16;
+        let top_pad = area.height.saturating_sub(content_height) / 2;
+        let mut lines: Vec<Line> = (0..top_pad).map(|_| Line::from("")).collect();
+        lines.extend(content_lines);
         let para = Paragraph::new(lines).alignment(Alignment::Center);
         frame.render_widget(para, area);
     }
@@ -344,17 +347,14 @@ impl DetailPanel {
 
         // Tags
         if !record.tags.is_empty() {
-            let tag_spans: Vec<Span> = record
-                .tags
-                .iter()
-                .flat_map(|tag| {
-                    vec![
-                        Span::styled("[", Style::default().fg(theme::BRAND)),
-                        Span::styled(tag.clone(), Style::default().fg(theme::TEXT)),
-                        Span::styled("]  ", Style::default().fg(theme::BRAND)),
-                    ]
-                })
-                .collect();
+            let mut tag_spans: Vec<Span> = vec![Span::raw(pad.to_string())];
+            for tag in &record.tags {
+                tag_spans.extend([
+                    Span::styled("[", Style::default().fg(theme::BRAND)),
+                    Span::styled(tag.clone(), Style::default().fg(theme::TEXT)),
+                    Span::styled("]  ", Style::default().fg(theme::BRAND)),
+                ]);
+            }
             lines.push(Line::from(tag_spans));
             lines.push(Line::from(""));
         }
@@ -595,6 +595,24 @@ mod tests {
         format!("{:?}", buf)
     }
 
+    fn render_detail_buffer(
+        state: &DetailPanelState,
+        width: u16,
+        height: u16,
+        focused: bool,
+        unicode: bool,
+    ) -> ratatui::buffer::Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let panel = DetailPanel;
+                panel.view(frame, frame.area(), state, focused, unicode, &[]);
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
     #[test]
     fn render_trash_detail_shows_banner() {
         let data = make_trash_detail_data();
@@ -619,6 +637,34 @@ mod tests {
         let state = DetailPanelState::with_record(data);
         let result = render_detail_snapshot(&state, 60, 20, true, true);
         assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn detail_tags_align_with_field_labels() {
+        let mut data = make_trash_detail_data();
+        data.tags = vec!["work".into(), "github".into()];
+        let state = DetailPanelState::with_record(data);
+        let buffer = render_detail_buffer(&state, 60, 24, true, true);
+
+        let tag_row = (0..buffer.area.height)
+            .find(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer.cell((x, *y)).expect("cell").symbol())
+                    .collect::<String>()
+                    .contains("[work]")
+            })
+            .expect("tag row should render");
+
+        assert_eq!(buffer.cell((0, tag_row)).expect("cell").symbol(), " ");
+        assert_eq!(buffer.cell((1, tag_row)).expect("cell").symbol(), " ");
+        assert_eq!(
+            buffer
+                .cell((2, tag_row))
+                .expect("tag starts after label padding")
+                .symbol(),
+            "[",
+            "tags should start at the same left padding as detail labels"
+        );
     }
 
     #[test]

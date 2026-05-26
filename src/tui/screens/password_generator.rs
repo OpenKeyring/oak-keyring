@@ -33,6 +33,17 @@ impl PasswordGeneratorScreen {
 
     fn handle_key(&mut self, key: KeyEvent, ctx: &mut ScreenContext) -> ScreenResult {
         match key.code {
+            // Section navigation
+            KeyCode::Up => {
+                self.hint_message = None;
+                self.state.focus_section_up();
+                ScreenResult::Continue
+            }
+            KeyCode::Down => {
+                self.hint_message = None;
+                self.state.focus_section_down();
+                ScreenResult::Continue
+            }
             KeyCode::Tab => {
                 self.hint_message = None;
                 self.state.focus_next();
@@ -44,28 +55,62 @@ impl PasswordGeneratorScreen {
                 ScreenResult::Continue
             }
             KeyCode::Esc => ScreenResult::PopScreen,
+            // Global shortcuts
             KeyCode::Char('r') => {
                 self.hint_message = None;
                 self.state.regenerate();
                 ScreenResult::Continue
             }
+            KeyCode::Char('c') => {
+                if self.state.focus == GeneratorFocus::SeparatorInput {
+                    self.state.memorable_config.separator = "c".to_string();
+                    self.state.regenerate();
+                } else {
+                    self.copy_password(ctx);
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                if self.state.focus == GeneratorFocus::SeparatorInput {
+                    self.state.memorable_config.separator = "+".to_string();
+                    self.state.regenerate();
+                } else {
+                    self.hint_message = None;
+                    self.state.increment_length();
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Char('-') => {
+                if self.state.focus == GeneratorFocus::SeparatorInput {
+                    self.state.memorable_config.separator = "-".to_string();
+                    self.state.regenerate();
+                } else {
+                    self.hint_message = None;
+                    self.state.decrement_length();
+                }
+                ScreenResult::Continue
+            }
             KeyCode::Enter => self.handle_enter(ctx),
+            // Focus-specific handling (left/right within sections)
             _ => self.handle_focus_key(key.code),
+        }
+    }
+
+    fn copy_password(&mut self, ctx: &mut ScreenContext) {
+        if self.state.has_preview() {
+            let pw = self.state.take_preview();
+            let _ = ctx
+                .command_tx
+                .try_send(Command::CopyRawToClipboard { value: pw });
+            self.state.regenerate();
+            self.hint_message = Some(t!("tui.notification.copied_to_clipboard").to_string());
         }
     }
 
     fn handle_enter(&mut self, ctx: &mut ScreenContext) -> ScreenResult {
         match self.state.focus {
             GeneratorFocus::ActionButton => {
-                if self.state.has_preview() {
-                    let pw = self.state.take_preview();
-                    let _ = ctx
-                        .command_tx
-                        .try_send(Command::CopyRawToClipboard { value: pw });
-                    self.state.regenerate();
-                    self.hint_message =
-                        Some(t!("tui.notification.copied_to_clipboard").to_string());
-                }
+                self.copy_password(ctx);
                 ScreenResult::Continue
             }
             GeneratorFocus::RegenerateButton => {
@@ -100,30 +145,47 @@ impl PasswordGeneratorScreen {
                 _ => ScreenResult::Continue,
             },
             GeneratorFocus::LengthSlider => match key {
-                KeyCode::Left | KeyCode::Char('-') => {
+                KeyCode::Left => {
                     self.hint_message = None;
                     self.state.decrement_length();
                     ScreenResult::Continue
                 }
-                KeyCode::Right | KeyCode::Char('+') => {
+                KeyCode::Right => {
                     self.hint_message = None;
                     self.state.increment_length();
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
             },
-            GeneratorFocus::Toggle(idx) => {
-                self.hint_message = None;
-                if self.state.style == GenerationStyle::Random {
-                    self.state.toggle_char_type(idx);
-                } else if self.state.style == GenerationStyle::Memorable && idx == 0 {
-                    self.state.memorable_config.capitalize =
-                        !self.state.memorable_config.capitalize;
-                    self.state.regenerate();
+            GeneratorFocus::Toggle(idx) => match key {
+                KeyCode::Left => {
+                    self.hint_message = None;
+                    self.state.focus_prev_toggle();
+                    ScreenResult::Continue
                 }
-                ScreenResult::Continue
-            }
+                KeyCode::Right => {
+                    self.hint_message = None;
+                    self.state.focus_next_toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.hint_message = None;
+                    self.toggle_generator_option(idx);
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
             GeneratorFocus::SeparatorInput => match key {
+                KeyCode::Left => {
+                    self.hint_message = None;
+                    self.state.focus_prev_toggle();
+                    ScreenResult::Continue
+                }
+                KeyCode::Right => {
+                    self.hint_message = None;
+                    self.state.focus_next_toggle();
+                    ScreenResult::Continue
+                }
                 KeyCode::Char(c) => {
                     self.hint_message = None;
                     self.state.memorable_config.separator = c.to_string();
@@ -138,7 +200,31 @@ impl PasswordGeneratorScreen {
                 }
                 _ => ScreenResult::Continue,
             },
-            _ => ScreenResult::Continue,
+            GeneratorFocus::RegenerateButton => match key {
+                KeyCode::Right => {
+                    self.hint_message = None;
+                    self.state.focus = GeneratorFocus::ActionButton;
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            GeneratorFocus::ActionButton => match key {
+                KeyCode::Left => {
+                    self.hint_message = None;
+                    self.state.focus = GeneratorFocus::RegenerateButton;
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+        }
+    }
+
+    fn toggle_generator_option(&mut self, idx: usize) {
+        if self.state.style == GenerationStyle::Random {
+            self.state.toggle_char_type(idx);
+        } else if self.state.style == GenerationStyle::Memorable && idx == 0 {
+            self.state.memorable_config.capitalize = !self.state.memorable_config.capitalize;
+            self.state.regenerate();
         }
     }
 
@@ -174,15 +260,15 @@ impl PasswordGeneratorScreen {
         let back = t!("tui.form.back_button").to_string();
 
         let hints = [
+            theme::ICON_ARROW_UD,
+            switch_focus.as_str(),
             theme::ICON_ARROW_LR,
             adjust.as_str(),
-            "Tab",
-            switch_focus.as_str(),
             "r",
             regenerate.as_str(),
-            "Enter",
+            "c",
             copy.as_str(),
-            "p",
+            "+/-",
             label.as_str(),
             "Esc",
             back.as_str(),
@@ -457,6 +543,35 @@ mod tests {
     }
 
     #[test]
+    fn memorable_left_right_moves_between_capitalize_and_separator() {
+        let mut screen = PasswordGeneratorScreen::new();
+        screen.state.set_style(GenerationStyle::Memorable);
+        screen.state.focus = GeneratorFocus::Toggle(0);
+        let mut ctx = ScreenContext {
+            command_tx: &tokio::sync::mpsc::channel(1).0,
+            config: &Default::default(),
+        };
+
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Right,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert_eq!(screen.state.focus, GeneratorFocus::SeparatorInput);
+
+        screen.update(
+            Message::KeyEvent(KeyEvent::new(
+                KeyCode::Left,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+        assert_eq!(screen.state.focus, GeneratorFocus::Toggle(0));
+    }
+
+    #[test]
     fn command_completed_clipboard_shows_hint() {
         let mut screen = PasswordGeneratorScreen::new();
         let mut ctx = ScreenContext {
@@ -564,7 +679,7 @@ mod tests {
     }
 
     #[test]
-    fn hint_persists_across_arrow_keypress() {
+    fn hint_cleared_on_navigation() {
         let mut screen = PasswordGeneratorScreen::new();
         screen.state.focus = GeneratorFocus::ActionButton;
         let (tx, _) = tokio::sync::mpsc::channel(1);
@@ -581,7 +696,7 @@ mod tests {
             &mut ctx,
         );
         assert!(screen.hint_message.is_some());
-        // Arrow key does not clear hint (not a state-changing action)
+        // Down arrow changes focus (section navigation) → clears hint
         screen.state.focus = GeneratorFocus::StyleSelector;
         screen.update(
             Message::KeyEvent(KeyEvent::new(
@@ -590,7 +705,7 @@ mod tests {
             )),
             &mut ctx,
         );
-        assert!(screen.hint_message.is_some());
+        assert!(screen.hint_message.is_none());
     }
 
     #[test]
