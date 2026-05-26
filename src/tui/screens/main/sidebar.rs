@@ -402,12 +402,15 @@ fn count_label(count: usize) -> String {
     }
 }
 
-fn count_badge_spans(count: usize, unicode: bool, _selected: bool) -> Vec<Span<'static>> {
+fn count_badge_spans(count: usize, unicode: bool, selected: bool) -> Vec<Span<'static>> {
     let label = count_label(count);
     let badge_reset = Modifier::REVERSED | Modifier::BOLD;
-    let badge_edge_style = Style::default()
+    let mut badge_edge_style = Style::default()
         .fg(theme::WARNING)
         .remove_modifier(badge_reset);
+    if selected {
+        badge_edge_style = badge_edge_style.bg(theme::TEXT);
+    }
     let badge_text_style = Style::default()
         .fg(theme::BG)
         .bg(theme::WARNING)
@@ -670,9 +673,11 @@ mod tests {
             .expect("selected badge right edge should exist");
 
         assert_eq!(badge_left.style().fg, Some(theme::WARNING));
+        assert_eq!(badge_left.style().bg, Some(theme::TEXT));
         assert_eq!(badge_text.style().fg, Some(theme::BG));
         assert_eq!(badge_text.style().bg, Some(theme::WARNING));
         assert_eq!(badge_right.style().fg, Some(theme::WARNING));
+        assert_eq!(badge_right.style().bg, Some(theme::TEXT));
         for (x, cell) in [(29, badge_left), (30, badge_text), (33, badge_right)] {
             assert!(
                 !cell.style().add_modifier.contains(Modifier::REVERSED),

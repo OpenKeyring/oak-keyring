@@ -49,6 +49,7 @@ impl DetailPanel {
     fn render_empty(&self, frame: &mut Frame, area: Rect, unicode: bool) {
         let icon = if unicode { "\u{1F510}" } else { "[?]" };
         let content_lines = vec![
+            Line::from(""),
             Line::from(Span::styled(
                 format!("  {}", icon),
                 Style::default().fg(theme::TEXT_MUTED),

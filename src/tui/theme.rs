@@ -35,6 +35,7 @@ pub const ICON_FOLDER: &str = "\u{1F4C1}";
 pub const ICON_TRASH: &str = "\u{1F5D1}";
 pub const ICON_CHECK: &str = "\u{2611}";
 pub const ICON_ARROW_LR: &str = "\u{2190}\u{2192}"; // ←→
+pub const ICON_ARROW_UD: &str = "\u{2191}\u{2193}"; // ↑↓
 pub const ICON_PIPE: &str = "\u{2502}"; // │
 pub const ICON_SEARCH: &str = "\u{1F50D}";
 pub const ICON_PROGRESS_FILL: &str = "\u{2588}";
@@ -63,6 +64,7 @@ pub mod ascii {
     pub const ICON_TRASH: &str = "[DEL]";
     pub const ICON_CHECK: &str = "[x]";
     pub const ICON_ARROW_LR: &str = "<->";
+    pub const ICON_ARROW_UD: &str = "^v";
     pub const ICON_PIPE: &str = "|";
     pub const ICON_SEARCH: &str = "[?]";
     pub const ICON_PROGRESS_FILL: &str = "#";

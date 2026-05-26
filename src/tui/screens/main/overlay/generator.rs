@@ -50,11 +50,19 @@ pub enum GeneratorAction {
 pub fn handle_key(key: crossterm::event::KeyCode, state: &mut GeneratorState) -> GeneratorAction {
     use crossterm::event::KeyCode;
     match key {
-        KeyCode::Tab | KeyCode::Down => {
+        KeyCode::Down => {
+            state.focus_section_down();
+            GeneratorAction::None
+        }
+        KeyCode::Up => {
+            state.focus_section_up();
+            GeneratorAction::None
+        }
+        KeyCode::Tab => {
             state.focus_next();
             GeneratorAction::None
         }
-        KeyCode::BackTab | KeyCode::Up => {
+        KeyCode::BackTab => {
             state.focus_prev();
             GeneratorAction::None
         }
@@ -62,6 +70,33 @@ pub fn handle_key(key: crossterm::event::KeyCode, state: &mut GeneratorState) ->
         KeyCode::Char('r') => {
             state.regenerate();
             GeneratorAction::Regenerate
+        }
+        KeyCode::Char('c') => {
+            if state.focus == GeneratorFocus::SeparatorInput {
+                state.memorable_config.separator = "c".to_string();
+                state.regenerate();
+                GeneratorAction::None
+            } else {
+                GeneratorAction::CopyToClipboard
+            }
+        }
+        KeyCode::Char('+') | KeyCode::Char('=') => {
+            if state.focus == GeneratorFocus::SeparatorInput {
+                state.memorable_config.separator = "+".to_string();
+                state.regenerate();
+            } else {
+                state.increment_length();
+            }
+            GeneratorAction::None
+        }
+        KeyCode::Char('-') => {
+            if state.focus == GeneratorFocus::SeparatorInput {
+                state.memorable_config.separator = "-".to_string();
+                state.regenerate();
+            } else {
+                state.decrement_length();
+            }
+            GeneratorAction::None
         }
         KeyCode::Enter => match state.focus {
             GeneratorFocus::ActionButton => GeneratorAction::CopyToClipboard,
@@ -108,11 +143,11 @@ pub fn handle_key(key: crossterm::event::KeyCode, state: &mut GeneratorState) ->
                 _ => GeneratorAction::None,
             },
             GeneratorFocus::LengthSlider => match key {
-                KeyCode::Left | KeyCode::Char('-') => {
+                KeyCode::Left => {
                     state.decrement_length();
                     GeneratorAction::None
                 }
-                KeyCode::Right | KeyCode::Char('+') => {
+                KeyCode::Right => {
                     state.increment_length();
                     GeneratorAction::None
                 }
@@ -149,7 +184,20 @@ pub fn handle_key(key: crossterm::event::KeyCode, state: &mut GeneratorState) ->
                 }
                 _ => GeneratorAction::None,
             },
-            _ => GeneratorAction::None,
+            GeneratorFocus::RegenerateButton => match key {
+                KeyCode::Right => {
+                    state.focus = GeneratorFocus::ActionButton;
+                    GeneratorAction::None
+                }
+                _ => GeneratorAction::None,
+            },
+            GeneratorFocus::ActionButton => match key {
+                KeyCode::Left => {
+                    state.focus = GeneratorFocus::RegenerateButton;
+                    GeneratorAction::None
+                }
+                _ => GeneratorAction::None,
+            },
         },
     }
 }

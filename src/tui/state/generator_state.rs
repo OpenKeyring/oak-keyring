@@ -375,6 +375,48 @@ impl GeneratorState {
         }
     }
 
+    /// Move focus to the next section (down arrow).
+    /// Sections: StyleSelector → LengthSlider → Options → Buttons → wrap.
+    pub fn focus_section_down(&mut self) {
+        use GeneratorFocus::*;
+        self.focus = match self.focus {
+            StyleSelector => LengthSlider,
+            LengthSlider => self.first_option_focus(),
+            Toggle(_) | SeparatorInput => RegenerateButton,
+            RegenerateButton | ActionButton => StyleSelector,
+        };
+    }
+
+    /// Move focus to the previous section (up arrow).
+    pub fn focus_section_up(&mut self) {
+        use GeneratorFocus::*;
+        self.focus = match self.focus {
+            StyleSelector => ActionButton,
+            LengthSlider => StyleSelector,
+            Toggle(_) | SeparatorInput => LengthSlider,
+            RegenerateButton | ActionButton => self.last_option_focus(),
+        };
+    }
+
+    /// First focusable element in the options section.
+    fn first_option_focus(&self) -> GeneratorFocus {
+        match self.style {
+            GenerationStyle::Random | GenerationStyle::Memorable => {
+                GeneratorFocus::Toggle(0)
+            }
+            GenerationStyle::Pin => GeneratorFocus::RegenerateButton,
+        }
+    }
+
+    /// Last focusable element in the options section (for up-arrow into options).
+    fn last_option_focus(&self) -> GeneratorFocus {
+        match self.style {
+            GenerationStyle::Random => GeneratorFocus::Toggle(3),
+            GenerationStyle::Memorable => GeneratorFocus::SeparatorInput,
+            GenerationStyle::Pin => GeneratorFocus::LengthSlider,
+        }
+    }
+
     /// Clear preview from memory.
     pub fn clear_preview(&mut self) {
         self.preview.clear();

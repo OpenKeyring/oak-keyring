@@ -130,10 +130,18 @@ impl MainScreen {
         // Determine if we are viewing trash
         let is_trash = matches!(state.current_filter, RecordFilter::Trash);
 
-        // 6. Status bar
+        // 6. Status bar — extend area to the bottom of the frame so any extra
+        //    rows below the status bar text are covered with BG_BAR.
+        let status_bar_height = area.bottom().saturating_sub(areas.status_bar.y).max(1);
+        let status_bar_area = Rect::new(
+            areas.status_bar.x,
+            areas.status_bar.y,
+            areas.status_bar.width,
+            status_bar_height,
+        );
         StatusBarPanel::view(
             frame,
-            areas.status_bar,
+            status_bar_area,
             &state.status_bar,
             focused_panel,
             unicode,

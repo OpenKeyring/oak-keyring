@@ -610,19 +610,57 @@ impl CreateRecordScreen {
                 self.generator.collapse();
                 ScreenResult::Continue
             }
-            KeyCode::Tab | KeyCode::Down => {
+            KeyCode::Down => {
+                self.generator.generator.focus_section_down();
+                ScreenResult::Continue
+            }
+            KeyCode::Up => {
+                self.generator.generator.focus_section_up();
+                ScreenResult::Continue
+            }
+            KeyCode::Tab => {
                 self.generator_focus_next();
                 ScreenResult::Continue
             }
-            KeyCode::BackTab | KeyCode::Up => {
+            KeyCode::BackTab => {
                 self.generator_focus_prev();
                 ScreenResult::Continue
             }
-            KeyCode::Enter | KeyCode::Char(' ') => self.activate_generator_focus(),
             KeyCode::Char('r') => {
                 self.generator.generator.regenerate();
                 ScreenResult::Continue
             }
+            KeyCode::Char('y') => {
+                if self.generator.generator.focus == GeneratorFocus::SeparatorInput {
+                    self.generator.generator.memorable_config.separator = "y".to_string();
+                    self.generator.generator.regenerate();
+                } else {
+                    let pw = self.generator.use_password();
+                    self.form.fields.password = Some(SensitiveInput::from(pw));
+                    self.form.fields.update_strength();
+                    self.form.has_changes = true;
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                if self.generator.generator.focus == GeneratorFocus::SeparatorInput {
+                    self.generator.generator.memorable_config.separator = "+".to_string();
+                    self.generator.generator.regenerate();
+                } else {
+                    self.generator.generator.increment_length();
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Char('-') => {
+                if self.generator.generator.focus == GeneratorFocus::SeparatorInput {
+                    self.generator.generator.memorable_config.separator = "-".to_string();
+                    self.generator.generator.regenerate();
+                } else {
+                    self.generator.generator.decrement_length();
+                }
+                ScreenResult::Continue
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => self.activate_generator_focus(),
             _ => self.handle_generator_focus_key(key),
         }
     }
@@ -630,11 +668,11 @@ impl CreateRecordScreen {
     fn handle_generator_focus_key(&mut self, key: KeyCode) -> ScreenResult {
         match self.generator.generator.focus {
             GeneratorFocus::LengthSlider => match key {
-                KeyCode::Left | KeyCode::Char('-') => {
+                KeyCode::Left => {
                     self.generator.generator.decrement_length();
                     ScreenResult::Continue
                 }
-                KeyCode::Right | KeyCode::Char('+') => {
+                KeyCode::Right => {
                     self.generator.generator.increment_length();
                     ScreenResult::Continue
                 }
@@ -649,11 +687,10 @@ impl CreateRecordScreen {
                     self.generator.generator.focus_next_toggle();
                     ScreenResult::Continue
                 }
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    self.toggle_generator_option(idx);
+                _ => {
+                    let _ = idx;
                     ScreenResult::Continue
                 }
-                _ => ScreenResult::Continue,
             },
             GeneratorFocus::SeparatorInput => match key {
                 KeyCode::Left => {
@@ -672,6 +709,20 @@ impl CreateRecordScreen {
                 KeyCode::Backspace => {
                     self.generator.generator.memorable_config.separator = "-".to_string();
                     self.generator.generator.regenerate();
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            GeneratorFocus::RegenerateButton => match key {
+                KeyCode::Right => {
+                    self.generator.generator.focus = GeneratorFocus::ActionButton;
+                    ScreenResult::Continue
+                }
+                _ => ScreenResult::Continue,
+            },
+            GeneratorFocus::ActionButton => match key {
+                KeyCode::Left => {
+                    self.generator.generator.focus = GeneratorFocus::RegenerateButton;
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
