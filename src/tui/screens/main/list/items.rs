@@ -15,6 +15,7 @@ use super::ListPanel;
 
 const ITEM_LEFT_PADDING: &str = "  ";
 const SELECTED_MARKER_RIGHT_PADDING: usize = 4;
+const ITEM_RIGHT_MARGIN: usize = 2;
 
 impl ListPanel {
     /// Highlight matching portions of `text` that match `search_terms` (case-insensitive).
@@ -210,6 +211,7 @@ pub(super) fn build_record_item<'a>(
         display_width(&timestamp) + display_width(indicator_str) + selected_marker_padding;
     let marker_only_width = display_width(indicator_str) + selected_marker_padding;
     let available_after_name = (area_width as usize)
+        .saturating_sub(ITEM_RIGHT_MARGIN)
         .saturating_sub(name_width)
         .saturating_sub(badge_width);
 
@@ -231,6 +233,7 @@ pub(super) fn build_record_item<'a>(
     };
 
     let padding_len = (area_width as usize)
+        .saturating_sub(ITEM_RIGHT_MARGIN)
         .saturating_sub(name_width)
         .saturating_sub(badge_width)
         .saturating_sub(right_width);

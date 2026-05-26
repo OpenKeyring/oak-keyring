@@ -350,13 +350,19 @@ fn selected_record_marker_keeps_right_padding() {
     let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
 
     assert_eq!(
-        buffer.cell((59, 2)).expect("marker cell").symbol(),
+        buffer.cell((57, 2)).expect("marker cell").symbol(),
         "\u{25C0}",
-        "selected marker should leave four columns of right padding"
+        "selected marker should leave four columns of right padding plus right margin"
     );
-    for x in 60..64 {
+    for x in 58..62 {
         assert_eq!(
             buffer.cell((x, 2)).expect("right padding cell").symbol(),
+            " "
+        );
+    }
+    for x in 62..64 {
+        assert_eq!(
+            buffer.cell((x, 2)).expect("right margin cell").symbol(),
             " "
         );
     }
