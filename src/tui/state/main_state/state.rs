@@ -10,7 +10,9 @@ use crate::t;
 use crate::tui::screens::main::overlay::{ActiveOverlay, OverlayKeyResult, OverlayManager};
 use crate::tui::screens::main::MainScreen;
 use crate::tui::state::animation::EffectKind;
-use crate::tui::state::detail_state::{DetailFieldKind, DetailPanelState, FieldValue};
+use crate::tui::state::detail_state::{
+    DetailActionFocus, DetailActionKind, DetailFieldKind, DetailPanelState, FieldValue,
+};
 use crate::tui::state::list_state::{ListMode, ListPanelState};
 use crate::tui::state::overlay_state::HistoryEntry;
 use crate::tui::state::tag_management::{TagManagementState, TagSortOrder};
@@ -1322,6 +1324,10 @@ impl MainScreenState {
                 let record_name = record.name.clone();
 
                 match key.code {
+                    KeyCode::Enter if self.detail.focused_action.is_some() => {
+                        let action = self.detail.focused_action.expect("checked above");
+                        return self.execute_detail_action(id, action);
+                    }
                     // Step 1: p — toggle password visibility (context-sensitive)
                     KeyCode::Char('p') => {
                         let needs_decrypt = self.detail.toggle_password();
@@ -1399,10 +1405,18 @@ impl MainScreenState {
                     }
                     // Step 6: field navigation (up/k, down/j)
                     KeyCode::Char('k') | KeyCode::Up => {
+                        if self.detail.focused_action.is_some() {
+                            self.detail.move_action_up();
+                            return ScreenResult::Continue;
+                        }
                         self.detail.move_field_up();
                         return ScreenResult::Continue;
                     }
                     KeyCode::Char('j') | KeyCode::Down => {
+                        if self.detail.focused_action.is_some() {
+                            self.detail.move_action_down();
+                            return ScreenResult::Continue;
+                        }
                         self.detail.move_field_down();
                         return ScreenResult::Continue;
                     }
@@ -1511,6 +1525,10 @@ impl MainScreenState {
 
         match key.code {
             KeyCode::Left if key.modifiers.is_empty() => {
+                if self.focused_panel == PanelId::Detail && self.detail.focused_action.is_some() {
+                    self.detail.move_action_left();
+                    return Some(ScreenResult::Continue);
+                }
                 self.focused_panel = match self.focused_panel {
                     PanelId::Sidebar => PanelId::Sidebar,
                     PanelId::List => PanelId::Sidebar,
@@ -1519,6 +1537,14 @@ impl MainScreenState {
                 Some(ScreenResult::Continue)
             }
             KeyCode::Right if key.modifiers.is_empty() => {
+                if self.focused_panel == PanelId::Detail {
+                    if self.detail.focused_action.is_some() {
+                        self.detail.move_action_right();
+                    } else {
+                        self.detail.focus_first_action();
+                    }
+                    return Some(ScreenResult::Continue);
+                }
                 self.focused_panel = match self.focused_panel {
                     PanelId::Sidebar => PanelId::List,
                     PanelId::List => PanelId::Detail,
@@ -1614,8 +1640,53 @@ impl MainScreenState {
 
         if contains_rect(detail_rect, event.column, event.row) {
             self.focused_panel = PanelId::Detail;
+            if let Some(action) = crate::tui::screens::main::detail::detail_action_at(
+                detail_rect,
+                &self.detail,
+                event.column,
+                event.row,
+            ) {
+                self.detail.set_action_focus(action);
+                if is_click {
+                    if let Some(record) = self.detail.record.as_ref() {
+                        return self.execute_detail_action(record.id, action);
+                    }
+                }
+            }
         }
         ScreenResult::Continue
+    }
+
+    fn execute_detail_action(&mut self, id: Uuid, action: DetailActionFocus) -> ScreenResult {
+        let Some(field) = self
+            .detail
+            .record
+            .as_ref()
+            .and_then(|record| record.fields.get(action.field_index))
+        else {
+            return ScreenResult::Continue;
+        };
+        let selector = detail_field_kind_to_selector(field.kind);
+        match action.kind {
+            DetailActionKind::Copy => ScreenResult::Command(Box::new(Command::CopyToClipboard {
+                id,
+                field: selector,
+            })),
+            DetailActionKind::ToggleSecret => {
+                if !field.toggleable {
+                    return ScreenResult::Continue;
+                }
+                let needs_decrypt = self.detail.toggle_password();
+                if needs_decrypt {
+                    ScreenResult::Command(Box::new(Command::DecryptField {
+                        id,
+                        field: selector,
+                    }))
+                } else {
+                    ScreenResult::Continue
+                }
+            }
+        }
     }
 
     fn handle_overlay_result(&mut self, result: OverlayKeyResult) -> ScreenResult {

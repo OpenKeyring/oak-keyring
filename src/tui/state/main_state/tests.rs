@@ -9,6 +9,7 @@ use crate::tui::state::list_state::ListPanelState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::{SecureStr, Tag};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::layout::Rect;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -3376,6 +3377,138 @@ fn k_on_detail_moves_field_up() {
 
     // Should have moved to username field (index 0)
     assert_eq!(state.detail.focused_field, 0);
+}
+
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn right_on_detail_focuses_first_action_button() {
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+
+    let mut ctx = make_ctx();
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Right)), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(
+        state.detail.focused_action,
+        Some(crate::tui::state::detail_state::DetailActionFocus {
+            field_index: 0,
+            kind: crate::tui::state::detail_state::DetailActionKind::Copy
+        })
+    );
+}
+
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn enter_on_focused_detail_action_copies_that_field() {
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+    state.detail.focused_action = Some(crate::tui::state::detail_state::DetailActionFocus {
+        field_index: 0,
+        kind: crate::tui::state::detail_state::DetailActionKind::Copy,
+    });
+
+    let mut ctx = make_ctx();
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Enter)), &mut ctx);
+
+    match result {
+        ScreenResult::Command(cmd) => match &*cmd {
+            Command::CopyToClipboard {
+                id: cmd_id,
+                field: FieldSelector::Username,
+            } => assert_eq!(*cmd_id, id),
+            other => panic!("Expected username copy action, got {:?}", other),
+        },
+        other => panic!("Expected command, got {:?}", other),
+    }
+}
+
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn down_on_detail_action_moves_to_same_action_on_next_row() {
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+    state.detail.focused_action = Some(crate::tui::state::detail_state::DetailActionFocus {
+        field_index: 0,
+        kind: crate::tui::state::detail_state::DetailActionKind::Copy,
+    });
+
+    let mut ctx = make_ctx();
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Down)), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(
+        state.detail.focused_action,
+        Some(crate::tui::state::detail_state::DetailActionFocus {
+            field_index: 1,
+            kind: crate::tui::state::detail_state::DetailActionKind::Copy
+        })
+    );
+}
+
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn right_on_detail_action_moves_horizontally_within_row() {
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+    state.detail.focused_action = Some(crate::tui::state::detail_state::DetailActionFocus {
+        field_index: 1,
+        kind: crate::tui::state::detail_state::DetailActionKind::ToggleSecret,
+    });
+
+    let mut ctx = make_ctx();
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Right)), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(
+        state.detail.focused_action,
+        Some(crate::tui::state::detail_state::DetailActionFocus {
+            field_index: 1,
+            kind: crate::tui::state::detail_state::DetailActionKind::Copy
+        })
+    );
+}
+
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn mouse_click_detail_password_copy_action_copies_password() {
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::Detail;
+    state.terminal_area = Rect::new(0, 0, 140, 30);
+    state.detail.record = Some(make_detail_view_with_fields(id, false));
+
+    let layout = crate::tui::screens::main::layout::calculate_layout(state.terminal_area, 140);
+    let detail_rect = Rect::new(
+        layout.detail.x,
+        layout.detail.y + 2,
+        layout.detail.width,
+        layout.detail.height.saturating_sub(2),
+    );
+    let column = detail_rect.right().saturating_sub(8);
+    let row = detail_rect.y + 12;
+
+    let mut ctx = make_ctx();
+    let result = state.update(Message::MouseEvent(mouse_click(column, row)), &mut ctx);
+
+    match result {
+        ScreenResult::Command(cmd) => match &*cmd {
+            Command::CopyToClipboard {
+                id: cmd_id,
+                field: FieldSelector::Password,
+            } => assert_eq!(*cmd_id, id),
+            other => panic!("Expected password copy action, got {:?}", other),
+        },
+        other => panic!("Expected command, got {:?}", other),
+    }
 }
 
 #[test]
