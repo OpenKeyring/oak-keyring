@@ -10,6 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
+use unicode_width::UnicodeWidthStr;
 
 use crate::t;
 use crate::tui::state::main_state::{SidebarCategory, SidebarItem, SidebarState};
@@ -221,10 +222,10 @@ fn build_list_item<'a>(
                 let edit_icon = if unicode { "\u{270E}" } else { "[e]" };
                 let delete_icon = if unicode { theme::ICON_ERROR } else { "[x]" };
 
-                let name_chars = display.chars().count();
+                let name_width = display_width(&display);
                 let padding_width = (area_width as usize)
-                    .saturating_sub(name_chars)
-                    .saturating_sub(edit_icon.chars().count() + delete_icon.chars().count() + 4);
+                    .saturating_sub(name_width)
+                    .saturating_sub(display_width(edit_icon) + display_width(delete_icon) + 4);
 
                 if is_selected(item, state) {
                     selected_list_item(
@@ -355,7 +356,7 @@ fn category_line(
 }
 
 fn display_width(text: &str) -> usize {
-    Line::from(text.to_string()).width()
+    UnicodeWidthStr::width(text)
 }
 
 /// Return the display label for a sidebar category.

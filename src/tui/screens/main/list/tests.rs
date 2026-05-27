@@ -350,22 +350,44 @@ fn selected_record_marker_keeps_right_padding() {
     let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
 
     assert_eq!(
-        buffer.cell((57, 2)).expect("marker cell").symbol(),
+        buffer.cell((60, 2)).expect("marker cell").symbol(),
         "\u{25C0}",
-        "selected marker should leave four columns of right padding plus right margin"
+        "selected marker should leave one column of right padding plus right margin"
     );
-    for x in 58..62 {
-        assert_eq!(
-            buffer.cell((x, 2)).expect("right padding cell").symbol(),
-            " "
-        );
-    }
+    assert_eq!(
+        buffer.cell((61, 2)).expect("right padding cell").symbol(),
+        " "
+    );
     for x in 62..64 {
         assert_eq!(
             buffer.cell((x, 2)).expect("right margin cell").symbol(),
             " "
         );
     }
+}
+
+#[test]
+fn selected_chinese_timestamp_keeps_compact_right_margin() {
+    let _guard = LocaleGuard::zh_cn();
+    let mut record = make_record(Uuid::new_v4(), "Github Page", "p1024k");
+    record.updated_at = Utc::now() - chrono::Duration::try_days(3).unwrap();
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+    let title_line = (0..64)
+        .map(|x| buffer.cell((x, 2)).expect("title row cell").symbol())
+        .collect::<String>();
+
+    assert!(
+        title_line.contains('3') && title_line.contains('天') && title_line.contains('前'),
+        "selected item should render the full Chinese relative timestamp: {title_line:?}"
+    );
+    assert_eq!(
+        buffer.cell((60, 2)).expect("marker cell").symbol(),
+        "\u{25C0}",
+        "selected timestamp marker should not be pushed too far left: {title_line:?}"
+    );
 }
 
 #[test]

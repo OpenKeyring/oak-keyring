@@ -5,7 +5,7 @@ expression: ascii_backend
 "                                                                                                    "
 "  [1] All                          [2]     Sort: [ Created v ]     GitHub Account                   "
 "                                                                   octocat                          "
-"  [2] Favorites                    [1]     GitHub Account<       *                                  "
+"  [2] Favorites                    [1]     GitHub Account   <    *                                  "
 "  [3] Expired                      [0]     octocat                                                  "
 "                                         -----------------------   -----------------                "
 "                                           Personal Email                                           "
