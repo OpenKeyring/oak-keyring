@@ -50,6 +50,7 @@ impl CommandExecutor {
                 | Command::UnlockWithRecoveryKey { .. }
                 | Command::InitializeVault { .. }
                 | Command::LoadConfig
+                | Command::SaveConfig { .. }
                 | Command::ValidateRecoveryWords { .. }
                 | Command::RebuildKeyFileFromRecovery { .. }
                 | Command::RestoreDatabaseFromOkb { .. }

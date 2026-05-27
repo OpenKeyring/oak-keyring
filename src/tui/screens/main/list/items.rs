@@ -286,6 +286,7 @@ pub(super) fn build_record_item<'a>(
     }
     title_spans.push(Span::styled(" ".repeat(padding_len), base_style));
     title_spans.push(Span::styled(right_part, base_style));
+    title_spans.push(Span::styled(" ".repeat(ITEM_RIGHT_MARGIN), base_style));
 
     let title_line = Line::from(title_spans);
 
@@ -362,7 +363,7 @@ pub(super) fn build_trash_item<'a>(
     let name_len = display_width(&prefix_str) + display_width(&record.name);
     let padding_len = (area_width as usize)
         .saturating_sub(name_len)
-        .saturating_sub(right_part.chars().count());
+        .saturating_sub(display_width(&right_part));
 
     let base_style = if is_visual_selected {
         Style::default()
@@ -444,4 +445,34 @@ pub(super) fn build_trash_item<'a>(
 
 fn display_width(text: &str) -> usize {
     Line::from(text.to_string()).width()
+}
+
+#[cfg(test)]
+mod width_tests {
+    use super::*;
+    
+    #[test]
+    fn display_width_cjk_yesterday() {
+        assert_eq!(display_width("昨天"), 4, "昨天 should be 4 display columns");
+    }
+    
+    #[test]
+    fn display_width_english_yesterday() {
+        assert_eq!(display_width("yesterday"), 9);
+    }
+    
+    #[test]
+    fn display_width_marker() {
+        let marker = "\u{25C0}";
+        let w = display_width(marker);
+        assert!(w == 1 || w == 2, "◀ display width should be 1 or 2, got {}", w);
+    }
+    
+    #[test]
+    fn chars_count_vs_display_width_for_marker() {
+        let right = format!("\u{25C0}{}", " ".repeat(4));
+        assert_eq!(right.chars().count(), 5, "chars().count() for ◀ + 4 spaces");
+        let dw = display_width(&right);
+        println!("display_width of '◀    ' = {} (chars().count = {})", dw, right.chars().count());
+    }
 }
