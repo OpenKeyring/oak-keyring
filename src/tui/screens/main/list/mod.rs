@@ -50,6 +50,8 @@ impl ListPanel {
             return;
         }
 
+        frame.render_widget(Paragraph::new("").style(theme::Styles::newlook_bg()), area);
+
         // Split: sort/search bar + one padding row + list body.
         let bar_height = 2u16.min(area.height);
         let bar_area = Rect::new(area.x, area.y, area.width, 1);
@@ -62,7 +64,8 @@ impl ListPanel {
 
         // 1. Render the bar
         let bar_content = build_bar_content(state, unicode);
-        let bar = Paragraph::new(bar_content).style(Style::default().fg(theme::TEXT));
+        let bar =
+            Paragraph::new(bar_content).style(Style::default().fg(theme::NL_TEXT).bg(theme::NL_BG));
         frame.render_widget(bar, bar_area);
 
         // 2. Render list or empty state

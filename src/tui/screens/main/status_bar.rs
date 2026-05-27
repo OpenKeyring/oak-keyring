@@ -54,14 +54,14 @@ impl StatusBarPanel {
             return;
         }
 
-        let bar_bg = theme::BG_BAR;
-        let sep_style = Style::default().fg(theme::BORDER).bg(bar_bg);
-        let shortcut_style = Style::default().fg(theme::TEXT_SECONDARY).bg(bar_bg);
-        let version_style = Style::default().fg(theme::TEXT_MUTED).bg(bar_bg);
+        let bar_bg = theme::NL_SURFACE_2;
+        let sep_style = Style::default().fg(theme::NL_LINE).bg(bar_bg);
+        let shortcut_style = Style::default().fg(theme::NL_TEXT_MUTED).bg(bar_bg);
+        let version_style = Style::default().fg(theme::NL_TEXT_MUTED).bg(bar_bg);
         let sync_style = Style::default()
             .fg(sync_color(&state.sync_status))
             .bg(bar_bg);
-        let msg_style = Style::default().fg(theme::TEXT_SECONDARY).bg(bar_bg);
+        let msg_style = Style::default().fg(theme::NL_TEXT_MUTED).bg(bar_bg);
 
         let shortcuts = if visual_mode && matches!(focused_panel, PanelId::List | PanelId::Detail) {
             visual_shortcuts_text(unicode, is_trash)
@@ -87,9 +87,9 @@ impl StatusBarPanel {
             left_spans.push(Span::styled(
                 format!(" {} ", indicator),
                 Style::default()
-                    .fg(theme::TEXT)
+                    .fg(theme::NL_TEXT)
                     .add_modifier(Modifier::BOLD)
-                    .bg(theme::BG_BAR),
+                    .bg(theme::NL_SELECTED),
             ));
         }
 
@@ -104,7 +104,7 @@ impl StatusBarPanel {
                 right_spans.push(Span::styled(SEPARATOR, sep_style));
                 right_spans.push(Span::styled(
                     format!("{} {}", icon, text),
-                    Style::default().fg(theme::PRIMARY).bg(bar_bg),
+                    Style::default().fg(theme::NL_CYAN).bg(bar_bg),
                 ));
             }
             HealthCheckPhase::NeedsAttention {
@@ -122,7 +122,7 @@ impl StatusBarPanel {
                 right_spans.push(Span::styled(SEPARATOR, sep_style));
                 right_spans.push(Span::styled(
                     format!("{} {}", icon, text),
-                    Style::default().fg(theme::WARNING).bg(bar_bg),
+                    Style::default().fg(theme::NL_HOT).bg(bar_bg),
                 ));
             }
             HealthCheckPhase::AllSecure => {
@@ -134,7 +134,7 @@ impl StatusBarPanel {
                 right_spans.push(Span::styled(SEPARATOR, sep_style));
                 right_spans.push(Span::styled(
                     text,
-                    Style::default().fg(theme::SUCCESS).bg(bar_bg),
+                    Style::default().fg(theme::NL_SUCCESS).bg(bar_bg),
                 ));
             }
             HealthCheckPhase::Skipped => {
@@ -150,7 +150,7 @@ impl StatusBarPanel {
                 right_spans.push(Span::styled(SEPARATOR, sep_style));
                 right_spans.push(Span::styled(
                     text,
-                    Style::default().fg(theme::TEXT_MUTED).bg(bar_bg),
+                    Style::default().fg(theme::NL_TEXT_MUTED).bg(bar_bg),
                 ));
             }
             HealthCheckPhase::Inactive => {
@@ -282,11 +282,11 @@ fn sync_indicator_text(sync: &SyncIndicator, unicode: bool) -> String {
 /// Return the color for a sync indicator state.
 fn sync_color(sync: &SyncIndicator) -> Color {
     match sync {
-        SyncIndicator::Synced => theme::SUCCESS,
-        SyncIndicator::Syncing => theme::PRIMARY,
-        SyncIndicator::Failed => theme::ERROR,
-        SyncIndicator::Offline => theme::WARNING,
-        SyncIndicator::NotConfigured => theme::TEXT_MUTED,
+        SyncIndicator::Synced => theme::NL_SUCCESS,
+        SyncIndicator::Syncing => theme::NL_CYAN,
+        SyncIndicator::Failed => theme::NL_DANGER,
+        SyncIndicator::Offline => theme::NL_HOT,
+        SyncIndicator::NotConfigured => theme::NL_TEXT_MUTED,
     }
 }
 
@@ -403,11 +403,14 @@ mod tests {
 
     #[test]
     fn sync_colors() {
-        assert_eq!(sync_color(&SyncIndicator::Synced), theme::SUCCESS);
-        assert_eq!(sync_color(&SyncIndicator::Syncing), theme::PRIMARY);
-        assert_eq!(sync_color(&SyncIndicator::Failed), theme::ERROR);
-        assert_eq!(sync_color(&SyncIndicator::Offline), theme::WARNING);
-        assert_eq!(sync_color(&SyncIndicator::NotConfigured), theme::TEXT_MUTED);
+        assert_eq!(sync_color(&SyncIndicator::Synced), theme::NL_SUCCESS);
+        assert_eq!(sync_color(&SyncIndicator::Syncing), theme::NL_CYAN);
+        assert_eq!(sync_color(&SyncIndicator::Failed), theme::NL_DANGER);
+        assert_eq!(sync_color(&SyncIndicator::Offline), theme::NL_HOT);
+        assert_eq!(
+            sync_color(&SyncIndicator::NotConfigured),
+            theme::NL_TEXT_MUTED
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -27,11 +27,12 @@ pub fn render_generator(frame: &mut Frame, area: Rect, state: &GeneratorState, u
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
-        .style(Style::default().bg(Color::Rgb(26, 27, 38)));
+        .border_style(Style::default().fg(theme::NL_FOCUS))
+        .style(Style::default().bg(theme::NL_SURFACE));
 
     let paragraph = Paragraph::new(lines)
         .block(block)
+        .style(theme::Styles::newlook_surface())
         .wrap(Wrap { trim: false });
 
     frame.render_widget(Clear, dialog_area);

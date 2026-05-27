@@ -51,10 +51,10 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
 
     let outer_block = Block::default()
         .title(title)
-        .title_style(Style::default().fg(theme::TEXT))
+        .title_style(Style::default().fg(theme::NL_TEXT))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
-        .style(Style::default().bg(theme::BG));
+        .border_style(Style::default().fg(theme::NL_FOCUS))
+        .style(Style::default().bg(theme::NL_SURFACE));
 
     let inner = outer_block.inner(panel_area);
     frame.render_widget(Clear, panel_area);
@@ -145,17 +145,17 @@ fn tag_display_rows(tags: &[String], max_width: u16) -> u16 {
 fn render_input_section(frame: &mut Frame, area: Rect, state: &BatchTagPanelFullState) {
     let focused = state.focus == TagPanelFocus::Input;
     let border_color = if focused {
-        theme::PRIMARY
+        theme::NL_CYAN
     } else {
-        theme::BORDER
+        theme::NL_LINE
     };
 
     let input_block = Block::default()
         .title(format!(" {} ", t!("tui.batch.add_tag")))
-        .title_style(Style::default().fg(theme::TEXT_SECONDARY))
+        .title_style(Style::default().fg(theme::NL_TEXT_MUTED))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        .style(Style::default().bg(theme::BG));
+        .style(Style::default().bg(theme::NL_SURFACE));
 
     let inner = input_block.inner(area);
     frame.render_widget(input_block, area);
@@ -168,7 +168,7 @@ fn render_input_section(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
         input_text.clone()
     };
 
-    let input_style = Style::default().fg(theme::TEXT).bg(theme::BG);
+    let input_style = Style::default().fg(theme::NL_TEXT).bg(theme::NL_SURFACE);
     let input = Paragraph::new(display_text)
         .style(input_style)
         .wrap(Wrap { trim: false });
@@ -185,24 +185,24 @@ fn render_tags_section(
     cursor: usize,
 ) {
     let border_color = if focused {
-        theme::PRIMARY
+        theme::NL_CYAN
     } else {
-        theme::BORDER
+        theme::NL_LINE
     };
 
     let section_block = Block::default()
         .title(format!(" {header} "))
-        .title_style(Style::default().fg(theme::TEXT_SECONDARY))
+        .title_style(Style::default().fg(theme::NL_TEXT_MUTED))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        .style(Style::default().bg(theme::BG));
+        .style(Style::default().bg(theme::NL_SURFACE));
 
     let inner = section_block.inner(area);
     frame.render_widget(section_block, area);
 
     if tags.is_empty() {
         let empty = Paragraph::new(format!("  {}", t!("tui.batch.no_tags")))
-            .style(Style::default().fg(theme::TEXT_MUTED))
+            .style(Style::default().fg(theme::NL_TEXT_MUTED))
             .wrap(Wrap { trim: false });
         frame.render_widget(empty, inner);
         return;
@@ -232,8 +232,8 @@ fn render_done_button(frame: &mut Frame, area: Rect, state: &BatchTagPanelFullSt
 
     let button_block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
-        .style(Style::default().bg(theme::BG));
+        .border_style(Style::default().fg(theme::NL_LINE))
+        .style(Style::default().bg(theme::NL_SURFACE));
 
     let inner = button_block.inner(area);
     frame.render_widget(button_block, area);
@@ -241,11 +241,11 @@ fn render_done_button(frame: &mut Frame, area: Rect, state: &BatchTagPanelFullSt
     let button_text = format!(" {} ", t!("tui.batch.done"));
     let button_style = if focused {
         Style::default()
-            .fg(theme::PRIMARY)
+            .fg(theme::NL_CYAN)
             .add_modifier(Modifier::REVERSED | Modifier::BOLD)
     } else {
         Style::default()
-            .fg(theme::PRIMARY)
+            .fg(theme::NL_CYAN)
             .add_modifier(Modifier::BOLD)
     };
 

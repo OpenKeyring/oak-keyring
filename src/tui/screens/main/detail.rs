@@ -49,6 +49,7 @@ impl DetailPanel {
     }
 
     fn render_empty(&self, frame: &mut Frame, area: Rect, unicode: bool) {
+        frame.render_widget(Paragraph::new("").style(theme::Styles::newlook_bg()), area);
         let icon = if unicode { "\u{1F510}" } else { "[?]" };
         let content_lines = vec![
             Line::from(""),
@@ -194,9 +195,9 @@ impl DetailPanel {
         match record.expiry_status {
             ExpiryStatus::ExpiringSoon => {
                 let icon = if unicode {
-                    theme::ICON_WARNING
+                    theme::NF_WARNING_TRIANGLE
                 } else {
-                    theme::ascii::ICON_WARNING
+                    theme::ascii::NF_WARNING_TRIANGLE
                 };
                 if let Some(dt) = record.expires_at {
                     let now = chrono::Utc::now().date_naive();
@@ -413,7 +414,7 @@ impl DetailPanel {
             )));
         }
 
-        let para = Paragraph::new(lines);
+        let para = Paragraph::new(lines).style(theme::Styles::newlook_bg());
         frame.render_widget(para, area);
     }
 
@@ -427,14 +428,14 @@ impl DetailPanel {
         unicode: bool,
     ) {
         let border_style = if focused {
-            Style::default().fg(theme::PRIMARY)
+            Style::default().fg(theme::NL_FOCUS)
         } else {
-            Style::default().fg(theme::BORDER)
+            Style::default().fg(theme::NL_LINE)
         };
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(border_style)
-            .style(Style::default().bg(theme::BG));
+            .style(Style::default().bg(theme::NL_SURFACE));
         let inner = block.inner(area).inner(Margin {
             horizontal: 2,
             vertical: 1,
@@ -448,12 +449,12 @@ impl DetailPanel {
         let mut title = vec![
             Span::styled(
                 format!("{}  ", db_icon),
-                Style::default().fg(theme::PRIMARY),
+                Style::default().fg(theme::NL_CYAN),
             ),
             Span::styled(
                 record.name.clone(),
                 Style::default()
-                    .fg(theme::TEXT)
+                    .fg(theme::NL_TEXT)
                     .add_modifier(Modifier::BOLD),
             ),
         ];
@@ -468,7 +469,7 @@ impl DetailPanel {
                         t!("tui.password_detail.favorite_badge")
                     ),
                     Style::default()
-                        .fg(theme::WARNING)
+                        .fg(theme::NL_HOT)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" ", Style::default().fg(theme::WARNING)),
@@ -488,12 +489,12 @@ impl DetailPanel {
         lines.push(Line::from(vec![
             Span::styled(
                 format!("{}  ", key_icon),
-                Style::default().fg(theme::PRIMARY),
+                Style::default().fg(theme::NL_CYAN),
             ),
             Span::styled(
                 credential_type_label(record).into_owned(),
                 Style::default()
-                    .fg(theme::PRIMARY)
+                    .fg(theme::NL_CYAN)
                     .add_modifier(Modifier::BOLD),
             ),
         ]));
@@ -527,7 +528,10 @@ impl DetailPanel {
             ]));
         }
 
-        frame.render_widget(Paragraph::new(lines), inner);
+        frame.render_widget(
+            Paragraph::new(lines).style(theme::Styles::newlook_surface()),
+            inner,
+        );
     }
 
     fn render_primary_table(
@@ -627,10 +631,10 @@ impl DetailPanel {
         let is_row_focused = focused && state.focused_field == field_idx;
         let row_style = if is_row_focused && state.focused_action.is_none() {
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::NL_TEXT)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::NL_TEXT)
         };
         render_table_row(
             field_icon(field.kind, unicode),
@@ -667,7 +671,7 @@ impl DetailPanel {
                 Span::styled(fill.repeat(filled), Style::default().fg(strength.color())),
                 Span::styled(
                     empty_char.repeat(empty),
-                    Style::default().fg(theme::TEXT_MUTED),
+                    Style::default().fg(theme::NL_LINE),
                 ),
             ],
             vec![Span::styled(
@@ -749,7 +753,7 @@ fn table_border_line(
                 "-".repeat(cols.value + 2),
                 "-".repeat(cols.action + 2)
             ),
-            Style::default().fg(theme::BORDER),
+            Style::default().fg(theme::NL_LINE),
         ));
     }
     Line::from(Span::styled(
@@ -763,7 +767,7 @@ fn table_border_line(
             "─".repeat(cols.action + 2),
             right
         ),
-        Style::default().fg(theme::BORDER),
+        Style::default().fg(theme::NL_LINE),
     ))
 }
 
@@ -785,7 +789,7 @@ fn render_plain_table_row(
         label,
         vec![Span::styled(
             value.to_string(),
-            Style::default().fg(theme::TEXT),
+            Style::default().fg(theme::NL_TEXT),
         )],
         actions,
         cols,
@@ -801,18 +805,18 @@ fn render_table_row(
 ) -> Line<'static> {
     let label_text = format!("{}  {}", icon, label);
     let mut spans = vec![
-        Span::styled("│ ", Style::default().fg(theme::BORDER)),
+        Span::styled("│ ", Style::default().fg(theme::NL_LINE)),
         Span::styled(
             pad_to_width(&label_text, cols.label),
-            Style::default().fg(theme::TEXT_SECONDARY),
+            Style::default().fg(theme::NL_TEXT_MUTED),
         ),
-        Span::styled(" │ ", Style::default().fg(theme::BORDER)),
+        Span::styled(" │ ", Style::default().fg(theme::NL_LINE)),
     ];
 
     spans.extend(pad_spans(value, cols.value, false));
-    spans.push(Span::styled(" │ ", Style::default().fg(theme::BORDER)));
+    spans.push(Span::styled(" │ ", Style::default().fg(theme::NL_LINE)));
     spans.extend(pad_spans(actions, cols.action, true));
-    spans.push(Span::styled(" │", Style::default().fg(theme::BORDER)));
+    spans.push(Span::styled(" │", Style::default().fg(theme::NL_LINE)));
     Line::from(spans)
 }
 
@@ -959,9 +963,9 @@ fn expiry_status_line(record: &DetailViewData, unicode: bool) -> Option<Line<'st
     match record.expiry_status {
         ExpiryStatus::ExpiringSoon => {
             let icon = if unicode {
-                theme::ICON_WARNING
+                theme::NF_WARNING_TRIANGLE
             } else {
-                theme::ascii::ICON_WARNING
+                theme::ascii::NF_WARNING_TRIANGLE
             };
             let dt = record.expires_at?;
             let now = chrono::Utc::now().date_naive();
@@ -1110,11 +1114,11 @@ fn action_button_span(
     label: String,
     compact: bool,
 ) -> Span<'static> {
-    let mut style = Style::default().fg(theme::PRIMARY);
+    let mut style = Style::default().fg(theme::NL_FOCUS);
     if state.focused_action == Some(action) {
         style = style
-            .fg(theme::TEXT)
-            .bg(theme::PRIMARY)
+            .fg(theme::NL_BG)
+            .bg(theme::NL_CYAN)
             .add_modifier(Modifier::BOLD);
     }
     if compact {
@@ -1127,9 +1131,12 @@ fn action_button_span(
 fn render_tag_chips(tags: &[String]) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     for tag in tags {
-        spans.push(Span::styled("[ ", Style::default().fg(theme::PRIMARY)));
-        spans.push(Span::styled(tag.clone(), Style::default().fg(theme::TEXT)));
-        spans.push(Span::styled(" ] ", Style::default().fg(theme::PRIMARY)));
+        spans.push(Span::styled("[ ", Style::default().fg(theme::NL_CYAN)));
+        spans.push(Span::styled(
+            tag.clone(),
+            Style::default().fg(theme::NL_TEXT),
+        ));
+        spans.push(Span::styled(" ] ", Style::default().fg(theme::NL_CYAN)));
     }
     spans
 }
@@ -1228,7 +1235,7 @@ fn render_batch_summary_view(
         ),
     ]));
 
-    let para = Paragraph::new(lines);
+    let para = Paragraph::new(lines).style(theme::Styles::newlook_bg());
     frame.render_widget(para, area);
 }
 
@@ -1307,6 +1314,29 @@ mod tests {
             })
             .unwrap();
         terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn expiring_soon_detail_line_uses_newlook_warning_icon() {
+        let mut data = make_trash_detail_data();
+        data.expires_at = Some(chrono::Utc::now() + chrono::Duration::days(7));
+        data.expiry_status = ExpiryStatus::ExpiringSoon;
+
+        let line = expiry_status_line(&data, true).expect("expiry warning line should render");
+        let text: String = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+
+        assert!(
+            text.contains('\u{f071}'),
+            "expiring-soon detail line should use the requested warning icon: {text:?}"
+        );
+        assert!(
+            !text.contains('\u{26A0}'),
+            "expiring-soon detail line should not duplicate the old warning icon: {text:?}"
+        );
     }
 
     #[test]

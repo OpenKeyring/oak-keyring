@@ -7,6 +7,7 @@ use oak_keyring::tui::screens::config_screen::ConfigScreen;
 use oak_keyring::tui::state::config_state::{
     ConfigOverlay, ConfigTab, ConfirmButton, DropdownField, GDriveAuthStatus, SyncConnectionStatus,
 };
+use oak_keyring::tui::theme;
 use oak_keyring::tui::traits::screen::Screen;
 
 use crate::support::snapshot_locale;
@@ -20,6 +21,41 @@ fn render_screen(screen: &ConfigScreen, width: u16, height: u16) -> TestBackend 
         })
         .unwrap();
     terminal.backend().clone()
+}
+
+fn backend_text(backend: &TestBackend) -> String {
+    let buffer = backend.buffer();
+    (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn cell_at_text_start<'a>(
+    backend: &'a TestBackend,
+    text: &str,
+) -> Option<&'a ratatui::buffer::Cell> {
+    let buffer = backend.buffer();
+    let target: Vec<String> = text.chars().map(|ch| ch.to_string()).collect();
+    if target.is_empty() {
+        return None;
+    }
+    for y in 0..buffer.area.height {
+        let symbols: Vec<&str> = (0..buffer.area.width)
+            .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+            .collect();
+        if let Some(start) = symbols
+            .windows(target.len())
+            .position(|window| window.iter().zip(&target).all(|(cell, ch)| *cell == ch))
+        {
+            return buffer.cell((start as u16, y));
+        }
+    }
+    None
 }
 
 fn configure_google_drive_sync(screen: &mut ConfigScreen) {
@@ -38,6 +74,57 @@ fn config_general_tab() {
     screen.state.active_tab = ConfigTab::General;
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("config_general_tab", backend);
+}
+
+#[test]
+fn config_general_newlook_chrome_and_controls() {
+    let _locale = snapshot_locale();
+    let mut screen = ConfigScreen::new();
+    screen.state.active_tab = ConfigTab::General;
+    let backend = render_screen(&screen, 120, 30);
+    let rendered = backend_text(&backend);
+
+    assert!(
+        rendered.contains(theme::NF_GEAR),
+        "config tab bar should use the new-look gear icon"
+    );
+    assert!(
+        rendered.contains(theme::NF_GLOBE),
+        "general rows should use field icons"
+    );
+    assert!(
+        rendered.contains("\u{f093}"),
+        "import action should use the upload icon"
+    );
+    assert!(
+        rendered.contains("\u{f019}"),
+        "export action should use the download icon"
+    );
+    assert!(
+        rendered.contains("┌") && rendered.contains("┘"),
+        "config screen should render bordered panels"
+    );
+    assert!(
+        rendered.contains("\u{258C}  General"),
+        "content panel should render a marked General section title"
+    );
+    assert!(
+        rendered.contains("[  auto") || rendered.contains("[ auto"),
+        "dropdown values should render as bracket controls"
+    );
+}
+
+#[test]
+fn config_footer_close_focus_uses_newlook_danger_button() {
+    let _locale = snapshot_locale();
+    let mut screen = ConfigScreen::new();
+    screen.state.footer_focus = Some(oak_keyring::tui::state::config_state::FooterButton::Close);
+    let backend = render_screen(&screen, 120, 30);
+    let close_cell =
+        cell_at_text_start(&backend, "Close").expect("focused close button should render");
+
+    assert_eq!(close_cell.style().fg, Some(theme::NL_DANGER));
+    assert_eq!(close_cell.style().bg, Some(theme::NL_SURFACE_2));
 }
 
 #[test]

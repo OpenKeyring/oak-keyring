@@ -17,7 +17,7 @@ use crate::tui::theme;
 
 // ── Colour constants ──────────────────────────────────────────
 
-const OVERLAY_BG: Color = Color::Rgb(26, 27, 38); // #1a1b26
+const OVERLAY_BG: Color = Color::Rgb(20, 24, 39); // #141827
 
 // ── Layout constants ──────────────────────────────────────────
 
@@ -54,12 +54,12 @@ pub fn render_error_dialog(frame: &mut Frame, area: Rect, state: &ErrorDialogFul
         .title(Span::styled(
             title,
             Style::default()
-                .fg(theme::ERROR)
+                .fg(theme::NL_DANGER)
                 .add_modifier(Modifier::BOLD),
         ))
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
+        .border_style(Style::default().fg(theme::NL_FOCUS))
         .style(Style::default().bg(OVERLAY_BG));
 
     // Build final content: body lines + blank separator + button line
@@ -69,6 +69,7 @@ pub fn render_error_dialog(frame: &mut Frame, area: Rect, state: &ErrorDialogFul
 
     let paragraph = Paragraph::new(all_lines)
         .block(block)
+        .style(theme::Styles::newlook_surface())
         .wrap(Wrap { trim: false })
         .alignment(Alignment::Center);
 
@@ -125,7 +126,7 @@ fn build_body_lines(state: &ErrorDialogFullState) -> Vec<Line<'static>> {
     // Error message
     lines.push(Line::from(Span::styled(
         state.message.clone(),
-        Style::default().fg(theme::TEXT_SECONDARY),
+        Style::default().fg(theme::NL_TEXT_MUTED),
     )));
 
     // Optional detail
@@ -133,7 +134,7 @@ fn build_body_lines(state: &ErrorDialogFullState) -> Vec<Line<'static>> {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             detail.clone(),
-            Style::default().fg(theme::TEXT_MUTED),
+            Style::default().fg(theme::NL_LINE),
         )));
     }
 
@@ -149,18 +150,18 @@ fn build_button_line(state: &ErrorDialogFullState) -> Line<'static> {
 
             let retry_style = if state.focused_button == 0 {
                 Style::default()
-                    .fg(theme::PRIMARY)
+                    .fg(theme::NL_CYAN)
                     .add_modifier(Modifier::REVERSED)
             } else {
-                Style::default().fg(theme::PRIMARY)
+                Style::default().fg(theme::NL_CYAN)
             };
 
             let quit_style = if state.focused_button == 1 {
                 Style::default()
-                    .fg(theme::TEXT_SECONDARY)
+                    .fg(theme::NL_TEXT_MUTED)
                     .add_modifier(Modifier::REVERSED)
             } else {
-                Style::default().fg(theme::TEXT_SECONDARY)
+                Style::default().fg(theme::NL_TEXT_MUTED)
             };
 
             Line::from(vec![
@@ -172,7 +173,7 @@ fn build_button_line(state: &ErrorDialogFullState) -> Line<'static> {
         ErrorActions::QuitOnly => {
             let label = format!(" {} ", t!("tui.error.exit"));
             let style = Style::default()
-                .fg(theme::TEXT_SECONDARY)
+                .fg(theme::NL_TEXT_MUTED)
                 .add_modifier(Modifier::REVERSED);
             Line::from(vec![Span::styled(label, style)])
         }

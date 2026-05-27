@@ -12,7 +12,7 @@ use crate::types::credential::CredentialType;
 use crate::types::record::TuiRecord;
 use chrono::Utc;
 use ratatui::backend::TestBackend;
-use ratatui::style::Modifier;
+use ratatui::style::{Color, Modifier};
 use ratatui::text::Span;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -289,7 +289,7 @@ fn render_ascii_mode() {
 }
 
 #[test]
-fn selected_record_is_reversed_even_when_list_is_not_focused() {
+fn selected_record_keeps_newlook_background_when_list_is_not_focused() {
     let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
     let mut state = ListPanelState::with_records(vec![record]);
     state.selected_index = Some(0);
@@ -298,9 +298,10 @@ fn selected_record_is_reversed_even_when_list_is_not_focused() {
 
     // Row 0 is the sort bar, row 1 is the padding row, row 2 is the title.
     let title_cell = buffer.cell((3, 2)).expect("selected title cell exists");
-    assert!(
-        title_cell.style().add_modifier.contains(Modifier::REVERSED),
-        "selected title should be reverse highlighted even when the list panel is not focused"
+    assert_eq!(
+        title_cell.style().bg,
+        Some(theme::NL_SELECTED),
+        "selected title should keep the explicit new-look background even when the list panel is not focused"
     );
 }
 
@@ -391,7 +392,7 @@ fn selected_chinese_timestamp_keeps_compact_right_margin() {
 }
 
 #[test]
-fn selected_record_title_and_subtitle_use_same_reverse_style() {
+fn selected_record_title_and_subtitle_use_same_newlook_background() {
     let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
     let mut state = ListPanelState::with_records(vec![record]);
     state.selected_index = Some(0);
@@ -400,21 +401,53 @@ fn selected_record_title_and_subtitle_use_same_reverse_style() {
 
     let title_cell = buffer.cell((2, 2)).expect("selected title cell exists");
     let subtitle_cell = buffer.cell((2, 3)).expect("selected subtitle cell exists");
-    assert!(
-        title_cell.style().add_modifier.contains(Modifier::REVERSED),
-        "selected title should be reversed"
-    );
-    assert!(
-        subtitle_cell
-            .style()
-            .add_modifier
-            .contains(Modifier::REVERSED),
-        "selected subtitle should be reversed"
+    assert_eq!(
+        title_cell.style().bg,
+        Some(theme::NL_SELECTED),
+        "selected title should use the selected background"
     );
     assert_eq!(
-        title_cell.style().fg,
+        subtitle_cell.style().bg,
+        Some(theme::NL_SELECTED),
+        "selected subtitle should use the selected background"
+    );
+    assert_eq!(
         subtitle_cell.style().fg,
-        "selected title and subtitle should use the same foreground so the highlight reads as one block"
+        Some(theme::NL_TEXT_MUTED),
+        "selected subtitle should use muted text on the selected background"
+    );
+}
+
+#[test]
+fn selected_record_uses_newlook_background_and_cyan_focus_gutter() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+
+    let gutter = buffer.cell((0, 2)).expect("selected gutter cell exists");
+    let title_cell = buffer.cell((3, 2)).expect("selected title cell exists");
+    let subtitle_cell = buffer.cell((3, 3)).expect("selected subtitle cell exists");
+
+    assert_eq!(
+        gutter.style().bg,
+        Some(Color::Rgb(52, 228, 255)),
+        "focused selected row should expose the cyan new-look gutter"
+    );
+    assert_eq!(
+        title_cell.style().bg,
+        Some(Color::Rgb(36, 45, 79)),
+        "selected title should use the new-look selected background"
+    );
+    assert_eq!(
+        subtitle_cell.style().bg,
+        Some(Color::Rgb(36, 45, 79)),
+        "selected subtitle should share the selected background"
+    );
+    assert!(
+        !title_cell.style().add_modifier.contains(Modifier::REVERSED),
+        "new-look selected rows should use explicit colors instead of reverse video"
     );
 }
 
@@ -532,16 +565,16 @@ fn render_visual_mode_bar() {
         "label span should contain 'VISUAL'"
     );
     assert!(
-        label_span.style.fg == Some(theme::TEXT),
-        "label should use TEXT color (white bold on BG_BAR)"
+        label_span.style.fg == Some(theme::NL_TEXT),
+        "label should use primary text color"
     );
     assert!(
         label_span.style.add_modifier.contains(Modifier::BOLD),
         "label should be BOLD"
     );
     assert!(
-        label_span.style.bg == Some(theme::BG_BAR),
-        "label should have BG_BAR background"
+        label_span.style.bg == Some(theme::NL_SELECTED),
+        "label should have selected new-look background"
     );
 
     let count_span = &line.spans[1];
@@ -550,8 +583,8 @@ fn render_visual_mode_bar() {
         "count span should contain the number 5"
     );
     assert!(
-        count_span.style.bg == Some(theme::BG_BAR),
-        "count should have BG_BAR background"
+        count_span.style.bg == Some(theme::NL_SELECTED),
+        "count should have selected new-look background"
     );
 }
 

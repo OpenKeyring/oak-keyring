@@ -3,10 +3,10 @@ source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
 "                      ┌──────────────────────── Help ────────────────────────┐                      "
-"  [1] All             │ Navigation                │  Multiselect             │unt                   "
+"    All              │ Navigation                │  Multiselect             │unt                   "
 "                      │  ↑/k       Move up        │   Space                  │                      "
-"  [2] Favorites       │Select/Deselect                                       │                      "
-"  [3] Expired         │  ↓/j       Move down      │   j/k       Move up/down │                      "
+"    Favorites        │Select/Deselect                                       │                      "
+"    Expired          │  ↓/j       Move down      │   j/k       Move up/down │                      "
 "                      │  Tab       Switch panel   │   a         Select       │──────                "
 "                      │all/Deselect                                          │                      "
 "                      │  Enter     Confirm        │   d         Batch delete │                      "

@@ -163,7 +163,7 @@ pub(super) fn build_record_item<'a>(
     record: &crate::types::record::TuiRecord,
     is_selected: bool,
     is_visual_selected: bool,
-    _focused: bool,
+    focused: bool,
     unicode: bool,
     area_width: u16,
     search_query: Option<&str>,
@@ -176,7 +176,12 @@ pub(super) fn build_record_item<'a>(
     let timestamp = format_relative_time(&record.updated_at);
 
     // Build name spans: prefix (plain) + highlighted name (if search active)
-    let prefix_str = format!("{}{}", ITEM_LEFT_PADDING, type_prefix);
+    let gutter_width = usize::from(is_selected);
+    let prefix_str = if is_selected {
+        format!(" {}", type_prefix)
+    } else {
+        format!("{}{}", ITEM_LEFT_PADDING, type_prefix)
+    };
 
     // Priority: Compromised > Weak > Duplicate > Expired (matches S3 spec)
     let badge = if is_min_width {
@@ -201,7 +206,7 @@ pub(super) fn build_record_item<'a>(
     // Determine right-side content: omit timestamp when space is too narrow
     // to display it fully, avoiding mid-word truncation like "ye" from "yesterday".
     let indicator_str = if is_selected { marker } else { "" };
-    let name_width = display_width(&prefix_str) + display_width(&record.name);
+    let name_width = gutter_width + display_width(&prefix_str) + display_width(&record.name);
     let badge_width = display_width(badge_str);
     let selected_marker_padding = if is_selected {
         SELECTED_MARKER_RIGHT_PADDING
@@ -241,15 +246,16 @@ pub(super) fn build_record_item<'a>(
 
     let base_style = if is_visual_selected {
         Style::default()
-            .bg(theme::BRAND)
-            .fg(theme::TEXT)
+            .bg(theme::NL_SELECTED)
+            .fg(theme::NL_TEXT)
             .add_modifier(Modifier::DIM)
     } else if is_selected {
         Style::default()
-            .fg(theme::TEXT)
-            .add_modifier(Modifier::REVERSED)
+            .bg(theme::NL_SELECTED)
+            .fg(theme::NL_TEXT)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::TEXT)
+        Style::default().fg(theme::NL_TEXT).bg(theme::NL_BG)
     };
 
     // Determine badge span style (override for visual-selected context)
@@ -261,7 +267,7 @@ pub(super) fn build_record_item<'a>(
             Span::styled(
                 span.content,
                 Style::default()
-                    .bg(theme::BRAND)
+                    .bg(theme::NL_SELECTED)
                     .fg(badge_fg)
                     .add_modifier(Modifier::DIM),
             )
@@ -271,7 +277,16 @@ pub(super) fn build_record_item<'a>(
     });
 
     // Build title spans with optional search highlighting
-    let mut title_spans = vec![Span::styled(prefix_str, base_style)];
+    let mut title_spans = Vec::new();
+    if is_selected {
+        let gutter_style = Style::default().bg(if focused {
+            theme::NL_CYAN
+        } else {
+            theme::NL_LINE
+        });
+        title_spans.push(Span::styled(" ", gutter_style));
+    }
+    title_spans.push(Span::styled(prefix_str, base_style));
     if let Some(query) = search_query {
         let terms: Vec<String> = query
             .to_lowercase()
@@ -294,38 +309,69 @@ pub(super) fn build_record_item<'a>(
     // ── Line 2: Subtitle ──
     let subtitle_style = if is_visual_selected {
         Style::default()
-            .bg(theme::BRAND)
-            .fg(theme::TEXT_SECONDARY)
+            .bg(theme::NL_SELECTED)
+            .fg(theme::NL_TEXT_MUTED)
             .add_modifier(Modifier::DIM)
     } else if is_selected {
         Style::default()
-            .fg(theme::TEXT)
-            .add_modifier(Modifier::REVERSED)
+            .bg(theme::NL_SELECTED)
+            .fg(theme::NL_TEXT_MUTED)
     } else {
-        Style::default().fg(theme::TEXT_SECONDARY)
+        Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG)
     };
 
     // Build subtitle with optional search highlighting
-    let subtitle_prefix = ITEM_LEFT_PADDING;
+    let subtitle_prefix = if is_selected { " " } else { ITEM_LEFT_PADDING };
     let subtitle_line = if let Some(query) = search_query {
         let terms: Vec<String> = query
             .to_lowercase()
             .split_whitespace()
             .map(String::from)
             .collect();
-        let mut sub_spans = vec![Span::styled(subtitle_prefix, subtitle_style)];
+        let mut sub_spans = Vec::new();
+        if is_selected {
+            let gutter_style = Style::default().bg(if focused {
+                theme::NL_CYAN
+            } else {
+                theme::NL_LINE
+            });
+            sub_spans.push(Span::styled(" ", gutter_style));
+        }
+        sub_spans.push(Span::styled(subtitle_prefix, subtitle_style));
         sub_spans.extend(ListPanel::highlight_match(&record.subtitle, &terms));
         Line::from(sub_spans)
     } else {
         let text = format!("{}{}", ITEM_LEFT_PADDING, record.subtitle);
-        let padding = " ".repeat((area_width as usize).saturating_sub(display_width(&text)));
-        Line::from(Span::styled(format!("{}{}", text, padding), subtitle_style))
+        let selected_text = format!("{}{}", subtitle_prefix, record.subtitle);
+        let displayed_text = if is_selected { selected_text } else { text };
+        let padding = " ".repeat(
+            (area_width as usize)
+                .saturating_sub(gutter_width)
+                .saturating_sub(display_width(&displayed_text)),
+        );
+        let mut spans = Vec::new();
+        if is_selected {
+            let gutter_style = Style::default().bg(if focused {
+                theme::NL_CYAN
+            } else {
+                theme::NL_LINE
+            });
+            spans.push(Span::styled(" ", gutter_style));
+        }
+        spans.push(Span::styled(
+            format!("{}{}", displayed_text, padding),
+            subtitle_style,
+        ));
+        Line::from(spans)
     };
 
     // ── Line 3: Separator ──
     let sep_char = if unicode { '\u{2500}' } else { '-' };
     let sep_text: String = std::iter::repeat_n(sep_char, area_width as usize).collect();
-    let separator_line = Line::from(Span::styled(sep_text, Style::default().fg(theme::BORDER)));
+    let separator_line = Line::from(Span::styled(
+        sep_text,
+        Style::default().fg(theme::NL_LINE).bg(theme::NL_BG),
+    ));
 
     if is_min_width {
         ListItem::new(vec![title_line, separator_line])

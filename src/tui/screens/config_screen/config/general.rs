@@ -1,6 +1,4 @@
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Modifier, Style};
-use ratatui::widgets::Paragraph;
+use ratatui::layout::Constraint;
 use ratatui::{layout::Rect, Frame};
 
 use crate::config::AnimationMode;
@@ -9,131 +7,89 @@ use crate::tui::state::config_state::GeneralConfigForm;
 use crate::tui::theme;
 
 pub fn render(frame: &mut Frame, area: Rect, form: &GeneralConfigForm, focused: usize) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // Title
+    let chunks = super::render::vertical_chunks(
+        area,
+        &[
+            Constraint::Length(2), // Title
             Constraint::Length(1), // Language
             Constraint::Length(1), // Auto lock
             Constraint::Length(1), // Clipboard
             Constraint::Length(1), // Trash
             Constraint::Length(1), // Animation
-            Constraint::Length(1), // Import button
-            Constraint::Length(1), // Export button
-        ])
-        .split(area);
-
-    let dim_style = Style::default().fg(theme::TEXT_SECONDARY).bold();
-    let normal_style = Style::default().fg(theme::TEXT);
-    let focused_style = Style::default()
-        .fg(theme::TEXT)
-        .add_modifier(Modifier::BOLD)
-        .bg(theme::BG_SURFACE);
-    let accent_style = Style::default().fg(theme::PRIMARY);
-
-    // Title row is NOT focusable — always dim
-    let title = Paragraph::new(t!("tui.config.tab_general").to_string()).style(dim_style);
-    frame.render_widget(title, chunks[0]);
-
-    // Row index 0: Language (focused == 0)
-    let lang = format!(
-        "{}                [ {} \u{25bc} ]",
-        t!("tui.config.language"),
-        form.language
+            Constraint::Length(2), // Spacer
+            Constraint::Length(3), // Import/export buttons
+            Constraint::Min(0),
+        ],
     );
-    frame.render_widget(
-        Paragraph::new(lang).style(if focused == 0 {
-            focused_style
-        } else {
-            normal_style
-        }),
+
+    super::render::render_section_title(frame, chunks[0], t!("tui.config.tab_general").as_ref());
+    super::render::render_setting_row(
+        frame,
         chunks[1],
+        theme::NF_GLOBE,
+        t!("tui.config.language").as_ref(),
+        &super::render::dropdown_control(&form.language),
+        focused == 0,
+        true,
     );
-
-    // Row index 1: Auto lock (focused == 1)
-    let auto_lock = format!(
-        "{}          [ {} \u{25bc} ]",
-        t!("tui.config.auto_lock"),
-        t!("tui.config.seconds", n = form.auto_lock_seconds)
-    );
-    frame.render_widget(
-        Paragraph::new(auto_lock).style(if focused == 1 {
-            focused_style
-        } else {
-            normal_style
-        }),
+    super::render::render_setting_row(
+        frame,
         chunks[2],
+        theme::NF_CLOCK,
+        t!("tui.config.auto_lock").as_ref(),
+        &super::render::dropdown_control(&t!("tui.config.seconds", n = form.auto_lock_seconds)),
+        focused == 1,
+        true,
     );
-
-    // Row index 2: Clipboard (focused == 2)
-    let clip = format!(
-        "{}        [ {} \u{25bc} ]",
-        t!("tui.config.clipboard_clear"),
-        t!("tui.config.seconds", n = form.clipboard_clear_seconds)
-    );
-    frame.render_widget(
-        Paragraph::new(clip).style(if focused == 2 {
-            focused_style
-        } else {
-            normal_style
-        }),
+    super::render::render_setting_row(
+        frame,
         chunks[3],
+        theme::NF_CLIPBOARD,
+        t!("tui.config.clipboard_clear").as_ref(),
+        &super::render::dropdown_control(&t!(
+            "tui.config.seconds",
+            n = form.clipboard_clear_seconds
+        )),
+        focused == 2,
+        true,
     );
-
-    // Row index 3: Trash (focused == 3)
-    let trash = format!(
-        "{}    [ {} \u{25bc} ]",
-        t!("tui.config.trash_retention"),
-        t!("tui.config.days", n = form.trash_retention_days)
-    );
-    frame.render_widget(
-        Paragraph::new(trash).style(if focused == 3 {
-            focused_style
-        } else {
-            normal_style
-        }),
+    super::render::render_setting_row(
+        frame,
         chunks[4],
+        theme::NF_TRASH,
+        t!("tui.config.trash_retention").as_ref(),
+        &super::render::dropdown_control(&t!("tui.config.days", n = form.trash_retention_days)),
+        focused == 3,
+        true,
     );
 
-    // Row index 4: Animation (focused == 4)
     let anim_label = match form.animation {
         AnimationMode::Auto => t!("tui.config.animation_auto").to_string(),
         AnimationMode::On => t!("tui.config.animation_on").to_string(),
         AnimationMode::Off => t!("tui.config.animation_off").to_string(),
     };
-    let anim = format!(
-        "{}          [ {} \u{25bc} ]",
-        t!("tui.config.animation"),
-        anim_label
-    );
-    frame.render_widget(
-        Paragraph::new(anim).style(if focused == 4 {
-            focused_style
-        } else {
-            normal_style
-        }),
+    super::render::render_setting_row(
+        frame,
         chunks[5],
+        theme::NF_SPARKLES,
+        t!("tui.config.animation").as_ref(),
+        &super::render::dropdown_control(&anim_label),
+        focused == 4,
+        true,
     );
 
-    // Row index 5: Import button (focused == 5)
-    let import_btn = format!("  [ {} ]", t!("tui.config.import_button"));
-    frame.render_widget(
-        Paragraph::new(import_btn).style(if focused == 5 {
-            focused_style
-        } else {
-            accent_style
-        }),
-        chunks[6],
-    );
-
-    // Row index 6: Export button (focused == 6)
-    let export_btn = format!("  [ {} ]", t!("tui.config.export_button"));
-    frame.render_widget(
-        Paragraph::new(export_btn).style(if focused == 6 {
-            focused_style
-        } else {
-            accent_style
-        }),
+    super::render::render_button_row(
+        frame,
         chunks[7],
+        (
+            theme::NF_UPLOAD,
+            t!("tui.config.import_button").as_ref(),
+            focused == 5,
+        ),
+        (
+            theme::NF_DOWNLOAD,
+            t!("tui.config.export_button").as_ref(),
+            focused == 6,
+        ),
     );
 }

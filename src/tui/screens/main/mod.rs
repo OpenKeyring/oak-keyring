@@ -74,6 +74,8 @@ impl MainScreen {
         let list_area = top_padded(areas.list, 1);
         let detail_area = top_padded(areas.detail, 1);
 
+        frame.render_widget(Paragraph::new("").style(theme::Styles::newlook_bg()), area);
+
         // 1. Sidebar
         let sidebar_focused = focused_panel == PanelId::Sidebar;
         SidebarPanel::view(
@@ -764,7 +766,7 @@ fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
 
     let paragraph = Paragraph::new(Line::from(Span::styled(
         line,
-        Style::default().fg(theme::TEXT_SECONDARY),
+        Style::default().fg(theme::NL_LINE).bg(theme::NL_BG),
     )));
     frame.render_widget(paragraph, area);
 }
@@ -773,7 +775,7 @@ fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
 ///
 /// Draws separator lines at the boundaries between sidebar|list and list|detail.
 fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas) {
-    let sep_style = Style::default().fg(theme::TEXT);
+    let sep_style = Style::default().fg(theme::NL_LINE).bg(theme::NL_BG);
     let sep_char = PANEL_SEPARATOR.to_string();
 
     for sep_rect in [areas.sidebar_list_separator, areas.list_detail_separator] {

@@ -1,53 +1,38 @@
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Style};
-use ratatui::widgets::Paragraph;
+use ratatui::layout::Constraint;
 use ratatui::{layout::Rect, Frame};
 
 use crate::t;
 use crate::tui::state::config_state::AboutInfo;
 
 pub fn render(frame: &mut Frame, area: Rect, info: &AboutInfo) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // Title
+    let chunks = super::render::vertical_chunks(
+        area,
+        &[
+            Constraint::Length(2), // Title
             Constraint::Length(1), // Version
             Constraint::Length(1), // Author
             Constraint::Length(1), // License
-        ])
-        .split(area);
-
-    let title = Paragraph::new(t!("tui.config.tab_about").to_string())
-        .style(Style::default().fg(Color::Rgb(86, 95, 137)).bold());
-    frame.render_widget(title, chunks[0]);
-
-    let version = format!(
-        "{}                {}",
-        t!("tui.config.about_version"),
-        info.version
+            Constraint::Min(0),
+        ],
     );
-    frame.render_widget(
-        Paragraph::new(version).style(Style::default().fg(Color::Rgb(192, 202, 245))),
+
+    super::render::render_section_title(frame, chunks[0], t!("tui.config.tab_about").as_ref());
+    super::render::muted_info_row(
+        frame,
         chunks[1],
+        t!("tui.config.about_version").as_ref(),
+        info.version,
     );
-
-    let author = format!(
-        "{}                {}",
-        t!("tui.config.about_authors"),
-        info.author
-    );
-    frame.render_widget(
-        Paragraph::new(author).style(Style::default().fg(Color::Rgb(192, 202, 245))),
+    super::render::muted_info_row(
+        frame,
         chunks[2],
+        t!("tui.config.about_authors").as_ref(),
+        info.author,
     );
-
-    let license = format!(
-        "{}              {}",
-        t!("tui.config.about_license"),
-        info.license
-    );
-    frame.render_widget(
-        Paragraph::new(license).style(Style::default().fg(Color::Rgb(192, 202, 245))),
+    super::render::muted_info_row(
+        frame,
         chunks[3],
+        t!("tui.config.about_license").as_ref(),
+        info.license,
     );
 }
