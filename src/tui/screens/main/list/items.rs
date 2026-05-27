@@ -1,6 +1,7 @@
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::ListItem;
+use unicode_width::UnicodeWidthStr;
 
 use crate::commands::types::HealthIssue;
 use crate::t;
@@ -14,7 +15,7 @@ use crate::tui::theme;
 use super::ListPanel;
 
 const ITEM_LEFT_PADDING: &str = "  ";
-const SELECTED_MARKER_RIGHT_PADDING: usize = 4;
+const SELECTED_MARKER_RIGHT_PADDING: usize = 1;
 const ITEM_RIGHT_MARGIN: usize = 2;
 
 impl ListPanel {
@@ -286,6 +287,7 @@ pub(super) fn build_record_item<'a>(
     }
     title_spans.push(Span::styled(" ".repeat(padding_len), base_style));
     title_spans.push(Span::styled(right_part, base_style));
+    title_spans.push(Span::styled(" ".repeat(ITEM_RIGHT_MARGIN), base_style));
 
     let title_line = Line::from(title_spans);
 
@@ -316,8 +318,7 @@ pub(super) fn build_record_item<'a>(
         Line::from(sub_spans)
     } else {
         let text = format!("{}{}", ITEM_LEFT_PADDING, record.subtitle);
-        let padding =
-            " ".repeat((area_width as usize).saturating_sub(Line::from(text.clone()).width()));
+        let padding = " ".repeat((area_width as usize).saturating_sub(display_width(&text)));
         Line::from(Span::styled(format!("{}{}", text, padding), subtitle_style))
     };
 
@@ -354,15 +355,16 @@ pub(super) fn build_trash_item<'a>(
     let type_prefix = format_type_prefix(&record.credential_type);
     let prefix_str = format!("{}{}", ITEM_LEFT_PADDING, type_prefix);
 
-    let right_part = if is_selected {
+    let marker_part = if is_selected {
         format!("{}{}", marker, " ".repeat(SELECTED_MARKER_RIGHT_PADDING))
     } else {
         String::new()
     };
     let name_len = display_width(&prefix_str) + display_width(&record.name);
     let padding_len = (area_width as usize)
+        .saturating_sub(ITEM_RIGHT_MARGIN)
         .saturating_sub(name_len)
-        .saturating_sub(right_part.chars().count());
+        .saturating_sub(display_width(&marker_part));
 
     let base_style = if is_visual_selected {
         Style::default()
@@ -381,7 +383,8 @@ pub(super) fn build_trash_item<'a>(
         Span::styled(prefix_str, base_style),
         Span::styled(record.name.clone(), base_style),
         Span::styled(" ".repeat(padding_len), base_style),
-        Span::styled(right_part, base_style),
+        Span::styled(marker_part, base_style),
+        Span::styled(" ".repeat(ITEM_RIGHT_MARGIN), base_style),
     ];
     let title_line = Line::from(title_spans);
 
@@ -443,5 +446,43 @@ pub(super) fn build_trash_item<'a>(
 }
 
 fn display_width(text: &str) -> usize {
-    Line::from(text.to_string()).width()
+    UnicodeWidthStr::width(text)
+}
+
+#[cfg(test)]
+mod width_tests {
+    use super::*;
+
+    #[test]
+    fn display_width_cjk_yesterday() {
+        assert_eq!(display_width("昨天"), 4, "昨天 should be 4 display columns");
+    }
+
+    #[test]
+    fn display_width_english_yesterday() {
+        assert_eq!(display_width("yesterday"), 9);
+    }
+
+    #[test]
+    fn display_width_marker() {
+        let marker = "\u{25C0}";
+        let w = display_width(marker);
+        assert!(
+            w == 1 || w == 2,
+            "◀ display width should be 1 or 2, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn chars_count_vs_display_width_for_marker() {
+        let right = "\u{25C0} ".to_string();
+        assert_eq!(right.chars().count(), 2, "chars().count() for ◀ + 1 space");
+        let dw = display_width(&right);
+        println!(
+            "display_width of '◀ ' = {} (chars().count = {})",
+            dw,
+            right.chars().count()
+        );
+    }
 }

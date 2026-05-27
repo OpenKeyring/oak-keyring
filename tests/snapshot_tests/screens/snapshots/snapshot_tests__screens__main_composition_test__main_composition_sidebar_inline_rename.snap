@@ -5,7 +5,7 @@ expression: backend
 "                                        │                       │                                   "
 "  🔐 OpenKeyring                        │  Sort: [ Created ▼ ]  │  GitHub Account                   " Hidden by multi-width symbols: [(3, " ")]
 "────────────────────────────────────────│                       │  octocat                          "
-"  [1] All                          2  │  GitHub Account◀      │★                                  "
+"  [1] All                          2  │  GitHub Account   ◀   │★                                  "
 "────────────────────────────────────────│  octocat              │                                   "
 "  [2] Favorites                    1  │───────────────────────│  ─────────────────                "
 "────────────────────────────────────────│  Personal Email       │                                   "

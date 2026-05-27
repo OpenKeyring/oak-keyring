@@ -46,6 +46,19 @@ pub const ICON_SYNC_SYNCING: &str = "\u{27F3}"; // ⟳
 pub const ICON_SYNC_ROTATING: &str = "\u{27F2}"; // ⟲
 pub const ICON_SYNC_OFFLINE: &str = "\u{25D0}"; // ◐
 pub const ICON_NOT_CONFIGURED: &str = "\u{2014}"; // —
+pub const NF_DATABASE: &str = "\u{f1c0}";
+pub const NF_KEY: &str = "\u{f084}";
+pub const NF_USER: &str = "\u{f007}";
+pub const NF_LOCK: &str = "\u{f023}";
+pub const NF_SHIELD: &str = "\u{f132}";
+pub const NF_GLOBE: &str = "\u{f0ac}";
+pub const NF_TAG: &str = "\u{f02b}";
+pub const NF_NOTE: &str = "\u{f15b}";
+pub const NF_CLOCK: &str = "\u{f017}";
+pub const NF_COPY: &str = "\u{f0c5}";
+pub const NF_EYE: &str = "\u{f06e}";
+pub const NF_EYE_OFF: &str = "\u{f070}";
+pub const NF_STAR: &str = "\u{f005}";
 pub const SPINNER_FRAMES: &[&str] = &[
     "\u{280B}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283C}", "\u{2834}", "\u{2826}", "\u{2827}",
     "\u{2807}", "\u{280F}",
@@ -75,6 +88,19 @@ pub mod ascii {
     pub const ICON_SYNC_ROTATING: &str = "~";
     pub const ICON_SYNC_OFFLINE: &str = "o";
     pub const ICON_NOT_CONFIGURED: &str = "-";
+    pub const NF_DATABASE: &str = "[db]";
+    pub const NF_KEY: &str = "[key]";
+    pub const NF_USER: &str = "[user]";
+    pub const NF_LOCK: &str = "[lock]";
+    pub const NF_SHIELD: &str = "[shield]";
+    pub const NF_GLOBE: &str = "[url]";
+    pub const NF_TAG: &str = "[tag]";
+    pub const NF_NOTE: &str = "[note]";
+    pub const NF_CLOCK: &str = "[time]";
+    pub const NF_COPY: &str = "[copy]";
+    pub const NF_EYE: &str = "[show]";
+    pub const NF_EYE_OFF: &str = "[hide]";
+    pub const NF_STAR: &str = "*";
     pub const SPINNER_FRAMES: &[&str] = &["-", "\\", "|", "/"];
 }
 

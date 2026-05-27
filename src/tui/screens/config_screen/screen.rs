@@ -1,4 +1,5 @@
 use crate::commands::result::CommandResult;
+use crate::commands::types::Screen as ScreenEnum;
 use crate::commands::{Command, Message};
 use crate::config::ProviderConfig;
 use crate::tui::state::config_state::{ConfigOverlay, ConfigScreenState, SyncConnectionStatus};
@@ -112,6 +113,7 @@ impl ConfigScreen {
                     crate::tui::state::config_state::GDriveAuthStatus::Failed { reason: error };
                 ScreenResult::Continue
             }
+            CommandResult::VaultLocked => ScreenResult::NavigateTo(ScreenEnum::Unlock),
             _ => ScreenResult::Continue,
         }
     }
