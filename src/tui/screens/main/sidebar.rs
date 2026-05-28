@@ -37,13 +37,7 @@ impl SidebarPanel {
     /// * `state` - The current sidebar state (items, selection, counts).
     /// * `focused` - Whether the sidebar currently has keyboard focus.
     /// * `unicode` - Whether to use unicode characters (vs ASCII fallbacks).
-    pub fn view(
-        frame: &mut Frame,
-        area: Rect,
-        state: &SidebarState,
-        focused: bool,
-        unicode: bool,
-    ) {
+    pub fn view(frame: &mut Frame, area: Rect, state: &SidebarState, focused: bool, unicode: bool) {
         if area.width == 0 || area.height == 0 {
             return;
         }
@@ -352,7 +346,11 @@ fn selected_list_item(text: String, area_width: u16, focused: bool) -> ListItem<
     let padding = (area_width as usize).saturating_sub(text_width);
     let full_text = format!("{}{}", text, " ".repeat(padding));
     let blank_text = " ".repeat(area_width as usize);
-    let bg = if focused { theme::NL_SELECTED } else { theme::NL_SURFACE_2 };
+    let bg = if focused {
+        theme::NL_SELECTED
+    } else {
+        theme::NL_SURFACE_2
+    };
     let style = Style::default()
         .fg(theme::NL_TEXT)
         .bg(bg)
@@ -375,7 +373,11 @@ fn selected_category_item(
     focused: bool,
 ) -> ListItem<'static> {
     let blank_text = " ".repeat(area_width as usize);
-    let bg = if focused { theme::NL_SELECTED } else { theme::NL_SURFACE_2 };
+    let bg = if focused {
+        theme::NL_SELECTED
+    } else {
+        theme::NL_SURFACE_2
+    };
     let style = Style::default()
         .fg(theme::NL_TEXT)
         .bg(bg)
@@ -383,7 +385,15 @@ fn selected_category_item(
 
     ListItem::new(vec![
         Line::from(Span::styled(blank_text.clone(), style)),
-        category_line(label, count, area_width, unicode, true, badge_color, focused),
+        category_line(
+            label,
+            count,
+            area_width,
+            unicode,
+            true,
+            badge_color,
+            focused,
+        ),
         Line::from(Span::styled(blank_text, style)),
     ])
     .style(style)
@@ -405,7 +415,11 @@ fn category_line(
         .saturating_sub(used_width)
         .saturating_sub(BADGE_RIGHT_PADDING);
 
-    let selected_bg = if focused { theme::NL_SELECTED } else { theme::NL_SURFACE_2 };
+    let selected_bg = if focused {
+        theme::NL_SELECTED
+    } else {
+        theme::NL_SURFACE_2
+    };
     let text_style = if selected {
         Style::default()
             .fg(theme::NL_TEXT)
@@ -420,7 +434,13 @@ fn category_line(
         Span::styled(label, text_style),
         Span::styled(" ".repeat(padding_width), text_style),
     ];
-    spans.extend(count_badge_spans(count, unicode, selected, badge_color, focused));
+    spans.extend(count_badge_spans(
+        count,
+        unicode,
+        selected,
+        badge_color,
+        focused,
+    ));
     spans.push(Span::styled(" ".repeat(BADGE_RIGHT_PADDING), text_style));
     Line::from(spans)
 }
@@ -509,7 +529,11 @@ fn count_badge_spans(
 ) -> Vec<Span<'static>> {
     let label = count_label(count);
     let badge_reset = Modifier::BOLD;
-    let selected_bg = if focused { theme::NL_SELECTED } else { theme::NL_SURFACE_2 };
+    let selected_bg = if focused {
+        theme::NL_SELECTED
+    } else {
+        theme::NL_SURFACE_2
+    };
     let badge_edge_style = Style::default()
         .fg(color)
         .bg(if selected {

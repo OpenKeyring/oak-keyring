@@ -19,7 +19,11 @@ pub fn render_generator(frame: &mut Frame, area: Rect, state: &GeneratorState, u
     let dialog_w: u16 = 60.min(area.width);
     let dialog_area = centered_rect(dialog_w, area);
 
-    let mut lines = vec![title_line(dialog_w), separator_line(dialog_w), Line::raw("")];
+    let mut lines = vec![
+        title_line(dialog_w),
+        separator_line(dialog_w),
+        Line::raw(""),
+    ];
 
     // Generator panel content
     let panel_lines = generator_panel::render_generator_panel(state, false, dialog_w, unicode);

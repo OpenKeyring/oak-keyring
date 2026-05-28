@@ -317,6 +317,7 @@ tui:
     hide_button: "Hide"
     strength_label: "Strength"
     health_leaked: "This password was found in a data breach — change it immediately"
+    health_leaked_short: "Leaked"
     health_weak: "Weak password — consider using a stronger one"
     health_duplicate: "This password is used by %{count} other entries"
     section_meta: "Meta"

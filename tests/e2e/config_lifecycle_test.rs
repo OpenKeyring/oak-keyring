@@ -328,7 +328,7 @@ async fn save_and_reload_preserves_config() {
             data_dir,
             config_dir,
             DbStartupMode::FileBacked,
-        ActivityTracker::new(),
+            ActivityTracker::new(),
         )
         .expect("executor construction should succeed");
 

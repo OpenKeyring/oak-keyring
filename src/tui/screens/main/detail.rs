@@ -475,6 +475,24 @@ impl DetailPanel {
                 Span::styled(" ", Style::default().fg(theme::WARNING)),
             ]);
         }
+        if matches!(
+            state.health_issue,
+            Some(crate::commands::types::HealthIssue::Compromised)
+        ) {
+            title.extend([
+                Span::raw("   "),
+                Span::styled(
+                    format!(
+                        "{} {}",
+                        if unicode { "\u{F06BD}" } else { "[!]" },
+                        t!("tui.password_detail.health_leaked_short"),
+                    ),
+                    Style::default()
+                        .fg(theme::ERROR)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]);
+        }
         lines.push(Line::from(title));
 
         if let Some(expiry_line) = expiry_status_line(record, unicode) {
@@ -760,7 +778,13 @@ fn metadata_columns(width: u16) -> Option<MetadataColumns> {
     if total < 30 {
         return None;
     }
-    let label = if total >= 82 { 18 } else if total >= 52 { 14 } else { 12 };
+    let label = if total >= 82 {
+        18
+    } else if total >= 52 {
+        14
+    } else {
+        12
+    };
     let value = total.saturating_sub(label + 6);
     (value >= 8).then_some(MetadataColumns { label, value })
 }

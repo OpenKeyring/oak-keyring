@@ -275,13 +275,20 @@ impl MainScreen {
                     };
                 }
 
-                // Esc — exit visual mode or search (all views)
+                // Esc — exit visual mode, cancel search, or restore pre-search list
                 if key.code == KeyCode::Esc {
                     if state.list.is_visual() {
                         state.list.exit_visual();
                         messages.push(Message::ExitVisualMode);
                     } else if state.list.is_searching() {
-                        state.list.exit_search();
+                        state.list.cancel_search_restore();
+                    } else if let Some(id) = state.list.restore_committed_search() {
+                        return MainKeyResult {
+                            messages,
+                            overlay: None,
+                            command: Some(Box::new(Command::LoadRecordDetail { id })),
+                            focused_panel: None,
+                        };
                     }
                     return MainKeyResult {
                         messages,

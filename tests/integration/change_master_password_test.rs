@@ -42,7 +42,7 @@ impl Harness {
             data_dir,
             config_dir,
             DbStartupMode::FileBacked,
-        ActivityTracker::new(),
+            ActivityTracker::new(),
         )
         .unwrap();
 

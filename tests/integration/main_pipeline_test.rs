@@ -8,7 +8,9 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use oak_keyring::commands::result::CommandResult;
-use oak_keyring::commands::types::{FieldSelector, HealthIssue, PanelId, RecordFilter, RecordSort};
+use oak_keyring::commands::types::{
+    FieldSelector, HealthIssue, PanelId, RecordFilter, RecordSort, SortDirection, SortField,
+};
 use oak_keyring::commands::{Command, Message};
 use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::strength::{PasswordStrength as CryptoStrength, StrengthLevel};
@@ -164,7 +166,13 @@ fn full_pipeline_mount_to_detail_display() {
     match cmd {
         Command::LoadRecordList { filter, sort } => {
             assert_eq!(filter, RecordFilter::All);
-            assert_eq!(sort, RecordSort::default());
+            assert_eq!(
+                sort,
+                RecordSort {
+                    field: SortField::CreatedAt,
+                    direction: SortDirection::Desc,
+                }
+            );
         }
         other => panic!("Expected LoadRecordList command, got {other:?}"),
     }

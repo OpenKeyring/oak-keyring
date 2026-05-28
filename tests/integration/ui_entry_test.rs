@@ -4,9 +4,9 @@
 //! recovery key grid, set password screen, onboarding defaults, loading indicators.
 
 use oak_keyring::app::{App, VaultInitState};
-use oak_keyring::executor::ActivityTracker;
 use oak_keyring::commands::types::Screen;
 use oak_keyring::config::AppConfig;
+use oak_keyring::executor::ActivityTracker;
 use oak_keyring::instance_lock::InstanceLock;
 use oak_keyring::tui::screens::onboarding::{OnboardingPath, OnboardingScreen};
 use oak_keyring::tui::screens::recovery_key::WordGridState;

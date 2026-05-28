@@ -29,14 +29,6 @@ pub struct ListPanel;
 
 impl ListPanel {
     /// Render the list panel.
-    ///
-    /// # Arguments
-    /// * `frame` - The ratatui frame to render into.
-    /// * `area` - The rectangular area allocated to the list panel.
-    /// * `state` - The current list panel state (records, selection, mode, sort).
-    /// * `focused` - Whether the list panel currently has keyboard focus.
-    /// * `unicode` - Whether to use unicode characters (vs ASCII fallbacks).
-    /// * `filter` - The current record filter, used to select the empty state variant.
     pub fn view(
         frame: &mut Frame,
         area: Rect,
@@ -85,7 +77,18 @@ impl ListPanel {
     }
 }
 
-/// Render the scrollable record list.
+/// Lines per list item: minimum-width panels show 2 lines, others show 3.
+fn item_height(width: u16) -> u16 {
+    if crate::tui::terminal::WidthTier::from_width(width)
+        == crate::tui::terminal::WidthTier::Minimum
+    {
+        2
+    } else {
+        3
+    }
+}
+
+/// Render the scrollable record list with a scrollbar.
 fn render_list(
     frame: &mut Frame,
     area: Rect,
@@ -105,6 +108,19 @@ fn render_list(
     };
 
     let is_trash = matches!(filter, RecordFilter::Trash);
+    let total = state.records.len() as u16;
+    let ih = item_height(area.width);
+    let visible = area.height / ih;
+
+    // Reserve 1 column for scrollbar if content overflows
+    let (list_area, sb_area) = if total > visible && area.width > 4 {
+        (
+            Rect::new(area.x, area.y, area.width - 1, area.height),
+            Rect::new(area.x + area.width - 1, area.y, 1, area.height),
+        )
+    } else {
+        (area, Rect::default())
+    };
 
     let items: Vec<ListItem<'_>> = state
         .records
@@ -120,7 +136,7 @@ fn render_list(
                     is_visual_selected,
                     focused,
                     unicode,
-                    area.width,
+                    list_area.width,
                     retention_days,
                 )
             } else {
@@ -130,7 +146,7 @@ fn render_list(
                     is_visual_selected,
                     focused,
                     unicode,
-                    area.width,
+                    list_area.width,
                     search_query,
                 )
             }
@@ -142,5 +158,45 @@ fn render_list(
     let mut list_state = ListState::default();
     list_state.select(state.selected_index);
 
-    frame.render_stateful_widget(list, area, &mut list_state);
+    frame.render_stateful_widget(list, list_area, &mut list_state);
+
+    render_list_scrollbar(frame, sb_area, list_state.offset(), visible, total);
+}
+
+fn render_list_scrollbar(frame: &mut Frame, area: Rect, offset: usize, visible: u16, total: u16) {
+    if area.width == 0 || area.height == 0 || total <= visible {
+        return;
+    }
+
+    let max_offset = (total - visible) as usize;
+    if max_offset == 0 {
+        return;
+    }
+
+    let clamped_offset = offset.min(max_offset);
+    let thumb_ratio = visible as f32 / total as f32;
+    let thumb_height = ((area.height as f32 * thumb_ratio).max(1.0)).ceil() as u16;
+    let scroll_ratio = clamped_offset as f32 / max_offset as f32;
+    let max_thumb_y = area.height.saturating_sub(thumb_height);
+    let thumb_y = (scroll_ratio * max_thumb_y as f32) as u16;
+
+    // Track
+    frame.render_widget(
+        Paragraph::new("│".repeat(area.height as usize))
+            .style(Style::default().fg(theme::NL_LINE).bg(theme::NL_BG)),
+        area,
+    );
+
+    // Thumb
+    let thumb_area = Rect {
+        x: area.x,
+        y: area.y + thumb_y,
+        width: 1,
+        height: thumb_height.max(1),
+    };
+    frame.render_widget(
+        Paragraph::new("█".repeat(thumb_area.height as usize))
+            .style(Style::default().fg(theme::NL_CYAN).bg(theme::NL_BG)),
+        thumb_area,
+    );
 }

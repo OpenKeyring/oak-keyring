@@ -15,7 +15,6 @@ use crate::tui::theme;
 use super::ListPanel;
 
 const ITEM_LEFT_PADDING: &str = "  ";
-const SELECTED_MARKER_RIGHT_PADDING: usize = 1;
 const ITEM_RIGHT_MARGIN: usize = 2;
 
 impl ListPanel {
@@ -104,10 +103,9 @@ impl ListPanel {
 pub(super) fn health_badge(issue: Option<&HealthIssue>, unicode: bool) -> Option<Span<'static>> {
     issue.map(|i| match i {
         HealthIssue::Compromised => {
-            let icon = if unicode { "\u{F06BD}" } else { "!" };
-            let label = t!("tui.password_list.health_leaked");
+            let badge = if unicode { "\u{F06BD}" } else { "[leaked]" };
             Span::styled(
-                format!(" {}  {}", icon, label),
+                format!(" {}", badge),
                 Style::default()
                     .fg(theme::ERROR)
                     .add_modifier(Modifier::BOLD),
@@ -170,14 +168,12 @@ pub(super) fn build_record_item<'a>(
     area_width: u16,
     search_query: Option<&str>,
 ) -> ListItem<'a> {
-    let marker = if unicode { "\u{25C0}" } else { "<" }; // ◀ / <
     let is_min_width = WidthTier::from_width(area_width) == WidthTier::Minimum;
 
     // ── Line 1: Title ──
     let type_prefix = format_type_prefix(&record.credential_type);
     let timestamp = format_relative_time(&record.updated_at);
 
-    // Build name spans: prefix (plain) + highlighted name (if search active)
     let gutter_width = usize::from(is_selected);
     let prefix_str = if is_selected {
         format!(" {}", type_prefix)
@@ -205,39 +201,18 @@ pub(super) fn build_record_item<'a>(
     };
     let badge_str = badge.as_ref().map(|s| s.content.as_ref()).unwrap_or("");
 
-    // Determine right-side content: omit timestamp when space is too narrow
-    // to display it fully, avoiding mid-word truncation like "ye" from "yesterday".
-    let indicator_str = if is_selected { marker } else { "" };
     let name_width = gutter_width + display_width(&prefix_str) + display_width(&record.name);
     let badge_width = display_width(badge_str);
-    let selected_marker_padding = if is_selected {
-        SELECTED_MARKER_RIGHT_PADDING
-    } else {
-        0
-    };
-    let full_right_width =
-        display_width(&timestamp) + display_width(indicator_str) + selected_marker_padding;
-    let marker_only_width = display_width(indicator_str) + selected_marker_padding;
+    let ts_width = display_width(&timestamp);
     let available_after_name = (area_width as usize)
         .saturating_sub(ITEM_RIGHT_MARGIN)
         .saturating_sub(name_width)
         .saturating_sub(badge_width);
 
-    let (right_part, right_width) = if available_after_name >= full_right_width {
-        (
-            format!(
-                "{}{}{}",
-                timestamp,
-                indicator_str,
-                " ".repeat(selected_marker_padding)
-            ),
-            full_right_width,
-        )
+    let (right_part, right_width) = if available_after_name >= ts_width {
+        (timestamp.clone(), ts_width)
     } else {
-        (
-            format!("{}{}", indicator_str, " ".repeat(selected_marker_padding)),
-            marker_only_width,
-        )
+        (String::new(), 0)
     };
 
     let padding_len = (area_width as usize)
@@ -274,9 +249,7 @@ pub(super) fn build_record_item<'a>(
         } else if is_selected {
             Span::styled(
                 span.content,
-                Style::default()
-                    .bg(theme::NL_SELECTED)
-                    .fg(badge_fg),
+                Style::default().bg(theme::NL_SELECTED).fg(badge_fg),
             )
         } else {
             span
@@ -327,7 +300,6 @@ pub(super) fn build_record_item<'a>(
         Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG)
     };
 
-    // Build subtitle with optional search highlighting
     let subtitle_prefix = if is_selected { " " } else { ITEM_LEFT_PADDING };
     let subtitle_line = if let Some(query) = search_query {
         let terms: Vec<String> = query
@@ -401,23 +373,16 @@ pub(super) fn build_trash_item<'a>(
     area_width: u16,
     retention_days: u32,
 ) -> ListItem<'a> {
-    let marker = if unicode { "\u{25C0}" } else { "<" };
     let is_min_width = WidthTier::from_width(area_width) == WidthTier::Minimum;
 
     // ── Line 1: Title with type prefix ──
     let type_prefix = format_type_prefix(&record.credential_type);
     let prefix_str = format!("{}{}", ITEM_LEFT_PADDING, type_prefix);
 
-    let marker_part = if is_selected {
-        format!("{}{}", marker, " ".repeat(SELECTED_MARKER_RIGHT_PADDING))
-    } else {
-        String::new()
-    };
     let name_len = display_width(&prefix_str) + display_width(&record.name);
     let padding_len = (area_width as usize)
         .saturating_sub(ITEM_RIGHT_MARGIN)
-        .saturating_sub(name_len)
-        .saturating_sub(display_width(&marker_part));
+        .saturating_sub(name_len);
 
     let base_style = if is_visual_selected {
         Style::default()
@@ -436,7 +401,6 @@ pub(super) fn build_trash_item<'a>(
         Span::styled(prefix_str, base_style),
         Span::styled(record.name.clone(), base_style),
         Span::styled(" ".repeat(padding_len), base_style),
-        Span::styled(marker_part, base_style),
         Span::styled(" ".repeat(ITEM_RIGHT_MARGIN), base_style),
     ];
     let title_line = Line::from(title_spans);

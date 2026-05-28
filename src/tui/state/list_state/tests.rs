@@ -145,7 +145,7 @@ fn search_mode_enter_exit() {
     assert!(state.is_searching());
     assert!(!state.is_visual());
 
-    state.exit_search();
+    state.commit_search();
     assert!(!state.is_searching());
 }
 

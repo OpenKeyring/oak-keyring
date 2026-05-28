@@ -5,7 +5,7 @@ expression: backend
 "                                        │                       │                                   "
 "    All                           2  │  Sort: [ Created ▼ ]  │  GitHub Account                   "
 "                                        │                       │  octocat                          "
-"    Favorites                     1  │  GitHub Account   ◀   │★                                  "
+"    Favorites                     1  │  GitHub Account       │★                                  "
 "    Expired                       0  │  octocat              │                                   "
 "                                        │───────────────────────│  ─────────────────                "
 "                                        │  Personal Email       │                                   "

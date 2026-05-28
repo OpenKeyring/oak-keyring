@@ -3,7 +3,8 @@ use ratatui::{layout::Rect, Frame};
 use uuid::Uuid;
 
 use crate::commands::types::{
-    ConfirmVariant, FieldSelector, Overlay, PanelId, RecordFilter, RecordSort, Screen as ScreenEnum,
+    ConfirmVariant, FieldSelector, Overlay, PanelId, RecordFilter, RecordSort,
+    Screen as ScreenEnum, SortDirection, SortField,
 };
 use crate::commands::{Command, Message};
 use crate::t;
@@ -539,7 +540,10 @@ impl Default for MainScreenState {
             status_bar: StatusBarState::default(),
             terminal_title: TerminalTitleState::default(),
             current_filter: RecordFilter::All,
-            current_sort: RecordSort::default(),
+            current_sort: RecordSort {
+                field: SortField::CreatedAt,
+                direction: SortDirection::Desc,
+            },
             pre_lock_snapshot: None,
             focused_panel: PanelId::Sidebar,
             unicode_capable: true,
@@ -676,6 +680,15 @@ impl Screen for MainScreenState {
                             };
                         } else {
                             self.status_bar.health_check_phase = HealthCheckPhase::AllSecure;
+                        }
+                        // Refresh list to populate health fields and sidebar counts
+                        ctx.send_system_command(Command::LoadRecordList {
+                            filter: self.current_filter.clone(),
+                            sort: self.current_sort.clone(),
+                        });
+                        // Refresh detail if a record is selected
+                        if let Some(record) = self.list.selected_record() {
+                            ctx.send_system_command(Command::LoadRecordDetail { id: record.id });
                         }
                         ScreenResult::Continue
                     }
@@ -1139,13 +1152,12 @@ impl MainScreenState {
         if self.focused_panel == PanelId::List && self.list.is_searching() {
             match key.code {
                 KeyCode::Enter => {
-                    // Confirm search: exit search and load selected record detail
-                    if let Some(record) = self.list.selected_record() {
-                        let id = record.id;
-                        self.list.exit_search();
+                    // Commit search: keep filtered results, save snapshot for Esc restore
+                    let id = self.list.selected_record().map(|r| r.id);
+                    self.list.commit_search();
+                    if let Some(id) = id {
                         return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
                     }
-                    self.list.exit_search();
                     return ScreenResult::Continue;
                 }
                 KeyCode::Esc => {
@@ -1583,7 +1595,39 @@ impl MainScreenState {
     fn handle_mouse(&mut self, event: MouseEvent, terminal_area: Rect) -> ScreenResult {
         let is_hover = matches!(event.kind, MouseEventKind::Moved);
         let is_click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
-        if !is_hover && !is_click {
+        let is_scroll_up = matches!(event.kind, MouseEventKind::ScrollUp);
+        let is_scroll_down = matches!(event.kind, MouseEventKind::ScrollDown);
+
+        if !is_hover && !is_click && !is_scroll_up && !is_scroll_down {
+            return ScreenResult::Continue;
+        }
+
+        // Handle scroll events — move selection so ratatui List follows
+        if is_scroll_up || is_scroll_down {
+            let layout = crate::tui::screens::main::layout::calculate_layout(
+                terminal_area,
+                terminal_area.width,
+            );
+            let list_rect = top_padded_rect(layout.list, 2);
+            let detail_rect = top_padded_rect(layout.detail, 2);
+
+            if contains_rect(list_rect, event.column, event.row) {
+                self.focused_panel = PanelId::List;
+                let steps = 3;
+                for _ in 0..steps {
+                    if is_scroll_up {
+                        self.list.move_up();
+                    } else {
+                        self.list.move_down();
+                    }
+                }
+                if let Some(record) = self.list.selected_record() {
+                    let id = record.id;
+                    return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
+                }
+            } else if contains_rect(detail_rect, event.column, event.row) {
+                self.focused_panel = PanelId::Detail;
+            }
             return ScreenResult::Continue;
         }
 

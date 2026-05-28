@@ -316,6 +316,7 @@ tui:
     hide_button: "隐藏"
     strength_label: "强度"
     health_leaked: "此密码已在数据泄露中发现 — 请立即修改"
+    health_leaked_short: "已泄露"
     health_weak: "密码强度弱 — 建议使用更强的密码"
     health_duplicate: "此密码被其他 %{count} 个条目使用"
     section_meta: "元信息"

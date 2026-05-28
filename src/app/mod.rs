@@ -164,6 +164,9 @@ impl App {
 
         // Terminal cleanup (always attempt even if loop errored).
         terminal::clear_terminal_title();
+        // Clear the alternate screen buffer before switching back to avoid a
+        // brief flash of the last rendered frame.
+        let _ = terminal.clear();
         disable_raw_mode()?;
         let stdout = terminal.backend_mut();
         crossterm::execute!(

@@ -5,7 +5,7 @@ expression: backend
 "                                        │                       │                                   "
 "    All                           2  │  VISUAL (1 selected)  │                                   "
 "                                        │                       │                                   "
-"    Favorites                     1  │  GitHub Account   ◀   │  tui.batch.selected_count         "
+"    Favorites                     1  │  GitHub Account       │  tui.batch.selected_count         "
 "    Expired                       0  │  octocat              │                                   "
 "                                        │───────────────────────│  ─────────────────                "
 "                                        │  Personal Email       │                                   "

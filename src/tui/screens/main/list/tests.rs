@@ -343,21 +343,19 @@ fn sort_bar_has_padding_before_first_record() {
 }
 
 #[test]
-fn selected_record_marker_keeps_right_padding() {
+fn selected_record_has_no_marker() {
     let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
     let mut state = ListPanelState::with_records(vec![record]);
     state.selected_index = Some(0);
 
     let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
 
-    assert_eq!(
-        buffer.cell((60, 2)).expect("marker cell").symbol(),
-        "\u{25C0}",
-        "selected marker should leave one column of right padding plus right margin"
-    );
-    assert_eq!(
-        buffer.cell((61, 2)).expect("right padding cell").symbol(),
-        " "
+    let title_line = (0..64)
+        .map(|x| buffer.cell((x, 2)).expect("title row cell").symbol())
+        .collect::<String>();
+    assert!(
+        !title_line.contains('\u{25C0}'),
+        "selected row should not have a triangle marker: {title_line:?}"
     );
     for x in 62..64 {
         assert_eq!(
@@ -384,10 +382,9 @@ fn selected_chinese_timestamp_keeps_compact_right_margin() {
         title_line.contains('3') && title_line.contains('天') && title_line.contains('前'),
         "selected item should render the full Chinese relative timestamp: {title_line:?}"
     );
-    assert_eq!(
-        buffer.cell((60, 2)).expect("marker cell").symbol(),
-        "\u{25C0}",
-        "selected timestamp marker should not be pushed too far left: {title_line:?}"
+    assert!(
+        !title_line.contains('\u{25C0}'),
+        "selected row should not have a triangle marker: {title_line:?}"
     );
 }
 
@@ -419,22 +416,16 @@ fn selected_record_title_and_subtitle_use_same_newlook_background() {
 }
 
 #[test]
-fn selected_record_uses_newlook_background_and_cyan_focus_gutter() {
+fn selected_record_uses_newlook_background() {
     let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
     let mut state = ListPanelState::with_records(vec![record]);
     state.selected_index = Some(0);
 
     let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
 
-    let gutter = buffer.cell((0, 2)).expect("selected gutter cell exists");
-    let title_cell = buffer.cell((3, 2)).expect("selected title cell exists");
-    let subtitle_cell = buffer.cell((3, 3)).expect("selected subtitle cell exists");
+    let title_cell = buffer.cell((2, 2)).expect("selected title cell exists");
+    let subtitle_cell = buffer.cell((2, 3)).expect("selected subtitle cell exists");
 
-    assert_eq!(
-        gutter.style().bg,
-        Some(Color::Rgb(52, 228, 255)),
-        "focused selected row should expose the cyan new-look gutter"
-    );
     assert_eq!(
         title_cell.style().bg,
         Some(Color::Rgb(36, 45, 79)),
@@ -902,7 +893,7 @@ fn health_badge_compromised() {
     let span = health_badge(Some(&HealthIssue::Compromised), true).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('\u{F06BD}')); // Nerd Font leaked icon
-    assert!(text.contains("Leaked") || text.contains("leaked"));
+    assert!(!text.contains("Leaked"), "badge should be icon-only");
     assert!(span.style.fg == Some(theme::ERROR));
 }
 
@@ -910,7 +901,10 @@ fn health_badge_compromised() {
 fn health_badge_compromised_ascii() {
     let span = health_badge(Some(&HealthIssue::Compromised), false).unwrap();
     let text = span.content.as_ref();
-    assert!(text.contains('!'));
+    assert!(
+        text.contains("[leaked]"),
+        "ascii fallback should be [leaked]"
+    );
     assert!(span.style.fg == Some(theme::ERROR));
 }
 
@@ -1037,8 +1031,8 @@ fn render_compromised_takes_priority_over_expired() {
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
     assert!(
-        result.contains("Leaked"),
-        "compromised badge should be visible"
+        result.contains('\u{F06BD}'),
+        "compromised badge icon should be visible"
     );
     assert!(
         !result.contains("Expired"),

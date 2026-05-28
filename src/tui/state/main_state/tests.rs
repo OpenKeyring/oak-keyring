@@ -236,7 +236,8 @@ fn on_mount_sends_load_record_list() {
     match cmd {
         Command::LoadRecordList { filter, sort } => {
             assert_eq!(filter, RecordFilter::All);
-            assert_eq!(sort, crate::commands::types::RecordSort::default());
+            assert_eq!(sort.field, crate::commands::types::SortField::CreatedAt);
+            assert_eq!(sort.direction, crate::commands::types::SortDirection::Desc);
         }
         _ => panic!("Expected LoadRecordList command, got a different command"),
     }
@@ -646,7 +647,7 @@ fn visual_mode_and_search_are_mutually_exclusive() {
     assert!(!state.list.is_visual());
 
     // Entering visual should exit search
-    state.list.exit_search();
+    state.list.commit_search();
     state.list.enter_visual();
     assert!(state.list.is_visual());
     assert!(!state.list.is_searching());
