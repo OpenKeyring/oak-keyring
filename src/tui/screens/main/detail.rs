@@ -478,6 +478,7 @@ impl DetailPanel {
         lines.push(Line::from(title));
 
         if let Some(expiry_line) = expiry_status_line(record, unicode) {
+            lines.push(Line::from(""));
             lines.push(expiry_line);
         } else {
             lines.push(Line::from(""));
@@ -585,38 +586,42 @@ impl DetailPanel {
         unicode: bool,
         width: u16,
     ) {
-        let Some(cols) = table_columns(width) else {
+        let Some(cols) = metadata_columns(width) else {
             return;
         };
-        lines.push(table_border_line(cols, "┌", "┬", "┐", unicode));
+        lines.push(metadata_border_line(cols, "┌", "┬", "┐", unicode));
         if !record.tags.is_empty() {
-            lines.push(render_table_row(
+            lines.push(render_metadata_row(
                 nf_icon(unicode, theme::NF_TAG, theme::ascii::NF_TAG),
                 t!("tui.password_detail.tags_label").as_ref(),
                 render_tag_chips(&record.tags),
-                Vec::new(),
                 cols,
             ));
-            lines.push(table_border_line(cols, "├", "┼", "┤", unicode));
+            lines.push(metadata_border_line(cols, "├", "┼", "┤", unicode));
         }
         if let Some(notes) = record.notes.as_ref().filter(|notes| !notes.is_empty()) {
-            lines.push(render_plain_table_row(
+            lines.push(render_plain_metadata_row(
                 nf_icon(unicode, theme::NF_NOTE, theme::ascii::NF_NOTE),
                 t!("tui.password_detail.notes_label").as_ref(),
                 notes,
-                Vec::new(),
                 cols,
             ));
-            lines.push(table_border_line(cols, "├", "┼", "┤", unicode));
+            lines.push(metadata_border_line(cols, "├", "┼", "┤", unicode));
         }
-        lines.push(render_plain_table_row(
+        lines.push(render_plain_metadata_row(
+            nf_icon(unicode, theme::NF_CLOCK, theme::ascii::NF_CLOCK),
+            t!("tui.password_detail.created_at", date = "").trim_end_matches(" %{date}"),
+            &record.created_at.format("%Y-%m-%d %H:%M").to_string(),
+            cols,
+        ));
+        lines.push(metadata_border_line(cols, "├", "┼", "┤", unicode));
+        lines.push(render_plain_metadata_row(
             nf_icon(unicode, theme::NF_CLOCK, theme::ascii::NF_CLOCK),
             t!("tui.password_detail.updated_at", date = "").trim_end_matches(" %{date}"),
             &record.updated_at.format("%Y-%m-%d %H:%M").to_string(),
-            Vec::new(),
             cols,
         ));
-        lines.push(table_border_line(cols, "└", "┴", "┘", unicode));
+        lines.push(metadata_border_line(cols, "└", "┴", "┘", unicode));
     }
 
     fn render_field_card_row(
@@ -640,7 +645,7 @@ impl DetailPanel {
             field_icon(field.kind, unicode),
             &field.label,
             vec![Span::styled(field.display_value(), row_style)],
-            field_action_spans(field_idx, field, state, unicode, cols.action < 24),
+            field_action_spans(field_idx, field, state, unicode, cols.action < 20),
             cols,
         )
     }
@@ -722,13 +727,19 @@ fn table_columns(width: u16) -> Option<TableColumns> {
     if total < 42 {
         return None;
     }
-    let label = if total >= 82 { 18 } else { 14 };
-    let action = if total >= 110 {
-        30
-    } else if total >= 78 {
-        22
+    let label = if total >= 82 {
+        18
+    } else if total >= 52 {
+        14
     } else {
         12
+    };
+    let action = if total >= 80 {
+        26
+    } else if total >= 60 {
+        22
+    } else {
+        14
     };
     let value = total.saturating_sub(label + action + 10);
     (value >= 8).then_some(TableColumns {
@@ -736,6 +747,89 @@ fn table_columns(width: u16) -> Option<TableColumns> {
         value,
         action,
     })
+}
+
+#[derive(Clone, Copy)]
+struct MetadataColumns {
+    label: usize,
+    value: usize,
+}
+
+fn metadata_columns(width: u16) -> Option<MetadataColumns> {
+    let total = width as usize;
+    if total < 30 {
+        return None;
+    }
+    let label = if total >= 82 { 18 } else if total >= 52 { 14 } else { 12 };
+    let value = total.saturating_sub(label + 6);
+    (value >= 8).then_some(MetadataColumns { label, value })
+}
+
+fn metadata_border_line(
+    cols: MetadataColumns,
+    left: &str,
+    middle: &str,
+    right: &str,
+    unicode: bool,
+) -> Line<'static> {
+    if !unicode {
+        return Line::from(Span::styled(
+            format!(
+                "+{}+{}+",
+                "-".repeat(cols.label + 2),
+                "-".repeat(cols.value + 2)
+            ),
+            Style::default().fg(theme::NL_LINE),
+        ));
+    }
+    Line::from(Span::styled(
+        format!(
+            "{}{}{}{}{}",
+            left,
+            "─".repeat(cols.label + 2),
+            middle,
+            "─".repeat(cols.value + 2),
+            right
+        ),
+        Style::default().fg(theme::NL_LINE),
+    ))
+}
+
+fn render_plain_metadata_row(
+    icon: &str,
+    label: &str,
+    value: &str,
+    cols: MetadataColumns,
+) -> Line<'static> {
+    render_metadata_row(
+        icon,
+        label,
+        vec![Span::styled(
+            value.to_string(),
+            Style::default().fg(theme::NL_TEXT),
+        )],
+        cols,
+    )
+}
+
+fn render_metadata_row(
+    icon: &str,
+    label: &str,
+    value: Vec<Span<'static>>,
+    cols: MetadataColumns,
+) -> Line<'static> {
+    let label_text = format!("{}  {}", icon, label);
+    let mut spans = vec![
+        Span::styled("│ ", Style::default().fg(theme::NL_LINE)),
+        Span::styled(
+            pad_to_width(&label_text, cols.label),
+            Style::default().fg(theme::NL_TEXT_MUTED),
+        ),
+        Span::styled(" │ ", Style::default().fg(theme::NL_LINE)),
+    ];
+    spans.extend(pad_spans(value, cols.value, false));
+    spans.push(Span::styled(" │", Style::default().fg(theme::NL_LINE)));
+    Line::from(spans)
 }
 
 fn table_border_line(
@@ -1036,27 +1130,36 @@ fn is_secret_field(kind: DetailFieldKind) -> bool {
 fn health_issue_line(state: &DetailPanelState, unicode: bool) -> Option<Line<'static>> {
     let issue = state.health_issue.as_ref()?;
     use std::borrow::Cow;
-    let (text, color): (Cow<str>, _) = match issue {
+    let (icon, text, color): (&str, Cow<str>, _) = match issue {
         crate::commands::types::HealthIssue::Compromised => {
-            (t!("tui.password_detail.health_leaked"), theme::ERROR)
+            let icon = if unicode { "\u{F06BD}" } else { "!" };
+            (icon, t!("tui.password_detail.health_leaked"), theme::ERROR)
         }
         crate::commands::types::HealthIssue::Weak => {
-            (t!("tui.password_detail.health_weak"), theme::WARNING)
+            let icon = if unicode {
+                theme::ICON_WARNING
+            } else {
+                theme::ascii::ICON_WARNING
+            };
+            (icon, t!("tui.password_detail.health_weak"), theme::WARNING)
         }
-        crate::commands::types::HealthIssue::Duplicate { group_size } => (
-            t!("tui.password_detail.health_duplicate", count = group_size),
-            theme::WARNING,
-        ),
+        crate::commands::types::HealthIssue::Duplicate { group_size } => {
+            let icon = if unicode {
+                theme::ICON_WARNING
+            } else {
+                theme::ascii::ICON_WARNING
+            };
+            (
+                icon,
+                t!("tui.password_detail.health_duplicate", count = group_size),
+                theme::WARNING,
+            )
+        }
         crate::commands::types::HealthIssue::Expired => return None,
     };
     if text.is_empty() {
         return None;
     }
-    let icon = if unicode {
-        theme::ICON_WARNING
-    } else {
-        theme::ascii::ICON_WARNING
-    };
     Some(Line::from(vec![
         Span::styled(format!("{}  ", icon), Style::default().fg(color)),
         Span::styled(text.into_owned(), Style::default().fg(color)),
@@ -1122,7 +1225,7 @@ fn action_button_span(
             .add_modifier(Modifier::BOLD);
     }
     if compact {
-        Span::styled(format!("[ {} ]", icon), style)
+        Span::styled(format!("{} {}", icon, label), style)
     } else {
         Span::styled(format!("[ {} {} ]", icon, label), style)
     }
