@@ -41,7 +41,7 @@ impl SidebarPanel {
         frame: &mut Frame,
         area: Rect,
         state: &SidebarState,
-        _focused: bool,
+        focused: bool,
         unicode: bool,
     ) {
         if area.width == 0 || area.height == 0 {
@@ -79,7 +79,7 @@ impl SidebarPanel {
 
         let items: Vec<ListItem<'_>> = state.items[..footer_start]
             .iter()
-            .map(|item| build_list_item(item, state, unicode, area.width))
+            .map(|item| build_list_item(item, state, unicode, area.width, focused))
             .collect();
 
         let list = List::new(items);
@@ -92,7 +92,7 @@ impl SidebarPanel {
         if footer_height > 0 {
             let footer_items: Vec<ListItem<'_>> = state.items[footer_start..]
                 .iter()
-                .map(|item| build_list_item(item, state, unicode, area.width))
+                .map(|item| build_list_item(item, state, unicode, area.width, focused))
                 .collect();
             let footer_list = List::new(footer_items);
             let mut footer_state = ListState::default();
@@ -120,6 +120,7 @@ fn build_list_item<'a>(
     state: &SidebarState,
     unicode: bool,
     area_width: u16,
+    focused: bool,
 ) -> ListItem<'a> {
     match item {
         SidebarItem::Spacer => ListItem::new(Line::from("")),
@@ -140,7 +141,7 @@ fn build_list_item<'a>(
             let badge_color = category_badge_color(category);
 
             if is_selected(item, state) {
-                selected_category_item(label, count, area_width, unicode, badge_color)
+                selected_category_item(label, count, area_width, unicode, badge_color, focused)
             } else {
                 ListItem::new(category_line(
                     label,
@@ -149,6 +150,7 @@ fn build_list_item<'a>(
                     unicode,
                     false,
                     badge_color,
+                    focused,
                 ))
             }
         }
@@ -193,7 +195,7 @@ fn build_list_item<'a>(
                     )
                 };
                 if is_selected(item, state) {
-                    selected_list_item(format!("  {}", header_text), area_width)
+                    selected_list_item(format!("  {}", header_text), area_width, focused)
                 } else {
                     ListItem::new(Line::from(Span::styled(
                         format!("  {}", header_text),
@@ -237,7 +239,7 @@ fn build_list_item<'a>(
                     format!("{} {} {}", icon, tag_icon, t!(label_key))
                 };
                 if is_selected(item, state) {
-                    selected_list_item(format!("  {}", label), area_width)
+                    selected_list_item(format!("  {}", label), area_width, focused)
                 } else {
                     ListItem::new(Line::from(Span::styled(
                         format!("  {}", label),
@@ -263,6 +265,7 @@ fn build_list_item<'a>(
                     selected_list_item(
                         format!("{}{} {}", display, " ".repeat(padding_width), edit_icon),
                         area_width,
+                        focused,
                     )
                 } else {
                     ListItem::new(Line::from(vec![
@@ -290,7 +293,7 @@ fn build_list_item<'a>(
                     format!("{}{} {} ({})", TAG_INDENT, tag_icon, name, count)
                 };
                 if is_selected(item, state) {
-                    selected_list_item(display, area_width)
+                    selected_list_item(display, area_width, focused)
                 } else {
                     ListItem::new(Line::from(Span::styled(
                         display,
@@ -309,7 +312,7 @@ fn build_list_item<'a>(
             };
             let label = format!("  {}  {}", icon, t!("tui.main.sidebar_generator"));
             if is_selected(item, state) {
-                selected_list_item(label, area_width)
+                selected_list_item(label, area_width, focused)
             } else {
                 ListItem::new(Line::from(Span::styled(
                     label,
@@ -327,7 +330,7 @@ fn build_list_item<'a>(
             };
             let label = format!("  {}  {}", icon, t!("tui.main.sidebar_config"));
             if is_selected(item, state) {
-                selected_list_item(label, area_width)
+                selected_list_item(label, area_width, focused)
             } else {
                 ListItem::new(Line::from(Span::styled(
                     label,
@@ -344,14 +347,15 @@ fn is_selected(item: &SidebarItem, state: &SidebarState) -> bool {
     item.is_selectable() && state.items.get(state.selected_index) == Some(item)
 }
 
-fn selected_list_item(text: String, area_width: u16) -> ListItem<'static> {
+fn selected_list_item(text: String, area_width: u16, focused: bool) -> ListItem<'static> {
     let text_width = display_width(&text);
     let padding = (area_width as usize).saturating_sub(text_width);
     let full_text = format!("{}{}", text, " ".repeat(padding));
     let blank_text = " ".repeat(area_width as usize);
+    let bg = if focused { theme::NL_SELECTED } else { theme::NL_SURFACE_2 };
     let style = Style::default()
         .fg(theme::NL_TEXT)
-        .bg(theme::NL_SELECTED)
+        .bg(bg)
         .add_modifier(Modifier::BOLD);
 
     ListItem::new(vec![
@@ -368,16 +372,18 @@ fn selected_category_item(
     area_width: u16,
     unicode: bool,
     badge_color: ratatui::style::Color,
+    focused: bool,
 ) -> ListItem<'static> {
     let blank_text = " ".repeat(area_width as usize);
+    let bg = if focused { theme::NL_SELECTED } else { theme::NL_SURFACE_2 };
     let style = Style::default()
         .fg(theme::NL_TEXT)
-        .bg(theme::NL_SELECTED)
+        .bg(bg)
         .add_modifier(Modifier::BOLD);
 
     ListItem::new(vec![
         Line::from(Span::styled(blank_text.clone(), style)),
-        category_line(label, count, area_width, unicode, true, badge_color),
+        category_line(label, count, area_width, unicode, true, badge_color, focused),
         Line::from(Span::styled(blank_text, style)),
     ])
     .style(style)
@@ -390,6 +396,7 @@ fn category_line(
     unicode: bool,
     selected: bool,
     badge_color: ratatui::style::Color,
+    focused: bool,
 ) -> Line<'static> {
     let prefix = "  ";
     let badge = format_count(count, unicode);
@@ -398,10 +405,11 @@ fn category_line(
         .saturating_sub(used_width)
         .saturating_sub(BADGE_RIGHT_PADDING);
 
+    let selected_bg = if focused { theme::NL_SELECTED } else { theme::NL_SURFACE_2 };
     let text_style = if selected {
         Style::default()
             .fg(theme::NL_TEXT)
-            .bg(theme::NL_SELECTED)
+            .bg(selected_bg)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme::NL_TEXT).bg(theme::NL_SURFACE)
@@ -412,7 +420,7 @@ fn category_line(
         Span::styled(label, text_style),
         Span::styled(" ".repeat(padding_width), text_style),
     ];
-    spans.extend(count_badge_spans(count, unicode, selected, badge_color));
+    spans.extend(count_badge_spans(count, unicode, selected, badge_color, focused));
     spans.push(Span::styled(" ".repeat(BADGE_RIGHT_PADDING), text_style));
     Line::from(spans)
 }
@@ -497,13 +505,15 @@ fn count_badge_spans(
     unicode: bool,
     selected: bool,
     color: ratatui::style::Color,
+    focused: bool,
 ) -> Vec<Span<'static>> {
     let label = count_label(count);
     let badge_reset = Modifier::BOLD;
+    let selected_bg = if focused { theme::NL_SELECTED } else { theme::NL_SURFACE_2 };
     let badge_edge_style = Style::default()
         .fg(color)
         .bg(if selected {
-            theme::NL_SELECTED
+            selected_bg
         } else {
             theme::NL_SURFACE
         })
@@ -968,7 +978,7 @@ mod tests {
     #[test]
     fn build_list_item_separator_unicode_width() {
         let state = SidebarState::default();
-        let item = build_list_item(&SidebarItem::Separator, &state, true, 30);
+        let item = build_list_item(&SidebarItem::Separator, &state, true, 30, true);
         // Separator should span the full width
         assert_eq!(item.width(), 30);
         assert_eq!(item.height(), 1);
@@ -977,14 +987,14 @@ mod tests {
     #[test]
     fn build_list_item_separator_ascii_width() {
         let state = SidebarState::default();
-        let item = build_list_item(&SidebarItem::Separator, &state, false, 25);
+        let item = build_list_item(&SidebarItem::Separator, &state, false, 25, true);
         assert_eq!(item.width(), 25);
     }
 
     #[test]
     fn build_list_item_tag_has_content() {
         let state = SidebarState::default();
-        let item = build_list_item(&SidebarItem::Tag("work".into(), 0), &state, true, 50);
+        let item = build_list_item(&SidebarItem::Tag("work".into(), 0), &state, true, 50, true);
         // Tag item should have non-zero width (indent + "work" + count)
         assert!(item.width() > 0);
     }
@@ -992,14 +1002,14 @@ mod tests {
     #[test]
     fn build_list_item_generator_has_content() {
         let state = SidebarState::default();
-        let item = build_list_item(&SidebarItem::Generator, &state, true, 50);
+        let item = build_list_item(&SidebarItem::Generator, &state, true, 50, true);
         assert!(item.width() > 0);
     }
 
     #[test]
     fn build_list_item_config_has_content() {
         let state = SidebarState::default();
-        let item = build_list_item(&SidebarItem::Config, &state, false, 50);
+        let item = build_list_item(&SidebarItem::Config, &state, false, 50, true);
         assert!(item.width() > 0);
     }
 
@@ -1017,7 +1027,7 @@ mod tests {
             &SidebarItem::Config,
         ];
         for item in items_to_test {
-            let list_item = build_list_item(item, &state, true, 50);
+            let list_item = build_list_item(item, &state, true, 50, true);
             let expected_height = if is_selected(item, &state) { 3 } else { 1 };
             assert_eq!(
                 list_item.height(),
@@ -1032,7 +1042,7 @@ mod tests {
     fn separator_fills_full_width() {
         let state = SidebarState::default();
         for width in [10u16, 30, 50] {
-            let item = build_list_item(&SidebarItem::Separator, &state, true, width);
+            let item = build_list_item(&SidebarItem::Separator, &state, true, width, true);
             assert_eq!(
                 item.width(),
                 width as usize,

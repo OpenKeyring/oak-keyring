@@ -53,8 +53,12 @@ fn all_groups() -> Vec<ShortcutGroup> {
                     desc: t!("tui.help.nav_down").to_string(),
                 },
                 Shortcut {
-                    key: "Tab".to_string(),
-                    desc: t!("tui.help.nav_tab").to_string(),
+                    key: "←/→".to_string(),
+                    desc: t!("tui.help.nav_panel").to_string(),
+                },
+                Shortcut {
+                    key: "1-5".to_string(),
+                    desc: t!("tui.help.nav_category").to_string(),
                 },
                 Shortcut {
                     key: "Enter".to_string(),
@@ -91,12 +95,16 @@ fn all_groups() -> Vec<ShortcutGroup> {
                     desc: t!("tui.help.action_favorite").to_string(),
                 },
                 Shortcut {
-                    key: "s".to_string(),
+                    key: "s/S".to_string(),
                     desc: t!("tui.help.action_sort").to_string(),
                 },
                 Shortcut {
                     key: "v".to_string(),
                     desc: t!("tui.help.action_multiselect").to_string(),
+                },
+                Shortcut {
+                    key: "p/Ctrl+G".to_string(),
+                    desc: t!("tui.help.action_generator").to_string(),
                 },
                 Shortcut {
                     key: "g".to_string(),
@@ -200,7 +208,7 @@ fn all_groups() -> Vec<ShortcutGroup> {
                 },
                 Shortcut {
                     key: "s".to_string(),
-                    desc: t!("tui.help.tag_save").to_string(),
+                    desc: t!("tui.help.tag_sort").to_string(),
                 },
             ],
         },
@@ -264,12 +272,12 @@ fn layout_for(area: Rect) -> (Rect, Vec<usize>) {
     if area.width >= 120 {
         // Two-column, full width.
         let w: u16 = 64;
-        let h: u16 = 30;
+        let h: u16 = 34;
         (centered_rect(area, w, h), all_indices)
     } else if area.width >= 100 {
         // Two-column, narrower.
         let w: u16 = 56;
-        let h: u16 = 30;
+        let h: u16 = 34;
         (centered_rect(area, w, h), all_indices)
     } else {
         // Single column — hide Trash and Tag Management.

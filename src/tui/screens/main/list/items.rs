@@ -104,11 +104,13 @@ impl ListPanel {
 pub(super) fn health_badge(issue: Option<&HealthIssue>, unicode: bool) -> Option<Span<'static>> {
     issue.map(|i| match i {
         HealthIssue::Compromised => {
-            let icon = if unicode { "\u{1F534}" } else { "!" }; // 🔴 / !
+            let icon = if unicode { "\u{F06BD}" } else { "!" };
             let label = t!("tui.password_list.health_leaked");
             Span::styled(
-                format!(" {}{}", icon, label),
-                Style::default().fg(theme::ERROR),
+                format!(" {}  {}", icon, label),
+                Style::default()
+                    .fg(theme::ERROR)
+                    .add_modifier(Modifier::BOLD),
             )
         }
         HealthIssue::Weak => {
@@ -258,18 +260,23 @@ pub(super) fn build_record_item<'a>(
         Style::default().fg(theme::NL_TEXT).bg(theme::NL_BG)
     };
 
-    // Determine badge span style (override for visual-selected context)
+    // Determine badge span style (override for selection context)
     let badge_span = badge.map(|span| {
+        let badge_fg = span.style.fg.unwrap_or(theme::TEXT);
         if is_visual_selected {
-            // Derive color from the chosen badge, not from record flags,
-            // so the visual-selected color matches the priority-derived badge.
-            let badge_fg = span.style.fg.unwrap_or(theme::TEXT);
             Span::styled(
                 span.content,
                 Style::default()
                     .bg(theme::NL_SELECTED)
                     .fg(badge_fg)
                     .add_modifier(Modifier::DIM),
+            )
+        } else if is_selected {
+            Span::styled(
+                span.content,
+                Style::default()
+                    .bg(theme::NL_SELECTED)
+                    .fg(badge_fg),
             )
         } else {
             span

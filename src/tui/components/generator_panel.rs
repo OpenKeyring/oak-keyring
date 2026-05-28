@@ -42,13 +42,13 @@ pub fn render_generator_panel(
             t!("tui.generator.length").to_string(),
             state.random_config.length,
             8,
-            128,
+            36,
         ),
         GenerationStyle::Memorable => (
             t!("tui.generator.word_count").to_string(),
             state.memorable_config.word_count,
             3,
-            12,
+            8,
         ),
         GenerationStyle::Pin => (
             t!("tui.generator.length").to_string(),
@@ -83,14 +83,16 @@ pub fn render_generator_panel(
     lines.push(separator_line(width));
 
     // Preview — wrapped in a bordered input box
-    let inner_width = width.saturating_sub(6) as usize; // 2 padding + 2 borders + margins
+    let inner_width = width.saturating_sub(6) as usize; // 2 padding + 2 box borders + 2 inner spaces
+    let max_pw = inner_width.saturating_sub(2); // 2 inner spaces between │ and text
     let password_text: String = state.preview_expose(|s: &str| {
-        if s.len() > inner_width {
-            format!("{}...", &s[..inner_width.saturating_sub(3)])
+        if s.len() > max_pw {
+            format!("{}...", &s[..max_pw.saturating_sub(3)])
         } else {
             s.to_owned()
         }
     });
+    let padded_pw = format!("{:width$}", password_text, width = max_pw);
     let border_style = Style::default().fg(theme::BORDER);
     let top_border = format!("{}{}{}", BOX_TL, BOX_H.repeat(inner_width), BOX_TR);
     let bottom_border = format!("{}{}{}", BOX_BL, BOX_H.repeat(inner_width), BOX_BR);
@@ -100,7 +102,7 @@ pub fn render_generator_panel(
     )));
     lines.push(Line::from(vec![
         Span::styled(format!("  {} ", BOX_V), border_style),
-        Span::styled(password_text, Style::default().fg(theme::TEXT)),
+        Span::styled(padded_pw, Style::default().fg(theme::TEXT)),
         Span::styled(format!(" {}", BOX_V), border_style),
     ]));
     lines.push(Line::from(Span::styled(

@@ -122,7 +122,7 @@ impl GeneratorState {
     ) -> Self {
         let mut random_config = RandomConfig::default();
         if let Some(len) = default_length {
-            random_config.length = len.clamp(8, 128);
+            random_config.length = len.clamp(8, 36);
         }
         if let Some(upper) = default_uppercase {
             random_config.uppercase = upper;
@@ -207,7 +207,7 @@ impl GeneratorState {
     /// Get min/max for current style's length slider.
     pub fn length_range(&self) -> (usize, usize) {
         match self.style {
-            GenerationStyle::Random => (8, 128),
+            GenerationStyle::Random => (8, 36),
             GenerationStyle::Memorable => (3, 12),
             GenerationStyle::Pin => (4, 16),
         }
@@ -582,9 +582,9 @@ mod tests {
     #[test]
     fn increment_length_clamps_to_max() {
         let mut state = GeneratorState::new();
-        state.random_config.length = 128;
+        state.random_config.length = 36;
         state.increment_length();
-        assert_eq!(state.random_config.length, 128);
+        assert_eq!(state.random_config.length, 36);
     }
 
     #[test]
@@ -723,7 +723,7 @@ mod tests {
     #[test]
     fn from_config_clamps_invalid_length() {
         let state = GeneratorState::from_config(Some(200), None, None, None);
-        assert_eq!(state.random_config.length, 128);
+        assert_eq!(state.random_config.length, 36);
     }
 
     #[test]

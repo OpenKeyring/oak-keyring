@@ -929,7 +929,8 @@ tui:
     # Navigation shortcuts
     nav_up: "上移"
     nav_down: "下移"
-    nav_tab: "切换面板"
+    nav_panel: "切换面板"
+    nav_category: "快速分类"
     nav_enter: "确认"
     nav_esc: "返回/关闭"
     # Action shortcuts
@@ -938,8 +939,9 @@ tui:
     action_edit: "编辑"
     action_delete: "删除"
     action_favorite: "收藏"
-    action_sort: "排序"
+    action_sort: "排序方向/字段"
     action_multiselect: "多选模式"
+    action_generator: "密码生成器"
     action_config: "配置页"
     action_audit: "审计日志"
     action_quit: "退出"
@@ -963,7 +965,7 @@ tui:
     tag_add: "添加标签"
     tag_rename: "重命名标签"
     tag_delete: "删除标签"
-    tag_save: "保存"
+    tag_sort: "切换排序"
     # Sync shortcuts
     sync_manual: "手动同步"
 

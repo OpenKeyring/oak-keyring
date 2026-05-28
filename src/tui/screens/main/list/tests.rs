@@ -901,7 +901,7 @@ fn build_empty_state_variant_search_mode_overrides_filter() {
 fn health_badge_compromised() {
     let span = health_badge(Some(&HealthIssue::Compromised), true).unwrap();
     let text = span.content.as_ref();
-    assert!(text.contains('\u{1F534}')); // 🔴
+    assert!(text.contains('\u{F06BD}')); // Nerd Font leaked icon
     assert!(text.contains("Leaked") || text.contains("leaked"));
     assert!(span.style.fg == Some(theme::ERROR));
 }
