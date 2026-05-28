@@ -1,9 +1,57 @@
 //! Timer management for auto-sync, auto-lock, and clipboard clear.
 
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 use tokio::time::{interval, Duration, Interval};
 
 use crate::config::sync::{SyncMode, SyncProvider};
 use crate::config::AppConfig;
+
+/// Shared activity tracker for auto-lock idle detection.
+///
+/// The TUI layer calls [`touch`] on every user input event; the executor
+/// reads [`idle_seconds`] before triggering auto-lock to decide whether the
+/// user is still active.
+#[derive(Clone)]
+pub struct ActivityTracker {
+    last_active: Arc<AtomicI64>,
+}
+
+impl ActivityTracker {
+    pub fn new() -> Self {
+        Self {
+            last_active: Arc::new(AtomicI64::new(now_secs())),
+        }
+    }
+
+    /// Record that the user is currently active.
+    pub fn touch(&self) {
+        self.last_active.store(now_secs(), Ordering::Relaxed);
+    }
+
+    /// Seconds elapsed since the last [`touch`].
+    pub fn idle_seconds(&self) -> i64 {
+        now_secs() - self.last_active.load(Ordering::Relaxed)
+    }
+}
+
+fn now_secs() -> i64 {
+    chrono::Utc::now().timestamp()
+}
+
+impl Default for ActivityTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for ActivityTracker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ActivityTracker")
+            .field("idle_seconds", &self.idle_seconds())
+            .finish()
+    }
+}
 
 pub struct ExecutorTimers {
     /// Auto-sync interval (None if sync disabled or manual mode)

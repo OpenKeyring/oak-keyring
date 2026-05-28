@@ -12,6 +12,8 @@ pub mod sync;
 pub mod timer;
 pub mod vault;
 
+pub use timer::ActivityTracker;
+
 pub use builder::ExecutorBuilder;
 
 use std::path::PathBuf;
@@ -179,6 +181,8 @@ pub struct CommandExecutor {
     timer_rebuild_pending: bool,
     /// OAuth2 token store for Google Drive authorization.
     oauth2_token_store: Arc<tokio::sync::Mutex<Option<crate::cloud::oauth2::TokenStore>>>,
+    /// Shared activity tracker for auto-lock idle detection.
+    activity: timer::ActivityTracker,
 }
 
 impl CommandExecutor {
@@ -207,6 +211,7 @@ impl CommandExecutor {
         vault_dir: std::path::PathBuf,
         config_dir: std::path::PathBuf,
         db_startup_mode: DbStartupMode,
+        activity: timer::ActivityTracker,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         info!(vault_dir = %vault_dir.display(), config_dir = %config_dir.display(), ?db_startup_mode, "initializing CommandExecutor");
 
@@ -273,6 +278,7 @@ impl CommandExecutor {
             .result_tx(result_tx)
             .shutdown_token(shutdown_token)
             .clipboard(clipboard)
+            .activity(activity)
             .build()?)
     }
 
@@ -386,8 +392,15 @@ impl CommandExecutor {
                 // Priority 5: Auto-lock timer
                 _ = timer::tick_opt(auto_lock_interval), if auto_lock_active => {
                     if self.should_run_auto_lock_timer() {
-                        info!("Auto-lock timer triggered");
-                        self.execute(Command::LockVault).await;
+                        let configured = self.config.get_config().general.auto_lock_seconds as i64;
+                        let idle = self.activity.idle_seconds();
+                        if idle >= configured {
+                            info!(idle_seconds = idle, "Auto-lock timer triggered");
+                            self.execute(Command::LockVault).await;
+                        } else {
+                            tracing::debug!(idle_seconds = idle, "Auto-lock skipped — user active");
+                            timers.reset_auto_lock();
+                        }
                     } else {
                         tracing::debug!("Auto-lock timer skipped because vault is not unlocked");
                     }
@@ -685,7 +698,7 @@ fn vault_db_paths(vault_dir: &std::path::Path) -> [std::path::PathBuf; 4] {
 
 #[cfg(test)]
 mod shutdown_tests {
-    use super::{CommandExecutor, DbStartupMode, ShutdownStepStatus};
+    use super::{ActivityTracker, CommandExecutor, DbStartupMode, ShutdownStepStatus};
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
@@ -710,6 +723,7 @@ mod shutdown_tests {
             dir.path().to_path_buf(),
             dir.path().to_path_buf(),
             DbStartupMode::DeferredInMemory,
+            ActivityTracker::new(),
         )
         .expect("executor should construct with in-memory vault");
 
@@ -784,6 +798,7 @@ mod rollback_tests {
             dir.path().to_path_buf(),
             dir.path().to_path_buf(),
             DbStartupMode::DeferredInMemory,
+            ActivityTracker::new(),
         )
         .expect("executor");
 

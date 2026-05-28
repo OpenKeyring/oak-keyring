@@ -9,7 +9,7 @@
 
 use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
-use oak_keyring::executor::{CommandExecutor, DbStartupMode};
+use oak_keyring::executor::{ActivityTracker, CommandExecutor, DbStartupMode};
 use oak_keyring::types::sensitive::SecureStr;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -35,6 +35,7 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
         data_dir,
         config_dir,
         DbStartupMode::FileBacked,
+        ActivityTracker::new(),
     )
     .expect("executor construction should succeed");
 
@@ -327,6 +328,7 @@ async fn save_and_reload_preserves_config() {
             data_dir,
             config_dir,
             DbStartupMode::FileBacked,
+        ActivityTracker::new(),
         )
         .expect("executor construction should succeed");
 

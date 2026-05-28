@@ -5,7 +5,7 @@ use oak_keyring::crypto::bip39::MnemonicLanguage;
 use oak_keyring::crypto::db_page_key::test_db_page_key;
 use oak_keyring::crypto::keystore::KeyStore;
 use oak_keyring::db::vault_db::{VaultDbError, VaultDbFactory};
-use oak_keyring::executor::{CommandExecutor, DbStartupMode};
+use oak_keyring::executor::{ActivityTracker, CommandExecutor, DbStartupMode};
 use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
 use oak_keyring::types::SecureStr;
 use rusqlite::Connection;
@@ -41,6 +41,7 @@ async fn new_vault_creates_sqlcipher_database_directly() {
         dir.path().to_path_buf(),
         dir.path().to_path_buf(),
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .expect("executor");
 
@@ -123,6 +124,7 @@ async fn unlock_opens_sqlcipher_only_after_keystore_unlock() {
         dir.path().to_path_buf(),
         dir.path().to_path_buf(),
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .expect("executor starts locked");
 
@@ -145,6 +147,7 @@ fn pending_sqlcipher_guard_rolls_back_uncommitted_database_files() {
         dir.path().to_path_buf(),
         dir.path().to_path_buf(),
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .expect("executor");
 
@@ -205,6 +208,7 @@ async fn lock_drops_open_sqlcipher_runtime() {
         dir.path().to_path_buf(),
         dir.path().to_path_buf(),
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .expect("executor starts locked");
 
@@ -284,6 +288,7 @@ async fn sqlcipher_unlocked_vault_supports_full_query_pipeline() {
         dir.path().to_path_buf(),
         dir.path().to_path_buf(),
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .expect("executor");
 
@@ -446,6 +451,7 @@ async fn change_master_password_preserves_sqlcipher_db_access() {
         dir.path().to_path_buf(),
         dir.path().to_path_buf(),
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .expect("executor");
 

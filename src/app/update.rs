@@ -256,6 +256,9 @@ pub fn run(
         if has_event {
             match event::read()? {
                 CrosstermEvent::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                    if let Some(ref activity) = app.activity {
+                        activity.touch();
+                    }
                     // Ctrl+X: dismiss active notification.
                     if key_event.modifiers.contains(KeyModifiers::CONTROL)
                         && key_event.code == KeyCode::Char('x')
@@ -273,11 +276,13 @@ pub fn run(
                 {
                     return Ok(());
                 }
-                CrosstermEvent::Mouse(mouse_event)
-                    if handle_message(app, Message::MouseEvent(mouse_event))?
-                        == LoopControl::Exit =>
-                {
-                    return Ok(());
+                CrosstermEvent::Mouse(mouse_event) => {
+                    if let Some(ref activity) = app.activity {
+                        activity.touch();
+                    }
+                    if handle_message(app, Message::MouseEvent(mouse_event))? == LoopControl::Exit {
+                        return Ok(());
+                    }
                 }
                 _ => {}
             }

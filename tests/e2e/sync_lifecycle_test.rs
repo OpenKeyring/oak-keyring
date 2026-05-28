@@ -14,7 +14,7 @@ use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
 use oak_keyring::errors::ErrorCode;
-use oak_keyring::executor::{CommandExecutor, DbStartupMode};
+use oak_keyring::executor::{ActivityTracker, CommandExecutor, DbStartupMode};
 use oak_keyring::services::clipboard::ClipboardService;
 use oak_keyring::services::sync::SyncService;
 use oak_keyring::services::sync::SyncServiceImpl;
@@ -68,6 +68,7 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
         data_dir,
         config_dir,
         DbStartupMode::FileBacked,
+        ActivityTracker::new(),
     )
     .expect("executor construction should succeed");
 
@@ -137,6 +138,7 @@ fn build_executor_with_sync(
         .result_tx(result_tx)
         .shutdown_token(cancel_token)
         .clipboard(clipboard)
+        .activity(ActivityTracker::new())
         .build()
         .expect("executor should build")
 }

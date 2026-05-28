@@ -70,6 +70,8 @@ pub struct App {
     _instance_lock: InstanceLock,
     /// Startup vault file state used by UI routing and executor DB mode.
     pub vault_state: VaultInitState,
+    /// Shared activity tracker for auto-lock idle detection.
+    pub activity: Option<crate::executor::timer::ActivityTracker>,
 }
 
 impl App {
@@ -101,6 +103,7 @@ impl App {
             cancel_token,
             _instance_lock: instance_lock,
             vault_state,
+            activity: None,
         })
     }
 
@@ -114,6 +117,8 @@ impl App {
         // Instantiate and spawn the CommandExecutor.
         // It consumes command_rx and sends results back via result_tx.
         if let Some(command_rx) = self.command_rx.take() {
+            let activity = crate::executor::timer::ActivityTracker::new();
+            self.activity = Some(activity.clone());
             let executor = crate::executor::CommandExecutor::new(
                 self.config.clone(),
                 self.result_tx.clone(),
@@ -121,6 +126,7 @@ impl App {
                 self.vault_dir.clone(),
                 self.config_dir.clone(),
                 crate::executor::DbStartupMode::from_vault_state(self.vault_state),
+                activity,
             )?;
 
             executor_handle = Some(tokio::spawn(async move { executor.run(command_rx).await }));

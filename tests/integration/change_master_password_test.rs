@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
-use oak_keyring::executor::{CommandExecutor, DbStartupMode};
+use oak_keyring::executor::{ActivityTracker, CommandExecutor, DbStartupMode};
 use oak_keyring::types::SecureStr;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -42,6 +42,7 @@ impl Harness {
             data_dir,
             config_dir,
             DbStartupMode::FileBacked,
+        ActivityTracker::new(),
         )
         .unwrap();
 
