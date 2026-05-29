@@ -384,7 +384,7 @@ impl DetailPanel {
                 ),
                 Span::raw("  "),
                 Span::styled(
-                    format!("[{}]", t!("tui.overlay.confirm_delete_permanent")),
+                    format!("[{}]", t!("tui.trash.permanent_delete_title")),
                     destroy_style,
                 ),
             ]));
@@ -393,7 +393,7 @@ impl DetailPanel {
                     "{}r {}  D {}",
                     pad,
                     t!("tui.trash.restore_button"),
-                    t!("tui.overlay.confirm_delete_permanent")
+                    t!("tui.trash.permanent_delete_title")
                 ),
                 Style::default().fg(theme::TEXT_MUTED),
             )));
@@ -540,7 +540,7 @@ impl DetailPanel {
                 ),
                 Span::raw("  "),
                 Span::styled(
-                    format!("[ {} ]", t!("tui.overlay.confirm_delete_permanent")),
+                    format!("[ {} ]", t!("tui.trash.permanent_delete_title")),
                     Style::default()
                         .fg(theme::ERROR)
                         .add_modifier(Modifier::BOLD),
@@ -1646,6 +1646,24 @@ mod tests {
         state.set_trash_context(true, 0);
         let result = render_detail_snapshot(&state, 60, 20, true, true);
         assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn trash_detail_delete_action_uses_delete_label_not_warning_text() {
+        let data = make_trash_detail_data();
+        let mut state = DetailPanelState::with_record(data);
+        state.set_trash_context(true, 30);
+
+        let snapshot = render_detail_snapshot(&state, 120, 30, true, true);
+
+        assert!(
+            snapshot.contains(t!("tui.trash.permanent_delete_title").as_ref()),
+            "trash detail should render a delete action label"
+        );
+        assert!(
+            !snapshot.contains(t!("tui.overlay.confirm_delete_permanent").as_ref()),
+            "irreversible warning belongs in the confirmation dialog, not as a detail action label"
+        );
     }
 
     #[test]

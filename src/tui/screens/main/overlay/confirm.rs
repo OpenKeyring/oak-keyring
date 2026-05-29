@@ -169,13 +169,19 @@ fn build_dialog_parts(
         }
 
         ConfirmVariant::HardDelete { record_name, .. } => {
-            let lines = vec![line_with_name(
-                &t!(
-                    "tui.trash.permanent_delete_body",
-                    name = record_name.as_str()
-                )
-                .into_owned(),
-            )];
+            let lines = vec![
+                line_with_name(
+                    &t!(
+                        "tui.trash.permanent_delete_body",
+                        name = record_name.as_str()
+                    )
+                    .into_owned(),
+                ),
+                Line::from(Span::styled(
+                    t!("tui.trash.permanent_delete_warn").to_string(),
+                    Style::default().fg(theme::WARNING),
+                )),
+            ];
             (
                 format!(" {} ", t!("tui.overlay.warning_title")),
                 lines,
@@ -557,6 +563,25 @@ mod tests {
         let (_, lines, _) = build_dialog_parts(&variant, 46);
         // Only the message line, no extra hint
         assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn build_dialog_hard_delete_includes_irreversible_warning() {
+        let variant = ConfirmVariant::HardDelete {
+            record_id: Uuid::new_v4(),
+            record_name: "GitHub".to_string(),
+        };
+        let (_, lines, _) = build_dialog_parts(&variant, 46);
+        let body = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(
+            body.contains(t!("tui.trash.permanent_delete_warn").as_ref()),
+            "hard-delete confirmation should show the irreversible warning text"
+        );
     }
 
     #[test]

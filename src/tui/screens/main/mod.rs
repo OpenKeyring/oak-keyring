@@ -536,6 +536,11 @@ impl MainScreen {
                     state.list.exit_visual();
                     messages.push(Message::ExitVisualMode);
                 }
+                KeyCode::Char('r') | KeyCode::Char('D') | KeyCode::Char('a')
+                    if matches!(state.current_filter, RecordFilter::Trash) =>
+                {
+                    return Self::handle_trash_keys(key, state);
+                }
                 _ => {}
             },
         }
@@ -1219,6 +1224,26 @@ mod tests {
         let screen = MainScreen::new();
         let result =
             screen.handle_key_event(make_key(KeyCode::Char('D')), &mut state, PanelId::List);
+        assert!(result.overlay.is_some());
+        match result.overlay {
+            Some(Overlay::ConfirmDialog(ref dlg)) => {
+                assert!(matches!(dlg.variant, ConfirmVariant::HardDelete { .. }));
+            }
+            _ => panic!("Expected hard delete confirm dialog"),
+        }
+    }
+
+    #[test]
+    fn trash_detail_shift_d_opens_hard_delete_confirm() {
+        let records = vec![make_test_record("Deleted")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.focused_panel = PanelId::Detail;
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('D')), &mut state, PanelId::Detail);
         assert!(result.overlay.is_some());
         match result.overlay {
             Some(Overlay::ConfirmDialog(ref dlg)) => {
