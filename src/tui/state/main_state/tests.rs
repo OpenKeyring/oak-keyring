@@ -840,6 +840,30 @@ fn left_right_arrows_switch_main_panels() {
 }
 
 #[test]
+fn right_from_sidebar_selects_first_list_item_when_list_has_no_selection() {
+    let mut state = MainScreenState::default();
+    let first = make_test_record(None);
+    let first_id = first.id;
+    let second = make_test_record(None);
+    state.list.records = vec![first, second];
+    state.list.selected_index = None;
+    state.focused_panel = PanelId::Sidebar;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Right)), &mut ctx);
+
+    assert_eq!(state.focused_panel, PanelId::List);
+    assert_eq!(state.list.selected_index, Some(0));
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::LoadRecordDetail { id } => assert_eq!(id, first_id),
+            other => panic!("expected LoadRecordDetail, got {other:?}"),
+        },
+        other => panic!("expected LoadRecordDetail command, got {other:?}"),
+    }
+}
+
+#[test]
 fn number_shortcuts_select_sidebar_categories() {
     let mut state = MainScreenState::default();
     let mut ctx = make_ctx();

@@ -1559,6 +1559,19 @@ impl MainScreenState {
                     }
                     return Some(ScreenResult::Continue);
                 }
+                if self.focused_panel == PanelId::Sidebar {
+                    self.focused_panel = PanelId::List;
+                    if self.list.selected_index.is_none() && !self.list.records.is_empty() {
+                        self.list.selected_index = Some(0);
+                        self.list.adjust_scroll();
+                        if let Some(record) = self.list.selected_record() {
+                            return Some(ScreenResult::Command(Box::new(
+                                Command::LoadRecordDetail { id: record.id },
+                            )));
+                        }
+                    }
+                    return Some(ScreenResult::Continue);
+                }
                 self.focused_panel = match self.focused_panel {
                     PanelId::Sidebar => PanelId::List,
                     PanelId::List => PanelId::Detail,
