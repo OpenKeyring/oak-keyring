@@ -547,7 +547,7 @@ pub fn render_form(
 
     // Weak password dialog overlay
     if state.show_weak_password_dialog {
-        render_weak_password_dialog(frame, area, state.weak_dialog_focus);
+        render_weak_password_dialog(frame, area, state.weak_dialog_focus, _unicode);
     }
 
     // Unsaved changes dialog overlay
@@ -697,7 +697,7 @@ fn shortcut_line() -> Line<'static> {
     ])
 }
 
-fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
+fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize, unicode: bool) {
     let go_back_style = if focus == 0 {
         Style::default()
             .fg(theme::PRIMARY)
@@ -713,11 +713,16 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
         Style::default().fg(theme::TEXT_SECONDARY)
     };
 
+    let warning_icon = if unicode {
+        theme::NF_WARNING_TRIANGLE
+    } else {
+        theme::ascii::NF_WARNING_TRIANGLE
+    };
     let lines = vec![
         Line::from(Span::styled(
             format!(
                 "  {} {}",
-                theme::ICON_WARNING,
+                warning_icon,
                 t!("tui.overlay.weak_password_title")
             ),
             Style::default()
@@ -750,7 +755,7 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
     ];
     // Render centered
     let w = 48.min(area.width);
-    let h = 10.min(area.height);
+    let h = (lines.len() as u16).saturating_add(2).min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     let dialog_area = Rect::new(x, y, w, h);
@@ -849,4 +854,46 @@ fn error_line(msg: &str) -> Line<'static> {
 
 fn should_render_error_line(msg: &str) -> bool {
     msg != t!("tui.form.validation_required").as_ref()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    fn find_text(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<(u16, u16)> {
+        let needle_chars: Vec<char> = needle.chars().collect();
+        for y in buffer.area.y..buffer.area.y + buffer.area.height {
+            let row: Vec<String> = (buffer.area.x..buffer.area.x + buffer.area.width)
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .map(ToOwned::to_owned)
+                .collect();
+            for start in 0..row.len() {
+                if needle_chars.iter().enumerate().all(|(offset, ch)| {
+                    row.get(start + offset)
+                        .is_some_and(|cell| cell == &ch.to_string())
+                }) {
+                    return Some((buffer.area.x + start as u16, y));
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn weak_password_dialog_renders_actions_and_newlook_warning_icon() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_weak_password_dialog(frame, frame.area(), 1, true);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+
+        assert!(find_text(&buffer, "[ Cancel ]").is_some());
+        assert!(find_text(&buffer, "[ Save ]").is_some());
+        assert!(find_text(&buffer, "\u{f071}").is_some());
+        assert!(find_text(&buffer, "\u{26A0}").is_none());
+    }
 }

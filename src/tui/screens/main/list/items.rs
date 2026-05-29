@@ -368,7 +368,7 @@ pub(super) fn build_trash_item<'a>(
     record: &crate::types::record::TuiRecord,
     is_selected: bool,
     is_visual_selected: bool,
-    _focused: bool,
+    focused: bool,
     unicode: bool,
     area_width: u16,
     retention_days: u32,
@@ -377,32 +377,45 @@ pub(super) fn build_trash_item<'a>(
 
     // ── Line 1: Title with type prefix ──
     let type_prefix = format_type_prefix(&record.credential_type);
-    let prefix_str = format!("{}{}", ITEM_LEFT_PADDING, type_prefix);
+    let gutter_width = usize::from(is_selected);
+    let prefix_str = if is_selected {
+        format!(" {}", type_prefix)
+    } else {
+        format!("{}{}", ITEM_LEFT_PADDING, type_prefix)
+    };
 
-    let name_len = display_width(&prefix_str) + display_width(&record.name);
+    let name_len = gutter_width + display_width(&prefix_str) + display_width(&record.name);
     let padding_len = (area_width as usize)
         .saturating_sub(ITEM_RIGHT_MARGIN)
         .saturating_sub(name_len);
 
     let base_style = if is_visual_selected {
         Style::default()
-            .bg(theme::BRAND)
-            .fg(theme::TEXT)
+            .bg(theme::NL_SELECTED)
+            .fg(theme::NL_TEXT)
             .add_modifier(Modifier::DIM)
     } else if is_selected {
         Style::default()
-            .fg(theme::TEXT)
-            .add_modifier(Modifier::REVERSED)
+            .bg(theme::NL_SELECTED)
+            .fg(theme::NL_TEXT)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::TEXT)
+        Style::default().fg(theme::NL_TEXT).bg(theme::NL_BG)
     };
 
-    let title_spans = vec![
-        Span::styled(prefix_str, base_style),
-        Span::styled(record.name.clone(), base_style),
-        Span::styled(" ".repeat(padding_len), base_style),
-        Span::styled(" ".repeat(ITEM_RIGHT_MARGIN), base_style),
-    ];
+    let mut title_spans = Vec::new();
+    if is_selected {
+        let gutter_style = Style::default().bg(if focused {
+            theme::NL_CYAN
+        } else {
+            theme::NL_LINE
+        });
+        title_spans.push(Span::styled(" ", gutter_style));
+    }
+    title_spans.push(Span::styled(prefix_str, base_style));
+    title_spans.push(Span::styled(record.name.clone(), base_style));
+    title_spans.push(Span::styled(" ".repeat(padding_len), base_style));
+    title_spans.push(Span::styled(" ".repeat(ITEM_RIGHT_MARGIN), base_style));
     let title_line = Line::from(title_spans);
 
     // ── Line 2: Deletion metadata with progressive warnings ──
@@ -413,47 +426,80 @@ pub(super) fn build_trash_item<'a>(
 
     let days_ago_text = format_days_since_deletion(&deleted_at);
 
-    let mut meta_spans = vec![Span::styled(
-        format!("{}{}", ITEM_LEFT_PADDING, days_ago_text),
-        Style::default().fg(theme::TEXT_SECONDARY),
-    )];
+    let meta_style = if is_visual_selected {
+        Style::default()
+            .bg(theme::NL_SELECTED)
+            .fg(theme::NL_TEXT_MUTED)
+            .add_modifier(Modifier::DIM)
+    } else if is_selected {
+        Style::default()
+            .bg(theme::NL_SELECTED)
+            .fg(theme::NL_TEXT_MUTED)
+    } else {
+        Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG)
+    };
+
+    let mut meta_spans = Vec::new();
+    if is_selected {
+        let gutter_style = Style::default().bg(if focused {
+            theme::NL_CYAN
+        } else {
+            theme::NL_LINE
+        });
+        meta_spans.push(Span::styled(" ", gutter_style));
+    }
+    let meta_prefix = if is_selected { " " } else { ITEM_LEFT_PADDING };
+    let mut meta_text_width =
+        gutter_width + display_width(meta_prefix) + display_width(&days_ago_text);
+    meta_spans.push(Span::styled(
+        format!("{}{}", meta_prefix, days_ago_text),
+        meta_style,
+    ));
 
     match calculate_remaining_days(&deleted_at, retention_days) {
         None => {
             let label = t!("tui.trash.will_not_auto_delete");
-            meta_spans.push(Span::styled(
-                format!("  {}", label),
-                Style::default().fg(theme::TEXT_MUTED),
-            ));
+            let text = format!("  {}", label);
+            meta_text_width += display_width(&text);
+            meta_spans.push(Span::styled(text, meta_style.fg(theme::NL_TEXT_MUTED)));
         }
         Some(remaining) => {
             let tier = trash_warning_tier(remaining);
             let remaining_text = t!("tui.trash.auto_delete_in", days = remaining.max(0));
 
             let (warning_prefix, warning_color, add_bold) = match tier {
-                TrashWarningTier::Safe => ("", theme::TEXT_SECONDARY, false),
+                TrashWarningTier::Safe => ("", theme::NL_TEXT_MUTED, false),
                 TrashWarningTier::Moderate => ("\u{26A0} ", theme::WARNING, false),
                 TrashWarningTier::Urgent => ("\u{26A0}\u{26A0} ", theme::WARNING, true),
                 TrashWarningTier::Critical => ("\u{26A0}\u{26A0}\u{26A0} ", theme::ERROR, true),
             };
 
-            let mut style = Style::default().fg(warning_color);
+            let mut style = meta_style.fg(warning_color);
             if add_bold {
                 style = style.add_modifier(Modifier::BOLD);
             }
 
             if !warning_prefix.is_empty() {
-                meta_spans.push(Span::styled(format!("  {}", warning_prefix), style));
+                let text = format!("  {}", warning_prefix);
+                meta_text_width += display_width(&text);
+                meta_spans.push(Span::styled(text, style));
             }
-            meta_spans.push(Span::styled(format!("  {}", remaining_text), style));
+            let text = format!("  {}", remaining_text);
+            meta_text_width += display_width(&text);
+            meta_spans.push(Span::styled(text, style));
         }
     }
+    let meta_padding = " ".repeat((area_width as usize).saturating_sub(meta_text_width));
+    meta_spans.push(Span::styled(meta_padding, meta_style));
     let meta_line = Line::from(meta_spans);
 
     // ── Line 3: Separator ──
     let sep_char = if unicode { '\u{2500}' } else { '-' };
     let sep_text: String = std::iter::repeat_n(sep_char, area_width as usize).collect();
-    let separator_line = Line::from(Span::styled(sep_text, Style::default().fg(theme::BORDER)));
+    let separator_line = Line::from(Span::styled(
+        sep_text,
+        Style::default().fg(theme::NL_LINE).bg(theme::NL_BG),
+    ));
 
     if is_min_width {
         ListItem::new(vec![title_line, separator_line])

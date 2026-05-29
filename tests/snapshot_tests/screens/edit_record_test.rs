@@ -49,7 +49,10 @@ fn edit_record_login_populated() {
     screen.form.fields.username = Some("alice_smith".to_string());
     screen.form.fields.password = Some(sensitive("supersecurepassword"));
     screen.form.fields.tags = vec!["work".to_string(), "personal".to_string()];
-    screen.form.fields.set_notes_text("Do not share this login info with anyone.");
+    screen
+        .form
+        .fields
+        .set_notes_text("Do not share this login info with anyone.");
     screen.form.focused_field = 1; // Username
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("edit_record_login_populated", backend);

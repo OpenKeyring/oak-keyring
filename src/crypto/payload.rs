@@ -127,10 +127,9 @@ impl PayloadPlaintextDto {
                 passphrase: passphrase.map(SecureStr::new),
                 notes,
             },
-            PayloadPlaintextDto::SecureNote { name, notes } => EncryptedPayload::SecureNote {
-                name,
-                notes,
-            },
+            PayloadPlaintextDto::SecureNote { name, notes } => {
+                EncryptedPayload::SecureNote { name, notes }
+            }
         }
     }
 }

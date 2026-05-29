@@ -600,7 +600,9 @@ impl FormState {
 
     /// Update textarea border style to reflect current focus state.
     fn sync_textarea_block(&mut self) {
-        let focused = self.fields.is_textarea_field(self.focused_field, self.credential_type);
+        let focused = self
+            .fields
+            .is_textarea_field(self.focused_field, self.credential_type);
         crate::tui::components::textarea::update_block(&mut self.fields.notes, focused);
     }
 
@@ -662,7 +664,11 @@ impl FormState {
                     .map(SensitiveInput::take_secure)
                     .unwrap_or_else(|| SecureStr::new(String::new())),
                 url: Some(std::mem::take(&mut self.fields.url)),
-                notes: if notes_text.is_empty() { None } else { Some(notes_text) },
+                notes: if notes_text.is_empty() {
+                    None
+                } else {
+                    Some(notes_text)
+                },
             },
             CredentialType::Api => EncryptedPayload::Api {
                 name: std::mem::take(&mut self.fields.name),
@@ -674,7 +680,11 @@ impl FormState {
                     .map(SensitiveInput::take_secure)
                     .unwrap_or_else(|| SecureStr::new(String::new())),
                 url: Some(std::mem::take(&mut self.fields.url)),
-                notes: if notes_text.is_empty() { None } else { Some(notes_text) },
+                notes: if notes_text.is_empty() {
+                    None
+                } else {
+                    Some(notes_text)
+                },
             },
             CredentialType::Ssh => EncryptedPayload::Ssh {
                 name: std::mem::take(&mut self.fields.name),
@@ -689,11 +699,19 @@ impl FormState {
                     .passphrase
                     .as_mut()
                     .map(SensitiveInput::take_secure),
-                notes: if notes_text.is_empty() { None } else { Some(notes_text) },
+                notes: if notes_text.is_empty() {
+                    None
+                } else {
+                    Some(notes_text)
+                },
             },
             CredentialType::SecureNote => EncryptedPayload::SecureNote {
                 name: std::mem::take(&mut self.fields.name),
-                notes: if notes_text.is_empty() { None } else { Some(notes_text) },
+                notes: if notes_text.is_empty() {
+                    None
+                } else {
+                    Some(notes_text)
+                },
             },
         }
     }
@@ -717,7 +735,8 @@ impl FormState {
         if self.expiry_dropdown.expanded || self.credential_dropdown.expanded {
             return false;
         }
-        self.fields.is_textarea_field(self.focused_field, self.credential_type)
+        self.fields
+            .is_textarea_field(self.focused_field, self.credential_type)
     }
 }
 

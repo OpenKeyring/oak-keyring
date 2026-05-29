@@ -799,7 +799,7 @@ fn weak_dialog_esc_returns_to_edit() {
 }
 
 #[test]
-fn weak_dialog_left_focuses_go_back() {
+fn weak_dialog_left_focuses_cancel() {
     let (tx, _rx) = mpsc::channel(1);
     let mut screen = make_screen();
     let env = TestEnv::new();
@@ -819,7 +819,7 @@ fn weak_dialog_left_focuses_go_back() {
 }
 
 #[test]
-fn weak_dialog_right_focuses_save_anyway() {
+fn weak_dialog_right_focuses_save() {
     let (tx, _rx) = mpsc::channel(1);
     let mut screen = make_screen();
     let env = TestEnv::new();
@@ -839,7 +839,7 @@ fn weak_dialog_right_focuses_save_anyway() {
 }
 
 #[test]
-fn weak_dialog_tab_focuses_go_back() {
+fn weak_dialog_tab_focuses_cancel() {
     let (tx, _rx) = mpsc::channel(1);
     let mut screen = make_screen();
     let env = TestEnv::new();
@@ -858,7 +858,7 @@ fn weak_dialog_tab_focuses_go_back() {
 }
 
 #[test]
-fn weak_dialog_enter_go_back_returns_to_edit() {
+fn weak_dialog_enter_cancel_returns_to_edit() {
     let (tx, _rx) = mpsc::channel(1);
     let mut screen = make_screen();
     let env = TestEnv::new();
@@ -878,7 +878,7 @@ fn weak_dialog_enter_go_back_returns_to_edit() {
 }
 
 #[test]
-fn weak_dialog_enter_save_anyway_saves() {
+fn weak_dialog_enter_save_saves() {
     let (tx, _rx) = mpsc::channel(1);
     let mut screen = make_screen();
     let env = TestEnv::new();

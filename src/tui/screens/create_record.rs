@@ -677,10 +677,10 @@ impl CreateRecordScreen {
                 self.form.show_weak_password_dialog = false;
                 self.form.weak_dialog_focus = 0;
                 if focus == 0 {
-                    // "Go Back" — return to editing
+                    // "Cancel" returns to editing.
                     ScreenResult::Continue
                 } else {
-                    // "Save Anyway"
+                    // "Save" continues despite the warning.
                     self.create_record_command()
                 }
             }

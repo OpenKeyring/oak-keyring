@@ -416,6 +416,54 @@ fn selected_record_title_and_subtitle_use_same_newlook_background() {
 }
 
 #[test]
+fn selected_trash_record_title_and_metadata_use_same_newlook_background() {
+    let record = make_trash_record(Uuid::new_v4(), "DeletedSite", 5);
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::Trash);
+
+    let gutter_cell = buffer.cell((0, 2)).expect("selected trash gutter exists");
+    let title_cell = buffer
+        .cell((2, 2))
+        .expect("selected trash title cell exists");
+    let metadata_cell = buffer
+        .cell((2, 3))
+        .expect("selected trash metadata cell exists");
+    let separator_cell = buffer
+        .cell((0, 4))
+        .expect("selected trash separator cell exists");
+
+    assert_eq!(
+        gutter_cell.style().bg,
+        Some(theme::NL_CYAN),
+        "selected trash row should use the same focused gutter as normal rows"
+    );
+    assert_eq!(
+        title_cell.style().bg,
+        Some(theme::NL_SELECTED),
+        "selected trash title should use the selected background"
+    );
+    assert_eq!(
+        metadata_cell.style().bg,
+        Some(theme::NL_SELECTED),
+        "selected trash metadata should use the selected background"
+    );
+    assert_eq!(
+        metadata_cell.style().fg,
+        Some(theme::NL_TEXT_MUTED),
+        "selected trash metadata should use muted text on the selected background"
+    );
+    assert!(
+        !separator_cell
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED),
+        "trash separator line should not be part of the selected item body"
+    );
+}
+
+#[test]
 fn selected_record_uses_newlook_background() {
     let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
     let mut state = ListPanelState::with_records(vec![record]);
