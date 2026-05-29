@@ -528,28 +528,6 @@ pub(super) fn vertical_chunks(area: Rect, constraints: &[Constraint]) -> Vec<Rec
         .to_vec()
 }
 
-pub(super) fn muted_info_row(frame: &mut Frame, area: Rect, label: &str, value: &str) {
-    let line = Line::from(vec![
-        Span::styled(
-            format!("  {:<width$}", "", width = ROW_ICON_WIDTH),
-            theme::Styles::newlook_bg(),
-        ),
-        Span::styled(
-            label.to_string(),
-            Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG),
-        ),
-        Span::styled(
-            "  ".to_string(),
-            Style::default().fg(theme::NL_LINE).bg(theme::NL_BG),
-        ),
-        Span::styled(
-            value.to_string(),
-            Style::default().fg(theme::NL_TEXT).bg(theme::NL_BG),
-        ),
-    ]);
-    frame.render_widget(Paragraph::new(line), area);
-}
-
 fn render_scrollbar(
     frame: &mut Frame,
     area: Rect,

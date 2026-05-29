@@ -582,6 +582,11 @@ tui:
     enabled: "已开启"
     disabled: "已关闭"
     # -- About group --
+    about_product: "OpenKeyring / oak-keyring"
+    about_tagline: "面向终端工作流的本地优先密码管理器。"
+    about_local_first: "本地优先：除非你选择同步，保险库只保留在此设备。"
+    about_encrypted_vault: "加密保险库：密钥与密码使用认证加密存储。"
+    about_sync_control: "显式同步：云同步与导入导出始终由你控制。"
     about_version: "版本"
     about_authors: "作者"
     about_license: "许可证"

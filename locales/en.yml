@@ -583,6 +583,11 @@ tui:
     enabled: "Enabled"
     disabled: "Disabled"
     # -- About group --
+    about_product: "OpenKeyring / oak-keyring"
+    about_tagline: "Terminal password manager for local-first workflows."
+    about_local_first: "Local-first: vault stays on device unless you sync."
+    about_encrypted_vault: "Encrypted vault: secrets use authenticated encryption."
+    about_sync_control: "Explicit sync: cloud and import/export stay user-controlled."
     about_version: "Version"
     about_authors: "Authors"
     about_license: "License"

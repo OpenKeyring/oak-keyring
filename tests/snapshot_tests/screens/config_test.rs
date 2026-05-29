@@ -35,6 +35,26 @@ fn backend_text(backend: &TestBackend) -> String {
         .join("\n")
 }
 
+fn text_position(backend: &TestBackend, text: &str) -> Option<(u16, u16)> {
+    let buffer = backend.buffer();
+    let target: Vec<String> = text.chars().map(|ch| ch.to_string()).collect();
+    if target.is_empty() {
+        return None;
+    }
+    for y in 0..buffer.area.height {
+        let symbols: Vec<&str> = (0..buffer.area.width)
+            .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+            .collect();
+        if let Some(start) = symbols
+            .windows(target.len())
+            .position(|window| window.iter().zip(&target).all(|(cell, ch)| *cell == ch))
+        {
+            return Some((start as u16, y));
+        }
+    }
+    None
+}
+
 fn cell_at_text_start<'a>(
     backend: &'a TestBackend,
     text: &str,
@@ -226,6 +246,27 @@ fn config_about_tab() {
     screen.state.active_tab = ConfigTab::About;
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("config_about_tab", backend);
+}
+
+#[test]
+fn config_about_content_aligns_with_title_and_has_product_context() {
+    let _locale = snapshot_locale();
+    let mut screen = ConfigScreen::new();
+    screen.state.active_tab = ConfigTab::About;
+    let backend = render_screen(&screen, 120, 30);
+    let rendered = backend_text(&backend);
+
+    let about_marker = text_position(&backend, "▌  About").expect("About title should render");
+    let version_label = text_position(&backend, "Version").expect("Version label should render");
+
+    assert_eq!(
+        version_label.0,
+        about_marker.0 + 3,
+        "about metadata rows should align with the section title text"
+    );
+    assert!(rendered.contains("OpenKeyring / oak-keyring"));
+    assert!(rendered.contains("Local-first"));
+    assert!(rendered.contains("Encrypted vault"));
 }
 
 #[test]
