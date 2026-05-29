@@ -2,16 +2,15 @@
 
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Block;
 use tui_textarea::TextArea;
 
 use crate::tui::theme;
 
 /// Visible content lines inside the textarea box.
-pub const TEXTAREA_VISIBLE_LINES: u16 = 2;
+pub const TEXTAREA_VISIBLE_LINES: u16 = 3;
 
-/// Total rows occupied by the textarea widget (top border + content + bottom border).
-pub const TEXTAREA_TOTAL_ROWS: u16 = TEXTAREA_VISIBLE_LINES + 2; // ┌─┐ + content + └─┘
+/// Total rows occupied by the textarea widget (no block border, just content).
+pub const TEXTAREA_TOTAL_ROWS: u16 = TEXTAREA_VISIBLE_LINES;
 
 /// Create a `TextArea` configured with the project's Tokyo Night theme.
 pub fn create_textarea() -> TextArea<'static> {
@@ -31,18 +30,16 @@ pub fn create_textarea() -> TextArea<'static> {
     ta.set_cursor_line_style(Style::default().bg(theme::BG_SURFACE));
     ta.set_selection_style(Style::default().bg(theme::NL_SELECTED));
 
+    // No block border — the form's line-based layout draws the frame manually.
+    ta.remove_block();
+
     ta
 }
 
-/// Configure the textarea block (border) for focused or unfocused state.
-pub fn set_block(textarea: &mut TextArea<'static>, focused: bool) {
-    let border_color = if focused {
-        theme::PRIMARY
-    } else {
-        theme::NL_LINE
-    };
-    let block = Block::bordered().border_style(Style::default().fg(border_color));
-    textarea.set_block(block);
+/// Update the textarea block style based on focus state.
+/// Since we use no block in the form, this is a no-op kept for API compatibility.
+pub fn update_block(textarea: &mut TextArea<'_>, _focused: bool) {
+    textarea.remove_block();
 }
 
 /// Render a labeled textarea field, returning lines for the form layout.

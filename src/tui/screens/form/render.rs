@@ -46,6 +46,11 @@ pub fn render_form(
     let ct = state.credential_type;
     let focused = state.focused_field;
 
+    // Track where the notes textarea starts in the line buffer so we can
+    // overlay the actual TextArea widget after the Paragraph is rendered.
+    // None means no textarea is rendered (should not happen currently).
+    let mut notes_line_offset: Option<usize> = None;
+
     // Field 0: Credential Type dropdown
     let ct_options = [
         t!("tui.form.type_login"),
@@ -100,7 +105,8 @@ pub fn render_form(
     // Credential-type-specific fields
     match ct {
         CredentialType::SecureNote => {
-            // Field 2: Notes textarea
+            // Field 2: Notes textarea — record offset for overlay rendering
+            notes_line_offset = Some(lines.len());
             lines.extend(textarea::render_textarea_label(
                 t!("tui.form.notes_label").as_ref(),
                 focused == 2,
@@ -472,6 +478,7 @@ pub fn render_form(
         CredentialType::SecureNote => 2, // Already rendered
     };
     if ct != CredentialType::SecureNote {
+        notes_line_offset = Some(lines.len());
         lines.extend(textarea::render_textarea_label(
             t!("tui.form.notes_label").as_ref(),
             focused == notes_idx,
@@ -514,6 +521,19 @@ pub fn render_form(
 
     frame.render_widget(Clear, area);
     frame.render_widget(paragraph, area);
+
+    // Overlay the actual TextArea widget on top of the placeholder rows.
+    // No block border on the textarea — content lines only.
+    if let Some(offset) = notes_line_offset {
+        let label_width = crate::tui::components::text_input::FORM_LABEL_WIDTH;
+        let notes_area = Rect {
+            x: area.x + 1 + label_width as u16,
+            y: area.y + 1 + offset as u16 + 1, // outer block border + label line
+            width: area.width.saturating_sub(label_width as u16 + 3),
+            height: textarea::TEXTAREA_TOTAL_ROWS,
+        };
+        frame.render_widget(&state.fields.notes, notes_area);
+    }
 
     if let Some(gen) = generator_state {
         if gen.expanded {

@@ -544,6 +544,7 @@ impl FormState {
             };
             self.password_sub_focus = PasswordFieldFocus::Input;
             self.fields.tag_focus = None;
+            self.sync_textarea_block();
             return;
         }
 
@@ -557,6 +558,7 @@ impl FormState {
             self.password_sub_focus = PasswordFieldFocus::Input;
             self.fields.tag_focus = None;
         }
+        self.sync_textarea_block();
     }
 
     /// Move focus to previous field.
@@ -573,6 +575,7 @@ impl FormState {
             }
             self.password_sub_focus = PasswordFieldFocus::Input;
             self.fields.tag_focus = None;
+            self.sync_textarea_block();
             return;
         }
 
@@ -581,6 +584,7 @@ impl FormState {
             self.password_sub_focus = PasswordFieldFocus::Input;
             self.fields.tag_focus = None;
         }
+        self.sync_textarea_block();
     }
 
     /// Set field focus directly, clearing footer and inline-button focus.
@@ -591,6 +595,13 @@ impl FormState {
         if self.focused_field != self.tags_field_index() {
             self.fields.tag_focus = None;
         }
+        self.sync_textarea_block();
+    }
+
+    /// Update textarea border style to reflect current focus state.
+    fn sync_textarea_block(&mut self) {
+        let focused = self.fields.is_textarea_field(self.focused_field, self.credential_type);
+        crate::tui::components::textarea::update_block(&mut self.fields.notes, focused);
     }
 
     pub fn tags_field_index(&self) -> usize {

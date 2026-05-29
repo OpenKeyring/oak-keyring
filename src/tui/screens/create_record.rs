@@ -2214,7 +2214,7 @@ mod tests {
             ("url", rows.url + 1),
             ("account", rows.account + 1),
             ("tags", rows.tags + 1),
-            ("notes", rows.notes + 1),
+            // notes is a multi-line textarea — intentionally spans multiple rows
         ] {
             let next_line = (1..79)
                 .filter_map(|x| buffer.cell((x, row + 1)).map(|cell| cell.symbol()))
