@@ -31,9 +31,15 @@ pub(crate) fn pad_to_width(value: &str, width: usize) -> String {
 }
 
 fn truncate_to_width(value: &str, width: usize) -> String {
+    let total = display_width(value);
+    if total <= width {
+        return value.to_string();
+    }
+
+    // Content exceeds width: show the tail so the cursor (always at end) is visible.
     let mut out = String::new();
     let mut used = 0;
-    for ch in value.chars() {
+    for ch in value.chars().rev() {
         let ch_width = char_width(ch);
         if used + ch_width > width {
             break;
@@ -41,7 +47,7 @@ fn truncate_to_width(value: &str, width: usize) -> String {
         out.push(ch);
         used += ch_width;
     }
-    out
+    out.chars().rev().collect()
 }
 
 pub(crate) fn padded_form_label(label: &str) -> String {

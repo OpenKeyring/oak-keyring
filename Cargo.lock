@@ -2372,6 +2372,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "tui-textarea-2",
  "unicode-width",
  "ureq",
  "url",
@@ -4104,6 +4105,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "tui-textarea-2"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db511c6000af883f4140245239ff98ff212e32e8d2f0e6cfc9f5acc018f2b800"
+dependencies = [
+ "crossterm",
+ "portable-atomic",
+ "ratatui-core",
+ "ratatui-widgets",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
 name = "twofish"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4158,9 +4173,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-width"
-version = "0.2.2"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
 
 [[package]]
 name = "unicode-xid"

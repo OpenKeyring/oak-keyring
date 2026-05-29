@@ -251,6 +251,7 @@ impl DetailPanel {
             crate::types::credential::CredentialType::Login => t!("tui.form.type_login"),
             crate::types::credential::CredentialType::Api => t!("tui.form.type_api"),
             crate::types::credential::CredentialType::Ssh => t!("tui.form.type_ssh"),
+            crate::types::credential::CredentialType::SecureNote => t!("tui.form.type_secure_note"),
         };
         lines.push(Line::from(Span::styled(
             format!("{}{}", pad, type_label),
@@ -938,20 +939,54 @@ fn render_table_row(
     Line::from(spans)
 }
 
-fn pad_spans(mut spans: Vec<Span<'static>>, width: usize, right_align: bool) -> Vec<Span<'static>> {
+fn pad_spans(spans: Vec<Span<'static>>, width: usize, right_align: bool) -> Vec<Span<'static>> {
     let current_width = spans_width(&spans);
-    if current_width >= width {
-        return spans;
+    if current_width <= width {
+        let pad = Span::raw(" ".repeat(width - current_width));
+        if right_align {
+            let mut padded = vec![pad];
+            padded.extend(spans);
+            return padded;
+        } else {
+            let mut spans = spans;
+            spans.push(pad);
+            return spans;
+        }
     }
-    let pad = Span::raw(" ".repeat(width - current_width));
-    if right_align {
-        let mut padded = vec![pad];
-        padded.extend(spans);
-        padded
-    } else {
-        spans.push(pad);
-        spans
+
+    // Truncate: keep last style for the ellipsis span.
+    let last_style = spans
+        .last()
+        .map(|s| s.style)
+        .unwrap_or_default();
+    let ellipsis = "…";
+    let ellipsis_width = UnicodeWidthStr::width(ellipsis);
+    let target = width.saturating_sub(ellipsis_width);
+
+    let mut truncated = Vec::new();
+    let mut used = 0;
+    for span in &spans {
+        if used >= target {
+            break;
+        }
+        let mut buf = String::new();
+        for ch in span.content.chars() {
+            let cw = UnicodeWidthStr::width(ch.to_string().as_str());
+            if used + cw > target {
+                break;
+            }
+            buf.push(ch);
+            used += cw;
+            if used >= target {
+                break;
+            }
+        }
+        if !buf.is_empty() {
+            truncated.push(Span::styled(buf, span.style));
+        }
     }
+    truncated.push(Span::styled(ellipsis.to_string(), last_style));
+    truncated
 }
 
 fn spans_width(spans: &[Span<'_>]) -> usize {
@@ -1074,6 +1109,7 @@ fn credential_type_label(record: &DetailViewData) -> std::borrow::Cow<'static, s
         crate::types::credential::CredentialType::Login => t!("tui.form.type_login"),
         crate::types::credential::CredentialType::Api => t!("tui.form.type_api"),
         crate::types::credential::CredentialType::Ssh => t!("tui.form.type_ssh"),
+        crate::types::credential::CredentialType::SecureNote => t!("tui.form.type_secure_note"),
     }
 }
 

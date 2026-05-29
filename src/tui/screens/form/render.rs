@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::t;
 use crate::tui::components::text_input::PasswordButton;
-use crate::tui::components::{dropdown, strength_bar, tag_input, text_input};
+use crate::tui::components::{dropdown, strength_bar, tag_input, text_input, textarea};
 use crate::tui::state::form_state::{
     ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus,
 };
@@ -51,11 +51,13 @@ pub fn render_form(
         t!("tui.form.type_login"),
         t!("tui.form.type_api"),
         t!("tui.form.type_ssh"),
+        t!("tui.form.type_secure_note"),
     ];
     let ct_selected = match ct {
         CredentialType::Login => t!("tui.form.type_login"),
         CredentialType::Api => t!("tui.form.type_api"),
         CredentialType::Ssh => t!("tui.form.type_ssh"),
+        CredentialType::SecureNote => t!("tui.form.type_secure_note"),
     };
     if state.credential_dropdown.expanded {
         let expanded = dropdown::render_dropdown_expanded(
@@ -95,21 +97,36 @@ pub fn render_form(
     }
     lines.push(Line::raw(""));
 
-    // Field 2: URL
-    let url_label = match ct {
-        CredentialType::Ssh => t!("tui.form.hostname_label"),
-        _ => t!("tui.form.url_label"),
-    };
-    lines.extend(text_input::render_text_input(
-        url_label.as_ref(),
-        &state.fields.url,
-        focused == 2,
-        false,
-        false,
-        false,
-        area.width,
-    ));
-    lines.push(Line::raw(""));
+    // Credential-type-specific fields
+    match ct {
+        CredentialType::SecureNote => {
+            // Field 2: Notes textarea
+            lines.extend(textarea::render_textarea_label(
+                t!("tui.form.notes_label").as_ref(),
+                focused == 2,
+                false,
+                area.width,
+            ));
+            lines.push(Line::raw(""));
+        }
+        _ => {
+            // Field 2: URL (for Login, Api, Ssh)
+            let url_label = match ct {
+                CredentialType::Ssh => t!("tui.form.hostname_label"),
+                _ => t!("tui.form.url_label"),
+            };
+            lines.extend(text_input::render_text_input(
+                url_label.as_ref(),
+                &state.fields.url,
+                focused == 2,
+                false,
+                false,
+                false,
+                area.width,
+            ));
+            lines.push(Line::raw(""));
+        }
+    }
 
     // Credential-type-specific fields (3-4 for Login/API, 3-5 for SSH)
     match ct {
@@ -382,6 +399,9 @@ pub fn render_form(
                 Style::default().fg(theme::TEXT_MUTED),
             )));
         }
+        CredentialType::SecureNote => {
+            // No additional fields for SecureNote - notes already rendered above
+        }
     }
     lines.push(Line::raw(""));
 
@@ -389,6 +409,7 @@ pub fn render_form(
     let expiry_idx = match ct {
         CredentialType::Login | CredentialType::Api => 5,
         CredentialType::Ssh => 6,
+        CredentialType::SecureNote => 3,
     };
     if state.expiry_dropdown.expanded {
         let options = ExpiryOption::all_options();
@@ -431,6 +452,7 @@ pub fn render_form(
     let tags_idx = match ct {
         CredentialType::Login | CredentialType::Api => 6,
         CredentialType::Ssh => 7,
+        CredentialType::SecureNote => 4,
     };
     lines.extend(tag_input::render_tag_input(
         &state.fields.tag_input,
@@ -443,21 +465,21 @@ pub fn render_form(
     ));
     lines.push(Line::raw(""));
 
-    // Notes field
+    // Notes field (only for Login, Api, Ssh - SecureNote already rendered above)
     let notes_idx = match ct {
         CredentialType::Login | CredentialType::Api => 7,
         CredentialType::Ssh => 8,
+        CredentialType::SecureNote => 2, // Already rendered
     };
-    lines.extend(text_input::render_text_input(
-        t!("tui.form.notes_label").as_ref(),
-        &state.fields.notes,
-        focused == notes_idx,
-        false,
-        false,
-        false,
-        area.width,
-    ));
-    lines.push(Line::raw(""));
+    if ct != CredentialType::SecureNote {
+        lines.extend(textarea::render_textarea_label(
+            t!("tui.form.notes_label").as_ref(),
+            focused == notes_idx,
+            false,
+            area.width,
+        ));
+        lines.push(Line::raw(""));
+    }
 
     let inner_height = area.height.saturating_sub(2) as usize;
     let footer_rows = 3usize;

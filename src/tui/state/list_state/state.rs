@@ -442,11 +442,13 @@ pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
 /// - Login -> ""
 /// - Api -> "[API] "
 /// - Ssh -> "[SSH] "
+/// - SecureNote -> "[N] "
 pub fn format_type_prefix(cred_type: &CredentialType) -> String {
     match cred_type {
         CredentialType::Login => String::new(),
         CredentialType::Api => t!("tui.list_state.type_prefix_api").to_string(),
         CredentialType::Ssh => t!("tui.list_state.type_prefix_ssh").to_string(),
+        CredentialType::SecureNote => t!("tui.list_state.type_prefix_note").to_string(),
     }
 }
 

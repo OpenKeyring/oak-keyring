@@ -70,6 +70,9 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
                 });
             }
         }
+        CredentialType::SecureNote => {
+            // No additional required fields - only name (field 1) is required
+        }
     }
 
     // Custom date validation
@@ -77,6 +80,7 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
         let expiry_index = match credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         if let Some(ref date) = fields.custom_date {
             if let Err(msg) = validate_date(date) {

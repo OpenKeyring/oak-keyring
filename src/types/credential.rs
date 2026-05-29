@@ -32,6 +32,7 @@ pub enum CredentialType {
     Login,
     Api,
     Ssh,
+    SecureNote,
 }
 
 impl CredentialType {
@@ -40,6 +41,7 @@ impl CredentialType {
             CredentialType::Login => "login",
             CredentialType::Api => "api",
             CredentialType::Ssh => "ssh",
+            CredentialType::SecureNote => "secure_note",
         }
     }
 
@@ -48,6 +50,7 @@ impl CredentialType {
             "login" => Ok(CredentialType::Login),
             "api" => Ok(CredentialType::Api),
             "ssh" => Ok(CredentialType::Ssh),
+            "secure_note" => Ok(CredentialType::SecureNote),
             _ => Err(DataError::InvalidCredentialType(s.to_string())),
         }
     }
@@ -57,6 +60,7 @@ impl CredentialType {
             CredentialType::Login => "登录",
             CredentialType::Api => "API",
             CredentialType::Ssh => "SSH",
+            CredentialType::SecureNote => "安全备注",
         }
     }
 
@@ -65,6 +69,7 @@ impl CredentialType {
             CredentialType::Login => "[L]",
             CredentialType::Api => "[A]",
             CredentialType::Ssh => "[S]",
+            CredentialType::SecureNote => "[N]",
         }
     }
 }
@@ -92,6 +97,10 @@ pub enum EncryptedPayload {
         passphrase: Option<SecureStr>,
         notes: Option<String>,
     },
+    SecureNote {
+        name: String,
+        notes: Option<String>,
+    },
 }
 
 impl EncryptedPayload {
@@ -100,6 +109,7 @@ impl EncryptedPayload {
             EncryptedPayload::Login { name, .. } => name,
             EncryptedPayload::Api { name, .. } => name,
             EncryptedPayload::Ssh { name, .. } => name,
+            EncryptedPayload::SecureNote { name, .. } => name,
         }
     }
 
@@ -108,6 +118,7 @@ impl EncryptedPayload {
             EncryptedPayload::Login { .. } => CredentialType::Login,
             EncryptedPayload::Api { .. } => CredentialType::Api,
             EncryptedPayload::Ssh { .. } => CredentialType::Ssh,
+            EncryptedPayload::SecureNote { .. } => CredentialType::SecureNote,
         }
     }
 }

@@ -701,6 +701,45 @@ impl DetailPanelState {
                     deleted_at: None,
                 }
             }
+            crate::types::record::DecryptedRecord::SecureNote {
+                id,
+                name,
+                notes,
+                is_favorite,
+                expires_at,
+                created_at,
+                updated_at,
+                tags,
+                ..
+            } => {
+                let expiry_status = ExpiryStatus::from_date(*expires_at);
+                let mut fields = Vec::new();
+                if let Some(ref n) = notes {
+                    fields.push(DetailField {
+                        label: t!("tui.password_detail.notes_label").to_string(),
+                        value: FieldValue::Plain(n.clone()),
+                        copyable: true,
+                        toggleable: false,
+                        kind: DetailFieldKind::Notes,
+                    });
+                }
+                DetailViewData {
+                    id: *id,
+                    name: name.clone(),
+                    subtitle: String::new(),
+                    credential_type: CrateCredentialType::SecureNote,
+                    is_favorite: *is_favorite,
+                    expires_at: *expires_at,
+                    expiry_status,
+                    tags: tags.clone(),
+                    notes: notes.clone(),
+                    created_at: *created_at,
+                    updated_at: *updated_at,
+                    fields,
+                    password_strength: None, // No password for SecureNote
+                    deleted_at: None,
+                }
+            }
         }
     }
 }

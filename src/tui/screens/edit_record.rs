@@ -1,6 +1,7 @@
 //! Edit record screen (U7).
 
 use crossterm::event::{KeyCode, KeyModifiers};
+use tui_textarea::CursorMove;
 use uuid::Uuid;
 
 use crate::commands::result::CommandResult;
@@ -73,13 +74,33 @@ impl EditRecordScreen {
 
         // Normal form navigation (credential type dropdown is disabled)
         match key {
-            KeyCode::Tab | KeyCode::Down => {
+            KeyCode::Tab => {
                 self.form.focus_next();
                 ScreenResult::Continue
             }
-            KeyCode::BackTab | KeyCode::Up => {
+            KeyCode::Down => {
+                // If textarea is focused, move cursor down instead of next field
+                if self.form.textarea_captures_vertical() {
+                    self.form.fields.notes.move_cursor(CursorMove::Down);
+                    ScreenResult::Continue
+                } else {
+                    self.form.focus_next();
+                    ScreenResult::Continue
+                }
+            }
+            KeyCode::BackTab => {
                 self.form.focus_prev();
                 ScreenResult::Continue
+            }
+            KeyCode::Up => {
+                // If textarea is focused, move cursor up instead of prev field
+                if self.form.textarea_captures_vertical() {
+                    self.form.fields.notes.move_cursor(CursorMove::Up);
+                    ScreenResult::Continue
+                } else {
+                    self.form.focus_prev();
+                    ScreenResult::Continue
+                }
             }
             KeyCode::Right => {
                 if self.is_tags_focused() && self.form.fields.focus_next_tag() {
@@ -88,6 +109,21 @@ impl EditRecordScreen {
                 if self.open_focused_dropdown() {
                     return ScreenResult::Continue;
                 }
+
+                // If textarea is focused, handle cursor movement
+                if self.form.textarea_captures_vertical() {
+                    let (row, col) = self.form.fields.notes.cursor();
+                    // Check if we're at the rightmost position of the current line
+                    let lines = self.form.fields.notes.lines();
+                    if let Some(current_line) = lines.get(row) {
+                        if col < current_line.len() {
+                            self.form.fields.notes.move_cursor(CursorMove::Forward);
+                            return ScreenResult::Continue;
+                        }
+                    }
+                    // At rightmost position, fall through to focus_next
+                }
+
                 if self.form.sub_focus_next() {
                     ScreenResult::Continue
                 } else {
@@ -99,6 +135,17 @@ impl EditRecordScreen {
                 if self.is_tags_focused() && self.form.fields.focus_prev_tag() {
                     return ScreenResult::Continue;
                 }
+
+                // If textarea is focused, handle cursor movement
+                if self.form.textarea_captures_vertical() {
+                    let (_row, col) = self.form.fields.notes.cursor();
+                    if col > 0 {
+                        self.form.fields.notes.move_cursor(CursorMove::Back);
+                        return ScreenResult::Continue;
+                    }
+                    // At leftmost position, fall through to focus_prev
+                }
+
                 if self.form.sub_focus_prev() {
                     ScreenResult::Continue
                 } else {
@@ -147,6 +194,18 @@ impl EditRecordScreen {
             return self.activate_footer_button(button);
         }
 
+        // If notes textarea is focused, insert newline
+        let notes_idx = match ct {
+            CredentialType::Login | CredentialType::Api => 7,
+            CredentialType::Ssh => 8,
+            CredentialType::SecureNote => 2,
+        };
+        if self.form.focused_field == notes_idx {
+            self.form.fields.notes.insert_newline();
+            self.form.has_changes = true;
+            return ScreenResult::Continue;
+        }
+
         // Check inline button actions first
         match self.form.password_sub_focus {
             crate::tui::state::form_state::PasswordFieldFocus::Show => {
@@ -180,6 +239,7 @@ impl EditRecordScreen {
         let expiry_idx = match ct {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         if self.form.focused_field == expiry_idx {
             self.form.expiry_dropdown.expanded = true;
@@ -190,6 +250,7 @@ impl EditRecordScreen {
         let tags_idx = match ct {
             CredentialType::Login | CredentialType::Api => 6,
             CredentialType::Ssh => 7,
+            CredentialType::SecureNote => 4,
         };
         if self.form.focused_field == tags_idx && !self.form.fields.tag_input.is_empty() {
             if self.form.fields.commit_tag_input() {
@@ -221,8 +282,17 @@ impl EditRecordScreen {
                 self.form.has_changes = true;
             }
             2 => {
-                self.form.fields.url.push(c);
-                self.form.has_changes = true;
+                match ct {
+                    CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                        self.form.fields.url.push(c);
+                        self.form.has_changes = true;
+                    }
+                    CredentialType::SecureNote => {
+                        // Field 2 for SecureNote is notes textarea
+                        self.form.fields.notes.insert_char(c);
+                        self.form.has_changes = true;
+                    }
+                }
             }
             3 => {
                 match ct {
@@ -246,6 +316,9 @@ impl EditRecordScreen {
                             .public_key
                             .get_or_insert_with(String::new)
                             .push(c);
+                    }
+                    CredentialType::SecureNote => {
+                        // Field 3 for SecureNote is expiry - no text input
                     }
                 }
                 self.form.has_changes = true;
@@ -274,6 +347,9 @@ impl EditRecordScreen {
                             .get_or_insert_with(SensitiveInput::new)
                             .push_char(c);
                     }
+                    CredentialType::SecureNote => {
+                        // Field 4 for SecureNote is tags - no text input
+                    }
                 }
                 self.form.has_changes = true;
             }
@@ -290,10 +366,12 @@ impl EditRecordScreen {
                 let tags_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 6,
                     CredentialType::Ssh => 7,
+                    CredentialType::SecureNote => 4,
                 };
                 let notes_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 7,
                     CredentialType::Ssh => 8,
+                    CredentialType::SecureNote => 2,
                 };
                 if focused == tags_idx {
                     if matches!(c, ',' | '，') {
@@ -306,7 +384,7 @@ impl EditRecordScreen {
                         self.form.has_changes = true;
                     }
                 } else if focused == notes_idx {
-                    self.form.fields.notes.push(c);
+                    self.form.fields.notes.insert_char(c);
                     self.form.has_changes = true;
                 }
             }
@@ -332,9 +410,15 @@ impl EditRecordScreen {
             1 => {
                 self.form.fields.name.pop();
             }
-            2 => {
-                self.form.fields.url.pop();
-            }
+            2 => match ct {
+                CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                    self.form.fields.url.pop();
+                }
+                CredentialType::SecureNote => {
+                    // Field 2 for SecureNote is notes textarea
+                    self.form.fields.notes.delete_char();
+                }
+            },
             3 => match ct {
                 CredentialType::Login => {
                     self.form.fields.username.as_mut().and_then(|s| s.pop());
@@ -344,6 +428,9 @@ impl EditRecordScreen {
                 }
                 CredentialType::Ssh => {
                     self.form.fields.public_key.as_mut().and_then(|s| s.pop());
+                }
+                CredentialType::SecureNote => {
+                    // Field 3 for SecureNote is expiry - no text input
                 }
             },
             4 => match ct {
@@ -363,6 +450,9 @@ impl EditRecordScreen {
                         s.pop_char()
                     };
                 }
+                CredentialType::SecureNote => {
+                    // Field 4 for SecureNote is tags - no text input
+                }
             },
             5 if ct == CredentialType::Ssh => {
                 if let Some(s) = self.form.fields.passphrase.as_mut() {
@@ -373,6 +463,12 @@ impl EditRecordScreen {
                 let tags_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 6,
                     CredentialType::Ssh => 7,
+                    CredentialType::SecureNote => 4,
+                };
+                let notes_idx = match ct {
+                    CredentialType::Login | CredentialType::Api => 7,
+                    CredentialType::Ssh => 8,
+                    CredentialType::SecureNote => 2,
                 };
                 if focused == tags_idx {
                     if self.form.fields.tag_input.is_empty() {
@@ -383,6 +479,8 @@ impl EditRecordScreen {
                     } else {
                         self.form.fields.tag_input.pop();
                     }
+                } else if focused == notes_idx {
+                    self.form.fields.notes.delete_char();
                 }
             }
         }
@@ -393,6 +491,9 @@ impl EditRecordScreen {
     fn handle_delete(&mut self) -> ScreenResult {
         if self.is_tags_focused() && self.form.fields.remove_focused_tag() {
             self.form.has_changes = true;
+        } else if self.form.textarea_captures_vertical() {
+            self.form.fields.notes.delete_next_char();
+            self.form.has_changes = true;
         }
         ScreenResult::Continue
     }
@@ -402,6 +503,7 @@ impl EditRecordScreen {
         let expiry_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         self.form.focused_field == expiry_idx && self.form.fields.expires_at == ExpiryOption::Custom
     }
@@ -413,6 +515,7 @@ impl EditRecordScreen {
         let expiry_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         if self.form.focused_field == expiry_idx {
             self.form.expiry_dropdown.expanded = true;
@@ -425,6 +528,7 @@ impl EditRecordScreen {
         let tags_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 6,
             CredentialType::Ssh => 7,
+            CredentialType::SecureNote => 4,
         };
         self.form.footer_focus.is_none() && self.form.focused_field == tags_idx
     }
@@ -527,6 +631,10 @@ impl EditRecordScreen {
     fn shortcut_secret_field_index(&self) -> usize {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
+            CredentialType::SecureNote => {
+                // SecureNote has no secret field, return notes field as fallback
+                2
+            }
         }
     }
 
@@ -842,7 +950,7 @@ impl EditRecordScreen {
         self.form.fields.passphrase = passphrase.map(SensitiveInput::from);
         self.form.fields.update_strength();
         self.form.fields.tags = tags;
-        self.form.fields.notes = notes;
+        self.form.fields.set_notes_text(&notes);
         self.form.has_changes = false;
     }
 }
@@ -928,6 +1036,27 @@ impl Screen for EditRecordScreen {
                                 Some(public_key),
                                 private_key,
                                 passphrase,
+                                rec_tags,
+                                notes.unwrap_or_default(),
+                            );
+                        }
+                        crate::types::record::DecryptedRecord::SecureNote {
+                            version,
+                            name,
+                            notes,
+                            ..
+                        } => {
+                            self.record_version = Some(version);
+                            self.load_record_data(
+                                name,
+                                String::new(),
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
                                 rec_tags,
                                 notes.unwrap_or_default(),
                             );

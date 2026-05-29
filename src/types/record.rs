@@ -75,6 +75,19 @@ pub enum DecryptedRecord {
         passphrase: Option<SecureStr>,
         notes: Option<String>,
     },
+    SecureNote {
+        id: Uuid,
+        is_favorite: bool,
+        expires_at: Option<DateTime<Utc>>,
+        created_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>,
+        version: u64,
+        deleted: bool,
+        deleted_at: Option<DateTime<Utc>>,
+        tags: Vec<String>,
+        name: String,
+        notes: Option<String>,
+    },
 }
 
 impl DecryptedRecord {
@@ -83,6 +96,7 @@ impl DecryptedRecord {
             DecryptedRecord::Login { id, .. } => *id,
             DecryptedRecord::Api { id, .. } => *id,
             DecryptedRecord::Ssh { id, .. } => *id,
+            DecryptedRecord::SecureNote { id, .. } => *id,
         }
     }
 
@@ -91,6 +105,7 @@ impl DecryptedRecord {
             DecryptedRecord::Login { name, .. } => name,
             DecryptedRecord::Api { name, .. } => name,
             DecryptedRecord::Ssh { name, .. } => name,
+            DecryptedRecord::SecureNote { name, .. } => name,
         }
     }
 
@@ -99,6 +114,7 @@ impl DecryptedRecord {
             DecryptedRecord::Login { .. } => CredentialType::Login,
             DecryptedRecord::Api { .. } => CredentialType::Api,
             DecryptedRecord::Ssh { .. } => CredentialType::Ssh,
+            DecryptedRecord::SecureNote { .. } => CredentialType::SecureNote,
         }
     }
 
@@ -107,6 +123,7 @@ impl DecryptedRecord {
             DecryptedRecord::Login { is_favorite, .. } => *is_favorite,
             DecryptedRecord::Api { is_favorite, .. } => *is_favorite,
             DecryptedRecord::Ssh { is_favorite, .. } => *is_favorite,
+            DecryptedRecord::SecureNote { is_favorite, .. } => *is_favorite,
         }
     }
 
@@ -115,6 +132,7 @@ impl DecryptedRecord {
             DecryptedRecord::Login { tags, .. } => tags,
             DecryptedRecord::Api { tags, .. } => tags,
             DecryptedRecord::Ssh { tags, .. } => tags,
+            DecryptedRecord::SecureNote { tags, .. } => tags,
         }
     }
 
@@ -123,6 +141,7 @@ impl DecryptedRecord {
             DecryptedRecord::Login { expires_at, .. } => expires_at,
             DecryptedRecord::Api { expires_at, .. } => expires_at,
             DecryptedRecord::Ssh { expires_at, .. } => expires_at,
+            DecryptedRecord::SecureNote { expires_at, .. } => expires_at,
         };
         expires_at.is_some_and(|t| t < Utc::now())
     }

@@ -5,8 +5,10 @@ use uuid::Uuid;
 
 use crate::crypto::strength::{evaluate_strength, PasswordStrength};
 use crate::t;
+use crate::tui::components::textarea;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::sensitive::{SecureStr, SensitiveInput};
+use tui_textarea::TextArea;
 
 /// Form mode: create new record or edit existing.
 #[derive(Debug, Clone)]
@@ -120,7 +122,7 @@ pub struct FormFields {
     pub tags: Vec<String>,
     pub tag_input: String,
     pub tag_focus: Option<usize>,
-    pub notes: String,
+    pub notes: TextArea<'static>,
 }
 
 impl FormFields {
@@ -145,7 +147,7 @@ impl FormFields {
             tags: Vec::new(),
             tag_input: String::new(),
             tag_focus: None,
-            notes: String::new(),
+            notes: textarea::create_textarea(),
         };
         fields.init_for_type(credential_type);
         fields
@@ -169,6 +171,10 @@ impl FormFields {
                 self.private_visible = false;
                 self.passphrase = Some(SensitiveInput::new());
                 self.passphrase_visible = false;
+            }
+            CredentialType::SecureNote => {
+                // SecureNote has no special fields to init
+                // Only uses common fields: name + notes
             }
         }
     }
@@ -255,6 +261,26 @@ impl FormFields {
         };
         true
     }
+
+    /// Get the notes field text content as a String.
+    pub fn notes_text(&self) -> String {
+        textarea::textarea_text(&self.notes)
+    }
+
+    /// Set the notes field text content.
+    pub fn set_notes_text(&mut self, text: &str) {
+        textarea::set_textarea_text(&mut self.notes, text);
+    }
+
+    /// Check if a field is the notes textarea field for the given credential type.
+    pub fn is_textarea_field(&self, field_idx: usize, ct: CredentialType) -> bool {
+        let notes_idx = match ct {
+            CredentialType::Login | CredentialType::Api => 7,
+            CredentialType::Ssh => 8,
+            CredentialType::SecureNote => 2,
+        };
+        field_idx == notes_idx
+    }
 }
 
 /// Complete form state.
@@ -330,7 +356,7 @@ impl FormState {
             let url = std::mem::take(&mut self.fields.url);
             let expires_at = self.fields.expires_at;
             let tags = std::mem::take(&mut self.fields.tags);
-            let notes = std::mem::take(&mut self.fields.notes);
+            let notes_text = self.fields.notes_text();
 
             self.credential_type = ct;
             self.fields = FormFields::new(ct);
@@ -338,7 +364,7 @@ impl FormState {
             self.fields.url = url;
             self.fields.expires_at = expires_at;
             self.fields.tags = tags;
-            self.fields.notes = notes;
+            self.fields.set_notes_text(&notes_text);
             self.focused_field = 0;
             self.footer_focus = None;
             self.has_changes = true;
@@ -377,6 +403,7 @@ impl FormState {
                 ]),
                 _ => None,
             },
+            CredentialType::SecureNote => None, // No sensitive fields with buttons
             _ => None,
         }
     }
@@ -431,6 +458,7 @@ impl FormState {
                 5 => self.fields.passphrase_visible,
                 _ => false,
             },
+            CredentialType::SecureNote => false, // No sensitive fields
             _ => false,
         }
     }
@@ -451,6 +479,7 @@ impl FormState {
                 5 => self.fields.passphrase_visible = !self.fields.passphrase_visible,
                 _ => {}
             },
+            CredentialType::SecureNote => {} // No sensitive fields to toggle
             _ => {}
         }
     }
@@ -491,6 +520,7 @@ impl FormState {
                     .map(|p| p.expose(|s| SecureStr::new(s.to_string()))),
                 _ => None,
             },
+            CredentialType::SecureNote => None, // No sensitive fields
             _ => None,
         }
     }
@@ -501,6 +531,7 @@ impl FormState {
             CredentialType::Login => 8, // type + name + url + username + password + expiry + tags + notes
             CredentialType::Api => 8, // type + name + url + app_id + secret_key + expiry + tags + notes
             CredentialType::Ssh => 9, // type + name + url + public_key + private_key + passphrase + expiry + tags + notes
+            CredentialType::SecureNote => 5, // type + name + notes + expiry + tags
         }
     }
 
@@ -566,6 +597,7 @@ impl FormState {
         match self.credential_type {
             CredentialType::Login | CredentialType::Api => 6,
             CredentialType::Ssh => 7,
+            CredentialType::SecureNote => 4, // type(0) + name(1) + notes(2) + expiry(3) + tags(4)
         }
     }
 
@@ -605,6 +637,9 @@ impl FormState {
     /// are **moved** out of `FormFields` into `SecureStr`, leaving `None` behind.
     /// This ensures the plaintext `String` does not persist in form state.
     pub fn build_payload(&mut self) -> EncryptedPayload {
+        // Extract notes text before consuming fields
+        let notes_text = self.fields.notes_text();
+
         match self.credential_type {
             CredentialType::Login => EncryptedPayload::Login {
                 name: std::mem::take(&mut self.fields.name),
@@ -616,7 +651,7 @@ impl FormState {
                     .map(SensitiveInput::take_secure)
                     .unwrap_or_else(|| SecureStr::new(String::new())),
                 url: Some(std::mem::take(&mut self.fields.url)),
-                notes: Some(std::mem::take(&mut self.fields.notes)),
+                notes: if notes_text.is_empty() { None } else { Some(notes_text) },
             },
             CredentialType::Api => EncryptedPayload::Api {
                 name: std::mem::take(&mut self.fields.name),
@@ -628,7 +663,7 @@ impl FormState {
                     .map(SensitiveInput::take_secure)
                     .unwrap_or_else(|| SecureStr::new(String::new())),
                 url: Some(std::mem::take(&mut self.fields.url)),
-                notes: Some(std::mem::take(&mut self.fields.notes)),
+                notes: if notes_text.is_empty() { None } else { Some(notes_text) },
             },
             CredentialType::Ssh => EncryptedPayload::Ssh {
                 name: std::mem::take(&mut self.fields.name),
@@ -643,7 +678,11 @@ impl FormState {
                     .passphrase
                     .as_mut()
                     .map(SensitiveInput::take_secure),
-                notes: Some(std::mem::take(&mut self.fields.notes)),
+                notes: if notes_text.is_empty() { None } else { Some(notes_text) },
+            },
+            CredentialType::SecureNote => EncryptedPayload::SecureNote {
+                name: std::mem::take(&mut self.fields.name),
+                notes: if notes_text.is_empty() { None } else { Some(notes_text) },
             },
         }
     }
@@ -656,6 +695,18 @@ impl FormState {
         self.fields.private_key = None;
         self.fields.passphrase = None;
         self.fields.strength = None;
+    }
+
+    /// Check if the notes textarea currently captures vertical navigation.
+    /// Returns true when notes textarea is focused (not footer, not dropdown).
+    pub fn textarea_captures_vertical(&self) -> bool {
+        if self.footer_focus.is_some() {
+            return false;
+        }
+        if self.expiry_dropdown.expanded || self.credential_dropdown.expanded {
+            return false;
+        }
+        self.fields.is_textarea_field(self.focused_field, self.credential_type)
     }
 }
 
@@ -765,7 +816,7 @@ mod tests {
         for c in "secret".chars() {
             state.fields.password.as_mut().unwrap().push_char(c);
         }
-        state.fields.notes = "notes".into();
+        state.fields.set_notes_text("notes");
 
         let payload = state.build_payload();
 

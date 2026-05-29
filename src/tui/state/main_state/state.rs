@@ -939,11 +939,13 @@ impl Screen for MainScreenState {
                                             Some(DetailFieldKind::Username)
                                         }
                                         CredentialType::Api => Some(DetailFieldKind::AppId),
+                                        CredentialType::SecureNote => None, // No username field
                                     },
                                     FieldSelector::Password => match record.credential_type {
                                         CredentialType::Login => Some(DetailFieldKind::Password),
                                         CredentialType::Api => Some(DetailFieldKind::SecretKey),
                                         CredentialType::Ssh => Some(DetailFieldKind::PrivateKey),
+                                        CredentialType::SecureNote => None, // No password field
                                     },
                                     FieldSelector::Passphrase => Some(DetailFieldKind::Passphrase),
                                     // Url and Notes are not decryptable/toggleable

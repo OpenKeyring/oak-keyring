@@ -335,6 +335,7 @@ pub fn handle_load_record_detail(executor: &mut CommandExecutor, id: Uuid) -> Co
 /// - Login: evaluates the `password` field
 /// - API: evaluates the `secret_key` field
 /// - SSH: returns `None` (SSH key material is not a password)
+/// - SecureNote: returns `None` (no password field)
 fn compute_password_strength(
     record: &DecryptedRecord,
 ) -> Option<crate::crypto::strength::PasswordStrength> {
@@ -346,6 +347,7 @@ fn compute_password_strength(
             crate::crypto::strength::evaluate_strength(secret_key.expose()),
         ),
         DecryptedRecord::Ssh { .. } => None,
+        DecryptedRecord::SecureNote { .. } => None,
     }
 }
 

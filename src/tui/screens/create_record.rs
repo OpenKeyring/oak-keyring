@@ -4,10 +4,12 @@ use std::cell::Cell;
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
+use tui_textarea::CursorMove;
 use unicode_width::UnicodeWidthStr;
 
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
+use crate::tui::components::textarea::TEXTAREA_TOTAL_ROWS;
 use crate::tui::screens::form::validation;
 use crate::tui::state::form_state::{
     ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus,
@@ -71,13 +73,33 @@ impl CreateRecordScreen {
 
         // Normal form navigation
         match key {
-            KeyCode::Tab | KeyCode::Down => {
+            KeyCode::Tab => {
                 self.form.focus_next();
                 ScreenResult::Continue
             }
-            KeyCode::BackTab | KeyCode::Up => {
+            KeyCode::Down => {
+                // If textarea is focused, move cursor down instead of next field
+                if self.form.textarea_captures_vertical() {
+                    self.form.fields.notes.move_cursor(CursorMove::Down);
+                    ScreenResult::Continue
+                } else {
+                    self.form.focus_next();
+                    ScreenResult::Continue
+                }
+            }
+            KeyCode::BackTab => {
                 self.form.focus_prev();
                 ScreenResult::Continue
+            }
+            KeyCode::Up => {
+                // If textarea is focused, move cursor up instead of prev field
+                if self.form.textarea_captures_vertical() {
+                    self.form.fields.notes.move_cursor(CursorMove::Up);
+                    ScreenResult::Continue
+                } else {
+                    self.form.focus_prev();
+                    ScreenResult::Continue
+                }
             }
             KeyCode::Right => {
                 if self.is_tags_focused() && self.form.fields.focus_next_tag() {
@@ -86,6 +108,21 @@ impl CreateRecordScreen {
                 if self.open_focused_dropdown() {
                     return ScreenResult::Continue;
                 }
+
+                // If textarea is focused, handle cursor movement
+                if self.form.textarea_captures_vertical() {
+                    let (row, col) = self.form.fields.notes.cursor();
+                    // Check if we're at the rightmost position of the current line
+                    let lines = self.form.fields.notes.lines();
+                    if let Some(current_line) = lines.get(row) {
+                        if col < current_line.len() {
+                            self.form.fields.notes.move_cursor(CursorMove::Forward);
+                            return ScreenResult::Continue;
+                        }
+                    }
+                    // At rightmost position, fall through to focus_next
+                }
+
                 if self.form.sub_focus_next() {
                     ScreenResult::Continue
                 } else {
@@ -98,6 +135,17 @@ impl CreateRecordScreen {
                 if self.is_tags_focused() && self.form.fields.focus_prev_tag() {
                     return ScreenResult::Continue;
                 }
+
+                // If textarea is focused, handle cursor movement
+                if self.form.textarea_captures_vertical() {
+                    let (_row, col) = self.form.fields.notes.cursor();
+                    if col > 0 {
+                        self.form.fields.notes.move_cursor(CursorMove::Back);
+                        return ScreenResult::Continue;
+                    }
+                    // At leftmost position, fall through to focus_prev
+                }
+
                 if self.form.sub_focus_prev() {
                     ScreenResult::Continue
                 } else {
@@ -152,6 +200,18 @@ impl CreateRecordScreen {
             return self.activate_footer_button(button);
         }
 
+        // If notes textarea is focused, insert newline
+        let notes_idx = match ct {
+            CredentialType::Login | CredentialType::Api => 7,
+            CredentialType::Ssh => 8,
+            CredentialType::SecureNote => 2,
+        };
+        if focused == notes_idx {
+            self.form.fields.notes.insert_newline();
+            self.form.has_changes = true;
+            return ScreenResult::Continue;
+        }
+
         // Check inline button actions first
         match self.form.password_sub_focus {
             crate::tui::state::form_state::PasswordFieldFocus::Show => {
@@ -190,6 +250,7 @@ impl CreateRecordScreen {
         let expiry_idx = match ct {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         if focused == expiry_idx {
             self.form.expiry_dropdown.expanded = true;
@@ -200,6 +261,7 @@ impl CreateRecordScreen {
         let tags_idx = match ct {
             CredentialType::Login | CredentialType::Api => 6,
             CredentialType::Ssh => 7,
+            CredentialType::SecureNote => 4,
         };
         if focused == tags_idx && !self.form.fields.tag_input.is_empty() {
             if self.form.fields.commit_tag_input() {
@@ -230,8 +292,17 @@ impl CreateRecordScreen {
                 self.form.has_changes = true;
             }
             2 => {
-                self.form.fields.url.push(c);
-                self.form.has_changes = true;
+                match ct {
+                    CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                        self.form.fields.url.push(c);
+                        self.form.has_changes = true;
+                    }
+                    CredentialType::SecureNote => {
+                        // Field 2 for SecureNote is the notes textarea
+                        self.form.fields.notes.insert_char(c);
+                        self.form.has_changes = true;
+                    }
+                }
             }
             3 => {
                 match ct {
@@ -255,6 +326,9 @@ impl CreateRecordScreen {
                             .public_key
                             .get_or_insert_with(String::new)
                             .push(c);
+                    }
+                    CredentialType::SecureNote => {
+                        // Field 3 for SecureNote is expiry - handled in default branch
                     }
                 }
                 self.form.has_changes = true;
@@ -283,6 +357,9 @@ impl CreateRecordScreen {
                             .get_or_insert_with(SensitiveInput::new)
                             .push_char(c);
                     }
+                    CredentialType::SecureNote => {
+                        // Field 4 for SecureNote is tags - handled in default branch
+                    }
                 }
                 self.form.has_changes = true;
             }
@@ -299,10 +376,12 @@ impl CreateRecordScreen {
                 let tags_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 6,
                     CredentialType::Ssh => 7,
+                    CredentialType::SecureNote => 4,
                 };
                 let notes_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 7,
                     CredentialType::Ssh => 8,
+                    CredentialType::SecureNote => 2,
                 };
                 if focused == tags_idx {
                     if matches!(c, ',' | '，') {
@@ -315,7 +394,7 @@ impl CreateRecordScreen {
                         self.form.has_changes = true;
                     }
                 } else if focused == notes_idx {
-                    self.form.fields.notes.push(c);
+                    self.form.fields.notes.insert_char(c);
                     self.form.has_changes = true;
                 }
             }
@@ -340,9 +419,15 @@ impl CreateRecordScreen {
             1 => {
                 self.form.fields.name.pop();
             }
-            2 => {
-                self.form.fields.url.pop();
-            }
+            2 => match ct {
+                CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                    self.form.fields.url.pop();
+                }
+                CredentialType::SecureNote => {
+                    // Field 2 for SecureNote is notes textarea
+                    self.form.fields.notes.delete_char();
+                }
+            },
             3 => match ct {
                 CredentialType::Login => {
                     self.form.fields.username.as_mut().and_then(|s| s.pop());
@@ -352,6 +437,9 @@ impl CreateRecordScreen {
                 }
                 CredentialType::Ssh => {
                     self.form.fields.public_key.as_mut().and_then(|s| s.pop());
+                }
+                CredentialType::SecureNote => {
+                    // Field 3 for SecureNote is expiry - no text input
                 }
             },
             4 => match ct {
@@ -371,6 +459,9 @@ impl CreateRecordScreen {
                         s.pop_char()
                     };
                 }
+                CredentialType::SecureNote => {
+                    // Field 4 for SecureNote is tags - no text input
+                }
             },
             5 if ct == CredentialType::Ssh => {
                 if let Some(s) = self.form.fields.passphrase.as_mut() {
@@ -381,6 +472,12 @@ impl CreateRecordScreen {
                 let tags_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 6,
                     CredentialType::Ssh => 7,
+                    CredentialType::SecureNote => 4,
+                };
+                let notes_idx = match ct {
+                    CredentialType::Login | CredentialType::Api => 7,
+                    CredentialType::Ssh => 8,
+                    CredentialType::SecureNote => 2,
                 };
                 if focused == tags_idx {
                     if self.form.fields.tag_input.is_empty() {
@@ -391,6 +488,8 @@ impl CreateRecordScreen {
                     } else {
                         self.form.fields.tag_input.pop();
                     }
+                } else if focused == notes_idx {
+                    self.form.fields.notes.delete_char();
                 }
             }
         }
@@ -401,6 +500,9 @@ impl CreateRecordScreen {
     fn handle_delete(&mut self) -> ScreenResult {
         if self.is_tags_focused() && self.form.fields.remove_focused_tag() {
             self.form.has_changes = true;
+        } else if self.form.textarea_captures_vertical() {
+            self.form.fields.notes.delete_next_char();
+            self.form.has_changes = true;
         }
         ScreenResult::Continue
     }
@@ -410,6 +512,7 @@ impl CreateRecordScreen {
         let expiry_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         self.form.focused_field == expiry_idx && self.form.fields.expires_at == ExpiryOption::Custom
     }
@@ -421,6 +524,7 @@ impl CreateRecordScreen {
         let expiry_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         (self.form.focused_field == 0 && self.form.is_credential_type_editable())
             || self.form.focused_field == expiry_idx
@@ -442,6 +546,7 @@ impl CreateRecordScreen {
         let expiry_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         if self.form.focused_field == expiry_idx {
             self.form.expiry_dropdown.expanded = true;
@@ -1126,6 +1231,10 @@ impl CreateRecordScreen {
                 passphrase = Some(row);
                 row += 2; // passphrase row + optional marker
             }
+            CredentialType::SecureNote => {
+                // SecureNote has no account/secret/passphrase fields
+                // After name (field 1), notes is at field 2
+            }
         }
         row += 1;
 
@@ -1152,7 +1261,7 @@ impl CreateRecordScreen {
         row += 1;
 
         let notes = row;
-        row += 1 + 1;
+        row += 1 + TEXTAREA_TOTAL_ROWS as u16;
 
         let inner_height = self.last_area.get().height.saturating_sub(2);
         if row.saturating_add(3) < inner_height {
@@ -1188,6 +1297,7 @@ impl CreateRecordScreen {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         }
     }
 
@@ -1195,6 +1305,7 @@ impl CreateRecordScreen {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 6,
             CredentialType::Ssh => 7,
+            CredentialType::SecureNote => 4,
         }
     }
 
@@ -1202,18 +1313,27 @@ impl CreateRecordScreen {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 7,
             CredentialType::Ssh => 8,
+            CredentialType::SecureNote => 2,
         }
     }
 
     fn secret_field_index(&self) -> usize {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
+            CredentialType::SecureNote => {
+                // SecureNote has no secret field
+                0
+            }
         }
     }
 
     fn shortcut_secret_field_index(&self) -> usize {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
+            CredentialType::SecureNote => {
+                // SecureNote has no secret field, return notes field as fallback
+                2
+            }
         }
     }
 
@@ -1266,6 +1386,7 @@ impl CreateRecordScreen {
                 PasswordFieldFocus::Paste,
                 PasswordFieldFocus::Copy,
             ]),
+            CredentialType::SecureNote => None, // No secret field
         }
     }
 
@@ -1775,7 +1896,7 @@ mod tests {
             screen.form.fields.password.as_mut().unwrap().push_char(c);
         }
 
-        let buffer = render_buffer(&screen, 100, 28);
+        let buffer = render_buffer(&screen, 100, 32);
         let (x, y) = find_text(&buffer, "Show").expect("show button should be rendered");
         let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
 
@@ -1792,7 +1913,7 @@ mod tests {
         let env = TestEnv::new();
         let mut ctx = env.make_ctx(&tx);
 
-        let buffer = render_buffer(&screen, 100, 28);
+        let buffer = render_buffer(&screen, 100, 32);
         let (x, y) = find_text(&buffer, "Login").expect("type dropdown should be rendered");
         let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
 
@@ -1808,7 +1929,7 @@ mod tests {
         let env = TestEnv::new();
         let mut ctx = env.make_ctx(&tx);
 
-        let buffer = render_buffer(&screen, 100, 28);
+        let buffer = render_buffer(&screen, 100, 32);
         let (x, y) = find_text(&buffer, "Save").expect("save button should be rendered");
         let result = screen.update(Message::MouseEvent(mouse_move(x, y)), &mut ctx);
 
@@ -1848,7 +1969,7 @@ mod tests {
         let result = screen.update(Message::KeyEvent(ctrl('s')), &mut ctx);
         assert!(matches!(result, ScreenResult::Continue));
 
-        let buffer = render_buffer(&screen, 100, 28);
+        let buffer = render_buffer(&screen, 100, 32);
         for y in buffer.area.y..buffer.area.y + buffer.area.height {
             let row = (buffer.area.x..buffer.area.x + buffer.area.width)
                 .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
@@ -1910,7 +2031,7 @@ mod tests {
         let mut screen = make_screen();
         screen.form.focus_field(1);
 
-        let buffer = render_buffer(&screen, 100, 28);
+        let buffer = render_buffer(&screen, 100, 32);
         let (_, name_row) = find_text(&buffer, "Name").expect("name should render");
         let input_col = first_symbol_in_row(&buffer, name_row, "[").expect("name input bracket");
         let cursor_cell = buffer
@@ -1931,7 +2052,7 @@ mod tests {
         screen.generator.expand();
         let expanded_expiry_row = screen.form_row_map().expiry;
 
-        let buffer = render_buffer(&screen, 100, 40);
+        let buffer = render_buffer(&screen, 100, 32);
         let (_, title_row) = find_text(&buffer, "Password Generator")
             .or_else(|| find_text(&buffer, "密码生成器"))
             .expect("generator dialog title should render");
@@ -2084,7 +2205,7 @@ mod tests {
         screen.form.fields.url = "例子.example".into();
         screen.form.fields.username = Some("用户甲".into());
         screen.form.fields.tag_input = "等dddddd".into();
-        screen.form.fields.notes = "备注中文".into();
+        screen.form.fields.set_notes_text("备注中文");
 
         let rows = screen.form_row_map();
         let buffer = render_buffer(&screen, 80, 32);
@@ -2148,7 +2269,7 @@ mod tests {
         screen.generator.generator.random_config.length = 16;
         screen.generator.generator.focus = GeneratorFocus::LengthSlider;
 
-        let buffer = render_buffer(&screen, 100, 40);
+        let buffer = render_buffer(&screen, 100, 32);
         let (x, y) = find_text(&buffer, "[+]").expect("generator plus button should render");
         let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
 
