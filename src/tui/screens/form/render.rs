@@ -49,7 +49,7 @@ pub fn render_form(
     // Track where the notes textarea starts in the line buffer so we can
     // overlay the actual TextArea widget after the Paragraph is rendered.
     // None means no textarea is rendered (should not happen currently).
-    let mut notes_line_offset: Option<usize> = None;
+    let mut notes_line_offset: Option<(usize, u16)> = None;
 
     // Field 0: Credential Type dropdown
     let ct_options = [
@@ -106,12 +106,14 @@ pub fn render_form(
     match ct {
         CredentialType::SecureNote => {
             // Field 2: Notes textarea — record offset for overlay rendering
-            notes_line_offset = Some(lines.len());
+            let notes_rows = textarea::visible_rows(&state.fields.notes);
+            notes_line_offset = Some((lines.len(), notes_rows));
             lines.extend(textarea::render_textarea_label(
                 t!("tui.form.notes_label").as_ref(),
                 focused == 2,
                 false,
                 area.width,
+                notes_rows,
             ));
             lines.push(Line::raw(""));
         }
@@ -478,12 +480,14 @@ pub fn render_form(
         CredentialType::SecureNote => 2, // Already rendered
     };
     if ct != CredentialType::SecureNote {
-        notes_line_offset = Some(lines.len());
+        let notes_rows = textarea::visible_rows(&state.fields.notes);
+        notes_line_offset = Some((lines.len(), notes_rows));
         lines.extend(textarea::render_textarea_label(
             t!("tui.form.notes_label").as_ref(),
             focused == notes_idx,
             false,
             area.width,
+            notes_rows,
         ));
         lines.push(Line::raw(""));
     }
@@ -524,13 +528,13 @@ pub fn render_form(
 
     // Overlay the actual TextArea widget on top of the placeholder rows.
     // No block border on the textarea — content lines only.
-    if let Some(offset) = notes_line_offset {
+    if let Some((offset, notes_rows)) = notes_line_offset {
         let label_width = crate::tui::components::text_input::FORM_LABEL_WIDTH;
         let notes_area = Rect {
             x: area.x + 1 + label_width as u16,
             y: area.y + 1 + offset as u16 + 1, // outer block border + label line
             width: area.width.saturating_sub(label_width as u16 + 3),
-            height: textarea::TEXTAREA_TOTAL_ROWS,
+            height: notes_rows,
         };
         frame.render_widget(&state.fields.notes, notes_area);
     }

@@ -6,21 +6,17 @@ use tui_textarea::TextArea;
 
 use crate::tui::theme;
 
-/// Visible content lines inside the textarea box.
-pub const TEXTAREA_VISIBLE_LINES: u16 = 3;
+/// Minimum visible content lines inside the textarea box.
+pub const TEXTAREA_MIN_VISIBLE_LINES: u16 = 3;
 
-/// Total rows occupied by the textarea widget (no block border, just content).
-pub const TEXTAREA_TOTAL_ROWS: u16 = TEXTAREA_VISIBLE_LINES;
+/// Maximum visible content lines inside the textarea box.
+pub const TEXTAREA_MAX_VISIBLE_LINES: u16 = 8;
 
 /// Create a `TextArea` configured with the project's Tokyo Night theme.
 pub fn create_textarea() -> TextArea<'static> {
     let mut ta = TextArea::default();
 
-    ta.set_style(
-        Style::default()
-            .fg(theme::TEXT)
-            .bg(theme::BG_SURFACE),
-    );
+    ta.set_style(Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE));
     ta.set_cursor_style(
         Style::default()
             .fg(theme::BG)
@@ -58,6 +54,7 @@ pub fn render_textarea_label(
     focused: bool,
     is_required: bool,
     _width: u16,
+    visible_rows: u16,
 ) -> Vec<Line<'static>> {
     let label_style = if focused {
         Style::default()
@@ -81,19 +78,34 @@ pub fn render_textarea_label(
 
     // Label line with a simple placeholder for the textarea area
     let label_line = Line::from(vec![
-        Span::styled(
-            super::text_input::padded_form_label(label),
-            label_style,
-        ),
+        Span::styled(super::text_input::padded_form_label(label), label_style),
         marker,
     ]);
 
     let mut lines = vec![label_line];
     // Placeholder rows for the textarea box (will be overwritten by actual rendering)
-    for _ in 0..TEXTAREA_TOTAL_ROWS {
+    for _ in 0..visible_rows {
         lines.push(Line::raw(""));
     }
     lines
+}
+
+/// Return the visible textarea height for the current content.
+pub fn visible_rows(textarea: &TextArea<'_>) -> u16 {
+    let line_count = textarea.lines().len().max(1) as u16;
+    line_count.clamp(TEXTAREA_MIN_VISIBLE_LINES, TEXTAREA_MAX_VISIBLE_LINES)
+}
+
+/// Whether the cursor can move to a previous line within the textarea.
+pub fn cursor_has_line_above(textarea: &TextArea<'_>) -> bool {
+    let (row, _) = textarea.cursor();
+    row > 0
+}
+
+/// Whether the cursor can move to a following line within the textarea.
+pub fn cursor_has_line_below(textarea: &TextArea<'_>) -> bool {
+    let (row, _) = textarea.cursor();
+    row + 1 < textarea.lines().len()
 }
 
 /// Extract the full text content from a `TextArea` as a single `String`.
@@ -143,5 +155,20 @@ mod tests {
         ta.insert_str("existing");
         set_textarea_text(&mut ta, "");
         assert_eq!(textarea_text(&ta), "");
+    }
+
+    #[test]
+    fn visible_rows_expands_to_content_up_to_eight_lines() {
+        let mut ta = create_textarea();
+        assert_eq!(visible_rows(&ta), 3);
+
+        set_textarea_text(&mut ta, "one\ntwo\nthree\nfour");
+        assert_eq!(visible_rows(&ta), 4);
+
+        set_textarea_text(&mut ta, "1\n2\n3\n4\n5\n6\n7\n8");
+        assert_eq!(visible_rows(&ta), 8);
+
+        set_textarea_text(&mut ta, "1\n2\n3\n4\n5\n6\n7\n8\n9");
+        assert_eq!(visible_rows(&ta), 8);
     }
 }

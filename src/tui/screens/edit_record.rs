@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
+use crate::tui::components::textarea;
 use crate::tui::screens::form::validation;
 use crate::tui::state::form_state::{ExpiryOption, FormFooterButton, FormState};
 use crate::tui::state::generator_state::{EmbeddedGeneratorState, GenerationStyle, GeneratorFocus};
@@ -79,9 +80,12 @@ impl EditRecordScreen {
                 ScreenResult::Continue
             }
             KeyCode::Down => {
-                // If textarea is focused, move cursor down instead of next field
                 if self.form.textarea_captures_vertical() {
-                    self.form.fields.notes.move_cursor(CursorMove::Down);
+                    if textarea::cursor_has_line_below(&self.form.fields.notes) {
+                        self.form.fields.notes.move_cursor(CursorMove::Down);
+                    } else {
+                        self.form.focus_next();
+                    }
                     ScreenResult::Continue
                 } else {
                     self.form.focus_next();
@@ -93,9 +97,12 @@ impl EditRecordScreen {
                 ScreenResult::Continue
             }
             KeyCode::Up => {
-                // If textarea is focused, move cursor up instead of prev field
                 if self.form.textarea_captures_vertical() {
-                    self.form.fields.notes.move_cursor(CursorMove::Up);
+                    if textarea::cursor_has_line_above(&self.form.fields.notes) {
+                        self.form.fields.notes.move_cursor(CursorMove::Up);
+                    } else {
+                        self.form.focus_prev();
+                    }
                     ScreenResult::Continue
                 } else {
                     self.form.focus_prev();
@@ -1117,6 +1124,10 @@ mod tests {
         )
     }
 
+    fn key(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+    }
+
     struct TestEnv {
         config: crate::config::AppConfig,
     }
@@ -1197,6 +1208,44 @@ mod tests {
         );
         assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.all_tags.len(), 1);
+    }
+
+    #[test]
+    fn notes_textarea_up_at_first_line_moves_to_previous_field() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.fields.set_notes_text("first\nsecond");
+        screen.form.focus_field(7);
+        screen.form.fields.notes.move_cursor(CursorMove::Top);
+
+        let result = screen.update(
+            Message::KeyEvent(key(crossterm::event::KeyCode::Up)),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.focused_field, 6);
+    }
+
+    #[test]
+    fn notes_textarea_down_at_last_line_moves_to_footer() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.fields.set_notes_text("first\nsecond");
+        screen.form.focus_field(7);
+        screen.form.fields.notes.move_cursor(CursorMove::Bottom);
+
+        let result = screen.update(
+            Message::KeyEvent(key(crossterm::event::KeyCode::Down)),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.footer_focus, Some(FormFooterButton::Save));
     }
 
     #[test]

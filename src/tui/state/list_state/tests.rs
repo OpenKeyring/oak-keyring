@@ -260,6 +260,7 @@ fn format_type_prefix_variants() {
     assert_eq!(format_type_prefix(&CredentialType::Login), "");
     assert_eq!(format_type_prefix(&CredentialType::Api), "[API] ");
     assert_eq!(format_type_prefix(&CredentialType::Ssh), "[SSH] ");
+    assert_eq!(format_type_prefix(&CredentialType::SecureNote), "[N] ");
 }
 
 #[test]

@@ -207,11 +207,58 @@ fn should_suppress_onboarding_vault_locked(
 ) -> bool {
     matches!(
         result,
+        CommandResult::VaultLocked
+            | CommandResult::Error {
+                code: crate::errors::ErrorCode::ExecutorVaultLocked,
+                ..
+            }
+    ) && is_onboarding_flow_screen(state)
+}
+
+fn is_vault_locked_result(result: &CommandResult) -> bool {
+    matches!(
+        result,
+        CommandResult::VaultLocked
+            | CommandResult::Error {
+                code: crate::errors::ErrorCode::ExecutorVaultLocked,
+                ..
+            }
+    )
+}
+
+fn vault_locked_status_text(result: &CommandResult) -> String {
+    match result {
         CommandResult::Error {
+            fallback,
             code: crate::errors::ErrorCode::ExecutorVaultLocked,
             ..
-        }
-    ) && is_onboarding_flow_screen(state)
+        } => fallback.clone(),
+        _ => "Vault locked. Please unlock first.".to_string(),
+    }
+}
+
+fn lock_app_to_unlock_screen(app: &mut App, result: &CommandResult) {
+    use crate::tui::state::notification::StatusMessage;
+
+    route_on_unmount_from_state(&mut app.state);
+    app.state.screens = Default::default();
+    app.state.screen_history.clear();
+    app.state.current_screen = Screen::Unlock;
+    app.state.shared.focus = Default::default();
+    app.state.shared.loading = Default::default();
+    app.state.shared.notification.clear();
+    app.state
+        .shared
+        .notification
+        .enqueue(StatusMessage::warning(vault_locked_status_text(result)));
+
+    let command_tx = app.command_tx.clone();
+    let mut ctx = ScreenContext {
+        command_tx: &command_tx,
+        config: &app.config,
+    };
+    route_on_mount_from_state(&mut app.state, &mut ctx);
+    start_screen_in_transition(&mut app.state);
 }
 
 fn should_suppress_screen_local_error(
@@ -378,6 +425,10 @@ fn handle_message(
 
             if should_suppress_onboarding_vault_locked(&app.state, result) {
                 tracing::debug!("Suppressed vault-locked result during onboarding flow");
+                return Ok(LoopControl::Continue);
+            }
+            if is_vault_locked_result(result) {
+                lock_app_to_unlock_screen(app, result);
                 return Ok(LoopControl::Continue);
             }
             let suppress_screen_local_error =
@@ -824,6 +875,10 @@ mod tests {
         })
     }
 
+    fn vault_locked_result_message() -> Message {
+        Message::CommandCompleted(crate::commands::result::CommandResult::VaultLocked)
+    }
+
     fn recovery_words() -> crate::types::RecoveryWords {
         crate::types::RecoveryWords::new((0..24).map(|i| format!("word{i}")).collect()).unwrap()
     }
@@ -1130,6 +1185,73 @@ mod tests {
         assert_eq!(result, LoopControl::Continue);
         assert!(app.state.shared.notification.current_message.is_none());
         assert!(app.state.screens.onboarding.error.is_none());
+    }
+
+    #[test]
+    fn onboarding_screen_suppresses_direct_vault_locked_result() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::Onboarding;
+
+        let result =
+            handle_message(&mut app, vault_locked_result_message()).expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Onboarding);
+        assert!(app.state.shared.notification.current_message.is_none());
+        assert!(app.state.screens.onboarding.error.is_none());
+    }
+
+    #[test]
+    fn vault_locked_result_navigates_protected_screens_to_unlock() {
+        for screen in [
+            Screen::CreateRecord,
+            Screen::Main,
+            Screen::Config,
+            Screen::ChangeMasterPassword,
+            Screen::ImportExport,
+            Screen::AuditLog,
+            Screen::SyncConflict,
+            Screen::PasswordGenerator,
+            Screen::EditRecord {
+                id: uuid::Uuid::nil(),
+            },
+        ] {
+            let mut app = test_app();
+            app.state.current_screen = screen;
+
+            let result =
+                handle_message(&mut app, vault_locked_result_message()).expect("message handled");
+
+            assert_eq!(result, LoopControl::Continue, "screen: {screen:?}");
+            assert_eq!(
+                app.state.current_screen,
+                Screen::Unlock,
+                "screen: {screen:?}"
+            );
+            assert!(
+                app.state.screen_history.is_empty(),
+                "locked screen must not remain in back history: {screen:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn executor_vault_locked_error_navigates_protected_screen_to_unlock() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::CreateRecord;
+
+        let result = handle_message(&mut app, vault_locked_message()).expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Unlock);
+        assert!(app.state.screen_history.is_empty());
+        assert!(app
+            .state
+            .shared
+            .notification
+            .current_message
+            .as_ref()
+            .is_some_and(|message| message.text == "Vault is locked. Please unlock first."));
     }
 
     #[test]

@@ -619,7 +619,7 @@ impl DetailPanel {
             lines.push(metadata_border_line(cols, "├", "┼", "┤", unicode));
         }
         if let Some(notes) = record.notes.as_ref().filter(|notes| !notes.is_empty()) {
-            lines.push(render_plain_metadata_row(
+            lines.extend(render_notes_metadata_rows(
                 nf_icon(unicode, theme::NF_NOTE, theme::ascii::NF_NOTE),
                 t!("tui.password_detail.notes_label").as_ref(),
                 notes,
@@ -843,11 +843,18 @@ fn render_metadata_row(
     value: Vec<Span<'static>>,
     cols: MetadataColumns,
 ) -> Line<'static> {
-    let label_text = format!("{}  {}", icon, label);
+    render_metadata_row_with_label(&format!("{}  {}", icon, label), value, cols)
+}
+
+fn render_metadata_row_with_label(
+    label_text: &str,
+    value: Vec<Span<'static>>,
+    cols: MetadataColumns,
+) -> Line<'static> {
     let mut spans = vec![
         Span::styled("│ ", Style::default().fg(theme::NL_LINE)),
         Span::styled(
-            pad_to_width(&label_text, cols.label),
+            pad_to_width(label_text, cols.label),
             Style::default().fg(theme::NL_TEXT_MUTED),
         ),
         Span::styled(" │ ", Style::default().fg(theme::NL_LINE)),
@@ -855,6 +862,130 @@ fn render_metadata_row(
     spans.extend(pad_spans(value, cols.value, false));
     spans.push(Span::styled(" │", Style::default().fg(theme::NL_LINE)));
     Line::from(spans)
+}
+
+fn render_notes_metadata_rows(
+    icon: &str,
+    label: &str,
+    notes: &str,
+    cols: MetadataColumns,
+) -> Vec<Line<'static>> {
+    let rendered = render_markdown_note_lines(notes);
+    let label_text = format!("{}  {}", icon, label);
+    rendered
+        .into_iter()
+        .enumerate()
+        .map(|(index, spans)| {
+            render_metadata_row_with_label(if index == 0 { &label_text } else { "" }, spans, cols)
+        })
+        .collect()
+}
+
+fn render_markdown_note_lines(notes: &str) -> Vec<Vec<Span<'static>>> {
+    let mut in_code_block = false;
+    let mut rows = Vec::new();
+    for raw_line in notes.lines() {
+        let trimmed = raw_line.trim_start();
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+
+        if in_code_block {
+            rows.push(vec![Span::styled(
+                raw_line.to_string(),
+                Style::default().fg(theme::NL_CYAN),
+            )]);
+            continue;
+        }
+
+        if let Some(heading) = trimmed.strip_prefix('#') {
+            let heading = heading.trim_start_matches('#').trim_start();
+            rows.push(vec![Span::styled(
+                heading.to_string(),
+                Style::default()
+                    .fg(theme::NL_TEXT)
+                    .add_modifier(Modifier::BOLD),
+            )]);
+        } else if let Some(item) = markdown_list_item(trimmed) {
+            let mut spans = vec![Span::styled("• ", Style::default().fg(theme::NL_CYAN))];
+            spans.extend(render_inline_markdown_spans(item));
+            rows.push(spans);
+        } else if let Some(quote) = trimmed.strip_prefix("> ") {
+            let mut spans = vec![Span::styled("│ ", Style::default().fg(theme::NL_CYAN))];
+            spans.extend(render_inline_markdown_spans(quote));
+            rows.push(spans);
+        } else {
+            rows.push(render_inline_markdown_spans(raw_line));
+        }
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![Span::raw("")]);
+    }
+    rows
+}
+
+fn markdown_list_item(line: &str) -> Option<&str> {
+    ["- ", "* ", "+ "]
+        .into_iter()
+        .find_map(|marker| line.strip_prefix(marker))
+}
+
+fn render_inline_markdown_spans(text: &str) -> Vec<Span<'static>> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut spans = Vec::new();
+    let mut buffer = String::new();
+    let mut bold = false;
+    let mut italic = false;
+    let mut code = false;
+    let mut index = 0;
+
+    while index < chars.len() {
+        if chars[index] == '`' {
+            push_markdown_buffer(&mut spans, &mut buffer, bold, italic, code);
+            code = !code;
+            index += 1;
+        } else if !code && index + 1 < chars.len() && chars[index] == '*' && chars[index + 1] == '*'
+        {
+            push_markdown_buffer(&mut spans, &mut buffer, bold, italic, code);
+            bold = !bold;
+            index += 2;
+        } else if !code && chars[index] == '*' {
+            push_markdown_buffer(&mut spans, &mut buffer, bold, italic, code);
+            italic = !italic;
+            index += 1;
+        } else {
+            buffer.push(chars[index]);
+            index += 1;
+        }
+    }
+    push_markdown_buffer(&mut spans, &mut buffer, bold, italic, code);
+
+    if spans.is_empty() {
+        spans.push(Span::raw(""));
+    }
+    spans
+}
+
+fn push_markdown_buffer(
+    spans: &mut Vec<Span<'static>>,
+    buffer: &mut String,
+    bold: bool,
+    italic: bool,
+    code: bool,
+) {
+    if buffer.is_empty() {
+        return;
+    }
+    let mut style = Style::default().fg(if code { theme::NL_CYAN } else { theme::NL_TEXT });
+    if bold {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    if italic {
+        style = style.add_modifier(Modifier::ITALIC);
+    }
+    spans.push(Span::styled(std::mem::take(buffer), style));
 }
 
 fn table_border_line(
@@ -955,10 +1086,7 @@ fn pad_spans(spans: Vec<Span<'static>>, width: usize, right_align: bool) -> Vec<
     }
 
     // Truncate: keep last style for the ellipsis span.
-    let last_style = spans
-        .last()
-        .map(|s| s.style)
-        .unwrap_or_default();
+    let last_style = spans.last().map(|s| s.style).unwrap_or_default();
     let ellipsis = "…";
     let ellipsis_width = UnicodeWidthStr::width(ellipsis);
     let target = width.saturating_sub(ellipsis_width);
@@ -1619,6 +1747,24 @@ mod tests {
             snapshot.contains("[ github ]"),
             "tags should render as badge-like chips"
         );
+    }
+
+    #[test]
+    fn notes_metadata_renders_light_markdown_without_source_markers() {
+        let mut data = make_trash_detail_data();
+        data.notes = Some("# Heading\n- task\n`token` and **bold**".into());
+        let state = DetailPanelState::with_record(data);
+
+        let snapshot = render_detail_snapshot(&state, 120, 30, true, true);
+
+        assert!(snapshot.contains("Heading"));
+        assert!(snapshot.contains("task"));
+        assert!(snapshot.contains("token"));
+        assert!(snapshot.contains("bold"));
+        assert!(!snapshot.contains("# Heading"));
+        assert!(!snapshot.contains("- task"));
+        assert!(!snapshot.contains("`token`"));
+        assert!(!snapshot.contains("**bold**"));
     }
 
     #[test]
