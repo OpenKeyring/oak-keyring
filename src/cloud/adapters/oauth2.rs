@@ -27,8 +27,7 @@ impl ProviderAdapter for GoogleDriveAdapter {
 
                 if !drive_config.refresh_token.is_empty() {
                     builder = builder.refresh_token(&drive_config.refresh_token);
-                }
-                if !drive_config.access_token.is_empty() {
+                } else if !drive_config.access_token.is_empty() {
                     builder = builder.access_token(&drive_config.access_token);
                 }
                 if !drive_config.root_path.is_empty() {

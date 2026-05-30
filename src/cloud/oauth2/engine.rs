@@ -26,8 +26,10 @@ impl OAuth2Engine {
         let (verifier, challenge) = generate_pkce();
 
         let auth_url = build_auth_url(provider, &challenge);
-        eprintln!("请在浏览器中完成授权 (2 分钟内有效):");
-        eprintln!("{}", auth_url);
+        tracing::info!(
+            provider = provider.provider_id(),
+            "starting OAuth2 browser authorization"
+        );
 
         open_url(&auth_url).map_err(|msg| OAuth2Error::BrowserOpen { message: msg })?;
 

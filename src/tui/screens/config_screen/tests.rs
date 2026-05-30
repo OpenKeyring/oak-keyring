@@ -202,6 +202,36 @@ fn sync_google_drive_down_focuses_authorize_action() {
 }
 
 #[test]
+fn oauth_success_with_refresh_token_does_not_keep_access_token_in_provider_config() {
+    let mut screen = ConfigScreen::new();
+    screen.state.sync.provider = SyncProvider::GoogleDrive;
+    screen.state.sync.provider_config = Some(ProviderConfig::GoogleDrive(GoogleDriveConfig {
+        root_path: ".oak-keyring/".to_string(),
+        ..GoogleDriveConfig::default()
+    }));
+
+    let (tx, _rx) = mpsc::channel(1);
+    let config = AppConfig::default();
+    let mut ctx = test_context(&tx, &config);
+
+    let result = screen.update(
+        Message::CommandCompleted(CommandResult::OAuth2Authorized {
+            provider: "google_drive".to_string(),
+            access_token: "short_lived_access".to_string(),
+            refresh_token: Some("long_lived_refresh".to_string()),
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Command(_)));
+    let Some(ProviderConfig::GoogleDrive(cfg)) = &screen.state.sync.provider_config else {
+        panic!("expected Google Drive config");
+    };
+    assert!(cfg.access_token.is_empty());
+    assert_eq!(cfg.refresh_token, "long_lived_refresh");
+}
+
+#[test]
 fn j_key_no_boundary_flash_when_not_at_edge() {
     let mut screen = ConfigScreen::new();
     assert_eq!(screen.state.focused_item, 0);

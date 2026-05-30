@@ -307,6 +307,25 @@ fn oauth2_validate_with_valid_config() {
 }
 
 #[test]
+#[allow(deprecated)]
+fn google_drive_operator_prefers_refresh_token_when_access_token_is_loaded() {
+    let adapter = GoogleDriveAdapter::new();
+    let config = ProviderConfig::GoogleDrive(GoogleDriveConfig {
+        access_token: "test_access_token".to_string(),
+        refresh_token: "test_refresh_token".to_string(),
+        root_path: ".oak-keyring/".to_string(),
+        client_id: String::new(),
+        client_secret: String::new(),
+    });
+
+    let result = adapter.create_operator(&config);
+    assert!(
+        result.is_ok(),
+        "operator creation should not pass access_token and refresh_token together: {result:?}"
+    );
+}
+
+#[test]
 fn icloud_needs_watcher() {
     let adapter = ICloudAdapter::new();
     assert!(adapter.needs_watcher());

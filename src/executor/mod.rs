@@ -98,9 +98,10 @@ fn load_oauth2_tokens_into_config(config: &mut AppConfig, config_dir: &std::path
         }
     };
     if let Some(ProviderConfig::GoogleDrive(ref mut cfg)) = config.sync.provider_config {
-        cfg.access_token = tokens.access_token;
         if let Some(rt) = tokens.refresh_token {
             cfg.refresh_token = rt;
+        } else {
+            cfg.access_token = tokens.access_token;
         }
     }
 }

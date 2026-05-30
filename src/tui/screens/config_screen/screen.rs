@@ -96,9 +96,11 @@ impl ConfigScreen {
                     if let Some(ProviderConfig::GoogleDrive(ref mut cfg)) =
                         self.state.sync.provider_config
                     {
-                        cfg.access_token = access_token;
                         if let Some(rt) = refresh_token {
                             cfg.refresh_token = rt;
+                            cfg.access_token.clear();
+                        } else {
+                            cfg.access_token = access_token;
                         }
                     }
                     // Auto-save config after OAuth2 success triggers SyncService rebuild
