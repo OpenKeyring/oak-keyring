@@ -276,6 +276,12 @@ impl SidebarState {
     /// Enter tag management mode.
     pub fn enter_tag_management(&mut self) {
         self.tag_management_mode = true;
+        if matches!(
+            self.items.get(self.selected_index),
+            Some(SidebarItem::TagHeader)
+        ) {
+            self.select_first_tag();
+        }
     }
 
     /// Exit tag management mode. Cancels any inline rename.
@@ -329,6 +335,30 @@ impl SidebarState {
             }
         }
         None
+    }
+
+    /// Select the tag section header, if present.
+    pub fn select_tag_header(&mut self) {
+        if let Some(index) = self
+            .items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::TagHeader))
+        {
+            self.selected_index = index;
+        }
+    }
+
+    /// Select the first concrete tag item, if present.
+    pub fn select_first_tag(&mut self) -> bool {
+        if let Some(index) = self
+            .items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::Tag(_, _)))
+        {
+            self.selected_index = index;
+            return true;
+        }
+        false
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -1649,6 +1679,11 @@ impl MainScreenState {
                 Some(ScreenResult::Continue)
             }
             KeyCode::Char(ch) if key.modifiers.is_empty() => {
+                if ch == '0' {
+                    self.focused_panel = PanelId::Sidebar;
+                    self.sidebar.select_tag_header();
+                    return Some(ScreenResult::Continue);
+                }
                 if ch == '6' {
                     self.overlay_manager
                         .open_password_generator(&self.password_defaults);

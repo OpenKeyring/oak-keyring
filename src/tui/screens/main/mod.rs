@@ -1150,6 +1150,44 @@ mod tests {
     }
 
     #[test]
+    fn m_on_tag_header_then_r_starts_renaming_first_tag() {
+        let mut state = MainScreenState::default();
+        state.sidebar.tags_expanded = true;
+        state.sidebar.tags = vec![Tag {
+            id: 1,
+            name: "work".into(),
+        }];
+        state.sidebar.rebuild();
+        state.sidebar.selected_index = state
+            .sidebar
+            .items
+            .iter()
+            .position(|i| matches!(i, SidebarItem::TagHeader))
+            .unwrap();
+
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Char('m')), &mut state, PanelId::Sidebar);
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('r')), &mut state, PanelId::Sidebar);
+
+        assert!(state.sidebar.is_tag_management());
+        assert!(state.sidebar.tag_management.is_renaming());
+        assert_eq!(
+            state
+                .sidebar
+                .tag_management
+                .inline_edit
+                .as_ref()
+                .map(|edit| edit.original_name.as_str()),
+            Some("work")
+        );
+        assert!(result
+            .messages
+            .iter()
+            .any(|message| matches!(message, Message::RenameTagStart)));
+    }
+
+    #[test]
     fn m_exits_tag_management() {
         let mut state = MainScreenState::default();
         state.sidebar.tag_management_mode = true;

@@ -1027,6 +1027,26 @@ fn number_six_opens_generator_and_seven_opens_config() {
 }
 
 #[test]
+fn number_zero_focuses_sidebar_tag_header() {
+    let mut state = MainScreenState::default();
+    state.sidebar.tags = vec![Tag {
+        id: 1,
+        name: "work".to_string(),
+    }];
+    state.sidebar.rebuild();
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('0'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.focused_panel, PanelId::Sidebar);
+    assert!(matches!(
+        state.sidebar.items[state.sidebar.selected_index],
+        SidebarItem::TagHeader
+    ));
+}
+
+#[test]
 fn mouse_hover_list_row_only_focuses_list() {
     let mut state = MainScreenState::default();
     let mut first = make_test_record(None);
