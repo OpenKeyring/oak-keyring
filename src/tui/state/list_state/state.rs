@@ -79,6 +79,8 @@ pub struct ListPanelState {
     pub sort: RecordSort,
     /// Total record count (before filtering), for status display.
     pub total_count: usize,
+    /// Page offset currently being fetched, if a record-list load is in flight.
+    pub pending_load_offset: Option<usize>,
     /// Visible height of the list panel in rows, updated from layout.
     pub _visible_height: usize,
     /// Snapshot saved when search is committed via Enter, so Esc can restore.
@@ -97,6 +99,7 @@ impl Default for ListPanelState {
                 direction: SortDirection::Desc,
             },
             total_count: 0,
+            pending_load_offset: None,
             _visible_height: 0,
             committed_search_snapshot: None,
         }

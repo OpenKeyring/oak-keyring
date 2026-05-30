@@ -9,6 +9,14 @@ pub enum AnimationLevel {
     None,    // Instant transitions
 }
 
+pub fn level_for_mode(mode: crate::config::AnimationMode) -> AnimationLevel {
+    match mode {
+        crate::config::AnimationMode::On => AnimationLevel::Full,
+        crate::config::AnimationMode::Off => AnimationLevel::None,
+        crate::config::AnimationMode::Auto => detect_animation_level(),
+    }
+}
+
 /// Detect animation capability from terminal environment.
 pub fn detect_animation_level() -> AnimationLevel {
     let colorterm = std::env::var("COLORTERM").unwrap_or_default();

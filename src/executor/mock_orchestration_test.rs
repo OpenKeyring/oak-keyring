@@ -193,6 +193,10 @@ async fn cloud_restore_preflight_rejects_metadata_download_failure() {
 #[test]
 fn vault_lock_calls_trait_method() {
     let mut mock_vault = MockVault::new();
+    mock_vault
+        .expect_write_audit_entry()
+        .once()
+        .returning(|_, _, _, _| Ok(()));
     mock_vault.expect_lock().once().returning(|| ());
 
     let mut executor = base_builder()

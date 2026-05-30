@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::commands::types::{
     FieldSelector, HealthReport, RecordCategoryCounts, RecordFilter, RecordSort,
+    DEFAULT_RECORD_LIST_PAGE_SIZE,
 };
 use crate::commands::{CommandResult, InternalCommand};
 use crate::crypto::password::{
@@ -179,100 +180,47 @@ pub fn handle_load_record_list(
     filter: RecordFilter,
     sort: RecordSort,
 ) -> CommandResult {
-    match load_record_list_with_counts(executor, filter, sort) {
-        Ok((records, category_counts)) => {
-            let total = records.len();
-            CommandResult::RecordListLoaded {
-                records,
-                total,
-                category_counts,
-            }
-        }
+    handle_load_record_list_page(executor, filter, sort, DEFAULT_RECORD_LIST_PAGE_SIZE, 0)
+}
+
+#[tracing::instrument(skip_all)]
+pub fn handle_load_record_list_page(
+    executor: &mut CommandExecutor,
+    filter: RecordFilter,
+    sort: RecordSort,
+    limit: usize,
+    offset: usize,
+) -> CommandResult {
+    match load_record_list_page_with_counts(executor, filter, sort, limit, offset) {
+        Ok((records, total, category_counts)) => CommandResult::RecordListLoaded {
+            records,
+            total,
+            category_counts,
+        },
         Err(e) => vault_error(e, "Failed to load record list"),
     }
 }
 
-fn load_record_list_with_counts(
+fn load_record_list_page_with_counts(
     executor: &mut CommandExecutor,
     filter: RecordFilter,
     sort: RecordSort,
+    limit: usize,
+    offset: usize,
 ) -> Result<
-    (Vec<crate::types::TuiRecord>, RecordCategoryCounts),
+    (Vec<crate::types::TuiRecord>, usize, RecordCategoryCounts),
     crate::errors::mapping::vault::VaultError,
 > {
     let health_report = executor.health_report.clone();
-    let mut active_records = executor
+    let (mut records, total) = executor
         .vault_mut()
-        .and_then(|v| v.list_records(&RecordFilter::All, &sort))?;
-    populate_health_fields(&mut active_records, health_report.as_ref());
-
-    let trash_records = executor
+        .and_then(|v| v.list_records_page(&filter, &sort, limit, offset))?;
+    populate_health_fields(&mut records, health_report.as_ref());
+    let category_counts = executor
         .vault_mut()
-        .and_then(|v| v.list_records(&RecordFilter::Trash, &sort))?;
+        .and_then(|v| v.record_category_counts())?;
 
-    let category_counts = RecordCategoryCounts {
-        all: active_records.len(),
-        favorites: active_records.iter().filter(|r| r.is_favorite).count(),
-        expired: if health_report.is_some() {
-            active_records.iter().filter(|r| r.is_expired).count()
-        } else {
-            0
-        },
-        health_issues: if health_report.is_some() {
-            active_records
-                .iter()
-                .filter(|r| has_record_health_issue(r))
-                .count()
-        } else {
-            0
-        },
-        trash: trash_records.len(),
-    };
-
-    let records = match filter {
-        RecordFilter::All => active_records,
-        RecordFilter::Favorites => active_records
-            .into_iter()
-            .filter(|record| record.is_favorite)
-            .collect(),
-        RecordFilter::Expired => {
-            if health_report.is_some() {
-                active_records
-                    .into_iter()
-                    .filter(|record| record.is_expired)
-                    .collect()
-            } else {
-                Vec::new()
-            }
-        }
-        RecordFilter::HealthIssues => {
-            if health_report.is_some() {
-                active_records
-                    .into_iter()
-                    .filter(has_record_health_issue)
-                    .collect()
-            } else {
-                Vec::new()
-            }
-        }
-        RecordFilter::Trash => trash_records,
-        RecordFilter::Tag(tag_name) => active_records
-            .into_iter()
-            .filter(|record| record.tags.iter().any(|tag| tag == &tag_name))
-            .collect(),
-        RecordFilter::Search(query) => {
-            let query = query.to_lowercase();
-            active_records
-                .into_iter()
-                .filter(|record| {
-                    record.name.to_lowercase().contains(&query)
-                        || record.subtitle.to_lowercase().contains(&query)
-                })
-                .collect()
-        }
-    };
-
-    Ok((records, category_counts))
+    Ok((records, total, category_counts))
 }
 
 fn populate_health_fields(records: &mut [crate::types::TuiRecord], report: Option<&HealthReport>) {
@@ -288,13 +236,6 @@ fn populate_health_fields(records: &mut [crate::types::TuiRecord], report: Optio
             record.is_expired = report.expired.contains(&record.id);
         }
     }
-}
-
-fn has_record_health_issue(record: &crate::types::TuiRecord) -> bool {
-    record.has_weak_password
-        || record.is_compromised
-        || record.duplicate_group_size.is_some()
-        || record.is_expired
 }
 
 #[tracing::instrument(skip_all)]

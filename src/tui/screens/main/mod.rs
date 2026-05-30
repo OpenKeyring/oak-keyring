@@ -13,7 +13,7 @@ use ratatui::Frame;
 
 use crate::commands::types::{
     BatchTagPanelState, ConfirmButton, ConfirmDialogState, ConfirmVariant, FieldSelector, Overlay,
-    PanelId, RecordFilter,
+    PanelId, RecordFilter, DEFAULT_RECORD_LIST_PAGE_SIZE,
 };
 use crate::commands::{Command, Message};
 use crate::t;
@@ -439,9 +439,12 @@ impl MainScreen {
                     KeyCode::Char('s') if !state.list.is_visual() && !state.list.is_searching() => {
                         state.list.toggle_sort_direction();
                         state.current_sort.direction = state.list.sort.direction;
+                        state.list.pending_load_offset = Some(0);
                         let cmd = Box::new(Command::LoadRecordList {
                             filter: state.current_filter.clone(),
                             sort: state.current_sort.clone(),
+                            limit: DEFAULT_RECORD_LIST_PAGE_SIZE,
+                            offset: 0,
                         });
                         return MainKeyResult {
                             messages,
@@ -453,9 +456,12 @@ impl MainScreen {
                     KeyCode::Char('S') if !state.list.is_visual() && !state.list.is_searching() => {
                         state.list.cycle_sort_field();
                         state.current_sort.field = state.list.sort.field;
+                        state.list.pending_load_offset = Some(0);
                         let cmd = Box::new(Command::LoadRecordList {
                             filter: state.current_filter.clone(),
                             sort: state.current_sort.clone(),
+                            limit: DEFAULT_RECORD_LIST_PAGE_SIZE,
+                            offset: 0,
                         });
                         return MainKeyResult {
                             messages,

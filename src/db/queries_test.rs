@@ -316,7 +316,7 @@ fn metadata_get_set() {
 
     // schema_version is seeded by migration system
     let version = get_metadata(&db, "schema_version").unwrap();
-    assert_eq!(version.as_deref(), Some("1"));
+    assert_eq!(version.as_deref(), Some("2"));
 
     // Set a new key
     set_metadata(&db, "custom_key", "hello").unwrap();

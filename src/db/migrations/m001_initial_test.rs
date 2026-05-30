@@ -34,6 +34,7 @@ fn fresh_db_creates_all_tables() {
         "metadata",
         "password_history",
         "record_health_state",
+        "record_list_index",
         "record_tags",
         "records",
         "sync_state",
@@ -44,13 +45,13 @@ fn fresh_db_creates_all_tables() {
 }
 
 #[test]
-fn fresh_db_sets_schema_version_to_one() {
+fn fresh_db_sets_schema_version_to_latest() {
     let conn = Connection::open_in_memory().unwrap();
     crate::db::schema::apply_pragmas(&conn).expect("failed to apply pragmas");
     run_migrations(&conn).unwrap();
 
     let version = metadata_value(&conn, "schema_version").unwrap();
-    assert_eq!(version, "1");
+    assert_eq!(version, "2");
 }
 
 #[test]

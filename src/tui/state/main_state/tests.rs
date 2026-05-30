@@ -235,10 +235,17 @@ fn on_mount_sends_load_record_list() {
         .try_recv()
         .expect("on_mount should send a LoadRecordList command");
     match cmd {
-        Command::LoadRecordList { filter, sort } => {
+        Command::LoadRecordList {
+            filter,
+            sort,
+            limit,
+            offset,
+        } => {
             assert_eq!(filter, RecordFilter::All);
             assert_eq!(sort.field, crate::commands::types::SortField::CreatedAt);
             assert_eq!(sort.direction, crate::commands::types::SortDirection::Desc);
+            assert_eq!(limit, 500);
+            assert_eq!(offset, 0);
         }
         _ => panic!("Expected LoadRecordList command, got a different command"),
     }
@@ -270,11 +277,108 @@ fn on_mount_sends_load_record_list_with_current_filter() {
         .try_recv()
         .expect("on_mount should send a LoadRecordList command");
     match cmd {
-        Command::LoadRecordList { filter, .. } => {
+        Command::LoadRecordList {
+            filter,
+            limit,
+            offset,
+            ..
+        } => {
             assert_eq!(filter, RecordFilter::Favorites);
+            assert_eq!(limit, 500);
+            assert_eq!(offset, 0);
         }
         _ => panic!("Expected LoadRecordList command"),
     }
+}
+
+#[test]
+fn record_list_scroll_near_loaded_bottom_requests_next_page() {
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::List;
+    state.terminal_area = Rect::new(0, 0, 120, 30);
+    state.list.records = (0..500)
+        .map(|idx| make_test_record_with_name(Uuid::new_v4(), &format!("record-{idx:03}")))
+        .collect();
+    state.list.total_count = 600;
+    state.list.selected_index = Some(497);
+    state.list.scroll_offset = 490;
+    state.list.set_visible_height(8);
+
+    let layout = crate::tui::screens::main::layout::calculate_layout(state.terminal_area, 120);
+    let list_rect = Rect::new(
+        layout.list.x,
+        layout.list.y + 2,
+        layout.list.width,
+        layout.list.height.saturating_sub(2),
+    );
+    let event = crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::ScrollDown,
+        column: list_rect.x + 1,
+        row: list_rect.y + 3,
+        modifiers: KeyModifiers::NONE,
+    };
+
+    let config = crate::config::AppConfig::default();
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(Message::MouseEvent(event), &mut ctx);
+
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::LoadRecordList {
+                filter,
+                limit,
+                offset,
+                ..
+            } => {
+                assert_eq!(filter, RecordFilter::All);
+                assert_eq!(limit, 500);
+                assert_eq!(offset, 500);
+            }
+            other => panic!("expected LoadRecordList, got {other:?}"),
+        },
+        other => panic!("expected command result, got {other:?}"),
+    }
+}
+
+#[test]
+fn record_list_loaded_appends_next_page_without_replacing_existing_records() {
+    use crate::commands::result::CommandResult;
+
+    let mut state = MainScreenState::default();
+    state.list.records = (0..500)
+        .map(|idx| make_test_record_with_name(Uuid::new_v4(), &format!("record-{idx:03}")))
+        .collect();
+    state.list.total_count = 600;
+    state.list.pending_load_offset = Some(500);
+    let next_page: Vec<_> = (500..525)
+        .map(|idx| make_test_record_with_name(Uuid::new_v4(), &format!("record-{idx:03}")))
+        .collect();
+
+    let config = crate::config::AppConfig::default();
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: next_page,
+            total: 600,
+            category_counts: Default::default(),
+        }),
+        &mut ctx,
+    );
+
+    assert_eq!(state.list.records.len(), 525);
+    assert_eq!(state.list.records[0].name, "record-000");
+    assert_eq!(state.list.records[524].name, "record-524");
+    assert_eq!(state.list.total_count, 600);
 }
 
 #[test]

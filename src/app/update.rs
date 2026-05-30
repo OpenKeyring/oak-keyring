@@ -34,6 +34,19 @@ fn start_transition_kind(
     crate::tui::animation::transitions::start_transition(&mut state.shared.animation, kind);
 }
 
+fn apply_runtime_config(app: &mut App, config: crate::config::AppConfig) {
+    if config.general.language != app.config.general.language {
+        crate::tui::i18n::switch_locale(&config.general.language);
+    }
+
+    let level = crate::tui::animation::level_for_mode(config.general.animation);
+    app.state.shared.animation.level = level;
+    if level == crate::tui::animation::AnimationLevel::None {
+        app.state.shared.animation.clear();
+    }
+    app.config = config;
+}
+
 fn start_initial_transition(
     state: &mut crate::tui::state::AppState,
     config: &crate::config::AppConfig,
@@ -410,6 +423,13 @@ fn handle_message(
             // Tick notification state for auto-dismiss.
             app.state.shared.notification.tick();
             app.state.shared.animation.clear_finished();
+
+            let command_tx = app.command_tx.clone();
+            let mut ctx = ScreenContext {
+                command_tx: &command_tx,
+                config: &app.config,
+            };
+            let _ = route_to_screen(&mut app.state, Message::Tick, &mut ctx);
         }
 
         // -- Resize (direct) ----------------
@@ -435,7 +455,8 @@ fn handle_message(
                 should_suppress_screen_local_error(&app.state, result);
 
             match result {
-                CommandResult::ConfigSaved { warnings } => {
+                CommandResult::ConfigSaved { config, warnings } => {
+                    apply_runtime_config(app, config.clone());
                     app.state
                         .shared
                         .notification
@@ -448,23 +469,7 @@ fn handle_message(
                     }
                 }
                 CommandResult::ConfigLoaded { config } => {
-                    // Language change
-                    if config.general.language != app.config.general.language {
-                        crate::tui::i18n::switch_locale(&config.general.language);
-                    }
-                    // Animation mode change
-                    app.state.shared.animation.level = match config.general.animation {
-                        crate::config::general::AnimationMode::On => {
-                            crate::tui::animation::AnimationLevel::Full
-                        }
-                        crate::config::general::AnimationMode::Off => {
-                            crate::tui::animation::AnimationLevel::None
-                        }
-                        crate::config::general::AnimationMode::Auto => {
-                            crate::tui::animation::detect_animation_level()
-                        }
-                    };
-                    app.config = config.clone();
+                    apply_runtime_config(app, config.clone());
                 }
                 CommandResult::SyncConnectionTested { success, message } => {
                     let msg = if *success {
@@ -813,6 +818,7 @@ mod tests {
     use crate::tui::screens::import_export::ImportEntryPoint;
     use crate::tui::screens::key_recovery::KeyRecoveryOrigin;
     use crate::tui::screens::set_password::{RestoreNext, SetPasswordContext};
+    use crate::tui::state::audit_state::AuditFocus;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
     fn test_app() -> App {
@@ -916,6 +922,66 @@ mod tests {
         app.state.shared.animation.clear();
         start_initial_transition(&mut app.state, &app.config);
         assert!(!app.state.shared.animation.is_active());
+    }
+
+    #[test]
+    fn config_saved_applies_animation_mode_without_restart() {
+        let mut app = test_app();
+        app.state.shared.animation.level = crate::tui::animation::AnimationLevel::Full;
+        start_screen_in_transition(&mut app.state);
+        assert!(app.state.shared.animation.is_active());
+
+        let mut config = app.config.clone();
+        config.general.animation = crate::config::AnimationMode::Off;
+
+        let result = handle_message(
+            &mut app,
+            Message::CommandCompleted(crate::commands::result::CommandResult::ConfigSaved {
+                config,
+                warnings: vec![],
+            }),
+        )
+        .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(
+            app.config.general.animation,
+            crate::config::AnimationMode::Off
+        );
+        assert_eq!(
+            app.state.shared.animation.level,
+            crate::tui::animation::AnimationLevel::None
+        );
+        assert!(!app.state.shared.animation.is_active());
+    }
+
+    #[test]
+    fn tick_drives_audit_log_search_debounce() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::AuditLog;
+        app.state.screens.audit_log.state.focused_area = AuditFocus::SearchInput;
+
+        let result = handle_message(&mut app, Message::KeyEvent(key(KeyCode::Char('g'))))
+            .expect("key handled");
+        assert_eq!(result, LoopControl::Continue);
+
+        for _ in 0..3 {
+            let result = handle_message(&mut app, Message::Tick).expect("tick handled");
+            assert_eq!(result, LoopControl::Continue);
+        }
+
+        let command = app
+            .command_rx
+            .as_mut()
+            .expect("command receiver")
+            .try_recv()
+            .expect("debounced audit reload command");
+        match command {
+            crate::commands::Command::LoadAuditLog { filter } => {
+                assert_eq!(filter.search.as_deref(), Some("g"));
+            }
+            other => panic!("expected LoadAuditLog, got {other:?}"),
+        }
     }
 
     #[test]

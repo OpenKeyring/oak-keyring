@@ -1,4 +1,5 @@
 pub mod m001_initial;
+pub mod m002_record_list_index;
 pub mod runner;
 
 pub(crate) use runner::read_current_version;

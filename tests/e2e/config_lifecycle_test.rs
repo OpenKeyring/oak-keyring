@@ -159,7 +159,7 @@ async fn save_config_persists_to_disk() {
 
     // Verify ConfigSaved with no warnings
     match result {
-        CommandResult::ConfigSaved { warnings } => {
+        CommandResult::ConfigSaved { warnings, .. } => {
             assert!(
                 warnings.is_empty(),
                 "saving with default config should produce no warnings, got: {:?}",
@@ -259,7 +259,7 @@ async fn config_lifecycle_in_run_loop() {
 
     let save_result = recv_command_result(&mut result_rx).await;
     match save_result {
-        CommandResult::ConfigSaved { warnings } => {
+        CommandResult::ConfigSaved { warnings, .. } => {
             assert!(warnings.is_empty());
         }
         other => panic!("Expected ConfigSaved, got {:?}", other),

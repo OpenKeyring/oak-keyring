@@ -1278,6 +1278,88 @@ fn list_records_all_returns_all_active_records() {
     assert_eq!(records.len(), 3, "should return 3 active records");
 }
 
+#[test]
+fn list_records_page_limits_offsets_and_reports_total() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    for idx in 0..12 {
+        create_named_record(&mut svc, &format!("record-{idx:02}"));
+    }
+
+    let sort = RecordSort {
+        field: SortField::Name,
+        direction: SortDirection::Asc,
+    };
+
+    let (records, total) = svc
+        .list_records_page(&RecordFilter::All, &sort, 5, 5)
+        .expect("list_records_page must succeed");
+
+    assert_eq!(total, 12);
+    assert_eq!(records.len(), 5);
+    assert_eq!(records[0].name, "record-05");
+    assert_eq!(records[4].name, "record-09");
+}
+
+#[test]
+fn list_records_page_searches_index_before_pagination() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    for idx in 0..12 {
+        create_named_record(&mut svc, &format!("record-{idx:02}"));
+    }
+    create_named_record(&mut svc, "zz-special-target");
+
+    let sort = RecordSort {
+        field: SortField::Name,
+        direction: SortDirection::Asc,
+    };
+
+    let (records, total) = svc
+        .list_records_page(
+            &RecordFilter::Search("special target".to_string()),
+            &sort,
+            5,
+            0,
+        )
+        .expect("search page must succeed");
+
+    assert_eq!(total, 1);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].name, "zz-special-target");
+}
+
+#[test]
+fn list_records_page_rebuilds_missing_index_after_unlock() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    create_named_record(&mut svc, "Indexed Later");
+    svc.conn
+        .execute("DELETE FROM record_list_index", [])
+        .expect("delete index rows");
+    svc.conn
+        .execute(
+            "DELETE FROM metadata WHERE key = 'record_list_index_version'",
+            [],
+        )
+        .expect("delete index metadata");
+
+    let sort = RecordSort {
+        field: SortField::Name,
+        direction: SortDirection::Asc,
+    };
+
+    let (records, total) = svc
+        .list_records_page(&RecordFilter::Search("indexed".to_string()), &sort, 5, 0)
+        .expect("list_records_page should rebuild index");
+
+    assert_eq!(total, 1);
+    assert_eq!(records[0].name, "Indexed Later");
+}
+
 // --- list_records: sort by UpdatedAt Desc uses correct ordering ---
 
 #[test]
@@ -2044,6 +2126,54 @@ fn decrypt_field_password_writes_audit_record_view_password() {
         .expect("expected a RecordViewPassword audit entry");
     assert_eq!(view_entry.record_id, Some(id));
     assert_eq!(view_entry.record_name.as_deref(), Some("TestLogin"));
+}
+
+// --- decrypt_field_for_copy: Password field writes audit RecordCopyPassword ---
+
+#[test]
+fn decrypt_field_for_copy_password_writes_audit_record_copy_password() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    svc.decrypt_field_for_copy(id, FieldSelector::Password)
+        .expect("decrypt_field_for_copy must succeed");
+
+    let entries =
+        queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+    let copy_entry = entries
+        .iter()
+        .find(|e| e.operation == AuditOperation::RecordCopyPassword)
+        .expect("expected a RecordCopyPassword audit entry");
+    assert_eq!(copy_entry.record_id, Some(id));
+    assert_eq!(copy_entry.record_name.as_deref(), Some("TestLogin"));
+    assert!(
+        entries
+            .iter()
+            .all(|e| e.operation != AuditOperation::RecordViewPassword),
+        "copying must not also write a generic view-password audit entry"
+    );
+}
+
+// --- decrypt_field_for_copy: non-secret fields write audit RecordCopyField ---
+
+#[test]
+fn decrypt_field_for_copy_username_writes_audit_record_copy_field() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    svc.decrypt_field_for_copy(id, FieldSelector::Username)
+        .expect("decrypt_field_for_copy must succeed");
+
+    let entries =
+        queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+    let copy_entry = entries
+        .iter()
+        .find(|e| e.operation == AuditOperation::RecordCopyField)
+        .expect("expected a RecordCopyField audit entry");
+    assert_eq!(copy_entry.record_id, Some(id));
+    assert_eq!(copy_entry.record_name.as_deref(), Some("TestLogin"));
 }
 
 // --- decrypt_field: Passphrase field writes audit RecordViewPassword ---

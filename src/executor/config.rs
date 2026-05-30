@@ -28,7 +28,7 @@ pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> 
                 tracing::info!(changed_fields = ?changed, warnings = warnings.len(), "Config saved and changes applied");
             }
 
-            CommandResult::ConfigSaved { warnings }
+            CommandResult::ConfigSaved { config, warnings }
         }
         Err(e) => CommandResult::Error {
             code: ErrorCode::ConfigSaveFailed,
@@ -251,7 +251,10 @@ pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor
 
     // Fire-and-forget: the actual result comes back via the spawned task.
     // Return a neutral result so the UI doesn't prematurely set Authorized state.
-    CommandResult::ConfigSaved { warnings: vec![] }
+    CommandResult::ConfigSaved {
+        config: AppConfig::default(),
+        warnings: vec![],
+    }
 }
 
 #[tracing::instrument(skip_all)]
@@ -419,7 +422,7 @@ mod tests {
 
         let result = handle_save_config(&mut executor, new_config);
         match result {
-            CommandResult::ConfigSaved { warnings } => {
+            CommandResult::ConfigSaved { warnings, .. } => {
                 assert!(warnings.is_empty());
             }
             _ => panic!("Expected ConfigSaved"),

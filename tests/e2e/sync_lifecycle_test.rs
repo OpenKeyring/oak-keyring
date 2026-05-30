@@ -9,7 +9,9 @@
 
 use oak_keyring::cloud::metadata::{serialize_metadata, CloudMetadata};
 use oak_keyring::cloud::schema::METADATA_FILENAME;
-use oak_keyring::commands::types::{ConflictResolution, RecordFilter, RecordSort};
+use oak_keyring::commands::types::{
+    ConflictResolution, RecordFilter, RecordSort, DEFAULT_RECORD_LIST_PAGE_SIZE,
+};
 use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
@@ -522,6 +524,8 @@ async fn sync_uploads_pending_records_to_cloud() {
         .send(Command::LoadRecordList {
             filter: RecordFilter::All,
             sort: RecordSort::default(),
+            limit: DEFAULT_RECORD_LIST_PAGE_SIZE,
+            offset: 0,
         })
         .await
         .expect("send should succeed");
@@ -642,6 +646,8 @@ async fn sync_download_restores_encrypted_private_cloud_metadata() {
         .send(Command::LoadRecordList {
             filter: RecordFilter::All,
             sort: RecordSort::default(),
+            limit: DEFAULT_RECORD_LIST_PAGE_SIZE,
+            offset: 0,
         })
         .await
         .expect("send should succeed");

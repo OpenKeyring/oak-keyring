@@ -1,4 +1,6 @@
-use oak_keyring::commands::types::{RecordFilter, RecordSort, SortDirection, SortField};
+use oak_keyring::commands::types::{
+    AuditFilter, RecordFilter, RecordSort, SortDirection, SortField,
+};
 use oak_keyring::commands::CommandResult;
 use oak_keyring::crypto::argon2::Argon2Params;
 use oak_keyring::crypto::bip39::MnemonicLanguage;
@@ -7,7 +9,7 @@ use oak_keyring::crypto::keystore::KeyStore;
 use oak_keyring::db::vault_db::{VaultDbError, VaultDbFactory};
 use oak_keyring::executor::{ActivityTracker, CommandExecutor, DbStartupMode};
 use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
-use oak_keyring::types::SecureStr;
+use oak_keyring::types::{AuditOperation, SecureStr};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
@@ -60,6 +62,79 @@ async fn new_vault_creates_sqlcipher_database_directly() {
         read_schema.is_err(),
         "new vault db must be SQLCipher encrypted"
     );
+}
+
+#[tokio::test]
+async fn vault_lifecycle_writes_system_audit_entries() {
+    let dir = TempDir::new().expect("temp dir");
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let mut executor = CommandExecutor::new(
+        oak_keyring::config::AppConfig::default_config(),
+        tx,
+        tokio_util::sync::CancellationToken::new(),
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
+    )
+    .expect("executor");
+
+    let old_password = SecureStr::new("old lifecycle password".to_string());
+    let new_password = SecureStr::new("new lifecycle password".to_string());
+
+    let initialized = oak_keyring::executor::vault::handle_initialize_vault(
+        &mut executor,
+        SecureStr::new(old_password.expose().to_string()),
+        None,
+    )
+    .await;
+    assert!(matches!(initialized, CommandResult::VaultInitialized));
+
+    let unlocked = oak_keyring::executor::vault::handle_unlock(
+        &mut executor,
+        SecureStr::new(old_password.expose().to_string()),
+    )
+    .await;
+    assert!(matches!(unlocked, CommandResult::VaultUnlocked));
+
+    let changed = oak_keyring::executor::vault::handle_change_master_password(
+        &mut executor,
+        Some(old_password),
+        SecureStr::new(new_password.expose().to_string()),
+    );
+    assert!(matches!(changed, CommandResult::MasterPasswordChanged));
+
+    let locked = oak_keyring::executor::vault::handle_lock(&mut executor);
+    assert!(matches!(locked, CommandResult::VaultLocked));
+
+    let unlocked_again =
+        oak_keyring::executor::vault::handle_unlock(&mut executor, new_password).await;
+    assert!(matches!(unlocked_again, CommandResult::VaultUnlocked));
+
+    let audit_result = oak_keyring::executor::config::handle_load_audit_log(
+        &mut executor,
+        AuditFilter {
+            operation: None,
+            time_range: None,
+            search: None,
+            ..Default::default()
+        },
+    );
+    let CommandResult::AuditLogLoaded { entries, .. } = audit_result else {
+        panic!("expected AuditLogLoaded, got {audit_result:?}");
+    };
+
+    let operations: Vec<AuditOperation> = entries.iter().map(|entry| entry.operation).collect();
+    assert!(
+        operations
+            .iter()
+            .filter(|op| **op == AuditOperation::VaultUnlock)
+            .count()
+            >= 2,
+        "expected unlock audit entries, got {operations:?}"
+    );
+    assert!(operations.contains(&AuditOperation::VaultLock));
+    assert!(operations.contains(&AuditOperation::MasterPasswordChange));
 }
 
 #[test]
@@ -370,6 +445,7 @@ async fn sqlcipher_unlocked_vault_supports_full_query_pipeline() {
             operation: None,
             time_range: None,
             search: None,
+            ..Default::default()
         },
     );
     match audit_result {

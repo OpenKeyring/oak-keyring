@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use crate::commands::types::AppPhase;
 use crate::commands::{Command, Message};
 use crate::config::AppConfig;
-use crate::tui::animation::detect_animation_level;
+use crate::tui::animation::level_for_mode;
 use crate::tui::state::AppState;
 use crate::tui::terminal;
 
@@ -151,7 +151,7 @@ impl App {
         self.state.unicode_capable = terminal::WidthTier::from_width(width)
             != terminal::WidthTier::TooSmall
             || std::env::var("TERM").unwrap_or_default().contains("utf");
-        self.state.shared.animation.level = detect_animation_level();
+        self.state.shared.animation.level = level_for_mode(self.config.general.animation);
 
         // Set terminal title.
         terminal::set_terminal_title("OpenKeyring");

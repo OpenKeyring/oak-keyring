@@ -1,17 +1,127 @@
 // Record listing, filtering, and sorting
 
-use crate::commands::types::{RecordFilter, RecordSort, SortField};
+use crate::commands::types::{RecordCategoryCounts, RecordFilter, RecordSort, SortField};
 use crate::crypto::payload;
 use crate::db::queries;
 use crate::errors::mapping::vault::VaultError;
 use crate::services::vault::search;
 use crate::services::vault::VaultServiceImpl;
+use crate::types::credential::EncryptedPayload;
 use crate::types::record::{StoredRecord, TuiRecord};
 use crate::types::sync::SyncStatus;
 
 use super::helpers::{apply_sort, db_error_to_vault};
 
+const RECORD_LIST_INDEX_VERSION_KEY: &str = "record_list_index_version";
+const RECORD_LIST_INDEX_DIRTY_KEY: &str = "record_list_index_dirty";
+const RECORD_LIST_INDEX_VERSION: &str = "1";
+
 impl VaultServiceImpl {
+    pub(super) fn mark_record_list_index_dirty(&self) -> Result<(), VaultError> {
+        queries::set_metadata(&self.conn, RECORD_LIST_INDEX_DIRTY_KEY, "1")
+            .map_err(db_error_to_vault)
+    }
+
+    pub(super) fn mark_record_list_index_clean(&self) -> Result<(), VaultError> {
+        queries::set_metadata(&self.conn, RECORD_LIST_INDEX_DIRTY_KEY, "0")
+            .map_err(db_error_to_vault)
+    }
+
+    pub(super) fn upsert_record_list_index_for_payload(
+        &self,
+        record_id: &uuid::Uuid,
+        payload: &EncryptedPayload,
+    ) -> Result<(), VaultError> {
+        let (name, subtitle) = record_index_fields_from_payload(payload);
+        queries::upsert_record_list_index(&self.conn, record_id, &name, &subtitle)
+            .map_err(db_error_to_vault)
+    }
+
+    pub(super) fn upsert_record_list_index_for_stored(
+        &self,
+        record: &StoredRecord,
+    ) -> Result<(), VaultError> {
+        let name = payload::decrypt_name_only(
+            &self.crypto,
+            &record.encrypted_data,
+            &record.nonce,
+            &record.aad,
+            record.dek_version,
+        )
+        .map_err(VaultError::CryptoError)?;
+        let subtitle = payload::decrypt_subtitle(
+            &self.crypto,
+            &record.encrypted_data,
+            &record.nonce,
+            &record.aad,
+            record.credential_type,
+            record.dek_version,
+        )
+        .map_err(VaultError::CryptoError)?;
+        queries::upsert_record_list_index(&self.conn, &record.id, &name, &subtitle)
+            .map_err(db_error_to_vault)
+    }
+
+    pub fn ensure_record_list_index(&self) -> Result<(), VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+
+        let version = queries::get_metadata(&self.conn, RECORD_LIST_INDEX_VERSION_KEY)
+            .map_err(db_error_to_vault)?;
+        let dirty = queries::get_metadata(&self.conn, RECORD_LIST_INDEX_DIRTY_KEY)
+            .map_err(db_error_to_vault)?;
+        let index_rows = queries::count_record_list_index(&self.conn).map_err(db_error_to_vault)?;
+        let record_rows = queries::count_all_records(&self.conn).map_err(db_error_to_vault)?;
+        if version.as_deref() == Some(RECORD_LIST_INDEX_VERSION)
+            && dirty.as_deref() != Some("1")
+            && index_rows == record_rows
+        {
+            return Ok(());
+        }
+
+        queries::clear_record_list_index(&self.conn).map_err(db_error_to_vault)?;
+        for record in queries::list_all_records(&self.conn).map_err(db_error_to_vault)? {
+            self.upsert_record_list_index_for_stored(&record)?;
+        }
+        queries::set_metadata(
+            &self.conn,
+            RECORD_LIST_INDEX_VERSION_KEY,
+            RECORD_LIST_INDEX_VERSION,
+        )
+        .map_err(db_error_to_vault)?;
+        self.mark_record_list_index_clean()?;
+        Ok(())
+    }
+
+    pub fn list_records_page(
+        &self,
+        filter: &RecordFilter,
+        sort: &RecordSort,
+        limit: usize,
+        offset: usize,
+    ) -> Result<(Vec<TuiRecord>, usize), VaultError> {
+        if !self.crypto.is_unlocked() {
+            return Err(VaultError::NotUnlocked);
+        }
+        self.ensure_record_list_index()?;
+
+        let total =
+            queries::count_record_list_page(&self.conn, filter).map_err(db_error_to_vault)?;
+        let rows = queries::list_record_page_rows(&self.conn, filter, sort, limit, offset)
+            .map_err(db_error_to_vault)?;
+        let sync_map = self.load_sync_status_map();
+        let records = rows
+            .into_iter()
+            .map(|row| indexed_row_to_tui_record(row, &sync_map))
+            .collect();
+        Ok((records, total))
+    }
+
+    pub fn record_category_counts(&self) -> Result<RecordCategoryCounts, VaultError> {
+        queries::record_category_counts(&self.conn).map_err(db_error_to_vault)
+    }
+
     /// List records matching a filter, with decryption and sorting.
     ///
     /// Queries encrypted records from the database, decrypts name and subtitle
@@ -248,5 +358,49 @@ impl VaultServiceImpl {
             map.insert(id.clone(), count);
         }
         map
+    }
+}
+
+fn record_index_fields_from_payload(payload: &EncryptedPayload) -> (String, String) {
+    match payload {
+        EncryptedPayload::Login { name, username, .. } => (name.clone(), username.clone()),
+        EncryptedPayload::Api { name, app_id, .. } => (name.clone(), app_id.clone()),
+        EncryptedPayload::Ssh {
+            name, public_key, ..
+        } => (name.clone(), ssh_subtitle(public_key)),
+        EncryptedPayload::SecureNote { name, .. } => (name.clone(), String::new()),
+    }
+}
+
+fn ssh_subtitle(public_key: &str) -> String {
+    if public_key.chars().count() > 32 {
+        format!("{}...", public_key.chars().take(32).collect::<String>())
+    } else {
+        public_key.to_string()
+    }
+}
+
+fn indexed_row_to_tui_record(
+    row: queries::RecordListPageRow,
+    sync_map: &std::collections::HashMap<String, SyncStatus>,
+) -> TuiRecord {
+    let record = row.record;
+    TuiRecord {
+        id: record.id,
+        credential_type: record.credential_type,
+        name: row.name,
+        subtitle: row.subtitle,
+        is_favorite: record.is_favorite,
+        is_expired: false,
+        expires_at: record.expires_at,
+        has_weak_password: false,
+        is_compromised: false,
+        duplicate_group_size: None,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+        deleted: record.deleted,
+        deleted_at: record.deleted_at,
+        tags: record.tags,
+        sync_status: sync_map.get(&record.id.to_string()).copied(),
     }
 }

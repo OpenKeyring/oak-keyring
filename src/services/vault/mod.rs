@@ -12,6 +12,7 @@ use std::path::Path;
 use rusqlite::Connection;
 use uuid::Uuid;
 
+use crate::commands::types::RecordCategoryCounts;
 use crate::commands::{AuditFilter, FieldSelector, RecordFilter, RecordSort};
 use crate::crypto::bip39::Passkey;
 use crate::crypto::CryptoManager;
@@ -60,6 +61,11 @@ pub trait Vault: Send {
         id: Uuid,
     ) -> Result<crate::types::record::DecryptedRecord, VaultError>;
     fn decrypt_field(&self, id: Uuid, field: FieldSelector) -> Result<SecureStr, VaultError>;
+    fn decrypt_field_for_copy(
+        &self,
+        id: Uuid,
+        field: FieldSelector,
+    ) -> Result<SecureStr, VaultError>;
     fn soft_delete_record(&mut self, id: Uuid) -> Result<(), VaultError>;
     fn restore_record(&mut self, id: Uuid) -> Result<(), VaultError>;
     fn hard_delete_record(&mut self, id: Uuid) -> Result<(), VaultError>;
@@ -76,6 +82,14 @@ pub trait Vault: Send {
         filter: &RecordFilter,
         sort: &RecordSort,
     ) -> Result<Vec<crate::types::record::TuiRecord>, VaultError>;
+    fn list_records_page(
+        &self,
+        filter: &RecordFilter,
+        sort: &RecordSort,
+        limit: usize,
+        offset: usize,
+    ) -> Result<(Vec<crate::types::record::TuiRecord>, usize), VaultError>;
+    fn record_category_counts(&self) -> Result<RecordCategoryCounts, VaultError>;
     fn list_all_stored_records(&self) -> Result<Vec<StoredRecord>, VaultError>;
 
     // ------------------------------------------------------------------------
@@ -256,6 +270,13 @@ impl Vault for Box<dyn Vault> {
     fn decrypt_field(&self, id: Uuid, field: FieldSelector) -> Result<SecureStr, VaultError> {
         (**self).decrypt_field(id, field)
     }
+    fn decrypt_field_for_copy(
+        &self,
+        id: Uuid,
+        field: FieldSelector,
+    ) -> Result<SecureStr, VaultError> {
+        (**self).decrypt_field_for_copy(id, field)
+    }
     fn soft_delete_record(&mut self, id: Uuid) -> Result<(), VaultError> {
         (**self).soft_delete_record(id)
     }
@@ -280,6 +301,18 @@ impl Vault for Box<dyn Vault> {
         sort: &RecordSort,
     ) -> Result<Vec<crate::types::record::TuiRecord>, VaultError> {
         (**self).list_records(filter, sort)
+    }
+    fn list_records_page(
+        &self,
+        filter: &RecordFilter,
+        sort: &RecordSort,
+        limit: usize,
+        offset: usize,
+    ) -> Result<(Vec<crate::types::record::TuiRecord>, usize), VaultError> {
+        (**self).list_records_page(filter, sort, limit, offset)
+    }
+    fn record_category_counts(&self) -> Result<RecordCategoryCounts, VaultError> {
+        (**self).record_category_counts()
     }
     fn list_all_stored_records(&self) -> Result<Vec<StoredRecord>, VaultError> {
         (**self).list_all_stored_records()
@@ -500,6 +533,14 @@ impl Vault for VaultServiceImpl {
         VaultServiceImpl::decrypt_field(self, id, field)
     }
 
+    fn decrypt_field_for_copy(
+        &self,
+        id: Uuid,
+        field: FieldSelector,
+    ) -> Result<SecureStr, VaultError> {
+        VaultServiceImpl::decrypt_field_for_copy(self, id, field)
+    }
+
     fn soft_delete_record(&mut self, id: Uuid) -> Result<(), VaultError> {
         VaultServiceImpl::soft_delete_record(self, id)
     }
@@ -529,6 +570,18 @@ impl Vault for VaultServiceImpl {
         sort: &RecordSort,
     ) -> Result<Vec<crate::types::record::TuiRecord>, VaultError> {
         VaultServiceImpl::list_records(self, filter, sort)
+    }
+    fn list_records_page(
+        &self,
+        filter: &RecordFilter,
+        sort: &RecordSort,
+        limit: usize,
+        offset: usize,
+    ) -> Result<(Vec<crate::types::record::TuiRecord>, usize), VaultError> {
+        VaultServiceImpl::list_records_page(self, filter, sort, limit, offset)
+    }
+    fn record_category_counts(&self) -> Result<RecordCategoryCounts, VaultError> {
+        VaultServiceImpl::record_category_counts(self)
     }
 
     fn list_all_stored_records(

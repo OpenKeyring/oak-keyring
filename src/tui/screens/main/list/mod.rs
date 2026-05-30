@@ -108,9 +108,10 @@ fn render_list(
     };
 
     let is_trash = matches!(filter, RecordFilter::Trash);
-    let total = state.records.len() as u16;
     let ih = item_height(area.width);
-    let visible = area.height / ih;
+    let visible = (area.height / ih).max(1) as usize;
+    let loaded_total = state.records.len();
+    let total = state.total_count.max(loaded_total);
 
     // Reserve 1 column for scrollbar if content overflows
     let (list_area, sb_area) = if total > visible && area.width > 4 {
@@ -122,10 +123,15 @@ fn render_list(
         (area, Rect::default())
     };
 
+    let offset = state
+        .scroll_offset
+        .min(loaded_total.saturating_sub(visible));
     let items: Vec<ListItem<'_>> = state
         .records
         .iter()
         .enumerate()
+        .skip(offset)
+        .take(visible)
         .map(|(idx, record)| {
             let is_selected = state.selected_index == Some(idx);
             let is_visual_selected = visual_ids.is_some_and(|ids| ids.contains(&record.id));
@@ -156,19 +162,29 @@ fn render_list(
     let list = List::new(items);
 
     let mut list_state = ListState::default();
-    list_state.select(state.selected_index);
+    let selected_in_view = state
+        .selected_index
+        .and_then(|idx| idx.checked_sub(offset))
+        .filter(|idx| *idx < visible);
+    list_state.select(selected_in_view);
 
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
-    render_list_scrollbar(frame, sb_area, list_state.offset(), visible, total);
+    render_list_scrollbar(frame, sb_area, offset, visible, total);
 }
 
-fn render_list_scrollbar(frame: &mut Frame, area: Rect, offset: usize, visible: u16, total: u16) {
+fn render_list_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    offset: usize,
+    visible: usize,
+    total: usize,
+) {
     if area.width == 0 || area.height == 0 || total <= visible {
         return;
     }
 
-    let max_offset = (total - visible) as usize;
+    let max_offset = total - visible;
     if max_offset == 0 {
         return;
     }

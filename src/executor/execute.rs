@@ -176,9 +176,12 @@ impl CommandExecutor {
             }
 
             // ── Record Query ──────────────────────────────
-            Command::LoadRecordList { filter, sort } => {
-                record::handle_load_record_list(self, filter, sort)
-            }
+            Command::LoadRecordList {
+                filter,
+                sort,
+                limit,
+                offset,
+            } => record::handle_load_record_list_page(self, filter, sort, limit, offset),
             Command::LoadRecordDetail { id } => record::handle_load_record_detail(self, id),
             Command::LoadRecordForEdit { id } => record::handle_load_record_for_edit(self, id),
             Command::DecryptField { id, field } => record::handle_decrypt_field(self, id, field),
