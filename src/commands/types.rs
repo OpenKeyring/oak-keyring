@@ -173,25 +173,13 @@ pub struct CsvColumnMapping {
 }
 
 /// Audit log filter criteria
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AuditFilter {
     pub operation: Option<crate::types::AuditOperation>,
     pub time_range: Option<AuditTimeRange>,
     pub search: Option<String>,
     pub limit: Option<usize>,
     pub offset: usize,
-}
-
-impl Default for AuditFilter {
-    fn default() -> Self {
-        Self {
-            operation: None,
-            time_range: None,
-            search: None,
-            limit: None,
-            offset: 0,
-        }
-    }
 }
 
 /// Health check result report

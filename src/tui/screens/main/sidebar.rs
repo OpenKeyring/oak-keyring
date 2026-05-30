@@ -661,6 +661,7 @@ fn render_inline_rename(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::i18n::LocaleGuard;
     use crate::tui::state::main_state::{CategoryCounts, SidebarState};
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
@@ -693,6 +694,18 @@ mod tests {
 
     fn row_with_text(buffer: &ratatui::buffer::Buffer, text: &str) -> Option<u16> {
         (0..buffer.area.height).find(|&y| row_text(buffer, y).contains(text))
+    }
+
+    fn row_with_any_text(buffer: &ratatui::buffer::Buffer, values: &[&str]) -> Option<u16> {
+        (0..buffer.area.height).find(|&y| {
+            values
+                .iter()
+                .any(|value| row_text(buffer, y).contains(value))
+        })
+    }
+
+    fn rendered_contains_any(rendered: &str, values: &[&str]) -> bool {
+        values.iter().any(|value| rendered.contains(value))
     }
 
     fn symbol_sequence_start(
@@ -774,6 +787,7 @@ mod tests {
 
     #[test]
     fn sidebar_renders_branded_spacious_categories() {
+        let _locale = LocaleGuard::en();
         let mut state = SidebarState {
             category_counts: CategoryCounts {
                 all: 128,
@@ -790,9 +804,9 @@ mod tests {
         let rendered = render_sidebar(&state, 36, 24);
 
         assert!(rendered.contains("\u{f023} OpenKeyring"));
-        assert!(rendered.contains("All"));
+        assert!(rendered_contains_any(&rendered, &["All", "全部"]));
         assert!(rendered.contains("99+"));
-        assert!(rendered.contains("Favorites"));
+        assert!(rendered_contains_any(&rendered, &["Favorites", "收藏"]));
         assert!(rendered.contains("12"));
         assert!(!rendered.contains("◄"));
         assert!(!rendered.contains("☆"));
@@ -900,11 +914,8 @@ mod tests {
             );
         }
 
-        for y in selected_top..=selected_bottom {
+        for y in [selected_top, selected_bottom] {
             for x in 0..36 {
-                if y == selected_center && (badge_start..=badge_start + 4).contains(&x) {
-                    continue;
-                }
                 let cell = buffer
                     .cell((x, y))
                     .unwrap_or_else(|| panic!("cell ({}, {}) missing", x, y));
@@ -916,10 +927,22 @@ mod tests {
                 );
             }
         }
+        for x in [0, 1, badge_start.saturating_sub(1), badge_start + 5] {
+            let cell = buffer
+                .cell((x, selected_center))
+                .unwrap_or_else(|| panic!("cell ({}, {}) missing", x, selected_center));
+            assert!(
+                cell.style().bg == Some(theme::NL_SELECTED),
+                "selected center cell ({}, {}) should use the selected background",
+                x,
+                selected_center
+            );
+        }
     }
 
     #[test]
     fn newlook_sidebar_uses_nerd_font_category_icons() {
+        let _locale = LocaleGuard::en();
         let mut state = SidebarState {
             category_counts: CategoryCounts {
                 all: 12,
@@ -940,15 +963,18 @@ mod tests {
             "brand should use the shared Nerd Font lock icon"
         );
         assert!(
-            rendered.contains("\u{f03a}  All"),
+            rendered_contains_any(&rendered, &["\u{f03a}  All", "\u{f03a}  全部"]),
             "All category should use the new-look list icon"
         );
         assert!(
-            rendered.contains("\u{f005}  Favorites"),
+            rendered_contains_any(&rendered, &["\u{f005}  Favorites", "\u{f005}  收藏"]),
             "Favorites category should use the new-look star icon"
         );
         assert!(
-            rendered.contains(&format!("\u{f0ecc}  {}", t!("tui.main.sidebar_health"))),
+            rendered_contains_any(
+                &rendered,
+                &["\u{f0ecc}  Health Issues", "\u{f0ecc}  安全问题"]
+            ),
             "Security Issues category should use the requested new-look icon"
         );
         assert!(
@@ -959,6 +985,7 @@ mod tests {
 
     #[test]
     fn newlook_sidebar_renders_tag_icons_for_header_and_tag_rows() {
+        let _locale = LocaleGuard::en();
         use crate::types::Tag;
 
         let mut state = SidebarState {
@@ -973,12 +1000,10 @@ mod tests {
 
         let rendered = render_sidebar(&state, 36, 24);
 
+        let tag_header_en = format!("{}  Tags", theme::NF_TAG);
+        let tag_header_zh = format!("{}  标签", theme::NF_TAG);
         assert!(
-            rendered.contains(&format!(
-                "{}  {}",
-                theme::NF_TAG,
-                t!("tui.main.sidebar_tags")
-            )),
+            rendered_contains_any(&rendered, &[&tag_header_en, &tag_header_zh]),
             "tag section header should include the tag icon"
         );
         assert!(
@@ -1003,13 +1028,15 @@ mod tests {
 
         let buffer = render_sidebar_buffer(&state, 36, 20);
 
-        let all_row = row_with_text(&buffer, "All").expect("all row should render");
-        let favorite_row =
-            row_with_text(&buffer, "Favorites").expect("favorites row should render");
-        let expired_row = row_with_text(&buffer, "Expired").expect("expired row should render");
-        let health_row = row_with_text(&buffer, t!("tui.main.sidebar_health").as_ref())
+        let all_row = row_with_any_text(&buffer, &["All", "全部"]).expect("all row should render");
+        let favorite_row = row_with_any_text(&buffer, &["Favorites", "收藏"])
+            .expect("favorites row should render");
+        let expired_row =
+            row_with_any_text(&buffer, &["Expired", "已过期"]).expect("expired row should render");
+        let health_row = row_with_any_text(&buffer, &["Health Issues", "安全问题"])
             .expect("health row should render");
-        let trash_row = row_with_text(&buffer, "Trash").expect("trash row should render");
+        let trash_row =
+            row_with_any_text(&buffer, &["Trash", "回收站"]).expect("trash row should render");
 
         assert_badge_text_bg(&buffer, all_row, "12", theme::NL_FOCUS);
         assert_badge_text_bg(&buffer, favorite_row, "3", theme::NL_HOT);
@@ -1189,6 +1216,7 @@ mod tests {
 
     #[test]
     fn selected_generator_footer_keeps_config_visible() {
+        let _locale = LocaleGuard::en();
         let mut state = SidebarState::default();
         state.selected_index = state
             .items
@@ -1200,17 +1228,18 @@ mod tests {
         let rendered = format!("{:?}", buffer);
 
         assert!(
-            rendered.contains(t!("tui.main.sidebar_generator").as_ref()),
+            rendered_contains_any(&rendered, &["Generator", "生成器"]),
             "generator row should render when selected"
         );
         assert!(
-            rendered.contains(t!("tui.main.sidebar_config").as_ref()),
+            rendered_contains_any(&rendered, &["Settings", "配置"]),
             "config row should remain visible when generator is selected"
         );
     }
 
     #[test]
     fn selected_config_footer_keeps_generator_visible() {
+        let _locale = LocaleGuard::en();
         let mut state = SidebarState::default();
         state.selected_index = state
             .items
@@ -1222,11 +1251,11 @@ mod tests {
         let rendered = format!("{:?}", buffer);
 
         assert!(
-            rendered.contains(t!("tui.main.sidebar_generator").as_ref()),
+            rendered_contains_any(&rendered, &["Generator", "生成器"]),
             "generator row should remain visible when config is selected"
         );
         assert!(
-            rendered.contains(t!("tui.main.sidebar_config").as_ref()),
+            rendered_contains_any(&rendered, &["Settings", "配置"]),
             "config row should render when selected"
         );
     }

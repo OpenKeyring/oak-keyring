@@ -1095,7 +1095,7 @@ mod tests {
         work_record.tags = vec!["work".into()];
         let mut personal_record = make_test_record("Personal");
         personal_record.tags = vec!["personal".into()];
-        let selected_ids = vec![work_record.id, personal_record.id];
+        let selected_ids = [work_record.id, personal_record.id];
 
         let mut state = MainScreenState::default();
         state.list = ListPanelState::with_records(vec![work_record, personal_record]);

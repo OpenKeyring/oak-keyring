@@ -371,7 +371,10 @@ fn map_opendal_error(err: opendal::Error, provider: &str, context: &str) -> Sync
         },
         _ => SyncError::ProviderError {
             provider: provider.to_string(),
-            message: format!("{}: {}", context, err),
+            message: crate::security::redaction::redact_sensitive_values(&format!(
+                "{}: {}",
+                context, err
+            )),
         },
     }
 }

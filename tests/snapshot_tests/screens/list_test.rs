@@ -549,12 +549,13 @@ fn list_search_highlight_cell_styles() {
     let buf = terminal.backend().buffer();
     let warning = ratatui::style::Color::Rgb(255, 158, 100);
 
-    // y=0: search bar. y=1: padding row. y=2: first record title line ("  GitHub...")
-    // "  " prefix occupies x=0,1. "G" starts at x=2.
-    // Search term "git" matches "Git" case-insensitively -> x=2,3,4 highlighted.
+    // y=0: search bar. y=1: padding row. y=2: first record title line.
+    // The login type icon occupies the first cells after the left padding, so
+    // "G" starts at x=4 in the current unicode list layout.
+    // Search term "git" matches "Git" case-insensitively -> x=4,5,6 highlighted.
 
     // Highlighted cells (G,i,t) must have WARNING fg + BOLD modifier
-    for x in 2..=4 {
+    for x in 4..=6 {
         let cell = buf
             .cell((x, 2))
             .unwrap_or_else(|| panic!("cell ({}, 2) missing", x));
@@ -575,7 +576,7 @@ fn list_search_highlight_cell_styles() {
     }
 
     // Non-highlighted cells (H,u,b) must NOT have WARNING fg
-    for x in 5..=7 {
+    for x in 7..=9 {
         let cell = buf
             .cell((x, 2))
             .unwrap_or_else(|| panic!("cell ({}, 2) missing", x));
@@ -620,8 +621,8 @@ fn list_api_record_shows_prefix() {
     let result = render_to_snapshot(&state, 60, 10, true, true, RecordFilter::All);
 
     assert!(
-        result.contains("[API]"),
-        "API record should show [API] type prefix"
+        result.contains("API AWS"),
+        "API record should show type prefix"
     );
     assert!(
         result.contains("AWS"),
@@ -636,8 +637,8 @@ fn list_ssh_record_shows_prefix() {
     let result = render_to_snapshot(&state, 60, 10, true, true, RecordFilter::All);
 
     assert!(
-        result.contains("[SSH]"),
-        "SSH record should show [SSH] type prefix"
+        result.contains("SSH Server"),
+        "SSH record should show type prefix"
     );
 }
 

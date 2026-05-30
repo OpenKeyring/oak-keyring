@@ -263,7 +263,8 @@ impl CommandExecutor {
                 )
             }
             Err(e) => {
-                info!(error = %e, "SyncService not initialized — sync features disabled");
+                let message = crate::security::redaction::redact_sensitive_values(&e.to_string());
+                info!(error = %message, "SyncService not initialized — sync features disabled");
                 None
             }
         };

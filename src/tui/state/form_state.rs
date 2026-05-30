@@ -736,7 +736,7 @@ impl FormState {
         let Some((_field, max)) = self.current_field_char_limit() else {
             return true;
         };
-        self.current_field_char_count() + 1 <= max
+        self.current_field_char_count() < max
     }
 
     pub fn set_current_limit_error(&mut self) {

@@ -62,6 +62,7 @@ impl StatusBarPanel {
     /// * `state` - The current status bar state.
     /// * `focused_panel` - Which panel currently has keyboard focus (affects shortcut display).
     /// * `unicode` - Whether to use unicode characters (vs ASCII fallbacks).
+    #[allow(clippy::too_many_arguments)]
     pub fn view(
         frame: &mut Frame,
         area: Rect,

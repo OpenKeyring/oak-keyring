@@ -21,6 +21,7 @@ use crate::tui::time::format_display_datetime;
 pub struct DetailPanel;
 
 impl DetailPanel {
+    #[allow(clippy::too_many_arguments)]
     pub fn view(
         &self,
         frame: &mut Frame,

@@ -88,7 +88,8 @@ impl CommandExecutor {
     /// Records command execution failures as warnings in the structured log.
     pub(super) fn post_hook(&mut self, result: &CommandResult) {
         if let CommandResult::Error { code, fallback, .. } = result {
-            tracing::warn!(error_code = ?code, message = %fallback, "Command execution failed");
+            let message = crate::security::redaction::redact_sensitive_values(fallback);
+            tracing::warn!(error_code = ?code, message = %message, "Command execution failed");
         }
 
         // Spec S5: Update cached health report on completion

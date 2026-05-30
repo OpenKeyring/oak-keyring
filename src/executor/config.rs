@@ -90,8 +90,9 @@ fn apply_config_changes(
             .notify_config_change(new_config, &[]);
         for result in &results {
             if let Err(e) = result {
-                tracing::error!(error = %e, "Service failed to reload config");
-                warnings.push(format!("Service reload failed: {}", e));
+                let message = crate::security::redaction::redact_sensitive_values(&e.to_string());
+                tracing::error!(error = %message, "Service failed to reload config");
+                warnings.push(format!("Service reload failed: {}", message));
             }
         }
     }
@@ -115,9 +116,11 @@ fn apply_config_changes(
                         tracing::info!("SyncService rebuilt with updated config");
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e, "SyncService rebuild failed — sync disabled");
+                        let message =
+                            crate::security::redaction::redact_sensitive_values(&e.to_string());
+                        tracing::warn!(error = %message, "SyncService rebuild failed — sync disabled");
                         executor.sync = None;
-                        warnings.push(format!("Sync service rebuild failed: {}", e));
+                        warnings.push(format!("Sync service rebuild failed: {}", message));
                     }
                 }
             }

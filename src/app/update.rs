@@ -482,10 +482,11 @@ fn handle_message(
                     apply_runtime_config(app, config.clone());
                 }
                 CommandResult::SyncConnectionTested { success, message } => {
+                    let message = crate::security::redaction::redact_sensitive_values(message);
                     let msg = if *success {
-                        StatusMessage::success(message.clone())
+                        StatusMessage::success(message)
                     } else {
-                        StatusMessage::error(message.clone())
+                        StatusMessage::error(message)
                     };
                     app.state.shared.notification.enqueue(msg);
                 }
@@ -503,23 +504,26 @@ fn handle_message(
                         app.state.screens.main.status_bar.sync_status =
                             crate::tui::state::main_state::SyncIndicator::Failed;
                     }
+                    let fallback = crate::security::redaction::redact_sensitive_values(fallback);
                     app.state
                         .shared
                         .notification
-                        .enqueue(StatusMessage::error(fallback.clone()));
+                        .enqueue(StatusMessage::error(fallback));
                 }
                 CommandResult::Error { fallback, .. } if !suppress_screen_local_error => {
+                    let fallback = crate::security::redaction::redact_sensitive_values(fallback);
                     app.state
                         .shared
                         .notification
-                        .enqueue(StatusMessage::error(fallback.clone()));
+                        .enqueue(StatusMessage::error(fallback));
                 }
                 CommandResult::Error { .. } => {}
                 CommandResult::FatalError { fallback, .. } => {
+                    let fallback = crate::security::redaction::redact_sensitive_values(fallback);
                     app.state
                         .shared
                         .notification
-                        .enqueue(StatusMessage::error(fallback.clone()));
+                        .enqueue(StatusMessage::error(fallback));
                 }
                 CommandResult::ExportCompleted { record_count, .. } => {
                     app.state

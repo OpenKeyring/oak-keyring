@@ -21,7 +21,8 @@ use oak_keyring::services::clipboard::ClipboardService;
 use oak_keyring::services::sync::SyncService;
 use oak_keyring::services::sync::SyncServiceImpl;
 use oak_keyring::services::vault::VaultServiceImpl;
-use oak_keyring::types::credential::EncryptedPayload;
+use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
+use oak_keyring::types::record::CreateRecordParams;
 use oak_keyring::types::sensitive::SecureStr;
 use oak_keyring::types::SyncStatus;
 use std::sync::Arc;
@@ -305,7 +306,7 @@ fn read_uploaded_cloud_record_json(ctx: &SyncTestContext) -> String {
     std::fs::read_to_string(entries[0].path()).expect("cloud record should be readable")
 }
 
-async fn rebuild_keyfile_from_recovery(ctx: &mut SyncTestContext) {
+async fn rebuild_keyfile_from_recovery(ctx: &mut SyncTestContext) -> Passkey {
     let passkey = Passkey::generate(24, MnemonicLanguage::English).expect("passkey");
     ctx.command_tx
         .send(Command::RebuildKeyFileFromRecovery {
@@ -320,6 +321,7 @@ async fn rebuild_keyfile_from_recovery(ctx: &mut SyncTestContext) {
         CommandResult::KeyFileRebuilt => {}
         other => panic!("Expected KeyFileRebuilt, got {:?}", other),
     }
+    passkey
 }
 
 fn write_empty_cloud_metadata(ctx: &SyncTestContext) {
@@ -875,55 +877,55 @@ async fn resolve_conflict_without_sync_returns_error() {
 #[tokio::test]
 async fn restore_database_from_cloud_with_valid_records_creates_vault_db() {
     use oak_keyring::cloud::metadata::serialize_metadata;
-    use oak_keyring::cloud::{CloudRecord, RecordVersionInfo};
+    use oak_keyring::cloud::RecordVersionInfo;
+    use oak_keyring::services::vault::VaultService;
 
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
     let data_dir = vault_dir.path().join("oak-keyring");
 
     // Set up a key-only executor with a FS-backed cloud storage.
     let mut ctx = setup_key_only_sync_executor(&vault_dir).await;
-    rebuild_keyfile_from_recovery(&mut ctx).await;
+    let passkey = rebuild_keyfile_from_recovery(&mut ctx).await;
 
-    // Write valid cloud metadata + a valid record directly to cloud storage.
-    let record_id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-    let nonce_b64 = {
-        use base64::Engine;
-        base64::engine::general_purpose::STANDARD.encode([0u8; 24])
-    };
-    let encrypted_data_b64 = {
-        use base64::Engine;
-        // 32 bytes of dummy ciphertext (passes base64 decode, not real encryption)
-        base64::engine::general_purpose::STANDARD.encode([0xABu8; 48])
-    };
-    let record = CloudRecord {
-        id: record_id.clone(),
-        version: 1,
-        encrypted_data: encrypted_data_b64.clone(),
-        nonce: nonce_b64,
-        dek_version: 1,
-        aad: oak_keyring::cloud::AadFields {
-            record_id: record_id.clone(),
-            dek_version: 1,
-        },
-        metadata: oak_keyring::cloud::RecordMetadata {
-            name: "Test Record".to_string(),
+    // Write valid cloud metadata + a real encrypted record directly to cloud
+    // storage. The record must be encrypted with the same recovery key as the
+    // restore target, otherwise the restore path correctly rejects it.
+    let conn = oak_keyring::db::schema::init_db_in_memory().expect("source db should initialize");
+    let mut source_vault = VaultService::new(conn);
+    source_vault
+        .unlock_with_mnemonic(&passkey)
+        .expect("source vault should unlock");
+    let source_record_id = source_vault
+        .create_record(CreateRecordParams {
+            credential_type: CredentialType::Login,
+            payload: EncryptedPayload::Login {
+                name: "Test Record".to_string(),
+                username: "restore@example.com".to_string(),
+                password: SecureStr::new("valid-cloud-secret".to_string()),
+                url: Some("https://example.com".to_string()),
+                notes: Some("restored from cloud".to_string()),
+            },
             tags: vec!["test".to_string()],
-            updated_at: now.clone(),
-            health: None,
-            ..Default::default()
-        },
-        deleted: None,
-        deleted_at: None,
-    };
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("source record should be created");
+    let source_record = source_vault
+        .get_stored_record(source_record_id)
+        .expect("source record should exist");
+    let record = source_vault
+        .build_cloud_record_for_sync(&source_record, None)
+        .expect("cloud record should build");
+    let record_id = record.id.clone();
     let checksum = record.compute_checksum().expect("checksum");
+    let updated_at = record.metadata.updated_at.clone();
 
     let mut metadata = CloudMetadata::new("test-vault-token".to_string());
     metadata.upsert_record(
         record_id.clone(),
         RecordVersionInfo {
             version: 1,
-            updated_at: now,
+            updated_at,
             updated_by: "test-device".to_string(),
             checksum,
             private_metadata_checksum: record.compute_private_metadata_checksum().unwrap(),
