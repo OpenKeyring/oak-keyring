@@ -531,6 +531,7 @@ tui:
     field_client_secret: "Client Secret"
     field_refresh_token: "Refresh Token"
     field_work_dir: "工作目录"
+    field_google_drive_dir: "Google Drive 保存目录"
     gdrive_not_authorized: "未授权"
     gdrive_authorizing: "请在浏览器中完成授权..."
     gdrive_authorized: "已授权"
@@ -602,7 +603,9 @@ tui:
     unsaved_dialog_title: "未保存的更改"
     unsaved_dialog_message: "有未保存的更改，是否保存？"
     cancel_btn: "取消"
+    stay_btn: "继续编辑"
     save_exit_btn: "保存并退出"
+    discard_exit_btn: "不保存退出"
     # -- Value placeholders --
     seconds: "%{n}秒"
     days: "%{n}天"
@@ -611,6 +614,13 @@ tui:
     icloud_hint: "iCloud Drive 无需额外配置，同步目录自动管理。"
     # -- Password defaults --
     password_defaults: "密码默认设置"
+    default_style: "默认类型"
+    default_random_length: "随机密码长度"
+    default_lowercase: "包含小写字母"
+    default_memorable_words: "易记密码词数"
+    default_memorable_capitalize: "单词首字母大写"
+    default_memorable_separator: "分隔符"
+    default_pin_length: "PIN 长度"
     # -- Aliyun Drive types --
     drive_type_default: "默认空间"
     drive_type_backup: "备份空间"
@@ -626,6 +636,8 @@ tui:
     dropdown_sync_interval: "同步间隔"
     dropdown_health_frequency: "检查频率"
     dropdown_audit_retention: "审计保留"
+    dropdown_password_style: "默认类型"
+    dropdown_memorable_separator: "分隔符"
     # -- Dropdown option display labels --
     # Language options
     opt_language_auto: "自动"
@@ -683,6 +695,10 @@ tui:
     opt_provider_tencent_cos: "腾讯云 COS"
     opt_provider_huawei_obs: "华为云 OBS"
     opt_provider_upyun: "又拍云"
+    # Password generator options
+    opt_generator_random: "随机"
+    opt_generator_memorable: "易记"
+    opt_generator_pin: "PIN"
 
   # ---- U9: Import/Export ----
   import_export:

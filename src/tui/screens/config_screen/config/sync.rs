@@ -144,6 +144,7 @@ pub fn render(
             &form.provider_config,
             gdrive_auth_status,
             last_sync,
+            focused,
             &field_chunks,
             &mut fi,
             frame,
@@ -200,7 +201,11 @@ pub fn render(
             t!("tui.config.sync_status"),
             status_text
         )),
-        focused == 3,
+        if form.provider == SyncProvider::GoogleDrive {
+            focused == 4
+        } else {
+            focused == 3
+        },
         enabled,
     );
 }
@@ -237,6 +242,7 @@ fn render_provider_fields(
     pc: &Option<ProviderConfig>,
     gdrive_auth_status: GDriveAuthStatus,
     last_sync: Option<DateTime<Utc>>,
+    focused: usize,
     chunks: &[Rect],
     fi: &mut u16,
     frame: &mut Frame,
@@ -292,16 +298,17 @@ fn render_provider_fields(
                 GDriveAuthStatus::Authorizing => &t!("tui.config.sync_authorizing"),
                 GDriveAuthStatus::Authorized => &t!("tui.config.sync_authorized"),
             };
-            render_label_value(
+            render_label_value_focused(
                 chunks,
                 fi,
                 frame,
                 &t!("tui.config.sync_action"),
                 button_text,
                 LABEL,
+                focused == 3,
             );
 
-            let l = t!("tui.config.field_work_dir");
+            let l = t!("tui.config.field_google_drive_dir");
             render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::Dropbox(cfg)) => {
@@ -476,6 +483,18 @@ fn render_label_value(
     value: &str,
     label_color: ratatui::style::Color,
 ) {
+    render_label_value_focused(chunks, fi, frame, label, value, label_color, false);
+}
+
+fn render_label_value_focused(
+    chunks: &[Rect],
+    fi: &mut u16,
+    frame: &mut Frame,
+    label: &str,
+    value: &str,
+    label_color: ratatui::style::Color,
+    focused: bool,
+) {
     let idx = *fi as usize;
     if idx < chunks.len() {
         let row_area = chunks[idx];
@@ -484,13 +503,18 @@ fn render_label_value(
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(22), Constraint::Min(0)])
             .split(row_area);
+        let bg = if focused {
+            theme::NL_SELECTED
+        } else {
+            theme::NL_BG
+        };
 
         frame.render_widget(
-            Paragraph::new(label).style(Style::default().fg(label_color)),
+            Paragraph::new(label).style(Style::default().fg(label_color).bg(bg)),
             h_chunks[0],
         );
         frame.render_widget(
-            Paragraph::new(value.to_string()).style(Style::default().fg(VALUE)),
+            Paragraph::new(value.to_string()).style(Style::default().fg(VALUE).bg(bg)),
             h_chunks[1],
         );
     }

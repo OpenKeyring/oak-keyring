@@ -5,6 +5,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 use unicode_width::UnicodeWidthStr;
 
+use crate::config::PasswordGenerationStyle;
 use crate::t;
 use crate::tui::state::config_state::{ConfigScreenState, ConfigTab, PasswordDefaultsForm};
 use crate::tui::theme;
@@ -191,7 +192,7 @@ fn render_footer(frame: &mut Frame, area: Rect, close_focused: bool) {
     let close_label = format!("[ {} ]", t!("tui.config.close"));
     let shortcuts = vec![
         ("↑↓", "scroll"),
-        ("Tab", "switch"),
+        ("Tab/Shift+Tab", "switch"),
         ("Enter", "confirm"),
         ("Esc", "close"),
     ];
@@ -271,6 +272,12 @@ fn render_password_defaults(
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Min(0),
         ],
     );
@@ -281,9 +288,24 @@ fn render_password_defaults(
         t!("tui.config.password_defaults").as_ref(),
     );
 
-    if editing_length && focused == 0 {
+    let style_label = match form.style {
+        PasswordGenerationStyle::Random => t!("tui.config.opt_generator_random").to_string(),
+        PasswordGenerationStyle::Memorable => t!("tui.config.opt_generator_memorable").to_string(),
+        PasswordGenerationStyle::Pin => t!("tui.config.opt_generator_pin").to_string(),
+    };
+    render_setting_row(
+        frame,
+        chunks[1],
+        theme::NF_KEY,
+        t!("tui.config.default_style").as_ref(),
+        &dropdown_control(&style_label),
+        focused == 0,
+        true,
+    );
+
+    if editing_length && focused == 1 {
         let slider_line = crate::tui::components::length_slider::render_length_slider(
-            &t!("tui.config.default_length"),
+            &t!("tui.config.default_random_length"),
             form.length,
             8,
             128,
@@ -291,47 +313,121 @@ fn render_password_defaults(
         );
         frame.render_widget(
             Paragraph::new(slider_line).style(row_style(true)),
-            chunks[1],
+            chunks[2],
         );
     } else {
         render_setting_row(
             frame,
-            chunks[1],
+            chunks[2],
             theme::NF_SLIDERS,
-            t!("tui.config.default_length").as_ref(),
+            t!("tui.config.default_random_length").as_ref(),
             &plain_control(&form.length.to_string()),
-            focused == 0,
+            focused == 1,
             true,
         );
     }
 
     render_setting_row(
         frame,
-        chunks[2],
-        theme::NF_KEY,
-        t!("tui.config.default_digits").as_ref(),
-        &switch_control(form.include_digits),
-        focused == 1,
-        true,
-    );
-    render_setting_row(
-        frame,
         chunks[3],
         theme::NF_USER,
-        t!("tui.config.default_uppercase").as_ref(),
-        &switch_control(form.include_uppercase),
+        t!("tui.config.default_lowercase").as_ref(),
+        &switch_control(form.include_lowercase),
         focused == 2,
         true,
     );
     render_setting_row(
         frame,
         chunks[4],
-        theme::NF_SPARKLES,
-        t!("tui.config.default_symbols").as_ref(),
-        &switch_control(form.include_special),
+        theme::NF_USER,
+        t!("tui.config.default_uppercase").as_ref(),
+        &switch_control(form.include_uppercase),
         focused == 3,
         true,
     );
+    render_setting_row(
+        frame,
+        chunks[5],
+        theme::NF_KEY,
+        t!("tui.config.default_digits").as_ref(),
+        &switch_control(form.include_digits),
+        focused == 4,
+        true,
+    );
+    render_setting_row(
+        frame,
+        chunks[6],
+        theme::NF_SPARKLES,
+        t!("tui.config.default_symbols").as_ref(),
+        &switch_control(form.include_special),
+        focused == 5,
+        true,
+    );
+
+    if editing_length && focused == 6 {
+        let slider_line = crate::tui::components::length_slider::render_length_slider(
+            &t!("tui.config.default_memorable_words"),
+            form.memorable_word_count,
+            3,
+            12,
+            true,
+        );
+        frame.render_widget(
+            Paragraph::new(slider_line).style(row_style(true)),
+            chunks[7],
+        );
+    } else {
+        render_setting_row(
+            frame,
+            chunks[7],
+            theme::NF_SLIDERS,
+            t!("tui.config.default_memorable_words").as_ref(),
+            &plain_control(&form.memorable_word_count.to_string()),
+            focused == 6,
+            true,
+        );
+    }
+    render_setting_row(
+        frame,
+        chunks[8],
+        theme::NF_SPARKLES,
+        t!("tui.config.default_memorable_capitalize").as_ref(),
+        &switch_control(form.memorable_capitalize),
+        focused == 7,
+        true,
+    );
+    render_setting_row(
+        frame,
+        chunks[9],
+        theme::NF_SLIDERS,
+        t!("tui.config.default_memorable_separator").as_ref(),
+        &dropdown_control(&form.memorable_separator),
+        focused == 8,
+        true,
+    );
+    if editing_length && focused == 9 {
+        let slider_line = crate::tui::components::length_slider::render_length_slider(
+            &t!("tui.config.default_pin_length"),
+            form.pin_length,
+            4,
+            16,
+            true,
+        );
+        frame.render_widget(
+            Paragraph::new(slider_line).style(row_style(true)),
+            chunks[10],
+        );
+    } else {
+        render_setting_row(
+            frame,
+            chunks[10],
+            theme::NF_KEY,
+            t!("tui.config.default_pin_length").as_ref(),
+            &plain_control(&form.pin_length.to_string()),
+            focused == 9,
+            true,
+        );
+    }
 }
 
 pub(super) fn render_section_title(frame: &mut Frame, area: Rect, title: &str) {

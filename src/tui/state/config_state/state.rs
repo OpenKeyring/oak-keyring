@@ -44,15 +44,25 @@ pub enum ConfigOverlay {
 /// Buttons in the unsaved-changes confirmation dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfirmButton {
-    Cancel,
-    Confirm,
+    Stay,
+    SaveExit,
+    DiscardExit,
 }
 
 impl ConfirmButton {
-    pub fn toggle(self) -> Self {
+    pub fn next(self) -> Self {
         match self {
-            ConfirmButton::Cancel => ConfirmButton::Confirm,
-            ConfirmButton::Confirm => ConfirmButton::Cancel,
+            ConfirmButton::Stay => ConfirmButton::SaveExit,
+            ConfirmButton::SaveExit => ConfirmButton::DiscardExit,
+            ConfirmButton::DiscardExit => ConfirmButton::Stay,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            ConfirmButton::Stay => ConfirmButton::DiscardExit,
+            ConfirmButton::SaveExit => ConfirmButton::Stay,
+            ConfirmButton::DiscardExit => ConfirmButton::SaveExit,
         }
     }
 }
@@ -73,6 +83,9 @@ pub enum DropdownField {
     // Security tab
     HealthFrequency,
     AuditRetention,
+    // Password tab
+    PasswordStyle,
+    MemorableSeparator,
 }
 
 impl DropdownField {
@@ -116,6 +129,12 @@ impl DropdownField {
             DropdownField::AuditRetention => {
                 vec!["30".into(), "90".into(), "180".into(), "365".into()]
             }
+            DropdownField::PasswordStyle => {
+                vec!["Random".into(), "Memorable".into(), "Pin".into()]
+            }
+            DropdownField::MemorableSeparator => {
+                vec!["-".into(), "_".into(), ".".into(), "~".into()]
+            }
         }
     }
 
@@ -143,6 +162,12 @@ impl DropdownField {
             }
             DropdownField::AuditRetention => {
                 crate::t!("tui.config.dropdown_audit_retention").to_string()
+            }
+            DropdownField::PasswordStyle => {
+                crate::t!("tui.config.dropdown_password_style").to_string()
+            }
+            DropdownField::MemorableSeparator => {
+                crate::t!("tui.config.dropdown_memorable_separator").to_string()
             }
         }
     }
@@ -206,6 +231,12 @@ impl DropdownField {
                 crate::t!("tui.config.opt_audit_180").to_string(),
                 crate::t!("tui.config.opt_audit_365").to_string(),
             ],
+            DropdownField::PasswordStyle => vec![
+                crate::t!("tui.config.opt_generator_random").to_string(),
+                crate::t!("tui.config.opt_generator_memorable").to_string(),
+                crate::t!("tui.config.opt_generator_pin").to_string(),
+            ],
+            DropdownField::MemorableSeparator => self.options(),
         }
     }
 }
@@ -252,7 +283,7 @@ impl ConfigTab {
             Self::General => 7, // language, auto_lock, clipboard, trash, animation, import, export
             Self::Sync => 5,    // provider, sync_mode, interval, auth_button, test_button
             Self::Security => 5, // health_check, frequency, master_password, audit, retention
-            Self::Password => 4, // length, digits, uppercase, special
+            Self::Password => 10, // style, random opts, memorable opts, pin length
             Self::About => 0,   // read-only, no focusable items
         }
     }
@@ -394,10 +425,16 @@ impl From<&SecurityConfigForm> for SecurityConfig {
 /// Password defaults form state — mirrors [`PasswordDefaultsConfig`].
 #[derive(Debug, Clone)]
 pub struct PasswordDefaultsForm {
+    pub style: PasswordGenerationStyle,
     pub length: usize,
+    pub include_lowercase: bool,
     pub include_digits: bool,
     pub include_uppercase: bool,
     pub include_special: bool,
+    pub memorable_word_count: usize,
+    pub memorable_capitalize: bool,
+    pub memorable_separator: String,
+    pub pin_length: usize,
 }
 
 impl Default for PasswordDefaultsForm {
@@ -409,10 +446,16 @@ impl Default for PasswordDefaultsForm {
 impl From<PasswordDefaultsConfig> for PasswordDefaultsForm {
     fn from(config: PasswordDefaultsConfig) -> Self {
         Self {
+            style: config.style,
             length: config.length,
+            include_lowercase: config.include_lowercase,
             include_digits: config.include_digits,
             include_uppercase: config.include_uppercase,
             include_special: config.include_special,
+            memorable_word_count: config.memorable_word_count,
+            memorable_capitalize: config.memorable_capitalize,
+            memorable_separator: config.memorable_separator,
+            pin_length: config.pin_length,
         }
     }
 }
@@ -420,10 +463,16 @@ impl From<PasswordDefaultsConfig> for PasswordDefaultsForm {
 impl From<&PasswordDefaultsForm> for PasswordDefaultsConfig {
     fn from(form: &PasswordDefaultsForm) -> Self {
         Self {
+            style: form.style,
             length: form.length,
+            include_lowercase: form.include_lowercase,
             include_digits: form.include_digits,
             include_uppercase: form.include_uppercase,
             include_special: form.include_special,
+            memorable_word_count: form.memorable_word_count,
+            memorable_capitalize: form.memorable_capitalize,
+            memorable_separator: form.memorable_separator.clone(),
+            pin_length: form.pin_length,
         }
     }
 }

@@ -2,7 +2,9 @@ use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
 use chrono::TimeZone;
-use oak_keyring::config::{GoogleDriveConfig, ProviderConfig, SyncMode, SyncProvider};
+use oak_keyring::config::{
+    GoogleDriveConfig, PasswordGenerationStyle, ProviderConfig, SyncMode, SyncProvider,
+};
 use oak_keyring::tui::screens::config_screen::ConfigScreen;
 use oak_keyring::tui::state::config_state::{
     ConfigOverlay, ConfigTab, ConfirmButton, DropdownField, GDriveAuthStatus, SyncConnectionStatus,
@@ -240,6 +242,24 @@ fn config_password_tab() {
 }
 
 #[test]
+fn config_password_tab_shows_all_generator_defaults() {
+    let _locale = snapshot_locale();
+    let mut screen = ConfigScreen::new();
+    screen.state.active_tab = ConfigTab::Password;
+    screen.state.password.style = PasswordGenerationStyle::Memorable;
+    let backend = render_screen(&screen, 120, 30);
+    let rendered = backend_text(&backend);
+
+    assert!(rendered.contains("Default Style"));
+    assert!(rendered.contains("Random Length"));
+    assert!(rendered.contains("Lowercase"));
+    assert!(rendered.contains("Memorable Words"));
+    assert!(rendered.contains("Capitalize Words"));
+    assert!(rendered.contains("Separator"));
+    assert!(rendered.contains("PIN Length"));
+}
+
+#[test]
 fn config_about_tab() {
     let _locale = snapshot_locale();
     let mut screen = ConfigScreen::new();
@@ -288,8 +308,35 @@ fn config_unsaved_changes_dialog() {
     let _locale = snapshot_locale();
     let mut screen = ConfigScreen::new();
     screen.state.overlay = Some(ConfigOverlay::UnsavedChanges {
-        focused_button: ConfirmButton::Confirm,
+        focused_button: ConfirmButton::SaveExit,
     });
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("config_unsaved_changes_dialog", backend);
+}
+
+#[test]
+fn config_footer_names_reverse_tab_navigation() {
+    let _locale = snapshot_locale();
+    let screen = ConfigScreen::new();
+    let backend = render_screen(&screen, 120, 30);
+    let rendered = backend_text(&backend);
+
+    assert!(rendered.contains("Shift+Tab"));
+}
+
+#[test]
+fn config_sync_google_drive_authorize_row_is_focusable() {
+    let _locale = snapshot_locale();
+    let mut screen = ConfigScreen::new();
+    configure_google_drive_sync(&mut screen);
+    screen.state.focused_item = 3;
+    screen.state.gdrive_auth_status = GDriveAuthStatus::NotAuthorized;
+    let backend = render_screen(&screen, 120, 30);
+
+    let auth_cell = cell_at_text_start(&backend, "Authorize")
+        .expect("Google Drive authorize action should render");
+    assert_eq!(auth_cell.style().bg, Some(theme::NL_SELECTED));
+
+    let rendered = backend_text(&backend);
+    assert!(rendered.contains("Google Drive Folder"));
 }

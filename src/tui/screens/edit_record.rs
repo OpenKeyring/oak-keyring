@@ -51,7 +51,7 @@ impl EditRecordScreen {
     fn handle_key(
         &mut self,
         key_event: crossterm::event::KeyEvent,
-        _ctx: &mut ScreenContext,
+        ctx: &mut ScreenContext,
     ) -> ScreenResult {
         let key = key_event.code;
 
@@ -162,7 +162,7 @@ impl EditRecordScreen {
             }
             KeyCode::Esc => self.cancel_form(),
             KeyCode::Char('g') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.activate_generate_shortcut()
+                self.activate_generate_shortcut(ctx)
             }
             KeyCode::Char('v') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.activate_visibility_shortcut()
@@ -173,8 +173,8 @@ impl EditRecordScreen {
             KeyCode::Char('s') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.attempt_save()
             }
-            KeyCode::Enter => self.handle_enter(),
-            KeyCode::Char(' ') if self.form.footer_focus.is_some() => self.handle_enter(),
+            KeyCode::Enter => self.handle_enter(ctx),
+            KeyCode::Char(' ') if self.form.footer_focus.is_some() => self.handle_enter(ctx),
             KeyCode::Char(c) => {
                 if self.is_custom_date_focused() {
                     self.handle_date_char(c)
@@ -194,7 +194,7 @@ impl EditRecordScreen {
         }
     }
 
-    fn handle_enter(&mut self) -> ScreenResult {
+    fn handle_enter(&mut self, ctx: &ScreenContext) -> ScreenResult {
         let ct = self.form.credential_type;
 
         if let Some(button) = self.form.footer_focus {
@@ -232,7 +232,7 @@ impl EditRecordScreen {
             crate::tui::state::form_state::PasswordFieldFocus::Generate => {
                 // Only Login password field has Generate button
                 if ct == CredentialType::Login && self.form.focused_field == 4 {
-                    self.generator.expand();
+                    self.generator.expand_from_config(&ctx.config.password);
                     return ScreenResult::Continue;
                 }
             }
@@ -611,10 +611,10 @@ impl EditRecordScreen {
         }
     }
 
-    fn activate_generate_shortcut(&mut self) -> ScreenResult {
+    fn activate_generate_shortcut(&mut self, ctx: &ScreenContext) -> ScreenResult {
         if self.form.credential_type == CredentialType::Login {
             self.form.focus_field(4);
-            self.generator.expand();
+            self.generator.expand_from_config(&ctx.config.password);
         }
         ScreenResult::Continue
     }

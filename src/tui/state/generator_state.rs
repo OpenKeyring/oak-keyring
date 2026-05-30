@@ -1,5 +1,6 @@
 //! Password generator UI state for U6.
 
+use crate::config::{PasswordDefaultsConfig, PasswordGenerationStyle};
 use crate::crypto::password;
 use crate::crypto::strength::{PasswordStrength, StrengthLevel};
 use crate::types::sensitive::SensitiveInput;
@@ -112,33 +113,39 @@ impl GeneratorState {
         state
     }
 
-    /// Create a new state from D3 GeneratorConfig defaults.
-    /// Falls back to hardcoded defaults if config fields are None.
-    pub fn from_config(
-        default_length: Option<usize>,
-        default_uppercase: Option<bool>,
-        default_digits: Option<bool>,
-        default_symbols: Option<bool>,
-    ) -> Self {
-        let mut random_config = RandomConfig::default();
-        if let Some(len) = default_length {
-            random_config.length = len.clamp(8, 36);
-        }
-        if let Some(upper) = default_uppercase {
-            random_config.uppercase = upper;
-        }
-        if let Some(digits) = default_digits {
-            random_config.digits = digits;
-        }
-        if let Some(symbols) = default_symbols {
-            random_config.symbols = symbols;
-        }
+    /// Create a new state from configured password-generator defaults.
+    pub fn from_config(config: &PasswordDefaultsConfig) -> Self {
+        let random_config = RandomConfig {
+            length: config.length.clamp(8, 36),
+            uppercase: config.include_uppercase,
+            lowercase: config.include_lowercase,
+            digits: config.include_digits,
+            symbols: config.include_special,
+        };
+
+        let memorable_config = MemorableConfig {
+            word_count: config.memorable_word_count.clamp(3, 12),
+            capitalize: config.memorable_capitalize,
+            separator: if config.memorable_separator.is_empty() {
+                "-".to_string()
+            } else {
+                config.memorable_separator.clone()
+            },
+        };
+
+        let pin_config = PinConfig {
+            length: config.pin_length.clamp(4, 16),
+        };
 
         let mut state = Self {
-            style: GenerationStyle::Random,
+            style: match config.style {
+                PasswordGenerationStyle::Random => GenerationStyle::Random,
+                PasswordGenerationStyle::Memorable => GenerationStyle::Memorable,
+                PasswordGenerationStyle::Pin => GenerationStyle::Pin,
+            },
             random_config,
-            memorable_config: MemorableConfig::default(),
-            pin_config: PinConfig::default(),
+            memorable_config,
+            pin_config,
             preview: SensitiveInput::new(),
             strength: None,
             focus: GeneratorFocus::StyleSelector,
@@ -507,6 +514,13 @@ impl EmbeddedGeneratorState {
         self.generator.focus = GeneratorFocus::LengthSlider;
     }
 
+    /// Expand the panel using configured generator defaults.
+    pub fn expand_from_config(&mut self, config: &PasswordDefaultsConfig) {
+        self.expanded = true;
+        self.generator = GeneratorState::from_config(config);
+        self.generator.focus = GeneratorFocus::LengthSlider;
+    }
+
     /// Collapse without filling.
     pub fn collapse(&mut self) {
         self.generator.clear_preview();
@@ -716,20 +730,57 @@ mod tests {
 
     #[test]
     fn from_config_applies_custom_length() {
-        let state = GeneratorState::from_config(Some(20), None, None, None);
+        let state = GeneratorState::from_config(&crate::config::PasswordDefaultsConfig {
+            length: 20,
+            ..Default::default()
+        });
         assert_eq!(state.random_config.length, 20);
     }
 
     #[test]
     fn from_config_clamps_invalid_length() {
-        let state = GeneratorState::from_config(Some(200), None, None, None);
+        let state = GeneratorState::from_config(&crate::config::PasswordDefaultsConfig {
+            length: 200,
+            ..Default::default()
+        });
         assert_eq!(state.random_config.length, 36);
     }
 
     #[test]
     fn from_config_disables_symbols() {
-        let state = GeneratorState::from_config(None, None, None, Some(false));
+        let state = GeneratorState::from_config(&crate::config::PasswordDefaultsConfig {
+            include_special: false,
+            ..Default::default()
+        });
         assert!(!state.random_config.symbols);
+    }
+
+    #[test]
+    fn from_config_applies_memorable_defaults() {
+        let state = GeneratorState::from_config(&crate::config::PasswordDefaultsConfig {
+            style: crate::config::PasswordGenerationStyle::Memorable,
+            memorable_word_count: 6,
+            memorable_capitalize: false,
+            memorable_separator: "_".to_string(),
+            ..Default::default()
+        });
+
+        assert_eq!(state.style, GenerationStyle::Memorable);
+        assert_eq!(state.memorable_config.word_count, 6);
+        assert!(!state.memorable_config.capitalize);
+        assert_eq!(state.memorable_config.separator, "_");
+    }
+
+    #[test]
+    fn from_config_applies_pin_defaults() {
+        let state = GeneratorState::from_config(&crate::config::PasswordDefaultsConfig {
+            style: crate::config::PasswordGenerationStyle::Pin,
+            pin_length: 10,
+            ..Default::default()
+        });
+
+        assert_eq!(state.style, GenerationStyle::Pin);
+        assert_eq!(state.pin_config.length, 10);
     }
 
     #[test]

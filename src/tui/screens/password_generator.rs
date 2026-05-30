@@ -341,12 +341,7 @@ impl Screen for PasswordGeneratorScreen {
     }
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
-        self.state = GeneratorState::from_config(
-            Some(ctx.config.password.length),
-            Some(ctx.config.password.include_uppercase),
-            Some(ctx.config.password.include_digits),
-            Some(ctx.config.password.include_special),
-        );
+        self.state = GeneratorState::from_config(&ctx.config.password);
         self.hint_message = None;
     }
 
@@ -726,5 +721,26 @@ mod tests {
             &mut ctx,
         );
         assert!(screen.hint_message.is_none());
+    }
+
+    #[test]
+    fn on_mount_uses_configured_memorable_defaults() {
+        let mut screen = PasswordGeneratorScreen::new();
+        let mut config = crate::config::AppConfig::default();
+        config.password.style = crate::config::PasswordGenerationStyle::Memorable;
+        config.password.memorable_word_count = 5;
+        config.password.memorable_capitalize = false;
+        config.password.memorable_separator = "_".to_string();
+        let mut ctx = ScreenContext {
+            command_tx: &tokio::sync::mpsc::channel(1).0,
+            config: &config,
+        };
+
+        screen.on_mount(&mut ctx);
+
+        assert_eq!(screen.state.style, GenerationStyle::Memorable);
+        assert_eq!(screen.state.memorable_config.word_count, 5);
+        assert!(!screen.state.memorable_config.capitalize);
+        assert_eq!(screen.state.memorable_config.separator, "_");
     }
 }

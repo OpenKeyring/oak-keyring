@@ -1,8 +1,8 @@
 use super::*;
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
-use crate::config::AppConfig;
-use crate::tui::state::config_state::ConfigTab;
+use crate::config::{AppConfig, GoogleDriveConfig, ProviderConfig, SyncProvider};
+use crate::tui::state::config_state::{ConfigOverlay, ConfigTab, ConfirmButton, GDriveAuthStatus};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crossterm::event::{KeyCode, KeyModifiers};
 use tokio::sync::mpsc;
@@ -79,8 +79,7 @@ fn k_key_moves_focus_up() {
 #[test]
 fn j_key_at_bottom_boundary_moves_focus_to_footer() {
     let mut screen = ConfigScreen::new();
-    // General tab has 7 items (0..6), set to last item
-    screen.state.focused_item = 6;
+    screen.state.focused_item = ConfigTab::General.item_count() - 1;
 
     let (tx, _rx) = mpsc::channel(1);
     let config = AppConfig::default();
@@ -142,6 +141,63 @@ fn config_footer_has_only_close_action() {
     assert!(matches!(
         result,
         ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+    ));
+}
+
+#[test]
+fn esc_unsaved_dialog_can_discard_without_saving() {
+    let mut screen = ConfigScreen::new();
+    screen.state.has_changes = true;
+
+    let (tx, mut rx) = mpsc::channel(1);
+    let config = AppConfig::default();
+    let mut ctx = test_context(&tx, &config);
+
+    let result = screen.update(Message::KeyEvent(make_key(KeyCode::Esc)), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+
+    match screen.state.overlay {
+        Some(ConfigOverlay::UnsavedChanges { focused_button }) => {
+            assert_eq!(focused_button, ConfirmButton::Stay);
+        }
+        ref other => panic!("expected unsaved changes dialog, got {other:?}"),
+    }
+
+    screen.update(Message::KeyEvent(make_key(KeyCode::Right)), &mut ctx);
+    screen.update(Message::KeyEvent(make_key(KeyCode::Right)), &mut ctx);
+    let result = screen.update(Message::KeyEvent(make_key(KeyCode::Enter)), &mut ctx);
+
+    assert!(matches!(
+        result,
+        ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
+    ));
+    assert!(rx.try_recv().is_err(), "discard should not save config");
+}
+
+#[test]
+fn sync_google_drive_down_focuses_authorize_action() {
+    let mut screen = ConfigScreen::new();
+    screen.state.active_tab = ConfigTab::Sync;
+    screen.state.focused_item = 2;
+    screen.state.sync.provider = SyncProvider::GoogleDrive;
+    screen.state.sync.provider_config = Some(ProviderConfig::GoogleDrive(GoogleDriveConfig {
+        root_path: ".oak-keyring/".to_string(),
+        ..GoogleDriveConfig::default()
+    }));
+    screen.state.gdrive_auth_status = GDriveAuthStatus::NotAuthorized;
+
+    let (tx, mut rx) = mpsc::channel(1);
+    let config = AppConfig::default();
+    let mut ctx = test_context(&tx, &config);
+
+    screen.update(Message::KeyEvent(make_key(KeyCode::Down)), &mut ctx);
+    assert_eq!(screen.state.focused_item, 3);
+
+    let result = screen.update(Message::KeyEvent(make_key(KeyCode::Enter)), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(Command::OAuth2AuthorizeGoogleDrive)
     ));
 }
 

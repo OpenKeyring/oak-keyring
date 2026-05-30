@@ -15,7 +15,7 @@ pub use general::AnimationMode;
 pub use general::GeneralConfig;
 pub use manager::ConfigManager;
 pub use notification::{ConfigReloadable, ServiceNotification};
-pub use password::PasswordDefaultsConfig;
+pub use password::{PasswordDefaultsConfig, PasswordGenerationStyle};
 pub use security::{HealthCheckFrequency, SecurityConfig};
 pub use sync::{
     AliyunDriveConfig, AliyunDriveType, AliyunOssConfig, DropboxConfig, GoogleDriveConfig,

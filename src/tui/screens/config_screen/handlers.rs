@@ -3,8 +3,8 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use crate::commands::{types::Screen as ScreenEnum, Command};
 use crate::config::{
     AliyunDriveConfig, AliyunOssConfig, AnimationMode, DropboxConfig, GoogleDriveConfig,
-    HealthCheckFrequency, HuaweiObsConfig, OneDriveConfig, ProviderConfig, S3Config, SftpConfig,
-    SyncMode, SyncProvider, TencentCosConfig, UpyunConfig, WebDavConfig,
+    HealthCheckFrequency, HuaweiObsConfig, OneDriveConfig, PasswordGenerationStyle, ProviderConfig,
+    S3Config, SftpConfig, SyncMode, SyncProvider, TencentCosConfig, UpyunConfig, WebDavConfig,
 };
 use crate::tui::state::config_state::{
     ConfigOverlay, ConfigTab, ConfirmButton, DropdownField, SyncConnectionStatus,
@@ -38,7 +38,7 @@ impl ConfigScreen {
             (KeyCode::Esc, _) => {
                 if self.state.has_changes {
                     self.state.overlay = Some(ConfigOverlay::UnsavedChanges {
-                        focused_button: ConfirmButton::Cancel,
+                        focused_button: ConfirmButton::Stay,
                     });
                     ScreenResult::Continue
                 } else {
@@ -217,24 +217,47 @@ impl ConfigScreen {
                 _ => ScreenResult::Continue,
             },
             ConfigTab::Password => match item {
-                0 => {
+                0 => self.open_dropdown(DropdownField::PasswordStyle),
+                1 => {
                     self.state.editing_length_original = self.state.password.length;
                     self.state.editing_length = true;
                     ScreenResult::Continue
                 }
-                1 => {
-                    self.state.password.include_digits = !self.state.password.include_digits;
-                    self.state.mark_changed();
-                    ScreenResult::Continue
-                }
                 2 => {
-                    self.state.password.include_uppercase = !self.state.password.include_uppercase;
+                    self.state.password.include_lowercase = !self.state.password.include_lowercase;
                     self.state.mark_changed();
                     ScreenResult::Continue
                 }
                 3 => {
+                    self.state.password.include_uppercase = !self.state.password.include_uppercase;
+                    self.state.mark_changed();
+                    ScreenResult::Continue
+                }
+                4 => {
+                    self.state.password.include_digits = !self.state.password.include_digits;
+                    self.state.mark_changed();
+                    ScreenResult::Continue
+                }
+                5 => {
                     self.state.password.include_special = !self.state.password.include_special;
                     self.state.mark_changed();
+                    ScreenResult::Continue
+                }
+                6 => {
+                    self.state.editing_length_original = self.state.password.memorable_word_count;
+                    self.state.editing_length = true;
+                    ScreenResult::Continue
+                }
+                7 => {
+                    self.state.password.memorable_capitalize =
+                        !self.state.password.memorable_capitalize;
+                    self.state.mark_changed();
+                    ScreenResult::Continue
+                }
+                8 => self.open_dropdown(DropdownField::MemorableSeparator),
+                9 => {
+                    self.state.editing_length_original = self.state.password.pin_length;
+                    self.state.editing_length = true;
                     ScreenResult::Continue
                 }
                 _ => ScreenResult::Continue,
@@ -262,7 +285,7 @@ impl ConfigScreen {
                 Some(FooterButton::Close) => {
                     if self.state.has_changes {
                         self.state.overlay = Some(ConfigOverlay::UnsavedChanges {
-                            focused_button: ConfirmButton::Cancel,
+                            focused_button: ConfirmButton::Stay,
                         });
                         ScreenResult::Continue
                     } else {
@@ -328,6 +351,12 @@ impl ConfigScreen {
                 HealthCheckFrequency::Weekly => "Weekly".to_string(),
             },
             DropdownField::AuditRetention => self.state.security.audit_retention_days.to_string(),
+            DropdownField::PasswordStyle => match self.state.password.style {
+                PasswordGenerationStyle::Random => "Random".to_string(),
+                PasswordGenerationStyle::Memorable => "Memorable".to_string(),
+                PasswordGenerationStyle::Pin => "Pin".to_string(),
+            },
+            DropdownField::MemorableSeparator => self.state.password.memorable_separator.clone(),
         };
 
         options
@@ -456,8 +485,58 @@ impl ConfigScreen {
             DropdownField::AuditRetention => {
                 self.state.security.audit_retention_days = value.parse().unwrap_or(365);
             }
+            DropdownField::PasswordStyle => {
+                self.state.password.style = match value {
+                    "Memorable" => PasswordGenerationStyle::Memorable,
+                    "Pin" => PasswordGenerationStyle::Pin,
+                    _ => PasswordGenerationStyle::Random,
+                };
+            }
+            DropdownField::MemorableSeparator => {
+                self.state.password.memorable_separator = value.to_string();
+            }
         }
         self.state.mark_changed();
+    }
+
+    fn editable_password_number_bounds(&self) -> Option<(usize, usize)> {
+        match (self.state.active_tab, self.state.focused_item) {
+            (ConfigTab::Password, 1) => Some((8, 128)),
+            (ConfigTab::Password, 6) => Some((3, 12)),
+            (ConfigTab::Password, 9) => Some((4, 16)),
+            _ => None,
+        }
+    }
+
+    fn adjust_editable_password_number(&mut self, increase: bool) {
+        let Some((min, max)) = self.editable_password_number_bounds() else {
+            return;
+        };
+        let value = match self.state.focused_item {
+            1 => &mut self.state.password.length,
+            6 => &mut self.state.password.memorable_word_count,
+            9 => &mut self.state.password.pin_length,
+            _ => return,
+        };
+
+        if increase {
+            if *value < max {
+                *value += 1;
+                self.state.mark_changed();
+            }
+        } else if *value > min {
+            *value -= 1;
+            self.state.mark_changed();
+        }
+    }
+
+    fn restore_editable_password_number(&mut self) {
+        match self.state.focused_item {
+            1 => self.state.password.length = self.state.editing_length_original,
+            6 => self.state.password.memorable_word_count = self.state.editing_length_original,
+            9 => self.state.password.pin_length = self.state.editing_length_original,
+            _ => {}
+        }
     }
 
     fn handle_length_edit_key(
@@ -467,17 +546,11 @@ impl ConfigScreen {
     ) -> ScreenResult {
         match key.code {
             KeyCode::Left => {
-                if self.state.password.length > 8 {
-                    self.state.password.length -= 1;
-                    self.state.mark_changed();
-                }
+                self.adjust_editable_password_number(false);
                 ScreenResult::Continue
             }
             KeyCode::Right => {
-                if self.state.password.length < 128 {
-                    self.state.password.length += 1;
-                    self.state.mark_changed();
-                }
+                self.adjust_editable_password_number(true);
                 ScreenResult::Continue
             }
             KeyCode::Enter => {
@@ -487,7 +560,7 @@ impl ConfigScreen {
                 ScreenResult::Continue
             }
             KeyCode::Esc => {
-                self.state.password.length = self.state.editing_length_original;
+                self.restore_editable_password_number();
                 self.state.editing_length = false;
                 ScreenResult::Continue
             }

@@ -5,6 +5,7 @@ use crate::commands::types::{
     Screen as ScreenEnum,
 };
 use crate::commands::{Command, Message};
+use crate::config::PasswordGenerationStyle;
 use crate::tui::state::list_state::ListPanelState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::{SecureStr, Tag};
@@ -954,6 +955,28 @@ fn p_key_opens_generator_overlay() {
     assert!(matches!(result, ScreenResult::Continue));
     assert!(state.overlay_manager.is_active());
     assert_eq!(state.pending_animation, Some(EffectKind::ModalAppear));
+}
+
+#[test]
+fn p_key_opens_generator_overlay_with_configured_defaults() {
+    let mut state = MainScreenState::default();
+    state.password_defaults.style = PasswordGenerationStyle::Pin;
+    state.password_defaults.pin_length = 10;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('p'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    match state.overlay_manager.get() {
+        Some(crate::tui::screens::main::overlay::ActiveOverlay::PasswordGenerator(gen)) => {
+            assert_eq!(
+                gen.style,
+                crate::tui::state::generator_state::GenerationStyle::Pin
+            );
+            assert_eq!(gen.pin_config.length, 10);
+        }
+        other => panic!("expected password generator overlay, got {other:?}"),
+    }
 }
 
 #[test]

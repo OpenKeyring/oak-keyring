@@ -10,6 +10,7 @@ use ratatui::{layout::Rect, Frame};
 use uuid::Uuid;
 
 use crate::commands::types::{ConfirmButton, ConfirmVariant, Overlay};
+use crate::config::PasswordDefaultsConfig;
 use crate::tui::state::generator_state::GeneratorState;
 use crate::tui::state::overlay_state::{
     BatchTagPanelFullState, ErrorDialogFullState, PasswordHistoryState,
@@ -119,6 +120,17 @@ impl OverlayManager {
             return false;
         }
         self.active = Some(Self::into_active(overlay));
+        true
+    }
+
+    /// Open password generator with configured defaults.
+    pub fn open_password_generator(&mut self, config: &PasswordDefaultsConfig) -> bool {
+        if self.active.is_some() {
+            return false;
+        }
+        self.active = Some(ActiveOverlay::PasswordGenerator(
+            GeneratorState::from_config(config),
+        ));
         true
     }
 

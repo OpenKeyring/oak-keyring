@@ -7,6 +7,7 @@ use crate::commands::types::{
     Screen as ScreenEnum, SortDirection, SortField,
 };
 use crate::commands::{Command, Message};
+use crate::config::PasswordDefaultsConfig;
 use crate::t;
 use crate::tui::screens::main::overlay::{ActiveOverlay, OverlayKeyResult, OverlayManager};
 use crate::tui::screens::main::MainScreen;
@@ -510,6 +511,8 @@ pub struct MainScreenState {
     pub unicode_capable: bool,
     /// Trash retention days from config (0 = never auto-delete).
     pub trash_retention_days: u32,
+    /// Password generator defaults from config.
+    pub password_defaults: PasswordDefaultsConfig,
     /// Overlay manager for modal dialogs (help, generator, confirm, etc.).
     pub overlay_manager: OverlayManager,
     /// Animation effect to trigger on the next update cycle.
@@ -548,6 +551,7 @@ impl Default for MainScreenState {
             focused_panel: PanelId::Sidebar,
             unicode_capable: true,
             trash_retention_days: 30,
+            password_defaults: PasswordDefaultsConfig::default(),
             overlay_manager: OverlayManager::new(),
             pending_animation: None,
             list_auto_select: false,
@@ -1106,7 +1110,12 @@ impl Screen for MainScreenState {
                 }
             }
             Message::ShowOverlay(overlay) => {
-                self.overlay_manager.open(overlay);
+                if matches!(overlay, Overlay::PasswordGenerator) {
+                    self.overlay_manager
+                        .open_password_generator(&ctx.config.password);
+                } else {
+                    self.overlay_manager.open(overlay);
+                }
                 ScreenResult::Continue
             }
             Message::CloseOverlay => {
@@ -1124,6 +1133,7 @@ impl Screen for MainScreenState {
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
         self.trash_retention_days = ctx.config.general.trash_retention_days;
+        self.password_defaults = ctx.config.password.clone();
         self.detail.trash_retention_days = ctx.config.general.trash_retention_days;
         if !ctx.config.security.health_check_enabled {
             self.status_bar.health_check_phase = HealthCheckPhase::Skipped;
@@ -1239,7 +1249,8 @@ impl MainScreenState {
         if self.focused_panel == PanelId::Sidebar && key.code == KeyCode::Enter {
             match self.sidebar.items.get(self.sidebar.selected_index) {
                 Some(SidebarItem::Generator) => {
-                    self.overlay_manager.open(Overlay::PasswordGenerator);
+                    self.overlay_manager
+                        .open_password_generator(&self.password_defaults);
                     self.pending_animation = Some(EffectKind::ModalAppear);
                     return ScreenResult::Continue;
                 }
@@ -1442,7 +1453,8 @@ impl MainScreenState {
         // Layer 2: Global shortcuts
         match key.code {
             KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.overlay_manager.open(Overlay::PasswordGenerator);
+                self.overlay_manager
+                    .open_password_generator(&self.password_defaults);
                 self.pending_animation = Some(EffectKind::ModalAppear);
                 ScreenResult::Continue
             }
@@ -1472,7 +1484,8 @@ impl MainScreenState {
                 ScreenResult::Continue
             }
             KeyCode::Char('p') => {
-                self.overlay_manager.open(Overlay::PasswordGenerator);
+                self.overlay_manager
+                    .open_password_generator(&self.password_defaults);
                 self.pending_animation = Some(EffectKind::ModalAppear);
                 ScreenResult::Continue
             }
