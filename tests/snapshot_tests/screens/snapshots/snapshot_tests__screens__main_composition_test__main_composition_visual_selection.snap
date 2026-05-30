@@ -13,7 +13,7 @@ expression: backend
 "                                        │───────────────────────│                                   "
 "                                        │                       │  ─────────────────                "
 "                                        │                       │                                   "
-"                                        │                       │  d Deleted  t tui.sidebar_tags    "
+"                                        │                       │  d Delete  t Tags                 "
 "                                        │                       │                                   "
 "                                        │                       │                                   "
 "                                        │                       │                                   "

@@ -1494,7 +1494,7 @@ fn render_batch_summary_view(
             format!(
                 "{}  ... {}",
                 pad,
-                t!("tui.password_list.selected_count", count = remaining)
+                t!("tui.batch.more_selected", count = remaining)
             ),
             Style::default().fg(theme::TEXT_SECONDARY),
         )));
@@ -1518,7 +1518,7 @@ fn render_batch_summary_view(
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("{}  ", t!("tui.notification.deleted")),
+            format!("{}  ", t!("tui.batch.delete_action")),
             Style::default().fg(theme::TEXT_SECONDARY),
         ),
         Span::styled(
@@ -1528,7 +1528,7 @@ fn render_batch_summary_view(
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            t!("tui.sidebar_tags"),
+            t!("tui.batch.tag_action"),
             Style::default().fg(theme::TEXT_SECONDARY),
         ),
     ]));
@@ -1540,6 +1540,7 @@ fn render_batch_summary_view(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::i18n::LocaleGuard;
     use crate::tui::state::detail_state::*;
     use ratatui::backend::TestBackend;
 
@@ -1969,6 +1970,23 @@ mod tests {
     }
 
     #[test]
+    fn batch_summary_hints_are_localized_actions() {
+        let _locale = LocaleGuard::zh_cn();
+        let result = render_batch_snapshot(&["GitHub"], 1, 50, 15);
+
+        assert!(result.contains("删除"), "d hint should mean delete");
+        assert!(result.contains("标签"), "t hint should mean tags");
+        assert!(
+            !result.contains("已删除"),
+            "d hint should not use the deleted notification text"
+        );
+        assert!(
+            !result.contains("tui.sidebar_tags"),
+            "t hint should render localized text instead of a key"
+        );
+    }
+
+    #[test]
     fn batch_summary_limits_to_five_names() {
         let names = vec!["A", "B", "C", "D", "E", "F", "G"];
         let result = render_batch_snapshot(&names, 7, 50, 20);
@@ -1981,10 +1999,17 @@ mod tests {
 
     #[test]
     fn batch_summary_overflow_uses_loaded_names_not_fixed_limit() {
-        let result = render_batch_snapshot(&["A", "B"], 6, 50, 20);
+        let _locale = LocaleGuard::zh_cn();
+        let result = render_batch_snapshot(&["A", "B", "C", "D", "E"], 7, 50, 20);
+
+        assert!(result.contains("已选 7 项"));
         assert!(
-            result.contains("4") || result.contains("more"),
-            "overflow should count undisplayed selections from the real selected total"
+            result.contains("还有 2 项"),
+            "overflow should describe remaining undisplayed items"
+        );
+        assert!(
+            !result.contains("已选 2 项"),
+            "overflow should not look like a second selected-count total"
         );
     }
 }
