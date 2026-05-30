@@ -306,7 +306,7 @@ fn build_list_item<'a>(
             };
             let label = format!("  {}  {}", icon, t!("tui.main.sidebar_generator"));
             if is_selected(item, state) {
-                selected_list_item(label, area_width, focused)
+                selected_utility_item(label, area_width, focused)
             } else {
                 ListItem::new(Line::from(Span::styled(
                     label,
@@ -324,7 +324,7 @@ fn build_list_item<'a>(
             };
             let label = format!("  {}  {}", icon, t!("tui.main.sidebar_config"));
             if is_selected(item, state) {
-                selected_list_item(label, area_width, focused)
+                selected_utility_item(label, area_width, focused)
             } else {
                 ListItem::new(Line::from(Span::styled(
                     label,
@@ -362,6 +362,23 @@ fn selected_list_item(text: String, area_width: u16, focused: bool) -> ListItem<
         Line::from(Span::styled(blank_text, style)),
     ])
     .style(style)
+}
+
+fn selected_utility_item(text: String, area_width: u16, focused: bool) -> ListItem<'static> {
+    let text_width = display_width(&text);
+    let padding = (area_width as usize).saturating_sub(text_width);
+    let full_text = format!("{}{}", text, " ".repeat(padding));
+    let bg = if focused {
+        theme::NL_SELECTED
+    } else {
+        theme::NL_SURFACE_2
+    };
+    let style = Style::default()
+        .fg(theme::NL_TEXT)
+        .bg(bg)
+        .add_modifier(Modifier::BOLD);
+
+    ListItem::new(Line::from(Span::styled(full_text, style))).style(style)
 }
 
 fn selected_category_item(
@@ -678,6 +695,24 @@ mod tests {
         (0..buffer.area.height).find(|&y| row_text(buffer, y).contains(text))
     }
 
+    fn symbol_sequence_start(
+        buffer: &ratatui::buffer::Buffer,
+        y: u16,
+        symbols: &[&str],
+    ) -> Option<u16> {
+        if symbols.is_empty() || symbols.len() as u16 > buffer.area.width {
+            return None;
+        }
+
+        (0..=buffer.area.width - symbols.len() as u16).find(|&x| {
+            symbols.iter().enumerate().all(|(offset, expected)| {
+                buffer
+                    .cell((x + offset as u16, y))
+                    .is_some_and(|cell| cell.symbol() == *expected)
+            })
+        })
+    }
+
     fn assert_badge_text_bg(
         buffer: &ratatui::buffer::Buffer,
         y: u16,
@@ -811,10 +846,22 @@ mod tests {
         state.rebuild();
 
         let buffer = render_sidebar_buffer(&state, 36, 10);
-        let selected_top = 3;
-        let selected_center = 4;
-        let selected_bottom = 5;
+        let selected_center = row_with_text(&buffer, "99+").expect("selected category row");
+        let selected_top = selected_center
+            .checked_sub(1)
+            .expect("selected category should include a top padding row");
+        let selected_bottom = selected_center + 1;
+        assert!(
+            selected_bottom < buffer.area.height,
+            "selected category should include a bottom padding row"
+        );
         let row = row_text(&buffer, selected_center);
+        let badge_start = symbol_sequence_start(
+            &buffer,
+            selected_center,
+            &["\u{e0b6}", "9", "9", "+", "\u{e0b4}"],
+        )
+        .unwrap_or_else(|| panic!("selected badge should render in row: {row:?}"));
 
         assert!(
             !row.contains('\u{25C4}'),
@@ -826,13 +873,13 @@ mod tests {
         );
 
         let badge_left = buffer
-            .cell((29, selected_center))
+            .cell((badge_start, selected_center))
             .expect("selected badge left edge should exist");
         let badge_text = buffer
-            .cell((30, selected_center))
+            .cell((badge_start + 1, selected_center))
             .expect("selected badge text should exist");
         let badge_right = buffer
-            .cell((33, selected_center))
+            .cell((badge_start + 4, selected_center))
             .expect("selected badge right edge should exist");
 
         assert_eq!(badge_left.style().fg, Some(theme::NL_FOCUS));
@@ -841,7 +888,11 @@ mod tests {
         assert_eq!(badge_text.style().bg, Some(theme::NL_FOCUS));
         assert_eq!(badge_right.style().fg, Some(theme::NL_FOCUS));
         assert_eq!(badge_right.style().bg, Some(theme::NL_SELECTED));
-        for (x, cell) in [(29, badge_left), (30, badge_text), (33, badge_right)] {
+        for (x, cell) in [
+            (badge_start, badge_left),
+            (badge_start + 1, badge_text),
+            (badge_start + 4, badge_right),
+        ] {
             assert!(
                 !cell.style().add_modifier.contains(Modifier::REVERSED),
                 "selected badge cell {} should keep normal badge styling",
@@ -851,7 +902,7 @@ mod tests {
 
         for y in selected_top..=selected_bottom {
             for x in 0..36 {
-                if y == selected_center && (29..=33).contains(&x) {
+                if y == selected_center && (badge_start..=badge_start + 4).contains(&x) {
                     continue;
                 }
                 let cell = buffer
@@ -1134,6 +1185,50 @@ mod tests {
         let buf = terminal.backend().buffer().clone();
         let result = format!("{:?}", buf);
         assert!(result.contains('\u{270E}'), "should show edit icon");
+    }
+
+    #[test]
+    fn selected_generator_footer_keeps_config_visible() {
+        let mut state = SidebarState::default();
+        state.selected_index = state
+            .items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::Generator))
+            .expect("generator item should exist");
+
+        let buffer = render_sidebar_buffer(&state, 36, 24);
+        let rendered = format!("{:?}", buffer);
+
+        assert!(
+            rendered.contains(t!("tui.main.sidebar_generator").as_ref()),
+            "generator row should render when selected"
+        );
+        assert!(
+            rendered.contains(t!("tui.main.sidebar_config").as_ref()),
+            "config row should remain visible when generator is selected"
+        );
+    }
+
+    #[test]
+    fn selected_config_footer_keeps_generator_visible() {
+        let mut state = SidebarState::default();
+        state.selected_index = state
+            .items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::Config))
+            .expect("config item should exist");
+
+        let buffer = render_sidebar_buffer(&state, 36, 24);
+        let rendered = format!("{:?}", buffer);
+
+        assert!(
+            rendered.contains(t!("tui.main.sidebar_generator").as_ref()),
+            "generator row should remain visible when config is selected"
+        );
+        assert!(
+            rendered.contains(t!("tui.main.sidebar_config").as_ref()),
+            "config row should render when selected"
+        );
     }
 
     #[test]

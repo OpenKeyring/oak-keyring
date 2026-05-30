@@ -37,7 +37,7 @@ pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<Sy
     }
 
     // Read local stored records
-    let stored_records = match vault.list_all_stored_records() {
+    let stored_records = match vault.list_stored_records_for_sync() {
         Ok(records) => records,
         Err(e) => {
             tracing::warn!(error = %e, "Failed to list stored records for sync");

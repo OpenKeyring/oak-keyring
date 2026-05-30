@@ -308,6 +308,15 @@ impl VaultServiceImpl {
         queries::list_active_records(&self.conn).map_err(db_error_to_vault)
     }
 
+    /// List all stored records that can participate in sync.
+    ///
+    /// Includes soft-deleted records so tombstones can be uploaded to other
+    /// devices. User-facing active listings should keep using
+    /// `list_all_stored_records`.
+    pub fn list_stored_records_for_sync(&self) -> Result<Vec<StoredRecord>, VaultError> {
+        queries::list_all_records(&self.conn).map_err(db_error_to_vault)
+    }
+
     /// Decrypt the name field from a `StoredRecord`.
     ///
     /// Used by the sync upload path to produce a valid `CloudRecord.metadata.name`

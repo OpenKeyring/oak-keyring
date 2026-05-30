@@ -409,6 +409,7 @@ impl VaultServiceImpl {
             None,
         )
         .map_err(db_error_to_vault)?;
+        self.mark_records_pending_sync(&[params.id])?;
 
         Ok(())
     }
@@ -449,6 +450,7 @@ impl VaultServiceImpl {
             None,
         )
         .map_err(db_error_to_vault)?;
+        self.mark_records_pending_sync(&[id])?;
 
         Ok(())
     }
@@ -483,6 +485,7 @@ impl VaultServiceImpl {
             None,
         )
         .map_err(db_error_to_vault)?;
+        self.mark_records_pending_sync(&[id])?;
 
         Ok(())
     }
@@ -543,6 +546,7 @@ impl VaultServiceImpl {
                 rusqlite::params![is_favorite as i64, id.to_string()],
             )
             .map_err(VaultError::DatabaseError)?;
+        self.mark_records_pending_sync(&[id])?;
 
         Ok(())
     }
@@ -669,6 +673,21 @@ impl VaultServiceImpl {
             let local_version = existing.as_ref().map_or(0, |r| r.version);
             crate::db::queries::update_record(&self.conn, &stored, local_version)
                 .map_err(db_error_to_vault)?;
+            crate::db::queries::update_record_deleted_state(
+                &self.conn,
+                &id,
+                stored.deleted,
+                stored.deleted_at,
+            )
+            .map_err(db_error_to_vault)?;
+            crate::db::queries::detach_all_tags_for_record(&self.conn, &id)
+                .map_err(db_error_to_vault)?;
+            for tag_name in &stored.tags {
+                let tag = crate::db::queries::get_or_create_tag(&self.conn, tag_name)
+                    .map_err(db_error_to_vault)?;
+                crate::db::queries::attach_tag(&self.conn, &id, tag.id)
+                    .map_err(db_error_to_vault)?;
+            }
         }
 
         if let Some(private_metadata) = private_metadata.as_ref() {

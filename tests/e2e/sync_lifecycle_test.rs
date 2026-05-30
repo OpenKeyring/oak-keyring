@@ -33,6 +33,10 @@ use uuid::Uuid;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
+fn synthetic_credential_value() -> String {
+    Uuid::new_v4().to_string()
+}
+
 /// Holds the cloud storage temp dir alive for the lifetime of the test.
 struct SyncTestContext {
     #[allow(dead_code)]
@@ -485,13 +489,15 @@ async fn restore_database_from_cloud_metadata_without_records_does_not_create_va
 async fn sync_uploads_pending_records_to_cloud() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
     let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+    let first_credential = synthetic_credential_value();
+    let second_credential = synthetic_credential_value();
 
     create_login_record(
         &ctx.command_tx,
         &mut ctx.result_rx,
         "Test Site",
         "user@example.com",
-        "password123",
+        &first_credential,
     )
     .await;
     create_login_record(
@@ -499,7 +505,7 @@ async fn sync_uploads_pending_records_to_cloud() {
         &mut ctx.result_rx,
         "Another Site",
         "admin@example.com",
-        "admin456",
+        &second_credential,
     )
     .await;
 
@@ -549,13 +555,14 @@ async fn sync_uploads_pending_records_to_cloud() {
 async fn sync_upload_encrypts_private_cloud_metadata() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
     let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+    let credential = synthetic_credential_value();
 
     create_login_record_with_tags(
         &ctx.command_tx,
         &mut ctx.result_rx,
         "Sensitive Payroll",
         "payroll@example.com",
-        "password123",
+        &credential,
         vec!["finance-secret".to_string()],
     )
     .await;
@@ -595,13 +602,14 @@ async fn sync_upload_encrypts_private_cloud_metadata() {
 async fn sync_download_restores_encrypted_private_cloud_metadata() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
     let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+    let credential = synthetic_credential_value();
 
     let record_id = create_login_record_with_tags(
         &ctx.command_tx,
         &mut ctx.result_rx,
         "Download Secret",
         "download@example.com",
-        "password123",
+        &credential,
         vec!["restore-private".to_string()],
     )
     .await;
@@ -664,19 +672,88 @@ async fn sync_download_restores_encrypted_private_cloud_metadata() {
     }
 }
 
+#[tokio::test]
+async fn sync_uploads_soft_deleted_records_as_cloud_tombstones() {
+    let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
+    let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+    let credential = synthetic_credential_value();
+
+    let record_id = create_login_record_with_tags(
+        &ctx.command_tx,
+        &mut ctx.result_rx,
+        "Delete Me",
+        "delete@example.com",
+        &credential,
+        vec!["delete-sync".to_string()],
+    )
+    .await;
+
+    ctx.command_tx
+        .send(Command::TriggerSync)
+        .await
+        .expect("send should succeed");
+    assert!(
+        matches!(
+            recv_command_result(&mut ctx.result_rx).await,
+            CommandResult::SyncCompleted { .. }
+        ),
+        "initial upload should complete"
+    );
+
+    ctx.command_tx
+        .send(Command::SoftDeleteRecord { id: record_id })
+        .await
+        .expect("send should succeed");
+    assert!(
+        matches!(
+            recv_command_result(&mut ctx.result_rx).await,
+            CommandResult::RecordDeleted { .. }
+        ),
+        "soft delete should complete"
+    );
+    drain_background_results(&mut ctx.result_rx).await;
+
+    ctx.command_tx
+        .send(Command::TriggerSync)
+        .await
+        .expect("send should succeed");
+    assert!(
+        matches!(
+            recv_command_result(&mut ctx.result_rx).await,
+            CommandResult::SyncCompleted { .. }
+        ),
+        "deleted-state upload should complete"
+    );
+
+    let cloud_json = read_uploaded_cloud_record_json(&ctx);
+    let cloud_record: oak_keyring::cloud::CloudRecord =
+        serde_json::from_str(&cloud_json).expect("cloud record should parse");
+    assert_eq!(cloud_record.id, record_id.to_string());
+    assert_eq!(cloud_record.deleted, Some(true));
+    assert!(
+        cloud_record.deleted_at.is_some(),
+        "soft-deleted cloud record should carry deleted_at"
+    );
+    assert!(
+        cloud_record.metadata.encrypted_metadata.is_some(),
+        "soft-deleted uploads should keep private metadata encrypted"
+    );
+}
+
 // ==================== Test 6: Locked Vault Skips Uploads ====================
 
 #[tokio::test]
 async fn sync_with_locked_vault_completes_without_uploads() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
     let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+    let credential = synthetic_credential_value();
 
     create_login_record(
         &ctx.command_tx,
         &mut ctx.result_rx,
         "Locked Site",
         "locked@example.com",
-        "locked789",
+        &credential,
     )
     .await;
 

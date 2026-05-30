@@ -5,6 +5,8 @@ use crate::services::vault::VaultService;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::record::CreateRecordParams;
 use crate::types::sensitive::SecureStr;
+use crate::types::sync::SyncStatus;
+use uuid::Uuid;
 
 /// Helper: create an in-memory VaultService with schema initialized.
 fn setup_service() -> VaultService {
@@ -21,7 +23,7 @@ fn unlock_service(svc: &mut VaultService) {
 }
 
 /// Helper: create a Login record with the given tags.
-fn create_record_with_tags(svc: &mut VaultService, name: &str, tags: Vec<String>) {
+fn create_record_with_tags(svc: &mut VaultService, name: &str, tags: Vec<String>) -> Uuid {
     svc.create_record(CreateRecordParams {
         credential_type: CredentialType::Login,
         payload: EncryptedPayload::Login {
@@ -35,7 +37,7 @@ fn create_record_with_tags(svc: &mut VaultService, name: &str, tags: Vec<String>
         is_favorite: false,
         expires_at: None,
     })
-    .expect("create_record must succeed");
+    .expect("create_record must succeed")
 }
 
 // =========================================================================
@@ -185,6 +187,21 @@ fn rename_tag_succeeds_and_tag_is_findable_by_new_name() {
 }
 
 #[test]
+fn rename_tag_marks_affected_records_pending_sync() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_record_with_tags(&mut svc, "Rec1", vec!["old_name".to_string()]);
+    svc.mark_record_synced(&id)
+        .expect("record should start synced");
+
+    svc.rename_tag("old_name", "new_name")
+        .expect("rename_tag must succeed");
+
+    let sync_map = svc.load_sync_status_map();
+    assert_eq!(sync_map.get(&id.to_string()), Some(&SyncStatus::Pending));
+}
+
+#[test]
 fn rename_tag_target_exists_returns_tag_already_exists() {
     let mut svc = setup_service();
     unlock_service(&mut svc);
@@ -276,6 +293,20 @@ fn delete_tag_removes_tag_and_record_tags_associations() {
         stored.tags.contains(&"dev".to_string()),
         "dev tag should still be present"
     );
+}
+
+#[test]
+fn delete_tag_marks_affected_records_pending_sync() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_record_with_tags(&mut svc, "Rec1", vec!["work".to_string()]);
+    svc.mark_record_synced(&id)
+        .expect("record should start synced");
+
+    svc.delete_tag("work").expect("delete_tag must succeed");
+
+    let sync_map = svc.load_sync_status_map();
+    assert_eq!(sync_map.get(&id.to_string()), Some(&SyncStatus::Pending));
 }
 
 #[test]
@@ -447,6 +478,25 @@ fn batch_add_tag_creates_tag_if_missing() {
     let tags_after = svc.list_tags().expect("list_tags must succeed");
     assert_eq!(tags_after.len(), 1);
     assert_eq!(tags_after[0].0.name, "new_tag");
+}
+
+#[test]
+fn batch_add_tag_marks_changed_records_pending_sync() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id1 = create_record_with_tags(&mut svc, "Rec1", vec![]);
+    let id2 = create_record_with_tags(&mut svc, "Rec2", vec![]);
+    svc.mark_record_synced(&id1).expect("record 1 synced");
+    svc.mark_record_synced(&id2).expect("record 2 synced");
+
+    let added = svc
+        .batch_add_tag(&[id1, id2], "batch")
+        .expect("batch_add_tag must succeed");
+
+    assert_eq!(added, 2);
+    let sync_map = svc.load_sync_status_map();
+    assert_eq!(sync_map.get(&id1.to_string()), Some(&SyncStatus::Pending));
+    assert_eq!(sync_map.get(&id2.to_string()), Some(&SyncStatus::Pending));
 }
 
 // =========================================================================
@@ -740,6 +790,25 @@ fn batch_remove_tag_executes_in_transaction() {
         tags.iter().all(|(t, _)| t.name != "tx_remove"),
         "tx_remove tag should be deleted after full removal"
     );
+}
+
+#[test]
+fn batch_remove_tag_marks_changed_records_pending_sync() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id1 = create_record_with_tags(&mut svc, "Rec1", vec!["remove_me".to_string()]);
+    let id2 = create_record_with_tags(&mut svc, "Rec2", vec!["remove_me".to_string()]);
+    svc.mark_record_synced(&id1).expect("record 1 synced");
+    svc.mark_record_synced(&id2).expect("record 2 synced");
+
+    let removed = svc
+        .batch_remove_tag(&[id1, id2], "remove_me")
+        .expect("batch_remove_tag must succeed");
+
+    assert_eq!(removed, 2);
+    let sync_map = svc.load_sync_status_map();
+    assert_eq!(sync_map.get(&id1.to_string()), Some(&SyncStatus::Pending));
+    assert_eq!(sync_map.get(&id2.to_string()), Some(&SyncStatus::Pending));
 }
 
 #[test]

@@ -50,6 +50,8 @@ fn permissive_unlocked_vault() -> MockVault {
     mock.expect_load_sync_status_map().returning(HashMap::new);
     mock.expect_list_all_stored_records()
         .returning(|| Ok(vec![]));
+    mock.expect_list_stored_records_for_sync()
+        .returning(|| Ok(vec![]));
     mock.expect_list_record_health_states()
         .returning(|| Ok(vec![]));
     mock
@@ -81,7 +83,7 @@ async fn health_check_returns_started_from_mock_service() {
 async fn health_check_skips_when_frequency_gate_blocks() {
     let mut mock_vault = permissive_unlocked_vault();
     mock_vault
-        .expect_list_all_stored_records()
+        .expect_list_stored_records_for_sync()
         .returning(|| Ok(vec![]));
 
     let mut config = AppConfig::default();
@@ -430,7 +432,7 @@ fn check_rotation_trigger_returns_correct_result() {
 async fn trigger_sync_returns_error_when_not_configured() {
     let mut mock_vault = permissive_unlocked_vault();
     mock_vault
-        .expect_list_all_stored_records()
+        .expect_list_stored_records_for_sync()
         .returning(|| Ok(vec![]));
 
     let mut executor = base_builder()
@@ -477,7 +479,7 @@ async fn trigger_sync_calls_sync_service() {
 
     let mut mock_vault = permissive_unlocked_vault();
     mock_vault
-        .expect_list_all_stored_records()
+        .expect_list_stored_records_for_sync()
         .returning(|| Ok(vec![]));
     mock_vault
         .expect_load_sync_status_map()
@@ -546,7 +548,7 @@ async fn trigger_sync_maps_service_cancelled_to_command_cancelled() {
 
     let mut mock_vault = permissive_unlocked_vault();
     mock_vault
-        .expect_list_all_stored_records()
+        .expect_list_stored_records_for_sync()
         .returning(|| Ok(vec![]));
     mock_vault
         .expect_load_sync_status_map()
@@ -583,7 +585,7 @@ async fn trigger_sync_maps_network_timeout_to_error() {
 
     let mut mock_vault = permissive_unlocked_vault();
     mock_vault
-        .expect_list_all_stored_records()
+        .expect_list_stored_records_for_sync()
         .returning(|| Ok(vec![]));
     mock_vault
         .expect_load_sync_status_map()
@@ -628,7 +630,7 @@ async fn trigger_sync_maps_auth_failure_to_error() {
 
     let mut mock_vault = permissive_unlocked_vault();
     mock_vault
-        .expect_list_all_stored_records()
+        .expect_list_stored_records_for_sync()
         .returning(|| Ok(vec![]));
     mock_vault
         .expect_load_sync_status_map()

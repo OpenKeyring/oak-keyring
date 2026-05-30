@@ -493,6 +493,24 @@ pub fn update_record_version(conn: &Connection, id: &Uuid, version: u64) -> Resu
     Ok(())
 }
 
+/// Update the sync-owned soft-delete state for an existing record.
+pub fn update_record_deleted_state(
+    conn: &Connection,
+    id: &Uuid,
+    deleted: bool,
+    deleted_at: Option<chrono::DateTime<Utc>>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE records SET deleted = ?1, deleted_at = ?2 WHERE id = ?3",
+        rusqlite::params![
+            deleted as i64,
+            deleted_at.map(|dt| datetime_to_timestamp(&dt)),
+            id.to_string(),
+        ],
+    )?;
+    Ok(())
+}
+
 /// List all records (including soft-deleted) where `dek_version < target`.
 /// Used for DEK rotation migration.
 pub fn list_records_by_dek_version(

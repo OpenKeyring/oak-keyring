@@ -179,6 +179,10 @@ impl VaultServiceImpl {
             .map_err(db_error_to_vault)?;
         }
 
+        if affected > 0 {
+            self.mark_records_pending_sync(record_ids)?;
+        }
+
         Ok(affected)
     }
 
@@ -233,6 +237,11 @@ impl VaultServiceImpl {
                 None,
             )
             .map_err(db_error_to_vault)?;
+        }
+
+        if affected > 0 {
+            let restored_ids: Vec<Uuid> = deleted_with_names.iter().map(|(id, _)| *id).collect();
+            self.mark_records_pending_sync(&restored_ids)?;
         }
 
         Ok(affected)
@@ -305,6 +314,7 @@ mod tests {
     use crate::types::credential::{CredentialType, EncryptedPayload};
     use crate::types::record::CreateRecordParams;
     use crate::types::sensitive::SecureStr;
+    use crate::types::sync::SyncStatus;
 
     /// Helper: create an in-memory VaultService with schema initialized and unlocked.
     fn setup_unlocked_vault() -> VaultService {
@@ -648,6 +658,24 @@ mod tests {
     }
 
     #[test]
+    fn batch_soft_delete_marks_records_pending_sync() {
+        let mut svc = setup_unlocked_vault();
+        let id1 = create_login(&mut svc, "BatchSync1");
+        let id2 = create_login(&mut svc, "BatchSync2");
+        svc.mark_record_synced(&id1).expect("record 1 synced");
+        svc.mark_record_synced(&id2).expect("record 2 synced");
+
+        let count = svc
+            .batch_soft_delete(&[id1, id2])
+            .expect("batch_soft_delete must succeed");
+
+        assert_eq!(count, 2);
+        let sync_map = svc.load_sync_status_map();
+        assert_eq!(sync_map.get(&id1.to_string()), Some(&SyncStatus::Pending));
+        assert_eq!(sync_map.get(&id2.to_string()), Some(&SyncStatus::Pending));
+    }
+
+    #[test]
     fn batch_soft_delete_with_empty_ids_returns_zero() {
         let mut svc = setup_unlocked_vault();
         let _id = create_login(&mut svc, "Noop");
@@ -705,6 +733,28 @@ mod tests {
 
         let stored2 = svc.get_stored_record(id2).unwrap();
         assert!(!stored2.deleted, "id2 should be active");
+    }
+
+    #[test]
+    fn batch_restore_marks_records_pending_sync() {
+        let mut svc = setup_unlocked_vault();
+        let id1 = create_login(&mut svc, "RestoreSync1");
+        let id2 = create_login(&mut svc, "RestoreSync2");
+        svc.soft_delete_record(id1)
+            .expect("soft_delete must succeed");
+        svc.soft_delete_record(id2)
+            .expect("soft_delete must succeed");
+        svc.mark_record_synced(&id1).expect("record 1 synced");
+        svc.mark_record_synced(&id2).expect("record 2 synced");
+
+        let count = svc
+            .batch_restore(&[id1, id2])
+            .expect("batch_restore must succeed");
+
+        assert_eq!(count, 2);
+        let sync_map = svc.load_sync_status_map();
+        assert_eq!(sync_map.get(&id1.to_string()), Some(&SyncStatus::Pending));
+        assert_eq!(sync_map.get(&id2.to_string()), Some(&SyncStatus::Pending));
     }
 
     #[test]

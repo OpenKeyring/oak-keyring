@@ -958,7 +958,7 @@ mod tests {
     }
 
     #[test]
-    fn soft_deleted_record_not_in_active_sync_uploads() {
+    fn soft_deleted_record_uploads_tombstone_for_sync() {
         let mut executor = make_unlocked_executor();
         let id = create_login_record(&mut executor, "sync-del", "P@ssw0rd!");
 
@@ -972,15 +972,13 @@ mod tests {
         assert!(data.is_some());
         let data = data.unwrap();
 
-        // Soft-deleted records are excluded from list_all_stored_records
-        // and thus not in sync uploads — they are synced as deletions during
-        // the detect phase of the sync pipeline.
-        let found = data.uploads.iter().any(|r| r.id == id.to_string());
+        let tombstone = data.uploads.iter().find(|r| r.id == id.to_string());
         assert!(
-            !found,
-            "soft-deleted record should NOT appear in active sync uploads (id={})",
+            tombstone.is_some(),
+            "soft-deleted record should appear in sync uploads as tombstone (id={})",
             id
         );
+        assert_eq!(tombstone.and_then(|r| r.deleted), Some(true));
     }
 
     #[test]

@@ -91,6 +91,7 @@ pub trait Vault: Send {
     ) -> Result<(Vec<crate::types::record::TuiRecord>, usize), VaultError>;
     fn record_category_counts(&self) -> Result<RecordCategoryCounts, VaultError>;
     fn list_all_stored_records(&self) -> Result<Vec<StoredRecord>, VaultError>;
+    fn list_stored_records_for_sync(&self) -> Result<Vec<StoredRecord>, VaultError>;
 
     // ------------------------------------------------------------------------
     // Password History
@@ -316,6 +317,9 @@ impl Vault for Box<dyn Vault> {
     }
     fn list_all_stored_records(&self) -> Result<Vec<StoredRecord>, VaultError> {
         (**self).list_all_stored_records()
+    }
+    fn list_stored_records_for_sync(&self) -> Result<Vec<StoredRecord>, VaultError> {
+        (**self).list_stored_records_for_sync()
     }
     fn get_password_history(&self, record_id: Uuid) -> Result<Vec<PasswordHistory>, VaultError> {
         (**self).get_password_history(record_id)
@@ -588,6 +592,12 @@ impl Vault for VaultServiceImpl {
         &self,
     ) -> Result<Vec<crate::types::record::StoredRecord>, VaultError> {
         VaultServiceImpl::list_all_stored_records(self)
+    }
+
+    fn list_stored_records_for_sync(
+        &self,
+    ) -> Result<Vec<crate::types::record::StoredRecord>, VaultError> {
+        VaultServiceImpl::list_stored_records_for_sync(self)
     }
 
     fn get_password_history(&self, record_id: Uuid) -> Result<Vec<PasswordHistory>, VaultError> {
