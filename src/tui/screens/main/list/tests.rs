@@ -186,6 +186,19 @@ fn render_buffer(
     terminal.backend().buffer().clone()
 }
 
+fn buffer_row_text(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+    (0..buffer.area.width)
+        .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+        .collect()
+}
+
+fn find_buffer_row_text(buffer: &ratatui::buffer::Buffer, needle: &str) -> String {
+    (0..buffer.area.height)
+        .map(|y| buffer_row_text(buffer, y))
+        .find(|row| row.contains(needle))
+        .unwrap_or_else(|| panic!("row containing {needle:?} should render"))
+}
+
 #[test]
 fn render_empty_state_no_passwords() {
     let state = ListPanelState::default();
@@ -232,6 +245,60 @@ fn render_multiple_records() {
     let state = ListPanelState::with_records(vec![r1, r2, r3]);
     let result = render_snapshot(&state, 50, 15, true, true, RecordFilter::All);
     assert!(!result.is_empty());
+}
+
+#[test]
+fn record_items_render_credential_type_icons_before_names() {
+    let records = vec![
+        make_record_with_type(Uuid::new_v4(), "Login Item", CredentialType::Login),
+        make_record_with_type(Uuid::new_v4(), "API Item", CredentialType::Api),
+        make_record_with_type(Uuid::new_v4(), "SSH Item", CredentialType::Ssh),
+        make_record_with_type(Uuid::new_v4(), "Note Item", CredentialType::SecureNote),
+    ];
+    let state = ListPanelState::with_records(records);
+
+    let buffer = render_buffer(&state, 100, 16, true, true, RecordFilter::All);
+
+    for (marker, name) in [
+        ("\u{f000b}", "Login Item"),
+        ("API", "API Item"),
+        ("SSH", "SSH Item"),
+        ("\u{f0221}", "Note Item"),
+    ] {
+        let title = find_buffer_row_text(&buffer, name);
+        let icon_at = title
+            .find(marker)
+            .unwrap_or_else(|| panic!("credential marker {marker:?} missing from row {title:?}"));
+        let name_at = title
+            .find(name)
+            .unwrap_or_else(|| panic!("record name {name:?} missing from row {title:?}"));
+        assert!(
+            icon_at < name_at,
+            "credential marker should render before the record name: {title:?}"
+        );
+    }
+}
+
+#[test]
+fn api_and_ssh_records_use_readable_type_badges() {
+    let records = vec![
+        make_record_with_type(Uuid::new_v4(), "API Item", CredentialType::Api),
+        make_record_with_type(Uuid::new_v4(), "SSH Item", CredentialType::Ssh),
+    ];
+    let state = ListPanelState::with_records(records);
+
+    let buffer = render_buffer(&state, 80, 8, true, true, RecordFilter::All);
+    let api_row = find_buffer_row_text(&buffer, "API Item");
+    let ssh_row = find_buffer_row_text(&buffer, "SSH Item");
+
+    assert!(
+        api_row.contains("API API Item"),
+        "API type marker should be readable at normal text size: {api_row:?}"
+    );
+    assert!(
+        ssh_row.contains("SSH SSH Item"),
+        "SSH type marker should be readable at normal text size: {ssh_row:?}"
+    );
 }
 
 #[test]

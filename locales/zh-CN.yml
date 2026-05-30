@@ -526,6 +526,7 @@ tui:
     sync_authorizing: "[ 授权中... ]"
     sync_authorized: "[ 已授权 ]"
     sync_action: "操作"
+    gdrive_auth_expired: "授权已过期，请重新授权"
     # Provider dynamic field labels
     field_client_id: "Client ID"
     field_client_secret: "Client Secret"
@@ -998,6 +999,7 @@ tui:
     record_count: "%{count} 条密码"
     version: "v%{version}"
     sync_synced: "已同步"
+    sync_configured: "已配置"
     sync_syncing: "同步中"
     sync_failed: "同步失败"
     sync_offline: "离线"

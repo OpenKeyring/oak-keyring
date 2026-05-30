@@ -165,7 +165,10 @@ impl ConfigScreen {
                     3 => {
                         if is_gdrive {
                             use crate::tui::state::config_state::GDriveAuthStatus;
-                            if self.state.gdrive_auth_status != GDriveAuthStatus::Authorizing {
+                            if matches!(
+                                self.state.gdrive_auth_status,
+                                GDriveAuthStatus::NotAuthorized | GDriveAuthStatus::Failed { .. }
+                            ) {
                                 let _ =
                                     ctx.command_tx.try_send(Command::OAuth2AuthorizeGoogleDrive);
                                 self.state.gdrive_auth_status = GDriveAuthStatus::Authorizing;

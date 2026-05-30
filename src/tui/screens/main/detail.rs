@@ -563,6 +563,14 @@ impl DetailPanel {
         unicode: bool,
         width: u16,
     ) {
+        let has_primary_fields = record
+            .fields
+            .iter()
+            .any(|field| field.kind != DetailFieldKind::Notes);
+        if !has_primary_fields && !should_render_empty_url_row(record) {
+            return;
+        }
+
         let Some(cols) = table_columns(width) else {
             return;
         };
@@ -1607,6 +1615,41 @@ mod tests {
         terminal.backend().buffer().clone()
     }
 
+    fn detail_buffer_row_text(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+        (0..buffer.area.width)
+            .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+            .collect()
+    }
+
+    fn find_detail_row(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<u16> {
+        (0..buffer.area.height).find(|y| detail_buffer_row_text(buffer, *y).contains(needle))
+    }
+
+    fn make_secure_note_detail_data() -> DetailViewData {
+        DetailViewData {
+            id: uuid::Uuid::new_v4(),
+            name: "SecureNote".into(),
+            subtitle: String::new(),
+            credential_type: crate::types::credential::CredentialType::SecureNote,
+            is_favorite: false,
+            expires_at: None,
+            expiry_status: ExpiryStatus::None,
+            tags: vec![],
+            notes: Some("private note body".into()),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            fields: vec![DetailField {
+                label: t!("tui.password_detail.notes_label").to_string(),
+                value: FieldValue::Plain("private note body".into()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::Notes,
+            }],
+            password_strength: None,
+            deleted_at: None,
+        }
+    }
+
     #[test]
     fn expiring_soon_detail_line_uses_newlook_warning_icon() {
         let mut data = make_trash_detail_data();
@@ -1765,6 +1808,25 @@ mod tests {
             snapshot.contains("[ github ]"),
             "tags should render as badge-like chips"
         );
+    }
+
+    #[test]
+    fn secure_note_detail_does_not_render_empty_primary_table() {
+        let state = DetailPanelState::with_record(make_secure_note_detail_data());
+        let buffer = render_detail_buffer(&state, 120, 30, true, true);
+
+        let type_row = find_detail_row(&buffer, t!("tui.form.type_secure_note").as_ref())
+            .expect("secure note type label should render");
+        let notes_row = find_detail_row(&buffer, t!("tui.password_detail.notes_label").as_ref())
+            .expect("notes metadata row should render");
+
+        for y in type_row + 1..notes_row {
+            let row = detail_buffer_row_text(&buffer, y);
+            assert!(
+                !row.contains('└') && !row.contains('┴') && !row.contains('┘'),
+                "secure note should not render an empty primary table before notes: {row:?}"
+            );
+        }
     }
 
     #[test]

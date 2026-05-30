@@ -1,6 +1,6 @@
 #![allow(clippy::field_reassign_with_default)]
 use super::*;
-use crate::config::sync::SyncProvider;
+use crate::config::sync::{GoogleDriveConfig, ProviderConfig, SyncProvider};
 use crate::config::{AnimationMode, AppConfig, HealthCheckFrequency, PasswordGenerationStyle};
 
 #[test]
@@ -246,6 +246,22 @@ fn load_from_config_enabled_sync_status() {
     let mut state = ConfigScreenState::default();
     state.load_from_config(&config);
     assert_eq!(state.sync_status, SyncConnectionStatus::Disconnected);
+}
+
+#[test]
+fn load_from_config_google_drive_with_token_sets_authorized_connected_status() {
+    let mut config = AppConfig::default();
+    config.sync.provider = SyncProvider::GoogleDrive;
+    config.sync.provider_config = Some(ProviderConfig::GoogleDrive(GoogleDriveConfig {
+        refresh_token: "synthetic-refresh-token".to_string(),
+        ..GoogleDriveConfig::default()
+    }));
+
+    let mut state = ConfigScreenState::default();
+    state.load_from_config(&config);
+
+    assert_eq!(state.sync_status, SyncConnectionStatus::Connected);
+    assert_eq!(state.gdrive_auth_status, GDriveAuthStatus::Authorized);
 }
 
 #[test]

@@ -232,6 +232,63 @@ fn oauth_success_with_refresh_token_does_not_keep_access_token_in_provider_confi
 }
 
 #[test]
+fn authorized_google_drive_action_does_not_restart_oauth() {
+    let mut screen = ConfigScreen::new();
+    screen.state.active_tab = ConfigTab::Sync;
+    screen.state.focused_item = 3;
+    screen.state.sync.provider = SyncProvider::GoogleDrive;
+    screen.state.sync.provider_config = Some(ProviderConfig::GoogleDrive(GoogleDriveConfig {
+        refresh_token: "synthetic-refresh-token".to_string(),
+        root_path: ".oak-keyring/".to_string(),
+        ..GoogleDriveConfig::default()
+    }));
+    screen.state.gdrive_auth_status = GDriveAuthStatus::Authorized;
+
+    let (tx, mut rx) = mpsc::channel(1);
+    let config = AppConfig::default();
+    let mut ctx = test_context(&tx, &config);
+
+    let result = screen.update(Message::KeyEvent(make_key(KeyCode::Enter)), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(rx.try_recv().is_err(), "authorized action must be inert");
+    assert_eq!(
+        screen.state.gdrive_auth_status,
+        GDriveAuthStatus::Authorized
+    );
+}
+
+#[test]
+fn google_drive_token_expired_connection_failure_allows_reauthorization() {
+    let mut screen = ConfigScreen::new();
+    screen.state.sync.provider = SyncProvider::GoogleDrive;
+    screen.state.sync.provider_config = Some(ProviderConfig::GoogleDrive(GoogleDriveConfig {
+        refresh_token: "synthetic-refresh-token".to_string(),
+        root_path: ".oak-keyring/".to_string(),
+        ..GoogleDriveConfig::default()
+    }));
+    screen.state.gdrive_auth_status = GDriveAuthStatus::Authorized;
+
+    let (tx, _rx) = mpsc::channel(1);
+    let config = AppConfig::default();
+    let mut ctx = test_context(&tx, &config);
+
+    let result = screen.update(
+        Message::CommandCompleted(CommandResult::SyncConnectionTested {
+            success: false,
+            message: "OAuth token expired".to_string(),
+        }),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(matches!(
+        screen.state.gdrive_auth_status,
+        GDriveAuthStatus::Failed { .. }
+    ));
+}
+
+#[test]
 fn j_key_no_boundary_flash_when_not_at_edge() {
     let mut screen = ConfigScreen::new();
     assert_eq!(screen.state.focused_item, 0);

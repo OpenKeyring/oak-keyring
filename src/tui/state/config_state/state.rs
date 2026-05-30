@@ -580,11 +580,17 @@ impl ConfigScreenState {
         self.focused_item = 0;
         self.sub_item_focus = None;
 
-        // Derive initial sync connection status from provider
         self.sync_status = if config.sync.provider == SyncProvider::Disabled {
             SyncConnectionStatus::NotConfigured
+        } else if config.sync.has_google_drive_authorization() {
+            SyncConnectionStatus::Connected
         } else {
             SyncConnectionStatus::Disconnected
+        };
+        self.gdrive_auth_status = if config.sync.has_google_drive_authorization() {
+            GDriveAuthStatus::Authorized
+        } else {
+            GDriveAuthStatus::NotAuthorized
         };
         self.sync_error_message = None;
     }

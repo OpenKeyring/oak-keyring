@@ -275,6 +275,21 @@ impl VaultServiceImpl {
                 passphrase,
                 notes,
             },
+            (CredentialType::SecureNote, EncryptedPayload::SecureNote { name, notes }) => {
+                DecryptedRecord::SecureNote {
+                    id: stored.id,
+                    is_favorite: stored.is_favorite,
+                    expires_at: stored.expires_at,
+                    created_at: stored.created_at,
+                    updated_at: stored.updated_at,
+                    version: stored.version,
+                    deleted: stored.deleted,
+                    deleted_at: stored.deleted_at,
+                    tags: stored.tags,
+                    name,
+                    notes,
+                }
+            }
             _ => {
                 return Err(VaultError::CryptoError(
                     "credential type / payload mismatch".into(),

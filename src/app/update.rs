@@ -18,6 +18,7 @@ use crate::app::App;
 use crate::commands::types::{AppPhase, Screen};
 use crate::commands::{CommandResult, Message};
 use crate::tui::screens::set_password::{RestoreNext, SetPasswordContext, SetPasswordScreen};
+use crate::tui::state::main_state::SyncIndicator;
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
 
 /// Tick rate: how often we check for terminal events. Also drives timers/animations.
@@ -44,7 +45,16 @@ fn apply_runtime_config(app: &mut App, config: crate::config::AppConfig) {
     if level == crate::tui::animation::AnimationLevel::None {
         app.state.shared.animation.clear();
     }
+    app.state.screens.main.status_bar.sync_status = sync_indicator_from_config(&config);
     app.config = config;
+}
+
+fn sync_indicator_from_config(config: &crate::config::AppConfig) -> SyncIndicator {
+    if config.sync.is_runtime_configured() {
+        SyncIndicator::Configured
+    } else {
+        SyncIndicator::NotConfigured
+    }
 }
 
 fn start_initial_transition(
@@ -661,10 +671,11 @@ fn route_to_screen(
 ) -> ScreenResult {
     match state.current_screen {
         Screen::Main => {
-            state
-                .screens
-                .main
-                .sync_from_app(state.shared.focus.focused_panel, state.unicode_capable);
+            state.screens.main.sync_from_app(
+                state.shared.focus.focused_panel,
+                state.unicode_capable,
+                state.terminal_size,
+            );
             let result = state.screens.main.update(msg, ctx);
             // Back-sync focus changes from MainScreen to AppState
             if state.shared.focus.focused_panel != state.screens.main.focused_panel {
@@ -702,10 +713,11 @@ fn route_to_screen(
 fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut ScreenContext<'_>) {
     match state.current_screen {
         Screen::Main => {
-            state
-                .screens
-                .main
-                .sync_from_app(state.shared.focus.focused_panel, state.unicode_capable);
+            state.screens.main.sync_from_app(
+                state.shared.focus.focused_panel,
+                state.unicode_capable,
+                state.terminal_size,
+            );
             state.screens.main.on_mount(ctx)
         }
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
@@ -821,6 +833,31 @@ mod tests {
     use crate::tui::state::audit_state::AuditFocus;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
+    #[test]
+    fn sync_indicator_from_google_drive_token_config_is_configured() {
+        let mut config = crate::config::AppConfig::default();
+        config.sync.provider = crate::config::SyncProvider::GoogleDrive;
+        config.sync.provider_config = Some(crate::config::ProviderConfig::GoogleDrive(
+            crate::config::GoogleDriveConfig {
+                refresh_token: "synthetic-refresh-token".to_string(),
+                ..crate::config::GoogleDriveConfig::default()
+            },
+        ));
+
+        assert_eq!(
+            sync_indicator_from_config(&config),
+            SyncIndicator::Configured
+        );
+    }
+
+    #[test]
+    fn sync_indicator_from_disabled_sync_config_is_not_configured() {
+        assert_eq!(
+            sync_indicator_from_config(&crate::config::AppConfig::default()),
+            SyncIndicator::NotConfigured
+        );
+    }
+
     fn test_app() -> App {
         let vault_dir = tempfile::tempdir().unwrap();
         let instance_lock = InstanceLock::acquire(vault_dir.path()).unwrap();
@@ -883,6 +920,27 @@ mod tests {
 
     fn vault_locked_result_message() -> Message {
         Message::CommandCompleted(crate::commands::result::CommandResult::VaultLocked)
+    }
+
+    fn test_record(name: &str) -> crate::types::record::TuiRecord {
+        crate::types::record::TuiRecord {
+            id: uuid::Uuid::new_v4(),
+            credential_type: crate::types::credential::CredentialType::Login,
+            name: name.to_string(),
+            subtitle: "user".to_string(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+            sync_status: None,
+        }
     }
 
     fn recovery_words() -> crate::types::RecoveryWords {
@@ -981,6 +1039,106 @@ mod tests {
                 assert_eq!(filter.search.as_deref(), Some("g"));
             }
             other => panic!("expected LoadAuditLog, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn main_mouse_click_uses_current_terminal_size_and_rendered_list_rows() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::Main;
+        app.state.update_size(140, 30);
+        app.state.shared.focus.focused_panel = PanelId::Sidebar;
+
+        let first = test_record("First");
+        let first_id = first.id;
+        app.state.screens.main.list =
+            crate::tui::state::list_state::ListPanelState::with_records(vec![
+                first,
+                test_record("Second"),
+            ]);
+        app.state.screens.main.list.selected_index = None;
+
+        let layout = crate::tui::screens::main::layout::calculate_layout(
+            ratatui::layout::Rect::new(0, 0, 140, 30),
+            140,
+        );
+        let list_area = ratatui::layout::Rect::new(
+            layout.list.x,
+            layout.list.y + 1,
+            layout.list.width,
+            layout.list.height.saturating_sub(1),
+        );
+        let first_item_row = list_area.y + 2;
+        let event = crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: list_area.x + 2,
+            row: first_item_row,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        };
+
+        let result = handle_message(&mut app, Message::MouseEvent(event)).expect("mouse handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.screens.main.focused_panel, PanelId::List);
+        assert_eq!(app.state.screens.main.list.selected_index, Some(0));
+        let command = app
+            .command_rx
+            .as_mut()
+            .expect("command receiver")
+            .try_recv()
+            .expect("click should request selected record detail");
+        match command {
+            crate::commands::Command::LoadRecordDetail { id } => assert_eq!(id, first_id),
+            other => panic!("expected LoadRecordDetail, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn main_mouse_scroll_uses_current_terminal_size_and_moves_list_selection() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::Main;
+        app.state.update_size(140, 30);
+        app.state.shared.focus.focused_panel = PanelId::Sidebar;
+
+        let records: Vec<_> = (0..6)
+            .map(|idx| test_record(&format!("Record {idx}")))
+            .collect();
+        let expected_id = records[3].id;
+        app.state.screens.main.list =
+            crate::tui::state::list_state::ListPanelState::with_records(records);
+        app.state.screens.main.list.selected_index = Some(0);
+
+        let layout = crate::tui::screens::main::layout::calculate_layout(
+            ratatui::layout::Rect::new(0, 0, 140, 30),
+            140,
+        );
+        let list_area = ratatui::layout::Rect::new(
+            layout.list.x,
+            layout.list.y + 1,
+            layout.list.width,
+            layout.list.height.saturating_sub(1),
+        );
+        let event = crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::ScrollDown,
+            column: list_area.x + 2,
+            row: list_area.y + 2,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        };
+
+        let result = handle_message(&mut app, Message::MouseEvent(event)).expect("mouse handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.screens.main.focused_panel, PanelId::List);
+        assert_eq!(app.state.screens.main.list.selected_index, Some(3));
+        let command = app
+            .command_rx
+            .as_mut()
+            .expect("command receiver")
+            .try_recv()
+            .expect("scroll should request selected record detail");
+        match command {
+            crate::commands::Command::LoadRecordDetail { id } => assert_eq!(id, expected_id),
+            other => panic!("expected LoadRecordDetail, got {other:?}"),
         }
     }
 

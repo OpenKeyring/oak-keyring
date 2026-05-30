@@ -2,6 +2,7 @@ use crate::commands::result::CommandResult;
 use crate::commands::types::Screen as ScreenEnum;
 use crate::commands::{Command, Message};
 use crate::config::ProviderConfig;
+use crate::t;
 use crate::tui::state::config_state::{ConfigOverlay, ConfigScreenState, SyncConnectionStatus};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use ratatui::layout::Rect;
@@ -82,6 +83,14 @@ impl ConfigScreen {
                 } else {
                     self.state.sync_status = SyncConnectionStatus::Disconnected;
                     self.state.sync_error_message = Some(message.clone());
+                    if self.state.sync.provider == crate::config::SyncProvider::GoogleDrive
+                        && is_google_drive_authorization_expired(&message)
+                    {
+                        self.state.gdrive_auth_status =
+                            crate::tui::state::config_state::GDriveAuthStatus::Failed {
+                                reason: t!("tui.config.gdrive_auth_expired").to_string(),
+                            };
+                    }
                 }
                 ScreenResult::Continue
             }
@@ -119,4 +128,12 @@ impl ConfigScreen {
             _ => ScreenResult::Continue,
         }
     }
+}
+
+fn is_google_drive_authorization_expired(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("token expired")
+        || lower.contains("invalid_grant")
+        || lower.contains("unauthorized")
+        || lower.contains("401")
 }

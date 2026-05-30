@@ -527,6 +527,7 @@ tui:
     sync_authorizing: "[ Authorizing... ]"
     sync_authorized: "[ Authorized ]"
     sync_action: "Action"
+    gdrive_auth_expired: "Authorization expired. Please authorize again."
     # Provider dynamic field labels
     field_client_id: "Client ID"
     field_client_secret: "Client Secret"
@@ -1000,6 +1001,7 @@ tui:
     record_count: "%{count} passwords"
     version: "v%{version}"
     sync_synced: "Synced"
+    sync_configured: "Configured"
     sync_syncing: "Syncing"
     sync_failed: "Sync failed"
     sync_offline: "Offline"

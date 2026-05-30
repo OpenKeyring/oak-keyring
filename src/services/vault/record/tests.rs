@@ -367,6 +367,47 @@ fn get_decrypted_record_decrypts_login_credentials() {
     }
 }
 
+#[test]
+fn get_decrypted_record_decrypts_secure_note() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    let params = CreateRecordParams {
+        credential_type: CredentialType::SecureNote,
+        payload: EncryptedPayload::SecureNote {
+            name: "Secure Note".to_string(),
+            notes: Some("private note body".to_string()),
+        },
+        tags: vec!["notes".to_string()],
+        is_favorite: true,
+        expires_at: None,
+    };
+
+    let id = svc
+        .create_record(params)
+        .expect("create_record must succeed");
+
+    let decrypted = svc
+        .get_decrypted_record(id)
+        .expect("get_decrypted_record must succeed");
+
+    match decrypted {
+        DecryptedRecord::SecureNote {
+            name,
+            notes,
+            tags,
+            is_favorite,
+            ..
+        } => {
+            assert_eq!(name, "Secure Note");
+            assert_eq!(notes.as_deref(), Some("private note body"));
+            assert_eq!(tags, vec!["notes"]);
+            assert!(is_favorite);
+        }
+        other => panic!("expected DecryptedRecord::SecureNote, got {:?}", other),
+    }
+}
+
 // --- get_decrypted_record: writes audit RecordViewPassword ---
 
 #[test]

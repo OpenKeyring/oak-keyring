@@ -101,6 +101,12 @@ impl Default for GoogleDriveConfig {
     }
 }
 
+impl GoogleDriveConfig {
+    pub fn has_oauth_token(&self) -> bool {
+        !self.refresh_token.trim().is_empty() || !self.access_token.trim().is_empty()
+    }
+}
+
 #[derive(Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct DropboxConfig {
     pub client_id: String,
@@ -366,6 +372,26 @@ impl Default for SyncConfig {
             sync_mode: SyncMode::Auto,
             auto_interval_seconds: 600,
             provider_config: None,
+        }
+    }
+}
+
+impl SyncConfig {
+    pub fn has_google_drive_authorization(&self) -> bool {
+        matches!(
+            (&self.provider, &self.provider_config),
+            (
+                SyncProvider::GoogleDrive,
+                Some(ProviderConfig::GoogleDrive(cfg))
+            ) if cfg.has_oauth_token()
+        )
+    }
+
+    pub fn is_runtime_configured(&self) -> bool {
+        match self.provider {
+            SyncProvider::Disabled => false,
+            SyncProvider::GoogleDrive => self.has_google_drive_authorization(),
+            _ => self.provider_config.is_some(),
         }
     }
 }

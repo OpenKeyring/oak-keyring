@@ -236,6 +236,14 @@ fn visual_shortcuts_text(unicode: bool, is_trash: bool) -> String {
 /// Return the sync indicator display string.
 fn sync_indicator_text(sync: &SyncIndicator, unicode: bool) -> String {
     match sync {
+        SyncIndicator::Configured => {
+            let text = t!("tui.status_bar.sync_configured");
+            if unicode {
+                format!("{} {}", theme::ICON_SUCCESS, text)
+            } else {
+                format!("+ {}", text)
+            }
+        }
         SyncIndicator::Synced => {
             let text = t!("tui.status_bar.sync_synced");
             if unicode {
@@ -282,6 +290,7 @@ fn sync_indicator_text(sync: &SyncIndicator, unicode: bool) -> String {
 /// Return the color for a sync indicator state.
 fn sync_color(sync: &SyncIndicator) -> Color {
     match sync {
+        SyncIndicator::Configured => theme::NL_SUCCESS,
         SyncIndicator::Synced => theme::NL_SUCCESS,
         SyncIndicator::Syncing => theme::NL_CYAN,
         SyncIndicator::Failed => theme::NL_DANGER,
@@ -354,6 +363,12 @@ mod tests {
     }
 
     #[test]
+    fn sync_indicator_configured_unicode() {
+        let text = sync_indicator_text(&SyncIndicator::Configured, true);
+        assert!(text.contains(t!("tui.status_bar.sync_configured").as_ref()));
+    }
+
+    #[test]
     fn sync_indicator_syncing_unicode() {
         let text = sync_indicator_text(&SyncIndicator::Syncing, true);
         assert!(text.starts_with('\u{27F3}')); // ⟳
@@ -384,6 +399,10 @@ mod tests {
             "+ Synced"
         );
         assert_eq!(
+            sync_indicator_text(&SyncIndicator::Configured, false),
+            "+ Configured"
+        );
+        assert_eq!(
             sync_indicator_text(&SyncIndicator::Syncing, false),
             "~ Syncing"
         );
@@ -403,6 +422,7 @@ mod tests {
 
     #[test]
     fn sync_colors() {
+        assert_eq!(sync_color(&SyncIndicator::Configured), theme::NL_SUCCESS);
         assert_eq!(sync_color(&SyncIndicator::Synced), theme::NL_SUCCESS);
         assert_eq!(sync_color(&SyncIndicator::Syncing), theme::NL_CYAN);
         assert_eq!(sync_color(&SyncIndicator::Failed), theme::NL_DANGER);

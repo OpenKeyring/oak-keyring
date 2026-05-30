@@ -1010,7 +1010,25 @@ fn ctrl_g_opens_generator_and_ctrl_p_opens_config() {
 }
 
 #[test]
-fn mouse_hover_list_row_selects_record_and_loads_detail() {
+fn mouse_hover_list_row_only_focuses_list() {
+    let mut state = MainScreenState::default();
+    let mut first = make_test_record(None);
+    first.name = "First".to_string();
+    let mut second = make_test_record(None);
+    second.name = "Second".to_string();
+    state.list = ListPanelState::with_records(vec![first, second]);
+    state.focused_panel = PanelId::Sidebar;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::MouseEvent(mouse_move(42, 7)), &mut ctx);
+
+    assert_eq!(state.focused_panel, PanelId::List);
+    assert_eq!(state.list.selected_index, Some(0));
+    assert!(matches!(result, ScreenResult::Continue));
+}
+
+#[test]
+fn mouse_click_list_row_selects_record_and_loads_detail() {
     let mut state = MainScreenState::default();
     let mut first = make_test_record(None);
     first.name = "First".to_string();
@@ -1021,7 +1039,7 @@ fn mouse_hover_list_row_selects_record_and_loads_detail() {
     state.focused_panel = PanelId::Sidebar;
     let mut ctx = make_ctx();
 
-    let result = state.update(Message::MouseEvent(mouse_move(42, 7)), &mut ctx);
+    let result = state.update(Message::MouseEvent(mouse_click(42, 7)), &mut ctx);
 
     assert_eq!(state.focused_panel, PanelId::List);
     assert_eq!(state.list.selected_index, Some(1));
@@ -1035,15 +1053,51 @@ fn mouse_hover_list_row_selects_record_and_loads_detail() {
 }
 
 #[test]
+fn mouse_click_list_row_uses_rendered_scroll_offset() {
+    let mut state = MainScreenState::default();
+    state.terminal_area = Rect::new(0, 0, 120, 30);
+    state.list.records = (0..10)
+        .map(|idx| make_test_record_with_name(Uuid::new_v4(), &format!("record-{idx}")))
+        .collect();
+    state.list.total_count = state.list.records.len();
+    state.list.selected_index = None;
+    state.list.scroll_offset = 8;
+    let expected_id = state.list.records[2].id;
+    let mut ctx = make_ctx();
+
+    let layout = crate::tui::screens::main::layout::calculate_layout(state.terminal_area, 120);
+    let list_rect = Rect::new(
+        layout.list.x,
+        layout.list.y + 1,
+        layout.list.width,
+        layout.list.height.saturating_sub(1),
+    );
+    let result = state.update(
+        Message::MouseEvent(mouse_click(list_rect.x + 2, list_rect.y + 2)),
+        &mut ctx,
+    );
+
+    assert_eq!(state.focused_panel, PanelId::List);
+    assert_eq!(state.list.selected_index, Some(2));
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::LoadRecordDetail { id } => assert_eq!(id, expected_id),
+            other => panic!("expected LoadRecordDetail, got {other:?}"),
+        },
+        other => panic!("expected command result, got {other:?}"),
+    }
+}
+
+#[test]
 fn mouse_click_list_sort_bar_changes_sort() {
     let mut state = MainScreenState::default();
     let original = state.current_sort.field;
     let mut ctx = make_ctx();
 
     // Default terminal_area is Rect(0,0,100,24). With sidebar_width=40,
-    // list_rect = top_padded(Rect(42,0,17,22), 2) = Rect(42,2,17,20).
-    // Click (45,2): row_in_list=0 (sort bar), col_in_list=3 < 8 → cycle_sort_field.
-    let result = state.update(Message::MouseEvent(mouse_click(45, 2)), &mut ctx);
+    // list_rect = top_padded(Rect(42,0,17,22), 1) = Rect(42,1,17,21).
+    // Click (45,1): row_in_list=0 (sort bar), col_in_list=3 < 8 → cycle_sort_field.
+    let result = state.update(Message::MouseEvent(mouse_click(45, 1)), &mut ctx);
 
     assert!(matches!(result, ScreenResult::Command(_)));
     assert_ne!(state.current_sort.field, original);
@@ -3641,9 +3695,9 @@ fn mouse_click_detail_password_copy_action_copies_password() {
     let layout = crate::tui::screens::main::layout::calculate_layout(state.terminal_area, 140);
     let detail_rect = Rect::new(
         layout.detail.x,
-        layout.detail.y + 2,
+        layout.detail.y + 1,
         layout.detail.width,
-        layout.detail.height.saturating_sub(2),
+        layout.detail.height.saturating_sub(1),
     );
     let column = detail_rect.right().saturating_sub(8);
     let row = detail_rect.y + 12;

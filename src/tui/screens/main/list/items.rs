@@ -11,11 +11,26 @@ use crate::tui::state::list_state::{
 };
 use crate::tui::terminal::WidthTier;
 use crate::tui::theme;
+use crate::types::credential::CredentialType;
 
 use super::ListPanel;
 
 const ITEM_LEFT_PADDING: &str = "  ";
 const ITEM_RIGHT_MARGIN: usize = 2;
+
+fn credential_type_prefix(cred_type: &CredentialType, unicode: bool) -> String {
+    let icon = match (cred_type, unicode) {
+        (CredentialType::Login, true) => theme::NF_ACCOUNT_KEY,
+        (CredentialType::Api, true) => "API",
+        (CredentialType::Ssh, true) => "SSH",
+        (CredentialType::SecureNote, true) => theme::NF_FILE_LOCK,
+        (CredentialType::Login, false) => theme::ascii::NF_ACCOUNT_KEY,
+        (CredentialType::Api, false) => theme::ascii::NF_API,
+        (CredentialType::Ssh, false) => theme::ascii::NF_SSH,
+        (CredentialType::SecureNote, false) => theme::ascii::NF_FILE_LOCK,
+    };
+    format!("{icon} ")
+}
 
 impl ListPanel {
     /// Highlight matching portions of `text` that match `search_terms` (case-insensitive).
@@ -171,7 +186,11 @@ pub(super) fn build_record_item<'a>(
     let is_min_width = WidthTier::from_width(area_width) == WidthTier::Minimum;
 
     // ── Line 1: Title ──
-    let type_prefix = format_type_prefix(&record.credential_type);
+    let type_prefix = if unicode {
+        credential_type_prefix(&record.credential_type, true)
+    } else {
+        format_type_prefix(&record.credential_type)
+    };
     let timestamp = format_relative_time(&record.updated_at);
 
     let gutter_width = usize::from(is_selected);
@@ -376,7 +395,11 @@ pub(super) fn build_trash_item<'a>(
     let is_min_width = WidthTier::from_width(area_width) == WidthTier::Minimum;
 
     // ── Line 1: Title with type prefix ──
-    let type_prefix = format_type_prefix(&record.credential_type);
+    let type_prefix = if unicode {
+        credential_type_prefix(&record.credential_type, true)
+    } else {
+        format_type_prefix(&record.credential_type)
+    };
     let gutter_width = usize::from(is_selected);
     let prefix_str = if is_selected {
         format!(" {}", type_prefix)

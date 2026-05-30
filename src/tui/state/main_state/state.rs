@@ -372,6 +372,7 @@ impl SidebarState {
 pub enum SyncIndicator {
     #[default]
     NotConfigured,
+    Configured,
     Synced,
     Syncing,
     Failed,
@@ -612,9 +613,15 @@ impl MainScreenState {
 
     /// Sync render-only fields from AppState-level shared state.
     /// Called by the screen router before dispatching to update/view.
-    pub fn sync_from_app(&mut self, focused_panel: PanelId, unicode_capable: bool) {
+    pub fn sync_from_app(
+        &mut self,
+        focused_panel: PanelId,
+        unicode_capable: bool,
+        terminal_size: (u16, u16),
+    ) {
         self.focused_panel = focused_panel;
         self.unicode_capable = unicode_capable;
+        self.terminal_area = Rect::new(0, 0, terminal_size.0, terminal_size.1);
     }
 
     /// Capture reusable navigation state for this screen.
@@ -1647,8 +1654,8 @@ impl MainScreenState {
                 terminal_area,
                 terminal_area.width,
             );
-            let list_rect = top_padded_rect(layout.list, 2);
-            let detail_rect = top_padded_rect(layout.detail, 2);
+            let list_rect = top_padded_rect(layout.list, 1);
+            let detail_rect = top_padded_rect(layout.detail, 1);
 
             if contains_rect(list_rect, event.column, event.row) {
                 self.focused_panel = PanelId::List;
@@ -1677,8 +1684,8 @@ impl MainScreenState {
 
         let layout =
             crate::tui::screens::main::layout::calculate_layout(terminal_area, terminal_area.width);
-        let list_rect = top_padded_rect(layout.list, 2);
-        let detail_rect = top_padded_rect(layout.detail, 2);
+        let list_rect = top_padded_rect(layout.list, 1);
+        let detail_rect = top_padded_rect(layout.detail, 1);
 
         if contains_rect(layout.sidebar, event.column, event.row) {
             self.focused_panel = PanelId::Sidebar;
@@ -1687,6 +1694,9 @@ impl MainScreenState {
 
         if contains_rect(list_rect, event.column, event.row) {
             self.focused_panel = PanelId::List;
+            if is_hover {
+                return ScreenResult::Continue;
+            }
             let row_in_list = event.row.saturating_sub(list_rect.y);
             if row_in_list == 0 {
                 if is_click && !self.list.is_searching() && !self.list.is_visual() {
@@ -1714,7 +1724,8 @@ impl MainScreenState {
             } else {
                 3
             };
-            let index = ((row_in_list - 2) / item_height) as usize + self.list.scroll_offset;
+            let index = ((row_in_list - 2) / item_height) as usize
+                + rendered_list_offset(&self.list, list_rect);
             if index < self.list.records.len() && self.list.selected_index != Some(index) {
                 self.list.selected_index = Some(index);
                 self.list.adjust_scroll();
@@ -1883,6 +1894,20 @@ fn top_padded_rect(area: Rect, padding: u16) -> Rect {
         area.width,
         area.height.saturating_sub(applied),
     )
+}
+
+fn rendered_list_offset(list: &ListPanelState, list_rect: Rect) -> usize {
+    let item_height = if crate::tui::terminal::WidthTier::from_width(list_rect.width)
+        == crate::tui::terminal::WidthTier::Minimum
+    {
+        2
+    } else {
+        3
+    };
+    let body_height = list_rect.height.saturating_sub(2);
+    let visible = (body_height / item_height).max(1) as usize;
+    list.scroll_offset
+        .min(list.records.len().saturating_sub(visible))
 }
 
 /// Convert a [`DetailFieldKind`] to the corresponding [`FieldSelector`] for
