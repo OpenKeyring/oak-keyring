@@ -1010,6 +1010,23 @@ fn ctrl_g_opens_generator_and_ctrl_p_opens_config() {
 }
 
 #[test]
+fn number_six_opens_generator_and_seven_opens_config() {
+    let mut state = MainScreenState::default();
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('6'))), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.overlay_manager.is_active());
+
+    let mut state = MainScreenState::default();
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('7'))), &mut ctx);
+    assert!(matches!(
+        result,
+        ScreenResult::NavigateTo(ScreenEnum::Config)
+    ));
+}
+
+#[test]
 fn mouse_hover_list_row_only_focuses_list() {
     let mut state = MainScreenState::default();
     let mut first = make_test_record(None);
@@ -3122,6 +3139,32 @@ fn make_ssh_detail_view(id: Uuid, is_favorite: bool) -> DetailViewData {
     }
 }
 
+fn make_secure_note_detail_view(id: Uuid, is_favorite: bool) -> DetailViewData {
+    use crate::tui::state::detail_state::{DetailField, DetailFieldKind, FieldValue};
+    DetailViewData {
+        id,
+        name: "Secure Note".to_string(),
+        subtitle: String::new(),
+        credential_type: CredentialType::SecureNote,
+        is_favorite,
+        expires_at: None,
+        expiry_status: ExpiryStatus::None,
+        tags: Vec::new(),
+        notes: Some("private note".to_string()),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        fields: vec![DetailField {
+            label: "Notes".to_string(),
+            value: FieldValue::Plain("private note".to_string()),
+            copyable: false,
+            toggleable: false,
+            kind: DetailFieldKind::Notes,
+        }],
+        password_strength: None,
+        deleted_at: None,
+    }
+}
+
 #[test]
 fn ssh_passphrase_maps_to_passphrase_selector() {
     use crate::tui::state::detail_state::DetailFieldKind;
@@ -3246,6 +3289,113 @@ fn p_on_focused_passphrase_sends_decrypt_passphrase() {
         }
     }
     assert!(state.detail.password_visible);
+}
+
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn p_on_ssh_detail_reveals_all_hidden_fields() {
+    use crate::commands::result::CommandResult;
+    use crate::commands::types::PanelId;
+    use crate::tui::state::detail_state::{DetailFieldKind, FieldValue};
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Detail,
+        ..Default::default()
+    };
+    state.detail.record = Some(make_ssh_detail_view(id, false));
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('p'))), &mut ctx);
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::DecryptField { id: cmd_id, field } => {
+                assert_eq!(cmd_id, id);
+                assert_eq!(field, FieldSelector::Password);
+            }
+            other => panic!("Expected DecryptField(Password), got {other:?}"),
+        },
+        other => panic!("Expected command result, got {other:?}"),
+    }
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::FieldDecrypted {
+            id,
+            field: FieldSelector::Password,
+            value: SecureStr::new("private-key".to_string()),
+        }),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+    match rx.try_recv().expect("passphrase decrypt should be queued") {
+        Command::DecryptField { id: cmd_id, field } => {
+            assert_eq!(cmd_id, id);
+            assert_eq!(field, FieldSelector::Passphrase);
+        }
+        other => panic!("Expected queued DecryptField(Passphrase), got {other:?}"),
+    }
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::FieldDecrypted {
+            id,
+            field: FieldSelector::Passphrase,
+            value: SecureStr::new("passphrase".to_string()),
+        }),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+
+    let fields = &state.detail.record.as_ref().expect("detail").fields;
+    let private_key = fields
+        .iter()
+        .find(|f| f.kind == DetailFieldKind::PrivateKey)
+        .expect("private key");
+    assert!(matches!(private_key.value, FieldValue::Revealed(ref v) if v == "private-key"));
+    let passphrase = fields
+        .iter()
+        .find(|f| f.kind == DetailFieldKind::Passphrase)
+        .expect("passphrase");
+    assert!(matches!(passphrase.value, FieldValue::Revealed(ref v) if v == "passphrase"));
+}
+
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn secure_note_detail_shortcuts_do_not_copy_or_toggle() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Detail,
+        ..Default::default()
+    };
+    state.detail.record = Some(make_secure_note_detail_view(id, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    for key in ['c', 'u', 'p'] {
+        let result = state.update(Message::KeyEvent(make_key(KeyCode::Char(key))), &mut ctx);
+        assert!(
+            matches!(result, ScreenResult::Continue),
+            "{key} should not trigger a Secure Note copy/toggle command"
+        );
+    }
 }
 
 #[test]

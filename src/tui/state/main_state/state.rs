@@ -530,6 +530,8 @@ pub struct MainScreenState {
     /// longer appears in the reloaded list (e.g. filtered view), detail is
     /// cleared instead.
     pub pending_detail_refresh: Option<Uuid>,
+    /// Remaining hidden fields to reveal after a multi-field show command.
+    pub pending_reveal_fields: Vec<(Uuid, FieldSelector)>,
     /// Last known terminal area, updated during view(). Used by handle_mouse
     /// for hit-testing without calling crossterm::terminal::size() at event time.
     pub terminal_area: Rect,
@@ -557,6 +559,7 @@ impl Default for MainScreenState {
             pending_animation: None,
             list_auto_select: false,
             pending_detail_refresh: None,
+            pending_reveal_fields: Vec::new(),
             terminal_area: Rect::new(0, 0, 100, 24),
         }
     }
@@ -959,6 +962,7 @@ impl Screen for MainScreenState {
                         password_strength,
                         health_issue,
                     } => {
+                        self.pending_reveal_fields.clear();
                         let view_data =
                             DetailPanelState::build_from_record(&record, password_strength);
                         self.detail = DetailPanelState::with_record(view_data);
@@ -1004,6 +1008,17 @@ impl Screen for MainScreenState {
                                     }
                                 }
                             }
+                        }
+                        if let Some(pos) = self
+                            .pending_reveal_fields
+                            .iter()
+                            .position(|(pending_id, _)| *pending_id == id)
+                        {
+                            let (_, next_field) = self.pending_reveal_fields.remove(pos);
+                            ctx.send_system_command(Command::DecryptField {
+                                id,
+                                field: next_field,
+                            });
                         }
                         ScreenResult::Continue
                     }
@@ -1120,6 +1135,7 @@ impl Screen for MainScreenState {
                     }
                     CommandResult::VaultLocked => {
                         // Security: clear all sensitive state on vault lock.
+                        self.pending_reveal_fields.clear();
                         self.list.mode = ListMode::Normal;
                         self.list.records.clear();
                         self.list.selected_index = None;
@@ -1375,15 +1391,22 @@ impl MainScreenState {
                     }
                     // Step 1: p — toggle password visibility (context-sensitive)
                     KeyCode::Char('p') => {
+                        let reveal_fields = reveal_field_selectors(&self.detail);
+                        if reveal_fields.is_empty() {
+                            return ScreenResult::Continue;
+                        }
                         let needs_decrypt = self.detail.toggle_password();
                         if needs_decrypt {
-                            if let Some(field) = self.detail.current_toggleable_field() {
-                                let selector = detail_field_kind_to_selector(field.kind);
+                            if let Some((&selector, remaining)) = reveal_fields.split_first() {
+                                self.pending_reveal_fields =
+                                    remaining.iter().map(|field| (id, *field)).collect();
                                 return ScreenResult::Command(Box::new(Command::DecryptField {
                                     id,
                                     field: selector,
                                 }));
                             }
+                        } else {
+                            self.pending_reveal_fields.clear();
                         }
                         return ScreenResult::Continue;
                     }
@@ -1613,6 +1636,15 @@ impl MainScreenState {
                 Some(ScreenResult::Continue)
             }
             KeyCode::Char(ch) if key.modifiers.is_empty() => {
+                if ch == '6' {
+                    self.overlay_manager
+                        .open_password_generator(&self.password_defaults);
+                    self.pending_animation = Some(EffectKind::ModalAppear);
+                    return Some(ScreenResult::Continue);
+                }
+                if ch == '7' {
+                    return Some(ScreenResult::NavigateTo(ScreenEnum::Config));
+                }
                 let category = match ch {
                     '1' => Some(SidebarCategory::All),
                     '2' => Some(SidebarCategory::Favorites),
@@ -1894,6 +1926,28 @@ fn top_padded_rect(area: Rect, padding: u16) -> Rect {
         area.width,
         area.height.saturating_sub(applied),
     )
+}
+
+fn reveal_field_selectors(detail: &DetailPanelState) -> Vec<FieldSelector> {
+    let Some(record) = detail.record.as_ref() else {
+        return Vec::new();
+    };
+    let mut ordered: Vec<(usize, FieldSelector)> = record
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| field.toggleable)
+        .map(|(index, field)| (index, detail_field_kind_to_selector(field.kind)))
+        .collect();
+
+    if let Some(current_pos) = ordered
+        .iter()
+        .position(|(index, _)| *index == detail.focused_field)
+    {
+        ordered.rotate_left(current_pos);
+    }
+
+    ordered.into_iter().map(|(_, selector)| selector).collect()
 }
 
 fn rendered_list_offset(list: &ListPanelState, list_rect: Rect) -> usize {

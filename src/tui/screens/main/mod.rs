@@ -19,7 +19,7 @@ use crate::commands::{Command, Message};
 use crate::t;
 use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, PANEL_SEPARATOR};
 use crate::tui::screens::main::sidebar::SidebarPanel;
-use crate::tui::screens::main::status_bar::StatusBarPanel;
+use crate::tui::screens::main::status_bar::{DetailShortcutContext, StatusBarPanel};
 use crate::tui::state::main_state::{MainScreenState, SidebarCategory, SidebarItem};
 use crate::tui::theme;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -149,6 +149,7 @@ impl MainScreen {
             unicode,
             is_trash,
             state.list.is_visual(),
+            DetailShortcutContext::from_record(state.detail.record.as_ref()),
         );
 
         // 7. Overlay (rendered on top of all panels)

@@ -2,7 +2,7 @@ use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
 use oak_keyring::commands::types::PanelId;
-use oak_keyring::tui::screens::main::status_bar::StatusBarPanel;
+use oak_keyring::tui::screens::main::status_bar::{DetailShortcutContext, StatusBarPanel};
 use oak_keyring::tui::state::main_state::{
     HealthCheckPhase, StatusBarState, StatusMessage, SyncIndicator,
 };
@@ -23,6 +23,7 @@ fn render_status_bar(state: &StatusBarState) -> TestBackend {
                 true,
                 false,
                 false,
+                DetailShortcutContext::Login,
             );
         })
         .unwrap();

@@ -615,7 +615,7 @@ impl DetailPanelState {
                     fields.push(DetailField {
                         label: t!("tui.password_detail.notes_label").to_string(),
                         value: FieldValue::Plain(n.clone()),
-                        copyable: true,
+                        copyable: false,
                         toggleable: false,
                         kind: DetailFieldKind::Notes,
                     });

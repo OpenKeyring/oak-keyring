@@ -16,6 +16,7 @@ use crate::tui::state::list_state::{
     calculate_remaining_days, format_days_since_deletion, trash_warning_tier, TrashWarningTier,
 };
 use crate::tui::theme;
+use crate::tui::time::format_display_datetime;
 
 pub struct DetailPanel;
 
@@ -407,9 +408,9 @@ impl DetailPanel {
                     "{}{}: {}  {}: {}",
                     pad,
                     t!("tui.password_detail.created_at", date = "").trim_end_matches(" %{date}"),
-                    record.created_at.format("%Y-%m-%d %H:%M"),
+                    format_display_datetime(&record.created_at),
                     t!("tui.password_detail.updated_at", date = "").trim_end_matches(" %{date}"),
-                    record.updated_at.format("%Y-%m-%d %H:%M"),
+                    format_display_datetime(&record.updated_at),
                 ),
                 Style::default().fg(theme::TEXT_MUTED),
             )));
@@ -635,17 +636,19 @@ impl DetailPanel {
             ));
             lines.push(metadata_border_line(cols, "├", "┼", "┤", unicode));
         }
+        let created_at = format_display_datetime(&record.created_at);
+        let updated_at = format_display_datetime(&record.updated_at);
         lines.push(render_plain_metadata_row(
             nf_icon(unicode, theme::NF_CLOCK, theme::ascii::NF_CLOCK),
             t!("tui.password_detail.created_at", date = "").trim_end_matches(" %{date}"),
-            &record.created_at.format("%Y-%m-%d %H:%M").to_string(),
+            &created_at,
             cols,
         ));
         lines.push(metadata_border_line(cols, "├", "┼", "┤", unicode));
         lines.push(render_plain_metadata_row(
             nf_icon(unicode, theme::NF_CLOCK, theme::ascii::NF_CLOCK),
             t!("tui.password_detail.updated_at", date = "").trim_end_matches(" %{date}"),
-            &record.updated_at.format("%Y-%m-%d %H:%M").to_string(),
+            &updated_at,
             cols,
         ));
         lines.push(metadata_border_line(cols, "└", "┴", "┘", unicode));
@@ -1827,6 +1830,29 @@ mod tests {
                 "secure note should not render an empty primary table before notes: {row:?}"
             );
         }
+    }
+
+    #[test]
+    fn detail_timestamps_use_display_timezone_formatter() {
+        use chrono::TimeZone;
+
+        let mut data = make_trash_detail_data();
+        data.created_at = chrono::Utc.with_ymd_and_hms(2026, 5, 30, 1, 2, 0).unwrap();
+        data.updated_at = chrono::Utc.with_ymd_and_hms(2026, 5, 30, 3, 4, 0).unwrap();
+        let state = DetailPanelState::with_record(data);
+
+        let snapshot = render_detail_snapshot(&state, 140, 40, true, true);
+
+        assert!(
+            snapshot.contains(&crate::tui::time::format_display_datetime(
+                &state.record.as_ref().unwrap().created_at
+            ))
+        );
+        assert!(
+            snapshot.contains(&crate::tui::time::format_display_datetime(
+                &state.record.as_ref().unwrap().updated_at
+            ))
+        );
     }
 
     #[test]
