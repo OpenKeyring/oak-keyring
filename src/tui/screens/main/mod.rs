@@ -10,6 +10,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+use std::collections::BTreeSet;
 
 use crate::commands::types::{
     BatchTagPanelState, ConfirmButton, ConfirmDialogState, ConfirmVariant, FieldSelector, Overlay,
@@ -100,6 +101,11 @@ impl MainScreen {
 
         // 3. Detail panel
         let detail_focused = focused_panel == PanelId::Detail;
+        let visual_selected_count = if state.list.is_visual() {
+            state.list.visual_selected_ids().len()
+        } else {
+            0
+        };
         let visual_selected_names: Vec<String> = if state.list.is_visual() {
             let selected_ids = state.list.visual_selected_ids();
             state
@@ -119,6 +125,7 @@ impl MainScreen {
             detail_focused,
             unicode,
             &visual_selected_names,
+            visual_selected_count,
         );
 
         // 4. Horizontal separator between content and status bar
@@ -368,14 +375,8 @@ impl MainScreen {
                     KeyCode::Char('t') if state.list.is_visual() => {
                         let ids = state.list.visual_selected_ids();
                         if !ids.is_empty() {
-                            let current_tag = match &state.current_filter {
-                                RecordFilter::Tag(name) => name.clone(),
-                                _ => String::new(),
-                            };
-                            overlay = Some(Overlay::BatchTagPanel(BatchTagPanelState {
-                                record_ids: ids,
-                                current_tag,
-                            }));
+                            overlay =
+                                Some(Overlay::BatchTagPanel(batch_tag_panel_state(state, ids)));
                         }
                     }
                     KeyCode::Char('k')
@@ -542,6 +543,13 @@ impl MainScreen {
                 KeyCode::Esc if state.list.is_visual() => {
                     state.list.exit_visual();
                     messages.push(Message::ExitVisualMode);
+                    state.focused_panel = PanelId::List;
+                    return MainKeyResult {
+                        messages,
+                        overlay,
+                        command: None,
+                        focused_panel: Some(PanelId::List),
+                    };
                 }
                 KeyCode::Char('r') | KeyCode::Char('D') | KeyCode::Char('a')
                     if matches!(state.current_filter, RecordFilter::Trash) =>
@@ -764,6 +772,56 @@ pub struct MainKeyResult {
 /// Sort the sidebar tags according to the current sort order.
 fn sort_sidebar_tags(sidebar: &mut crate::tui::state::main_state::SidebarState) {
     sidebar.sort_tags_by_current_order();
+}
+
+fn batch_tag_panel_state(
+    state: &MainScreenState,
+    record_ids: Vec<uuid::Uuid>,
+) -> BatchTagPanelState {
+    let selected_records: Vec<_> = state
+        .list
+        .records
+        .iter()
+        .filter(|record| record_ids.contains(&record.id))
+        .collect();
+
+    let selected_record_names = selected_records
+        .iter()
+        .map(|record| record.name.clone())
+        .collect();
+
+    let mut current_tags: Vec<String> = selected_records
+        .iter()
+        .flat_map(|record| record.tags.iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    current_tags.sort();
+
+    let current_tag_set: BTreeSet<_> = current_tags.iter().cloned().collect();
+    let mut available_tags: Vec<String> = state
+        .sidebar
+        .tags
+        .iter()
+        .map(|tag| tag.name.clone())
+        .filter(|tag| !current_tag_set.contains(tag))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    available_tags.sort();
+
+    let current_tag = match &state.current_filter {
+        RecordFilter::Tag(name) => name.clone(),
+        _ => String::new(),
+    };
+
+    BatchTagPanelState {
+        record_ids,
+        selected_record_names,
+        current_tag,
+        current_tags,
+        available_tags,
+    }
 }
 
 fn is_search_shortcut(key: KeyEvent) -> bool {
@@ -989,6 +1047,19 @@ mod tests {
     }
 
     #[test]
+    fn esc_from_detail_exits_visual_and_returns_focus_to_list() {
+        let mut state = MainScreenState::default();
+        state.focused_panel = PanelId::Detail;
+        state.list.enter_visual();
+        let screen = MainScreen::new();
+
+        let result = screen.handle_key_event(make_key(KeyCode::Esc), &mut state, PanelId::Detail);
+
+        assert!(!state.list.is_visual());
+        assert_eq!(result.focused_panel, Some(PanelId::List));
+    }
+
+    #[test]
     fn space_toggles_selection_in_visual() {
         let record = make_test_record("Test");
         let mut state = MainScreenState::default();
@@ -1012,6 +1083,48 @@ mod tests {
         let screen = MainScreen::new();
         screen.handle_key_event(make_key(KeyCode::Char('a')), &mut state, PanelId::List);
         assert_eq!(state.list.visual_selected_ids().len(), 3);
+    }
+
+    #[test]
+    fn batch_tag_overlay_uses_selected_records_and_available_sidebar_tags() {
+        let mut work_record = make_test_record("Work");
+        work_record.tags = vec!["work".into()];
+        let mut personal_record = make_test_record("Personal");
+        personal_record.tags = vec!["personal".into()];
+        let selected_ids = vec![work_record.id, personal_record.id];
+
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(vec![work_record, personal_record]);
+        state.list.enter_visual();
+        state.list.select_all();
+        state.sidebar.tags = vec![
+            Tag {
+                id: 1,
+                name: "work".into(),
+            },
+            Tag {
+                id: 2,
+                name: "personal".into(),
+            },
+            Tag {
+                id: 3,
+                name: "finance".into(),
+            },
+        ];
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('t')), &mut state, PanelId::List);
+
+        match result.overlay {
+            Some(Overlay::BatchTagPanel(panel)) => {
+                assert_eq!(panel.record_ids.len(), selected_ids.len());
+                assert_eq!(panel.selected_record_names, vec!["Work", "Personal"]);
+                assert_eq!(panel.current_tags, vec!["personal", "work"]);
+                assert_eq!(panel.available_tags, vec!["finance"]);
+            }
+            other => panic!("Expected batch tag panel, got {other:?}"),
+        }
     }
 
     #[test]

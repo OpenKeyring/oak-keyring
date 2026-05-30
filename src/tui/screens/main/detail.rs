@@ -29,17 +29,12 @@ impl DetailPanel {
         focused: bool,
         unicode: bool,
         visual_selected_names: &[String],
+        visual_selected_count: usize,
     ) {
         // If visual mode is active with selections, show batch summary
-        if !visual_selected_names.is_empty() {
+        if visual_selected_count > 0 {
             let name_refs: Vec<&str> = visual_selected_names.iter().map(|s| s.as_str()).collect();
-            render_batch_summary_view(
-                frame,
-                area,
-                &name_refs,
-                visual_selected_names.len(),
-                unicode,
-            );
+            render_batch_summary_view(frame, area, &name_refs, visual_selected_count, unicode);
             return;
         }
 
@@ -1492,8 +1487,9 @@ fn render_batch_summary_view(
     }
 
     // Overflow indicator
-    if total_count > display_limit {
-        let remaining = total_count - display_limit;
+    let displayed_count = selected_names.len().min(display_limit);
+    if total_count > displayed_count {
+        let remaining = total_count - displayed_count;
         lines.push(Line::from(Span::styled(
             format!(
                 "{}  ... {}",
@@ -1593,7 +1589,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let panel = DetailPanel;
-                panel.view(frame, frame.area(), state, focused, unicode, &[]);
+                panel.view(frame, frame.area(), state, focused, unicode, &[], 0);
             })
             .unwrap();
         let buf = terminal.backend().buffer().clone();
@@ -1612,7 +1608,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let panel = DetailPanel;
-                panel.view(frame, frame.area(), state, focused, unicode, &[]);
+                panel.view(frame, frame.area(), state, focused, unicode, &[], 0);
             })
             .unwrap();
         terminal.backend().buffer().clone()
@@ -1948,6 +1944,10 @@ mod tests {
     fn batch_summary_shows_count() {
         let result = render_batch_snapshot(&["GitHub", "AWS"], 2, 50, 15);
         assert!(
+            !result.contains("tui.batch.selected_count"),
+            "batch summary should render localized selected count instead of the i18n key"
+        );
+        assert!(
             result.contains("2") || result.contains("selected"),
             "should show count"
         );
@@ -1976,6 +1976,15 @@ mod tests {
         assert!(
             result.contains("2") || result.contains("selected"),
             "should show overflow indicator"
+        );
+    }
+
+    #[test]
+    fn batch_summary_overflow_uses_loaded_names_not_fixed_limit() {
+        let result = render_batch_snapshot(&["A", "B"], 6, 50, 20);
+        assert!(
+            result.contains("4") || result.contains("more"),
+            "overflow should count undisplayed selections from the real selected total"
         );
     }
 }

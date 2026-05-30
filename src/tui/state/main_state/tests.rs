@@ -3951,6 +3951,61 @@ fn password_history_loaded_opens_overlay() {
     }
 }
 
+#[test]
+fn batch_tag_add_keeps_overlay_active_and_visual_selection() {
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.list = ListPanelState::with_records(vec![make_test_record_with_name(id, "GitHub")]);
+    state.list.enter_visual();
+    state.list.select_all();
+    state.overlay_manager.open(Overlay::BatchTagPanel(
+        crate::commands::types::BatchTagPanelState {
+            record_ids: vec![id],
+            selected_record_names: vec!["GitHub".to_string()],
+            current_tag: String::new(),
+            current_tags: Vec::new(),
+            available_tags: vec!["work".to_string(), "personal".to_string()],
+        },
+    ));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        &mut ctx,
+    );
+
+    match result {
+        ScreenResult::Command(command) => match *command {
+            Command::BatchAddTag {
+                record_ids,
+                tag_name,
+            } => {
+                assert_eq!(record_ids, vec![id]);
+                assert_eq!(tag_name, "work");
+            }
+            other => panic!("Expected BatchAddTag command, got {other:?}"),
+        },
+        other => panic!("Expected command result, got {other:?}"),
+    }
+    assert!(state.overlay_manager.is_active());
+    assert!(state.list.is_visual());
+}
+
 // ── Task 8: Help overlay toggle test ─────────────────────────────────────────
 
 #[test]

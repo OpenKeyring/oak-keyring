@@ -295,10 +295,10 @@ impl OverlayManager {
             }
             Overlay::BatchTagPanel(state) => ActiveOverlay::BatchTagPanel(BatchTagPanelFullState {
                 selected_record_ids: state.record_ids,
-                selected_record_names: Vec::new(),
+                selected_record_names: state.selected_record_names,
                 input_text: String::new(),
-                current_tags: Vec::new(),
-                available_tags: Vec::new(),
+                current_tags: state.current_tags,
+                available_tags: state.available_tags,
                 focus: Default::default(),
                 tag_cursor: 0,
                 current_tag: state.current_tag,
@@ -468,16 +468,54 @@ mod tests {
         let mut mgr = OverlayManager::new();
         let state = BatchTagPanelState {
             record_ids: vec![Uuid::new_v4()],
+            selected_record_names: vec!["GitHub".to_string()],
             current_tag: "work".to_string(),
+            current_tags: vec!["work".to_string()],
+            available_tags: vec!["personal".to_string()],
         };
         assert!(mgr.open(Overlay::BatchTagPanel(state)));
         match mgr.get() {
             Some(ActiveOverlay::BatchTagPanel(full)) => {
                 assert_eq!(full.current_tag, "work");
                 assert_eq!(full.selected_record_ids.len(), 1);
+                assert_eq!(full.selected_record_names, vec!["GitHub"]);
+                assert_eq!(full.current_tags, vec!["work"]);
+                assert_eq!(full.available_tags, vec!["personal"]);
             }
             _ => panic!("Expected BatchTagPanel"),
         }
+    }
+
+    #[test]
+    fn batch_tag_add_keeps_overlay_active_for_more_edits() {
+        let mut mgr = OverlayManager::new();
+        let id = Uuid::new_v4();
+        let state = BatchTagPanelState {
+            record_ids: vec![id],
+            selected_record_names: vec!["GitHub".to_string()],
+            current_tag: String::new(),
+            current_tags: Vec::new(),
+            available_tags: vec!["work".to_string()],
+        };
+        assert!(mgr.open(Overlay::BatchTagPanel(state)));
+
+        let result = mgr.handle_key(KeyCode::Tab);
+        assert!(matches!(result, OverlayKeyResult::Consumed));
+        let result = mgr.handle_key(KeyCode::Tab);
+        assert!(matches!(result, OverlayKeyResult::Consumed));
+        let result = mgr.handle_key(KeyCode::Enter);
+
+        match result {
+            OverlayKeyResult::BatchAddTag {
+                record_ids,
+                tag_name,
+            } => {
+                assert_eq!(record_ids, vec![id]);
+                assert_eq!(tag_name, "work");
+            }
+            other => panic!("Expected batch tag add, got {other:?}"),
+        }
+        assert!(mgr.is_active(), "adding one tag should keep the panel open");
     }
 
     #[test]

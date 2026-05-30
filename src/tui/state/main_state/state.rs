@@ -1074,24 +1074,30 @@ impl Screen for MainScreenState {
                     }
                     // Handle BatchTagAdded — reload tags and list, exit visual, clear selection
                     CommandResult::BatchTagAdded { .. } => {
-                        if self.list.is_visual() {
+                        let batch_tag_panel_open = self.batch_tag_panel_open();
+                        if self.list.is_visual() && !batch_tag_panel_open {
                             self.list.exit_visual();
                         }
                         ctx.send_system_command(Command::LoadTags);
                         let cmd = self.reload_record_list_command();
                         ctx.send_system_command(cmd);
-                        self.detail.clear();
+                        if !batch_tag_panel_open {
+                            self.detail.clear();
+                        }
                         ScreenResult::Continue
                     }
                     // Handle BatchTagRemoved — reload tags and list, exit visual, clear selection
                     CommandResult::BatchTagRemoved { .. } => {
-                        if self.list.is_visual() {
+                        let batch_tag_panel_open = self.batch_tag_panel_open();
+                        if self.list.is_visual() && !batch_tag_panel_open {
                             self.list.exit_visual();
                         }
                         ctx.send_system_command(Command::LoadTags);
                         let cmd = self.reload_record_list_command();
                         ctx.send_system_command(cmd);
-                        self.detail.clear();
+                        if !batch_tag_panel_open {
+                            self.detail.clear();
+                        }
                         ScreenResult::Continue
                     }
                     // Handle BatchDeleted — exit visual, reload list/tags/counts
@@ -1190,6 +1196,13 @@ impl Screen for MainScreenState {
 }
 
 impl MainScreenState {
+    fn batch_tag_panel_open(&self) -> bool {
+        matches!(
+            self.overlay_manager.get(),
+            Some(ActiveOverlay::BatchTagPanel(_))
+        )
+    }
+
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         // Layer 1: Overlay gets priority
         if self.overlay_manager.is_active() {
@@ -1871,25 +1884,17 @@ impl MainScreenState {
             OverlayKeyResult::BatchAddTag {
                 record_ids,
                 tag_name,
-            } => {
-                self.overlay_manager.close();
-                self.pending_animation = Some(EffectKind::ModalDismiss);
-                ScreenResult::Command(Box::new(Command::BatchAddTag {
-                    record_ids,
-                    tag_name,
-                }))
-            }
+            } => ScreenResult::Command(Box::new(Command::BatchAddTag {
+                record_ids,
+                tag_name,
+            })),
             OverlayKeyResult::BatchRemoveTag {
                 record_ids,
                 tag_name,
-            } => {
-                self.overlay_manager.close();
-                self.pending_animation = Some(EffectKind::ModalDismiss);
-                ScreenResult::Command(Box::new(Command::BatchRemoveTag {
-                    record_ids,
-                    tag_name,
-                }))
-            }
+            } => ScreenResult::Command(Box::new(Command::BatchRemoveTag {
+                record_ids,
+                tag_name,
+            })),
             OverlayKeyResult::ErrorRetry => {
                 self.overlay_manager.close();
                 self.pending_animation = Some(EffectKind::ModalDismiss);

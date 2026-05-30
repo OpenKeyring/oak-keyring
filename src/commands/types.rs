@@ -297,7 +297,10 @@ pub struct ConfirmDialogState {
 #[derive(Debug, Clone)]
 pub struct BatchTagPanelState {
     pub record_ids: Vec<Uuid>,
+    pub selected_record_names: Vec<String>,
     pub current_tag: String,
+    pub current_tags: Vec<String>,
+    pub available_tags: Vec<String>,
 }
 
 /// Error dialog state
