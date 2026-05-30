@@ -15,6 +15,7 @@ use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::health::RecordHealthState;
 use crate::types::record::{CreateRecordParams, DecryptedRecord, StoredRecord, UpdateRecordParams};
+use crate::types::record_limits::{validate_payload, validate_tags};
 
 use super::helpers::{
     db_error_to_vault, decrypt_record_name, expires_at_changed, password_changed,
@@ -122,6 +123,9 @@ impl VaultServiceImpl {
         if !self.crypto.is_unlocked() {
             return Err(VaultError::NotUnlocked);
         }
+
+        validate_payload(&params.payload)?;
+        validate_tags(&params.tags)?;
 
         let id = Uuid::new_v4();
         let aad = format!("record:{}", id);
@@ -332,6 +336,9 @@ impl VaultServiceImpl {
                 actual: stored.version,
             });
         }
+
+        validate_payload(&params.payload)?;
+        validate_tags(&params.tags)?;
 
         // 3. Decrypt old payload to detect changes
         let old_payload = payload::decrypt_payload(
@@ -661,6 +668,20 @@ impl VaultServiceImpl {
             .as_ref()
             .map(|m| m.tags.clone())
             .unwrap_or_else(|| cloud_record.metadata.tags.clone());
+        validate_tags(&tags)?;
+
+        if !deleted {
+            let downloaded_payload = payload::decrypt_payload(
+                &self.crypto,
+                &encrypted_data,
+                &nonce,
+                &aad,
+                credential_type,
+                cloud_record.dek_version,
+            )
+            .map_err(VaultError::CryptoError)?;
+            validate_payload(&downloaded_payload)?;
+        }
 
         let stored = crate::types::record::StoredRecord {
             id,

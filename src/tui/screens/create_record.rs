@@ -213,7 +213,12 @@ impl CreateRecordScreen {
             CredentialType::SecureNote => 2,
         };
         if focused == notes_idx {
+            if !self.form.can_insert_char_into_current_field('\n') {
+                self.form.set_current_limit_error();
+                return ScreenResult::Continue;
+            }
             self.form.fields.notes.insert_newline();
+            self.form.clear_current_limit_error();
             self.form.has_changes = true;
             return ScreenResult::Continue;
         }
@@ -275,6 +280,7 @@ impl CreateRecordScreen {
         };
         if focused == tags_idx && !self.form.fields.tag_input.is_empty() {
             if self.form.fields.commit_tag_input() {
+                self.form.clear_current_limit_error();
                 self.form.has_changes = true;
             }
             return ScreenResult::Continue;
@@ -290,6 +296,11 @@ impl CreateRecordScreen {
 
         // If sub-focus is on a button, don't accept text input
         if self.form.password_sub_focus != PasswordFieldFocus::Input {
+            return ScreenResult::Continue;
+        }
+
+        if !self.form.can_insert_char_into_current_field(c) {
+            self.form.set_current_limit_error();
             return ScreenResult::Continue;
         }
 
@@ -409,6 +420,7 @@ impl CreateRecordScreen {
                 }
             }
         }
+        self.form.clear_current_limit_error();
         ScreenResult::Continue
     }
 
@@ -504,6 +516,7 @@ impl CreateRecordScreen {
             }
         }
         self.form.has_changes = true;
+        self.form.clear_current_limit_error();
         ScreenResult::Continue
     }
 

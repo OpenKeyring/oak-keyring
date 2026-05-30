@@ -2,7 +2,8 @@
 
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use tui_textarea::TextArea;
+use tui_textarea::{TextArea, WrapMode};
+use unicode_width::UnicodeWidthStr;
 
 use crate::tui::theme;
 
@@ -25,6 +26,7 @@ pub fn create_textarea() -> TextArea<'static> {
     );
     ta.set_cursor_line_style(Style::default().bg(theme::BG_SURFACE));
     ta.set_selection_style(Style::default().bg(theme::NL_SELECTED));
+    ta.set_wrap_mode(WrapMode::WordOrGlyph);
 
     // No block border — the form's line-based layout draws the frame manually.
     ta.remove_block();
@@ -96,6 +98,20 @@ pub fn visible_rows(textarea: &TextArea<'_>) -> u16 {
     line_count.clamp(TEXTAREA_MIN_VISIBLE_LINES, TEXTAREA_MAX_VISIBLE_LINES)
 }
 
+/// Return the visible textarea height, accounting for soft-wrapped long lines.
+pub fn visible_rows_for_width(textarea: &TextArea<'_>, content_width: u16) -> u16 {
+    let width = content_width.max(1) as usize;
+    let rows: usize = textarea
+        .lines()
+        .iter()
+        .map(|line| {
+            let display_width = UnicodeWidthStr::width(line.as_str()).max(1);
+            display_width.div_ceil(width)
+        })
+        .sum();
+    (rows.max(1) as u16).clamp(TEXTAREA_MIN_VISIBLE_LINES, TEXTAREA_MAX_VISIBLE_LINES)
+}
+
 /// Whether the cursor can move to a previous line within the textarea.
 pub fn cursor_has_line_above(textarea: &TextArea<'_>) -> bool {
     let (row, _) = textarea.cursor();
@@ -132,6 +148,21 @@ mod tests {
         let ta = create_textarea();
         // TextArea::default() starts with one empty line
         assert_eq!(ta.lines().len(), 1);
+    }
+
+    #[test]
+    fn create_textarea_soft_wraps_long_lines() {
+        let ta = create_textarea();
+        assert_eq!(ta.wrap_mode(), tui_textarea::WrapMode::WordOrGlyph);
+    }
+
+    #[test]
+    fn visible_rows_for_width_counts_wrapped_lines() {
+        let mut ta = create_textarea();
+        set_textarea_text(&mut ta, "abcdefghijklmnop");
+        assert_eq!(visible_rows_for_width(&ta, 8), 3);
+        set_textarea_text(&mut ta, &"a".repeat(80));
+        assert_eq!(visible_rows_for_width(&ta, 8), 8);
     }
 
     #[test]

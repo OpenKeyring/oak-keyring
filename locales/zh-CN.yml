@@ -425,6 +425,8 @@ tui:
     validation_invalid_day: "✗ 日期无效"
     validation_past_date: "✗ 过期日期不能早于今天"
     validation_tag_exists: "标签 \"%{name}\" 已存在"
+    validation_too_long: "✗ 最多 %{max} 个字符"
+    validation_too_many_tags: "✗ 最多 %{max} 个标签"
     generate_button: "生成"
     show_button: "显示"
     hide_button: "隐藏"

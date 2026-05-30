@@ -1,6 +1,9 @@
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::cloud::{
+    AadFields, CloudPrivateMetadata, CloudRecord, EncryptedRecordMetadata, RecordMetadata,
+};
 use crate::commands::types::{FieldSelector, RecordFilter, RecordSort, SortDirection, SortField};
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::crypto::payload;
@@ -11,6 +14,7 @@ use crate::services::vault::VaultService;
 use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::record::{CreateRecordParams, DecryptedRecord, UpdateRecordParams};
+use crate::types::record_limits::{MAX_RECORD_NAME_CHARS, MAX_TAGS_PER_RECORD};
 use crate::types::sensitive::SecureStr;
 
 /// Helper: create an in-memory VaultService with schema initialized.
@@ -35,6 +39,57 @@ fn sample_login_payload(name: &str) -> EncryptedPayload {
         password: SecureStr::new("s3cret!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+    }
+}
+
+fn build_downloaded_cloud_record(
+    svc: &VaultService,
+    id: Uuid,
+    credential_type: CredentialType,
+    payload: &EncryptedPayload,
+    tags: Vec<String>,
+) -> CloudRecord {
+    use base64::Engine;
+
+    let aad = format!("record:{}", id);
+    let (encrypted_data, nonce) =
+        payload::encrypt_payload(&svc.crypto, payload, aad.as_bytes()).unwrap();
+    let private_metadata = CloudPrivateMetadata {
+        name: "Downloaded".to_string(),
+        tags,
+        credential_type: Some(credential_type),
+        ..Default::default()
+    };
+    let private_json = serde_json::to_vec(&private_metadata).unwrap();
+    let metadata_aad = format!("cloud-metadata:{}", id);
+    let (private_encrypted, private_nonce) = svc
+        .crypto
+        .encrypt(&private_json, metadata_aad.as_bytes())
+        .unwrap();
+
+    CloudRecord {
+        id: id.to_string(),
+        version: 1,
+        encrypted_data: base64::engine::general_purpose::STANDARD.encode(encrypted_data),
+        nonce: base64::engine::general_purpose::STANDARD.encode(nonce),
+        dek_version: svc.crypto.current_dek_version(),
+        aad: AadFields {
+            record_id: id.to_string(),
+            dek_version: svc.crypto.current_dek_version(),
+        },
+        metadata: RecordMetadata {
+            name: "encrypted".to_string(),
+            tags: Vec::new(),
+            updated_at: Utc::now().to_rfc3339(),
+            encrypted_metadata: Some(EncryptedRecordMetadata {
+                encrypted_data: base64::engine::general_purpose::STANDARD.encode(private_encrypted),
+                nonce: base64::engine::general_purpose::STANDARD.encode(private_nonce),
+                dek_version: svc.crypto.current_dek_version(),
+            }),
+            ..Default::default()
+        },
+        deleted: None,
+        deleted_at: None,
     }
 }
 
@@ -181,6 +236,83 @@ fn create_record_stores_encrypted_data_and_nonce() {
         "encrypted_data must not be empty"
     );
     assert_eq!(stored.nonce.len(), 24, "nonce must be 24 bytes");
+}
+
+#[test]
+fn create_record_rejects_too_many_tags() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    let params = CreateRecordParams {
+        credential_type: CredentialType::Login,
+        payload: sample_login_payload("TooManyTags"),
+        tags: (0..11).map(|n| format!("tag-{n}")).collect(),
+        is_favorite: false,
+        expires_at: None,
+    };
+
+    let result = svc.create_record(params);
+    assert!(
+        result.is_err(),
+        "service validation must reject records with more than 10 tags"
+    );
+}
+
+#[test]
+fn create_record_rejects_login_name_over_limit() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    let params = CreateRecordParams {
+        credential_type: CredentialType::Login,
+        payload: sample_login_payload(&"a".repeat(MAX_RECORD_NAME_CHARS + 1)),
+        tags: vec![],
+        is_favorite: false,
+        expires_at: None,
+    };
+
+    let result = svc.create_record(params);
+    assert!(
+        result.is_err(),
+        "service validation must reject overlong record names"
+    );
+}
+
+#[test]
+fn apply_downloaded_cloud_record_rejects_too_many_tags() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = Uuid::new_v4();
+    let record = build_downloaded_cloud_record(
+        &svc,
+        id,
+        CredentialType::Login,
+        &sample_login_payload("RemoteTags"),
+        (0..=MAX_TAGS_PER_RECORD)
+            .map(|n| format!("tag-{n}"))
+            .collect(),
+    );
+
+    let result = svc.apply_downloaded_cloud_record(&record);
+    assert!(
+        matches!(result, Err(VaultError::DataError(_))),
+        "sync download must reject records with more than {MAX_TAGS_PER_RECORD} tags"
+    );
+}
+
+#[test]
+fn apply_downloaded_cloud_record_rejects_overlong_payload() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = Uuid::new_v4();
+    let payload = sample_login_payload(&"a".repeat(MAX_RECORD_NAME_CHARS + 1));
+    let record = build_downloaded_cloud_record(&svc, id, CredentialType::Login, &payload, vec![]);
+
+    let result = svc.apply_downloaded_cloud_record(&record);
+    assert!(
+        matches!(result, Err(VaultError::DataError(_))),
+        "sync download must reject overlong decrypted payload fields"
+    );
 }
 
 // --- DEK version is stored correctly ---

@@ -426,6 +426,8 @@ tui:
     validation_invalid_day: "✗ Invalid day"
     validation_past_date: "✗ Expiry date cannot be in the past"
     validation_tag_exists: "Tag \"%{name}\" already exists"
+    validation_too_long: "✗ Max %{max} characters"
+    validation_too_many_tags: "✗ Max %{max} tags"
     generate_button: "Generate"
     show_button: "Show"
     hide_button: "Hide"

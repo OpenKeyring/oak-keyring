@@ -192,7 +192,7 @@ impl MainScreen {
     ) -> MainKeyResult {
         let mut messages = Vec::new();
         let mut overlay = None;
-        let result_command: Option<Box<Command>> = None;
+        let mut result_command: Option<Box<Command>> = None;
 
         if key.code == KeyCode::F(1) {
             return MainKeyResult {
@@ -247,6 +247,10 @@ impl MainScreen {
                         };
                         let old_name = edit_state.original_name.clone();
                         let new_name = edit_state.confirm();
+                        result_command = Some(Box::new(Command::RenameTag {
+                            old_name: old_name.clone(),
+                            new_name: new_name.clone(),
+                        }));
                         messages.push(Message::RenameTagConfirm { old_name, new_name });
                     }
                 }
@@ -259,7 +263,7 @@ impl MainScreen {
             return MainKeyResult {
                 messages,
                 overlay,
-                command: None,
+                command: result_command,
                 focused_panel: None,
             };
         }
@@ -1185,6 +1189,36 @@ mod tests {
             .messages
             .iter()
             .any(|message| matches!(message, Message::RenameTagStart)));
+    }
+
+    #[test]
+    fn inline_tag_rename_enter_dispatches_rename_command() {
+        let mut state = MainScreenState::default();
+        state.sidebar.tags_expanded = true;
+        state.sidebar.tags = vec![Tag {
+            id: 1,
+            name: "work".into(),
+        }];
+        state.sidebar.rebuild();
+        state.sidebar.selected_index = state
+            .sidebar
+            .items
+            .iter()
+            .position(|i| matches!(i, SidebarItem::Tag(_, _)))
+            .unwrap();
+
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Char('m')), &mut state, PanelId::Sidebar);
+        screen.handle_key_event(make_key(KeyCode::Char('r')), &mut state, PanelId::Sidebar);
+        screen.handle_key_event(make_key(KeyCode::Char('2')), &mut state, PanelId::Sidebar);
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Enter), &mut state, PanelId::Sidebar);
+
+        assert!(matches!(
+            result.command.as_deref(),
+            Some(Command::RenameTag { old_name, new_name })
+                if old_name == "work" && new_name == "work2"
+        ));
     }
 
     #[test]

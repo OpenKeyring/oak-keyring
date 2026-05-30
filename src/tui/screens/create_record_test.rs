@@ -583,6 +583,47 @@ fn tag_input_commits_trimmed_tags_with_comma_separators() {
 }
 
 #[test]
+fn tag_input_stops_at_ten_tags() {
+    let (tx, _rx) = mpsc::channel(1);
+    let mut screen = make_screen();
+    let env = TestEnv::new();
+    let mut ctx = env.make_ctx(&tx);
+    screen.form.focus_field(6);
+    screen.form.fields.tags = (0..10).map(|n| format!("tag-{n}")).collect();
+
+    let result = screen.update(Message::KeyEvent(key(KeyCode::Char('x'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(screen.form.fields.tag_input.is_empty());
+    assert_eq!(screen.form.fields.tags.len(), 10);
+    assert!(screen
+        .form
+        .validation_errors
+        .iter()
+        .any(|error| error.field_index == 6));
+}
+
+#[test]
+fn name_input_stops_at_limit() {
+    let (tx, _rx) = mpsc::channel(1);
+    let mut screen = make_screen();
+    let env = TestEnv::new();
+    let mut ctx = env.make_ctx(&tx);
+    screen.form.focus_field(1);
+    screen.form.fields.name = "a".repeat(120);
+
+    let result = screen.update(Message::KeyEvent(key(KeyCode::Char('b'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(screen.form.fields.name.chars().count(), 120);
+    assert!(screen
+        .form
+        .validation_errors
+        .iter()
+        .any(|error| error.field_index == 1));
+}
+
+#[test]
 fn tag_input_shows_enter_add_and_delete_hint() {
     let mut screen = make_screen();
     screen.form.focus_field(6);

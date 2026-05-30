@@ -208,7 +208,12 @@ impl EditRecordScreen {
             CredentialType::SecureNote => 2,
         };
         if self.form.focused_field == notes_idx {
+            if !self.form.can_insert_char_into_current_field('\n') {
+                self.form.set_current_limit_error();
+                return ScreenResult::Continue;
+            }
             self.form.fields.notes.insert_newline();
+            self.form.clear_current_limit_error();
             self.form.has_changes = true;
             return ScreenResult::Continue;
         }
@@ -261,6 +266,7 @@ impl EditRecordScreen {
         };
         if self.form.focused_field == tags_idx && !self.form.fields.tag_input.is_empty() {
             if self.form.fields.commit_tag_input() {
+                self.form.clear_current_limit_error();
                 self.form.has_changes = true;
             }
             return ScreenResult::Continue;
@@ -277,6 +283,11 @@ impl EditRecordScreen {
         // If sub-focus is on a button, don't accept text input
         if self.form.password_sub_focus != crate::tui::state::form_state::PasswordFieldFocus::Input
         {
+            return ScreenResult::Continue;
+        }
+
+        if !self.form.can_insert_char_into_current_field(c) {
+            self.form.set_current_limit_error();
             return ScreenResult::Continue;
         }
 
@@ -396,6 +407,7 @@ impl EditRecordScreen {
                 }
             }
         }
+        self.form.clear_current_limit_error();
         ScreenResult::Continue
     }
 
@@ -492,6 +504,7 @@ impl EditRecordScreen {
             }
         }
         self.form.has_changes = true;
+        self.form.clear_current_limit_error();
         ScreenResult::Continue
     }
 

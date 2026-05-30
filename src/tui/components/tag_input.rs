@@ -8,6 +8,7 @@ use ratatui::{
 use crate::t;
 use crate::tui::state::form_state::TagAutocompleteState;
 use crate::tui::{components::text_input, theme};
+use unicode_width::UnicodeWidthStr;
 
 fn truncate_to_width(value: &str, width: usize) -> String {
     let mut out = String::new();
@@ -76,7 +77,12 @@ pub fn render_tag_input(
 
     // Tag blocks
     if !tags.is_empty() {
-        let mut tag_spans: Vec<Span> = vec![Span::raw(" ".repeat(text_input::FORM_LABEL_WIDTH))];
+        let indent = " ".repeat(text_input::FORM_LABEL_WIDTH);
+        let max_row_width = content_width
+            .saturating_sub(text_input::FORM_LABEL_WIDTH)
+            .max(1);
+        let mut tag_spans: Vec<Span> = vec![Span::raw(indent.clone())];
+        let mut row_width = 0usize;
         for (idx, tag) in tags.iter().enumerate() {
             let style = if focused && focused_tag == Some(idx) {
                 Style::default()
@@ -92,9 +98,16 @@ pub fn render_tag_input(
             } else {
                 Style::default().fg(theme::ERROR)
             };
+            let chip_width = UnicodeWidthStr::width(format!("[ {} ×] ", tag).as_str());
+            if row_width > 0 && row_width + chip_width > max_row_width {
+                lines.push(Line::from(tag_spans));
+                tag_spans = vec![Span::raw(indent.clone())];
+                row_width = 0;
+            }
             tag_spans.push(Span::styled(format!("[ {} ", tag), style));
             tag_spans.push(Span::styled("×", delete_style));
             tag_spans.push(Span::styled("] ", style));
+            row_width = row_width.saturating_add(chip_width);
         }
         lines.push(Line::from(tag_spans));
     }
@@ -147,6 +160,21 @@ mod tests {
         let tags = vec!["工作".into(), "GitHub".into()];
         let lines = render_tag_input("", &tags, false, None, None, &[], 60);
         assert!(lines.len() >= 2);
+    }
+
+    #[test]
+    fn render_tag_input_wraps_tags_to_available_width() {
+        let tags = vec![
+            "alpha".into(),
+            "beta".into(),
+            "gamma".into(),
+            "delta".into(),
+        ];
+        let lines = render_tag_input("", &tags, false, None, None, &[], 32);
+        assert!(
+            lines.len() > 2,
+            "tag chips should wrap instead of overflowing one row"
+        );
     }
 
     #[test]

@@ -50,6 +50,10 @@ pub fn render_form(
     // overlay the actual TextArea widget after the Paragraph is rendered.
     // None means no textarea is rendered (should not happen currently).
     let mut notes_line_offset: Option<(usize, u16)> = None;
+    let notes_content_width = area
+        .width
+        .saturating_sub(crate::tui::components::text_input::FORM_LABEL_WIDTH as u16 + 3)
+        .max(1);
 
     // Field 0: Credential Type dropdown
     let ct_options = [
@@ -106,7 +110,8 @@ pub fn render_form(
     match ct {
         CredentialType::SecureNote => {
             // Field 2: Notes textarea — record offset for overlay rendering
-            let notes_rows = textarea::visible_rows(&state.fields.notes);
+            let notes_rows =
+                textarea::visible_rows_for_width(&state.fields.notes, notes_content_width);
             notes_line_offset = Some((lines.len(), notes_rows));
             lines.extend(textarea::render_textarea_label(
                 t!("tui.form.notes_label").as_ref(),
@@ -480,7 +485,7 @@ pub fn render_form(
         CredentialType::SecureNote => 2, // Already rendered
     };
     if ct != CredentialType::SecureNote {
-        let notes_rows = textarea::visible_rows(&state.fields.notes);
+        let notes_rows = textarea::visible_rows_for_width(&state.fields.notes, notes_content_width);
         notes_line_offset = Some((lines.len(), notes_rows));
         lines.extend(textarea::render_textarea_label(
             t!("tui.form.notes_label").as_ref(),

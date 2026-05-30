@@ -7,6 +7,12 @@ use crate::crypto::strength::{evaluate_strength, PasswordStrength};
 use crate::t;
 use crate::tui::components::textarea;
 use crate::types::credential::{CredentialType, EncryptedPayload};
+use crate::types::record_limits::{
+    char_count, MAX_API_APP_ID_CHARS, MAX_API_SECRET_CHARS, MAX_LOGIN_PASSWORD_CHARS,
+    MAX_LOGIN_USERNAME_CHARS, MAX_NOTES_CHARS, MAX_RECORD_NAME_CHARS, MAX_SECURE_NOTE_CHARS,
+    MAX_SSH_PASSPHRASE_CHARS, MAX_SSH_PRIVATE_KEY_CHARS, MAX_SSH_PUBLIC_KEY_CHARS,
+    MAX_TAGS_PER_RECORD, MAX_TAG_CHARS, MAX_URL_CHARS,
+};
 use crate::types::sensitive::{SecureStr, SensitiveInput};
 use tui_textarea::TextArea;
 
@@ -197,7 +203,11 @@ impl FormFields {
     pub fn commit_tag_input(&mut self) -> bool {
         let tag = self.tag_input.trim().to_string();
         self.tag_input.clear();
-        if tag.is_empty() || self.fields_contains_tag(&tag) {
+        if tag.is_empty()
+            || self.tags.len() >= MAX_TAGS_PER_RECORD
+            || char_count(&tag) > MAX_TAG_CHARS
+            || self.fields_contains_tag(&tag)
+        {
             return false;
         }
         self.tags.push(tag);
@@ -612,6 +622,159 @@ impl FormState {
             CredentialType::Ssh => 7,
             CredentialType::SecureNote => 4, // type(0) + name(1) + notes(2) + expiry(3) + tags(4)
         }
+    }
+
+    pub fn current_field_char_limit(&self) -> Option<(&'static str, usize)> {
+        if self.footer_focus.is_some() {
+            return None;
+        }
+
+        let focused = self.focused_field;
+        let ct = self.credential_type;
+        match focused {
+            1 => Some(("name", MAX_RECORD_NAME_CHARS)),
+            2 => match ct {
+                CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                    Some(("url", MAX_URL_CHARS))
+                }
+                CredentialType::SecureNote => Some(("notes", MAX_SECURE_NOTE_CHARS)),
+            },
+            3 => match ct {
+                CredentialType::Login => Some(("username", MAX_LOGIN_USERNAME_CHARS)),
+                CredentialType::Api => Some(("app_id", MAX_API_APP_ID_CHARS)),
+                CredentialType::Ssh => Some(("public_key", MAX_SSH_PUBLIC_KEY_CHARS)),
+                CredentialType::SecureNote => None,
+            },
+            4 => match ct {
+                CredentialType::Login => Some(("password", MAX_LOGIN_PASSWORD_CHARS)),
+                CredentialType::Api => Some(("secret_key", MAX_API_SECRET_CHARS)),
+                CredentialType::Ssh => Some(("private_key", MAX_SSH_PRIVATE_KEY_CHARS)),
+                CredentialType::SecureNote => Some(("tag", MAX_TAG_CHARS)),
+            },
+            5 if ct == CredentialType::Ssh => Some(("passphrase", MAX_SSH_PASSPHRASE_CHARS)),
+            _ if focused == self.tags_field_index() => Some(("tag", MAX_TAG_CHARS)),
+            _ if self.fields.is_textarea_field(focused, ct) => Some(("notes", MAX_NOTES_CHARS)),
+            _ => None,
+        }
+    }
+
+    pub fn current_field_char_count(&self) -> usize {
+        let focused = self.focused_field;
+        let ct = self.credential_type;
+        match focused {
+            1 => char_count(&self.fields.name),
+            2 => match ct {
+                CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                    char_count(&self.fields.url)
+                }
+                CredentialType::SecureNote => char_count(&self.fields.notes_text()),
+            },
+            3 => match ct {
+                CredentialType::Login => self
+                    .fields
+                    .username
+                    .as_deref()
+                    .map(char_count)
+                    .unwrap_or_default(),
+                CredentialType::Api => self
+                    .fields
+                    .app_id
+                    .as_deref()
+                    .map(char_count)
+                    .unwrap_or_default(),
+                CredentialType::Ssh => self
+                    .fields
+                    .public_key
+                    .as_deref()
+                    .map(char_count)
+                    .unwrap_or_default(),
+                CredentialType::SecureNote => 0,
+            },
+            4 => match ct {
+                CredentialType::Login => {
+                    self.fields.password.as_ref().map(|s| s.len()).unwrap_or(0)
+                }
+                CredentialType::Api => self
+                    .fields
+                    .secret_key
+                    .as_ref()
+                    .map(|s| s.len())
+                    .unwrap_or(0),
+                CredentialType::Ssh => self
+                    .fields
+                    .private_key
+                    .as_ref()
+                    .map(|s| s.len())
+                    .unwrap_or(0),
+                CredentialType::SecureNote => char_count(&self.fields.tag_input),
+            },
+            5 if ct == CredentialType::Ssh => self
+                .fields
+                .passphrase
+                .as_ref()
+                .map(|s| s.len())
+                .unwrap_or(0),
+            _ if focused == self.tags_field_index() => char_count(&self.fields.tag_input),
+            _ if self.fields.is_textarea_field(focused, ct) => {
+                char_count(&self.fields.notes_text())
+            }
+            _ => 0,
+        }
+    }
+
+    pub fn can_insert_char_into_current_field(&self, ch: char) -> bool {
+        if self.focused_field == self.tags_field_index() && matches!(ch, ',' | '，') {
+            return true;
+        }
+        if self.focused_field == self.tags_field_index()
+            && self.fields.tag_input.is_empty()
+            && self.fields.tags.len() >= MAX_TAGS_PER_RECORD
+            && !matches!(ch, ',' | '，')
+        {
+            return false;
+        }
+        let Some((_field, max)) = self.current_field_char_limit() else {
+            return true;
+        };
+        self.current_field_char_count() + 1 <= max
+    }
+
+    pub fn set_current_limit_error(&mut self) {
+        let field_index = self.focused_field;
+        self.validation_errors
+            .retain(|error| error.field_index != field_index);
+
+        let message = if field_index == self.tags_field_index()
+            && self.fields.tag_input.is_empty()
+            && self.fields.tags.len() >= MAX_TAGS_PER_RECORD
+        {
+            t!(
+                "tui.form.validation_too_many_tags",
+                max = MAX_TAGS_PER_RECORD,
+                actual = self.fields.tags.len()
+            )
+            .to_string()
+        } else if let Some((_field, max)) = self.current_field_char_limit() {
+            t!(
+                "tui.form.validation_too_long",
+                max = max,
+                actual = self.current_field_char_count()
+            )
+            .to_string()
+        } else {
+            return;
+        };
+
+        self.validation_errors.push(ValidationError {
+            field_index,
+            message,
+        });
+    }
+
+    pub fn clear_current_limit_error(&mut self) {
+        let field_index = self.focused_field;
+        self.validation_errors
+            .retain(|error| error.field_index != field_index);
     }
 
     /// Whether the credential type dropdown is interactive.

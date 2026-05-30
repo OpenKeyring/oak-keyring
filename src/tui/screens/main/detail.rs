@@ -614,10 +614,10 @@ impl DetailPanel {
         };
         lines.push(metadata_border_line(cols, "┌", "┬", "┐", unicode));
         if !record.tags.is_empty() {
-            lines.push(render_metadata_row(
+            lines.extend(render_tag_metadata_rows(
                 nf_icon(unicode, theme::NF_TAG, theme::ascii::NF_TAG),
                 t!("tui.password_detail.tags_label").as_ref(),
-                render_tag_chips(&record.tags),
+                &record.tags,
                 cols,
             ));
             lines.push(metadata_border_line(cols, "├", "┼", "┤", unicode));
@@ -879,6 +879,22 @@ fn render_notes_metadata_rows(
     let rendered = render_markdown_note_lines(notes);
     let label_text = format!("{}  {}", icon, label);
     rendered
+        .into_iter()
+        .enumerate()
+        .map(|(index, spans)| {
+            render_metadata_row_with_label(if index == 0 { &label_text } else { "" }, spans, cols)
+        })
+        .collect()
+}
+
+fn render_tag_metadata_rows(
+    icon: &str,
+    label: &str,
+    tags: &[String],
+    cols: MetadataColumns,
+) -> Vec<Line<'static>> {
+    let label_text = format!("{}  {}", icon, label);
+    render_tag_chip_rows(tags, cols.value)
         .into_iter()
         .enumerate()
         .map(|(index, spans)| {
@@ -1425,17 +1441,36 @@ fn action_button_span(
     }
 }
 
-fn render_tag_chips(tags: &[String]) -> Vec<Span<'static>> {
-    let mut spans = Vec::new();
+fn render_tag_chip_rows(tags: &[String], width: usize) -> Vec<Vec<Span<'static>>> {
+    let mut rows: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut row: Vec<Span<'static>> = Vec::new();
+    let mut row_width = 0usize;
+    let width = width.max(1);
+
     for tag in tags {
-        spans.push(Span::styled("[ ", Style::default().fg(theme::NL_CYAN)));
-        spans.push(Span::styled(
-            tag.clone(),
-            Style::default().fg(theme::NL_TEXT),
-        ));
-        spans.push(Span::styled(" ] ", Style::default().fg(theme::NL_CYAN)));
+        let chip = tag_chip_spans(tag);
+        let chip_width = spans_width(&chip);
+        if row_width > 0 && row_width + chip_width > width {
+            rows.push(row);
+            row = Vec::new();
+            row_width = 0;
+        }
+        row.extend(chip);
+        row_width = row_width.saturating_add(chip_width);
     }
-    spans
+
+    if !row.is_empty() {
+        rows.push(row);
+    }
+    rows
+}
+
+fn tag_chip_spans(tag: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled("[ ", Style::default().fg(theme::NL_CYAN)),
+        Span::styled(tag.to_string(), Style::default().fg(theme::NL_TEXT)),
+        Span::styled(" ] ", Style::default().fg(theme::NL_CYAN)),
+    ]
 }
 
 /// Render the batch summary view in the detail panel when visual mode is active.
@@ -1693,6 +1728,7 @@ mod tests {
 
     #[test]
     fn trash_detail_delete_action_uses_delete_label_not_warning_text() {
+        let _locale = LocaleGuard::en();
         let data = make_trash_detail_data();
         let mut state = DetailPanelState::with_record(data);
         state.set_trash_context(true, 30);
@@ -1719,6 +1755,7 @@ mod tests {
 
     #[test]
     fn wide_detail_renders_card_grid_and_nerd_font_actions() {
+        let _locale = LocaleGuard::en();
         let mut data = make_trash_detail_data();
         data.name = "GitHub".into();
         data.subtitle = "github.com".into();
@@ -1779,6 +1816,7 @@ mod tests {
 
     #[test]
     fn wide_detail_renders_table_borders_badges_and_empty_url_row() {
+        let _locale = LocaleGuard::en();
         let mut data = make_trash_detail_data();
         data.tags = vec!["github".into()];
         data.notes = Some("primary account".into());
@@ -1811,7 +1849,26 @@ mod tests {
     }
 
     #[test]
+    fn detail_metadata_wraps_tag_chips_without_ellipsis() {
+        let mut data = make_trash_detail_data();
+        data.tags = (1..=10).map(|n| format!("tag-{n}")).collect();
+
+        let state = DetailPanelState::with_record(data);
+        let snapshot = render_detail_snapshot(&state, 92, 30, true, true);
+
+        assert!(
+            !snapshot.contains("tag-7 …") && !snapshot.contains("[ tag-7 …"),
+            "detail tags should wrap instead of truncating with an ellipsis:\n{snapshot}"
+        );
+        assert!(
+            snapshot.contains("[ tag-10 ]"),
+            "wrapped detail tags should still show the final tag chip:\n{snapshot}"
+        );
+    }
+
+    #[test]
     fn secure_note_detail_does_not_render_empty_primary_table() {
+        let _locale = LocaleGuard::en();
         let state = DetailPanelState::with_record(make_secure_note_detail_data());
         let buffer = render_detail_buffer(&state, 120, 30, true, true);
 
