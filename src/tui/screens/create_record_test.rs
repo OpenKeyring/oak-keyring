@@ -481,6 +481,64 @@ fn required_validation_does_not_render_duplicate_error_rows() {
 }
 
 #[test]
+fn valid_save_enters_saving_state_and_queues_create_command() {
+    let (tx, mut rx) = mpsc::channel(2);
+    let mut screen = make_screen();
+    let env = TestEnv::new();
+    let mut ctx = env.make_ctx(&tx);
+    screen.form.fields.name = "Github Page".into();
+    screen.form.fields.username = Some("p1024k".into());
+    for c in "correct horse battery staple 2026!".chars() {
+        screen.form.fields.password.as_mut().unwrap().push_char(c);
+    }
+    screen.form.fields.tags = vec!["github".into()];
+
+    let result = screen.update(Message::KeyEvent(ctrl('s')), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(screen.form.saving);
+    assert!(matches!(
+        rx.try_recv().unwrap(),
+        Command::CreateRecord { .. }
+    ));
+    let buffer = render_buffer(&screen, 100, 32);
+    assert!(find_text(&buffer, "Saving")
+        .or_else(|| find_text(&buffer, "正在保存"))
+        .is_some());
+}
+
+#[test]
+fn saving_form_ignores_duplicate_save_keys() {
+    let (tx, mut rx) = mpsc::channel(3);
+    let mut screen = make_screen();
+    let env = TestEnv::new();
+    let mut ctx = env.make_ctx(&tx);
+    screen.form.fields.name = "Github Page".into();
+    screen.form.fields.username = Some("p1024k".into());
+    for c in "correct horse battery staple 2026!".chars() {
+        screen.form.fields.password.as_mut().unwrap().push_char(c);
+    }
+
+    assert!(matches!(
+        screen.update(Message::KeyEvent(ctrl('s')), &mut ctx),
+        ScreenResult::Continue
+    ));
+    assert!(matches!(
+        rx.try_recv().unwrap(),
+        Command::CreateRecord { .. }
+    ));
+
+    assert!(matches!(
+        screen.update(Message::KeyEvent(ctrl('s')), &mut ctx),
+        ScreenResult::Continue
+    ));
+    assert!(matches!(
+        rx.try_recv(),
+        Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+    ));
+}
+
+#[test]
 fn focused_dropdown_has_visible_highlight_style() {
     let screen = make_screen();
     let buffer = render_buffer(&screen, 80, 24);
@@ -920,7 +978,7 @@ fn weak_dialog_enter_cancel_returns_to_edit() {
 
 #[test]
 fn weak_dialog_enter_save_saves() {
-    let (tx, _rx) = mpsc::channel(1);
+    let (tx, mut rx) = mpsc::channel(1);
     let mut screen = make_screen();
     let env = TestEnv::new();
     let mut ctx = env.make_ctx(&tx);
@@ -938,6 +996,11 @@ fn weak_dialog_enter_save_saves() {
         )),
         &mut ctx,
     );
-    assert!(matches!(result, ScreenResult::Command(_)));
+    assert!(matches!(result, ScreenResult::Continue));
     assert!(!screen.form.show_weak_password_dialog);
+    assert!(screen.form.saving);
+    assert!(matches!(
+        rx.try_recv().unwrap(),
+        Command::CreateRecord { .. }
+    ));
 }

@@ -54,10 +54,13 @@ impl EditRecordScreen {
         ctx: &mut ScreenContext,
     ) -> ScreenResult {
         let key = key_event.code;
+        if self.form.saving {
+            return ScreenResult::Continue;
+        }
 
         // If dialogs are showing, handle them first
         if self.form.show_weak_password_dialog {
-            return self.handle_weak_password_dialog(key);
+            return self.handle_weak_password_dialog(key, ctx);
         }
         if self.form.show_unsaved_dialog {
             return self.handle_unsaved_dialog(key);
@@ -171,7 +174,7 @@ impl EditRecordScreen {
                 self.activate_copy_shortcut()
             }
             KeyCode::Char('s') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.attempt_save()
+                self.attempt_save(ctx)
             }
             KeyCode::Enter => self.handle_enter(ctx),
             KeyCode::Char(' ') if self.form.footer_focus.is_some() => self.handle_enter(ctx),
@@ -198,7 +201,7 @@ impl EditRecordScreen {
         let ct = self.form.credential_type;
 
         if let Some(button) = self.form.footer_focus {
-            return self.activate_footer_button(button);
+            return self.activate_footer_button(button, ctx);
         }
 
         // If notes textarea is focused, insert newline
@@ -590,7 +593,7 @@ impl EditRecordScreen {
         ScreenResult::Continue
     }
 
-    fn attempt_save(&mut self) -> ScreenResult {
+    fn attempt_save(&mut self, ctx: &ScreenContext) -> ScreenResult {
         let errors = validation::validate(&self.form.fields, self.form.credential_type);
         if !errors.is_empty() {
             self.form.validation_errors = errors;
@@ -604,7 +607,7 @@ impl EditRecordScreen {
             return ScreenResult::Continue;
         }
 
-        self.update_record_command()
+        self.submit_update_record(ctx)
     }
 
     fn cancel_form(&mut self) -> ScreenResult {
@@ -617,9 +620,13 @@ impl EditRecordScreen {
         }
     }
 
-    fn activate_footer_button(&mut self, button: FormFooterButton) -> ScreenResult {
+    fn activate_footer_button(
+        &mut self,
+        button: FormFooterButton,
+        ctx: &ScreenContext,
+    ) -> ScreenResult {
         match button {
-            FormFooterButton::Save => self.attempt_save(),
+            FormFooterButton::Save => self.attempt_save(ctx),
             FormFooterButton::Cancel => self.cancel_form(),
         }
     }
@@ -658,18 +665,28 @@ impl EditRecordScreen {
         }
     }
 
-    fn update_record_command(&mut self) -> ScreenResult {
-        ScreenResult::Command(Box::new(Command::UpdateRecord {
+    fn submit_update_record(&mut self, ctx: &ScreenContext) -> ScreenResult {
+        let command = Command::UpdateRecord {
             id: self.record_id.unwrap_or_else(Uuid::nil),
-            payload: self.form.build_payload(),
-            tags: std::mem::take(&mut self.form.fields.tags),
+            payload: self.form.build_payload_snapshot(),
+            tags: self.form.fields.tags.clone(),
             is_favorite: false,
             expires_at: self.form.expiry_datetime(),
             expected_version: self.record_version.unwrap_or(0),
-        }))
+        };
+        if ctx.send_user_command(command).is_some() {
+            self.form.validation_errors = vec![crate::tui::state::form_state::ValidationError {
+                field_index: 1,
+                message: "Action failed: command queue full".to_string(),
+            }];
+            self.form.focused_field = 1;
+            return ScreenResult::Continue;
+        }
+        self.form.start_saving();
+        ScreenResult::Continue
     }
 
-    fn handle_weak_password_dialog(&mut self, key: KeyCode) -> ScreenResult {
+    fn handle_weak_password_dialog(&mut self, key: KeyCode, ctx: &ScreenContext) -> ScreenResult {
         match key {
             KeyCode::Esc => {
                 self.form.show_weak_password_dialog = false;
@@ -693,7 +710,7 @@ impl EditRecordScreen {
                     ScreenResult::Continue
                 } else {
                     // "Save" continues despite the warning.
-                    self.update_record_command()
+                    self.submit_update_record(ctx)
                 }
             }
             _ => ScreenResult::Continue,
@@ -979,6 +996,10 @@ impl Screen for EditRecordScreen {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key, ctx),
+            Message::Tick => {
+                self.form.tick_saving();
+                ScreenResult::Continue
+            }
             Message::CommandCompleted(result) => match result {
                 CommandResult::TagsLoaded { tags, tag_stats: _ } => {
                     self.all_tags = tags.into_iter().map(|tag| tag.name).collect();
@@ -1086,6 +1107,12 @@ impl Screen for EditRecordScreen {
                     ScreenResult::Continue
                 }
                 CommandResult::RecordUpdated { .. } => ScreenResult::PopScreen,
+                CommandResult::Error { .. }
+                | CommandResult::FatalError { .. }
+                | CommandResult::Cancelled { .. } => {
+                    self.form.finish_saving();
+                    ScreenResult::Continue
+                }
                 _ => ScreenResult::Continue,
             },
             _ => ScreenResult::Continue,
@@ -1221,6 +1248,53 @@ mod tests {
         );
         assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.all_tags.len(), 1);
+    }
+
+    #[test]
+    fn valid_save_enters_saving_state_and_queues_update_command() {
+        let (tx, mut rx) = mpsc::channel(2);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.record_id = Some(uuid::Uuid::new_v4());
+        screen.record_version = Some(3);
+        screen.form.fields.name = "Github Page".into();
+        screen.form.fields.username = Some("p1024k".into());
+        screen.form.fields.password = Some(SensitiveInput::from(
+            "correct horse battery staple 2026!".to_string(),
+        ));
+        screen.form.fields.tags = vec!["github".into()];
+
+        let result = screen.update(Message::KeyEvent(ctrl('s')), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.form.saving);
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            Command::UpdateRecord { .. }
+        ));
+    }
+
+    #[test]
+    fn command_error_leaves_edit_screen_saving_state() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.start_saving();
+
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::Error {
+                code: crate::errors::ErrorCode::VaultDatabaseIoError,
+                context: crate::errors::ErrorContext::new(),
+                message_key: "test",
+                fallback: "write failed".into(),
+            }),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(!screen.form.saving);
     }
 
     #[test]
@@ -1493,7 +1567,7 @@ mod tests {
 
     #[test]
     fn weak_dialog_enter_save_saves() {
-        let (tx, _rx) = mpsc::channel(1);
+        let (tx, mut rx) = mpsc::channel(1);
         let mut screen = make_screen();
         let env = TestEnv::new();
         let mut ctx = env.make_ctx(&tx);
@@ -1512,7 +1586,12 @@ mod tests {
             )),
             &mut ctx,
         );
-        assert!(matches!(result, ScreenResult::Command(_)));
+        assert!(matches!(result, ScreenResult::Continue));
         assert!(!screen.form.show_weak_password_dialog);
+        assert!(screen.form.saving);
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            Command::UpdateRecord { .. }
+        ));
     }
 }

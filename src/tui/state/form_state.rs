@@ -317,6 +317,10 @@ pub struct FormState {
     pub password_sub_focus: PasswordFieldFocus,
     /// Mouse/keyboard focus for footer action buttons. `None` means a form field is focused.
     pub footer_focus: Option<FormFooterButton>,
+    /// True after a create/update command has been accepted by the executor queue.
+    pub saving: bool,
+    /// Animation tick for the indeterminate saving indicator.
+    pub saving_tick: usize,
 }
 
 /// Tag autocomplete dropdown state.
@@ -355,6 +359,29 @@ impl FormState {
             unsaved_dialog_focus: 0,
             password_sub_focus: PasswordFieldFocus::Input,
             footer_focus: None,
+            saving: false,
+            saving_tick: 0,
+        }
+    }
+
+    pub fn start_saving(&mut self) {
+        self.saving = true;
+        self.saving_tick = 0;
+        self.footer_focus = None;
+        self.credential_dropdown.expanded = false;
+        self.expiry_dropdown.expanded = false;
+        self.show_weak_password_dialog = false;
+        self.show_unsaved_dialog = false;
+    }
+
+    pub fn finish_saving(&mut self) {
+        self.saving = false;
+        self.saving_tick = 0;
+    }
+
+    pub fn tick_saving(&mut self) {
+        if self.saving {
+            self.saving_tick = self.saving_tick.wrapping_add(1);
         }
     }
 
@@ -875,6 +902,58 @@ impl FormState {
                 } else {
                     Some(notes_text)
                 },
+            },
+        }
+    }
+
+    /// Build `EncryptedPayload` without consuming the visible form fields.
+    ///
+    /// Create/Edit screens use this while a queued save may be delayed by a
+    /// long-running executor command, so the user still sees the submitted
+    /// values and an error can return them to editing.
+    pub fn build_payload_snapshot(&self) -> EncryptedPayload {
+        let notes_text = self.fields.notes_text();
+        let optional_notes = || {
+            if notes_text.is_empty() {
+                None
+            } else {
+                Some(notes_text.clone())
+            }
+        };
+        let clone_secret = |value: Option<&SensitiveInput>| {
+            value
+                .map(|input| input.expose(|s| SecureStr::new(s.to_string())))
+                .unwrap_or_else(|| SecureStr::new(String::new()))
+        };
+        let clone_optional_secret = |value: Option<&SensitiveInput>| {
+            value.map(|input| input.expose(|s| SecureStr::new(s.to_string())))
+        };
+
+        match self.credential_type {
+            CredentialType::Login => EncryptedPayload::Login {
+                name: self.fields.name.clone(),
+                username: self.fields.username.clone().unwrap_or_default(),
+                password: clone_secret(self.fields.password.as_ref()),
+                url: Some(self.fields.url.clone()),
+                notes: optional_notes(),
+            },
+            CredentialType::Api => EncryptedPayload::Api {
+                name: self.fields.name.clone(),
+                app_id: self.fields.app_id.clone().unwrap_or_default(),
+                secret_key: clone_secret(self.fields.secret_key.as_ref()),
+                url: Some(self.fields.url.clone()),
+                notes: optional_notes(),
+            },
+            CredentialType::Ssh => EncryptedPayload::Ssh {
+                name: self.fields.name.clone(),
+                public_key: self.fields.public_key.clone().unwrap_or_default(),
+                private_key: clone_optional_secret(self.fields.private_key.as_ref()),
+                passphrase: clone_optional_secret(self.fields.passphrase.as_ref()),
+                notes: optional_notes(),
+            },
+            CredentialType::SecureNote => EncryptedPayload::SecureNote {
+                name: self.fields.name.clone(),
+                notes: optional_notes(),
             },
         }
     }

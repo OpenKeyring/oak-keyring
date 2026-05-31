@@ -435,6 +435,7 @@ tui:
     save_button: "保存"
     cancel_button: "取消"
     back_button: "上一步"
+    saving_status: "正在保存"
     # Additional form strings
     save_hint: "Ctrl+S 保存"
     cancel_hint: "Esc 取消"

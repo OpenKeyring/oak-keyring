@@ -436,6 +436,7 @@ tui:
     save_button: "Save"
     cancel_button: "Cancel"
     back_button: "Back"
+    saving_status: "Saving"
     # Additional form strings
     save_hint: "Ctrl+S Save"
     cancel_hint: "Esc Cancel"

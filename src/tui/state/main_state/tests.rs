@@ -894,6 +894,16 @@ fn mouse_click(column: u16, row: u16) -> crossterm::event::MouseEvent {
     }
 }
 
+fn mouse_scroll_down(column: u16, row: u16) -> crossterm::event::MouseEvent {
+    use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+    MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
 #[test]
 fn default_state_has_no_active_overlay() {
     let state = MainScreenState::default();
@@ -1120,6 +1130,67 @@ fn mouse_click_list_row_uses_rendered_scroll_offset() {
         ScreenResult::Command(cmd) => match *cmd {
             Command::LoadRecordDetail { id } => assert_eq!(id, expected_id),
             other => panic!("expected LoadRecordDetail, got {other:?}"),
+        },
+        other => panic!("expected command result, got {other:?}"),
+    }
+}
+
+#[test]
+fn mouse_scroll_sidebar_moves_tag_view_without_changing_filter() {
+    let mut state = MainScreenState::default();
+    state.terminal_area = Rect::new(0, 0, 120, 18);
+    state.sidebar.tags = (0..18)
+        .map(|idx| Tag {
+            id: idx + 1,
+            name: format!("tag_{idx:02}"),
+        })
+        .collect();
+    state.sidebar.rebuild();
+    state.sidebar.select_category(SidebarCategory::All);
+    state.current_filter = RecordFilter::All;
+    state.focused_panel = PanelId::List;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::MouseEvent(mouse_scroll_down(4, 8)), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.focused_panel, PanelId::Sidebar);
+    assert_eq!(state.current_filter, RecordFilter::All);
+    assert!(state.sidebar.tag_scroll_offset > 0);
+}
+
+#[test]
+fn mouse_click_visible_sidebar_tag_selects_tag_and_reloads_filter() {
+    let mut state = MainScreenState::default();
+    state.terminal_area = Rect::new(0, 0, 120, 18);
+    state.sidebar.tags = (0..18)
+        .map(|idx| Tag {
+            id: idx + 1,
+            name: format!("tag_{idx:02}"),
+        })
+        .collect();
+    state.sidebar.rebuild();
+    state.sidebar.tag_scroll_offset = 18;
+    state.sidebar.select_category(SidebarCategory::All);
+    state.current_filter = RecordFilter::All;
+    state.focused_panel = PanelId::List;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::MouseEvent(mouse_click(4, 1)), &mut ctx);
+
+    assert_eq!(state.focused_panel, PanelId::Sidebar);
+    assert_eq!(state.sidebar.selected_tag_name(), Some("tag_02"));
+    assert_eq!(
+        state.current_filter,
+        RecordFilter::Tag("tag_02".to_string())
+    );
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::LoadRecordList { filter, offset, .. } => {
+                assert_eq!(filter, RecordFilter::Tag("tag_02".to_string()));
+                assert_eq!(offset, 0);
+            }
+            other => panic!("expected LoadRecordList, got {other:?}"),
         },
         other => panic!("expected command result, got {other:?}"),
     }

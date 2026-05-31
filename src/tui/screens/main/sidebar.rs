@@ -47,12 +47,7 @@ impl SidebarPanel {
             area,
         );
 
-        let footer_start = state
-            .items
-            .iter()
-            .position(|item| matches!(item, SidebarItem::Generator))
-            .and_then(|idx| idx.checked_sub(1))
-            .unwrap_or(state.items.len());
+        let footer_start = state.footer_start_index();
         let footer_height = if state.items.len() > footer_start {
             (state.items.len() - footer_start).min(area.height as usize) as u16
         } else {
@@ -71,17 +66,65 @@ impl SidebarPanel {
             footer_height,
         );
 
-        let items: Vec<ListItem<'_>> = state.items[..footer_start]
+        let visible_items = nav_area.height.max(1) as usize;
+        let mut list_offset = state
+            .tag_scroll_offset
+            .min(state.max_tag_scroll_offset(visible_items));
+        if state.tag_scroll_offset == 0 && state.selected_index < footer_start {
+            if state.selected_index < list_offset {
+                list_offset = state.selected_index;
+            } else if state.selected_index >= list_offset.saturating_add(visible_items) {
+                list_offset = state.selected_index + 1 - visible_items;
+            }
+        }
+        list_offset = list_offset.min(state.max_tag_scroll_offset(visible_items));
+
+        let needs_scrollbar = state.tags_expanded
+            && !state.tags.is_empty()
+            && footer_start > visible_items
+            && nav_area.width > 4;
+        let (nav_list_area, nav_scroll_area) = if needs_scrollbar {
+            (
+                Rect::new(
+                    nav_area.x,
+                    nav_area.y,
+                    nav_area.width.saturating_sub(1),
+                    nav_area.height,
+                ),
+                Rect::new(
+                    nav_area.x + nav_area.width.saturating_sub(1),
+                    nav_area.y,
+                    1,
+                    nav_area.height,
+                ),
+            )
+        } else {
+            (nav_area, Rect::default())
+        };
+
+        let items: Vec<ListItem<'_>> = state.items[list_offset..footer_start]
             .iter()
-            .map(|item| build_list_item(item, state, unicode, area.width, focused))
+            .take(visible_items)
+            .map(|item| build_list_item(item, state, unicode, nav_list_area.width, focused))
             .collect();
 
         let list = List::new(items);
 
         let mut list_state = ListState::default();
-        list_state.select((state.selected_index < footer_start).then_some(state.selected_index));
+        let selected_in_view = state
+            .selected_index
+            .checked_sub(list_offset)
+            .filter(|idx| state.selected_index < footer_start && *idx < visible_items);
+        list_state.select(selected_in_view);
 
-        frame.render_stateful_widget(list, nav_area, &mut list_state);
+        frame.render_stateful_widget(list, nav_list_area, &mut list_state);
+        render_sidebar_scrollbar(
+            frame,
+            nav_scroll_area,
+            list_offset,
+            visible_items,
+            footer_start,
+        );
 
         if footer_height > 0 {
             let footer_items: Vec<ListItem<'_>> = state.items[footer_start..]
@@ -95,9 +138,6 @@ impl SidebarPanel {
             );
             frame.render_stateful_widget(footer_list, footer_area, &mut footer_state);
         }
-
-        // Read the scroll offset after rendering to position inline rename correctly
-        let list_offset = list_state.offset();
 
         // Render inline rename edit box overlay if active
         if state.tag_management_mode {
@@ -577,6 +617,48 @@ fn count_badge_spans(
     } else {
         vec![Span::styled(format!("[{}]", label), badge_text_style)]
     }
+}
+
+fn render_sidebar_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    offset: usize,
+    visible: usize,
+    total: usize,
+) {
+    if area.width == 0 || area.height == 0 || total <= visible {
+        return;
+    }
+
+    let max_offset = total - visible;
+    if max_offset == 0 {
+        return;
+    }
+
+    let clamped_offset = offset.min(max_offset);
+    let thumb_ratio = visible as f32 / total as f32;
+    let thumb_height = ((area.height as f32 * thumb_ratio).max(1.0)).ceil() as u16;
+    let scroll_ratio = clamped_offset as f32 / max_offset as f32;
+    let max_thumb_y = area.height.saturating_sub(thumb_height);
+    let thumb_y = (scroll_ratio * max_thumb_y as f32) as u16;
+
+    frame.render_widget(
+        Paragraph::new("\u{2502}".repeat(area.height as usize))
+            .style(Style::default().fg(theme::NL_LINE).bg(theme::NL_SURFACE)),
+        area,
+    );
+
+    let thumb_area = Rect {
+        x: area.x,
+        y: area.y + thumb_y,
+        width: 1,
+        height: thumb_height.max(1),
+    };
+    frame.render_widget(
+        Paragraph::new("\u{2588}".repeat(thumb_area.height as usize))
+            .style(Style::default().fg(theme::NL_CYAN).bg(theme::NL_SURFACE)),
+        thumb_area,
+    );
 }
 
 /// Render the inline rename edit box overlay on top of the current tag item.
@@ -1257,6 +1339,48 @@ mod tests {
         assert!(
             rendered_contains_any(&rendered, &["Settings", "配置"]),
             "config row should render when selected"
+        );
+    }
+
+    #[test]
+    fn expanded_tags_scroll_with_scrollbar_and_keep_footer_visible() {
+        use crate::types::Tag;
+
+        let mut state = SidebarState {
+            tags_expanded: true,
+            tags: (0..18)
+                .map(|idx| Tag {
+                    id: idx + 1,
+                    name: format!("tag_{idx:02}"),
+                })
+                .collect(),
+            tag_scroll_offset: 16,
+            ..Default::default()
+        };
+        state.rebuild();
+
+        let buffer = render_sidebar_buffer(&state, 36, 16);
+        let rendered = format!("{:?}", buffer);
+
+        assert!(
+            rendered.contains("tag_06"),
+            "scrolled sidebar should show later tags"
+        );
+        assert!(
+            !rendered.contains("tag_00"),
+            "scrolled sidebar should not stay pinned to the first tag"
+        );
+        assert!(
+            rendered.contains("█"),
+            "overflowing tag list should render a scrollbar thumb"
+        );
+        assert!(
+            rendered_contains_any(&rendered, &["Generator", "生成器"]),
+            "footer shortcuts should stay visible while tags scroll"
+        );
+        assert!(
+            rendered_contains_any(&rendered, &["Settings", "配置"]),
+            "config footer shortcut should stay visible while tags scroll"
         );
     }
 

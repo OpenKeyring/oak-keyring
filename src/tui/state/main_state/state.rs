@@ -141,6 +141,7 @@ impl SidebarState {
     /// Rebuild the sidebar item list from categories, tags, and utility entries.
     pub fn rebuild(&mut self) {
         self.items = self.build_items();
+        self.tag_scroll_offset = self.tag_scroll_offset.min(self.footer_start_index());
         // Clamp selection to a valid selectable index
         if self.selected_index >= self.items.len() {
             self.selected_index = 0;
@@ -190,6 +191,63 @@ impl SidebarState {
         items.push(SidebarItem::Config);
 
         items
+    }
+
+    /// Index where fixed footer shortcuts begin.
+    pub fn footer_start_index(&self) -> usize {
+        self.items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::Generator))
+            .and_then(|idx| idx.checked_sub(1))
+            .unwrap_or(self.items.len())
+    }
+
+    /// Number of rows/items available for the scrollable navigation area.
+    pub fn nav_visible_items_for_height(&self, sidebar_height: u16) -> usize {
+        let footer_start = self.footer_start_index();
+        let footer_height = if self.items.len() > footer_start {
+            (self.items.len() - footer_start).min(sidebar_height as usize) as u16
+        } else {
+            0
+        };
+        sidebar_height.saturating_sub(footer_height).max(1) as usize
+    }
+
+    /// Maximum item offset for the scrollable navigation area.
+    pub fn max_tag_scroll_offset(&self, visible_items: usize) -> usize {
+        self.footer_start_index()
+            .saturating_sub(visible_items.max(1))
+    }
+
+    /// Scroll the expandable tag/navigation region by `delta` items.
+    pub fn scroll_tags_by(&mut self, delta: isize, visible_items: usize) {
+        let max_offset = self.max_tag_scroll_offset(visible_items);
+        if delta < 0 {
+            self.tag_scroll_offset = self.tag_scroll_offset.saturating_sub(delta.unsigned_abs());
+        } else {
+            self.tag_scroll_offset = self
+                .tag_scroll_offset
+                .saturating_add(delta as usize)
+                .min(max_offset);
+        }
+    }
+
+    /// Ensure the current sidebar selection is visible in the scrollable region.
+    pub fn ensure_selected_visible(&mut self, visible_items: usize) {
+        let footer_start = self.footer_start_index();
+        if self.selected_index >= footer_start {
+            return;
+        }
+
+        let visible_items = visible_items.max(1);
+        if self.selected_index < self.tag_scroll_offset {
+            self.tag_scroll_offset = self.selected_index;
+        } else if self.selected_index >= self.tag_scroll_offset.saturating_add(visible_items) {
+            self.tag_scroll_offset = self.selected_index + 1 - visible_items;
+        }
+        self.tag_scroll_offset = self
+            .tag_scroll_offset
+            .min(self.max_tag_scroll_offset(visible_items));
     }
 
     /// Move selection to the next selectable item (wraps around).
@@ -1354,6 +1412,7 @@ impl MainScreenState {
                     KeyCode::Char('j') | KeyCode::Down => {
                         let old_filter = self.sidebar.current_filter();
                         self.sidebar.move_down();
+                        self.ensure_sidebar_selection_visible();
                         // Exit visual mode on sidebar navigation (U3 Spec)
                         if self.list.is_visual() {
                             self.list.exit_visual();
@@ -1371,6 +1430,7 @@ impl MainScreenState {
                     KeyCode::Char('k') | KeyCode::Up => {
                         let old_filter = self.sidebar.current_filter();
                         self.sidebar.move_up();
+                        self.ensure_sidebar_selection_visible();
                         if self.list.is_visual() {
                             self.list.exit_visual();
                         }
@@ -1737,7 +1797,16 @@ impl MainScreenState {
             let list_rect = top_padded_rect(layout.list, 1);
             let detail_rect = top_padded_rect(layout.detail, 1);
 
-            if contains_rect(list_rect, event.column, event.row) {
+            if contains_rect(layout.sidebar, event.column, event.row) {
+                self.focused_panel = PanelId::Sidebar;
+                if self.sidebar.tags_expanded && !self.sidebar.tags.is_empty() {
+                    let visible = self
+                        .sidebar
+                        .nav_visible_items_for_height(layout.sidebar.height);
+                    let delta = if is_scroll_up { -3 } else { 3 };
+                    self.sidebar.scroll_tags_by(delta, visible);
+                }
+            } else if contains_rect(list_rect, event.column, event.row) {
                 self.focused_panel = PanelId::List;
                 let steps = 3;
                 for _ in 0..steps {
@@ -1769,6 +1838,32 @@ impl MainScreenState {
 
         if contains_rect(layout.sidebar, event.column, event.row) {
             self.focused_panel = PanelId::Sidebar;
+            if is_click {
+                if let Some(index) = sidebar_item_index_at(&self.sidebar, layout.sidebar, event.row)
+                {
+                    if self
+                        .sidebar
+                        .items
+                        .get(index)
+                        .is_some_and(SidebarItem::is_selectable)
+                    {
+                        let old_filter = self.sidebar.current_filter();
+                        self.sidebar.selected_index = index;
+                        self.ensure_sidebar_selection_visible();
+                        if self.list.is_visual() {
+                            self.list.exit_visual();
+                        }
+                        let new_filter = self.sidebar.current_filter();
+                        if new_filter != old_filter {
+                            self.current_filter = new_filter.clone();
+                            self.detail.clear();
+                            self.list_auto_select = true;
+                            let cmd = self.reload_record_list_command();
+                            return ScreenResult::Command(Box::new(cmd));
+                        }
+                    }
+                }
+            }
             return ScreenResult::Continue;
         }
 
@@ -1832,6 +1927,17 @@ impl MainScreenState {
             }
         }
         ScreenResult::Continue
+    }
+
+    fn ensure_sidebar_selection_visible(&mut self) {
+        let layout = crate::tui::screens::main::layout::calculate_layout(
+            self.terminal_area,
+            self.terminal_area.width,
+        );
+        let visible = self
+            .sidebar
+            .nav_visible_items_for_height(layout.sidebar.height);
+        self.sidebar.ensure_selected_visible(visible);
     }
 
     fn execute_detail_action(&mut self, id: Uuid, action: DetailActionFocus) -> ScreenResult {
@@ -2002,6 +2108,69 @@ fn rendered_list_offset(list: &ListPanelState, list_rect: Rect) -> usize {
     let visible = (body_height / item_height).max(1) as usize;
     list.scroll_offset
         .min(list.records.len().saturating_sub(visible))
+}
+
+fn sidebar_item_index_at(sidebar: &SidebarState, sidebar_rect: Rect, row: u16) -> Option<usize> {
+    if row < sidebar_rect.y || row >= sidebar_rect.y.saturating_add(sidebar_rect.height) {
+        return None;
+    }
+
+    let footer_start = sidebar.footer_start_index();
+    let footer_height = if sidebar.items.len() > footer_start {
+        (sidebar.items.len() - footer_start).min(sidebar_rect.height as usize) as u16
+    } else {
+        0
+    };
+    let nav_height = sidebar_rect.height.saturating_sub(footer_height);
+    let nav_bottom = sidebar_rect.y.saturating_add(nav_height);
+
+    if row >= nav_bottom {
+        let relative_row = row.saturating_sub(nav_bottom) as usize;
+        return sidebar_item_index_in_range(
+            sidebar,
+            footer_start,
+            sidebar.items.len(),
+            relative_row,
+        );
+    }
+
+    let visible_items = nav_height.max(1) as usize;
+    let offset = sidebar
+        .tag_scroll_offset
+        .min(sidebar.max_tag_scroll_offset(visible_items));
+    let relative_row = row.saturating_sub(sidebar_rect.y) as usize;
+    sidebar_item_index_in_range(sidebar, offset, footer_start, relative_row)
+}
+
+fn sidebar_item_index_in_range(
+    sidebar: &SidebarState,
+    start: usize,
+    end: usize,
+    relative_row: usize,
+) -> Option<usize> {
+    let mut y = 0usize;
+    for index in start..end {
+        let height = sidebar_item_render_height(sidebar, index);
+        if relative_row < y.saturating_add(height) {
+            return Some(index);
+        }
+        y = y.saturating_add(height);
+    }
+    None
+}
+
+fn sidebar_item_render_height(sidebar: &SidebarState, index: usize) -> usize {
+    let Some(item) = sidebar.items.get(index) else {
+        return 1;
+    };
+    if sidebar.selected_index == index && item.is_selectable() {
+        match item {
+            SidebarItem::Generator | SidebarItem::Config => 1,
+            _ => 3,
+        }
+    } else {
+        1
+    }
 }
 
 /// Convert a [`DetailFieldKind`] to the corresponding [`FieldSelector`] for

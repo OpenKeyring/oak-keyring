@@ -503,21 +503,26 @@ pub fn render_form(
         lines.push(Line::raw(""));
     }
 
-    // Bottom buttons
+    // Bottom buttons / saving indicator
     lines.push(separator_line(area.width));
-    lines.push(Line::from(vec![
-        Span::raw("  "),
-        Span::styled(
-            format!("[ {} ]", t!("tui.form.save_button")),
-            footer_button_style(state.footer_focus, FormFooterButton::Save, true),
-        ),
-        Span::raw("  "),
-        Span::styled(
-            format!("[ {} ]", t!("tui.form.cancel_button")),
-            footer_button_style(state.footer_focus, FormFooterButton::Cancel, false),
-        ),
-    ]));
-    lines.push(shortcut_line());
+    if state.saving {
+        lines.push(saving_line(area.width, state.saving_tick, _unicode));
+        lines.push(Line::raw(""));
+    } else {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                format!("[ {} ]", t!("tui.form.save_button")),
+                footer_button_style(state.footer_focus, FormFooterButton::Save, true),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                format!("[ {} ]", t!("tui.form.cancel_button")),
+                footer_button_style(state.footer_focus, FormFooterButton::Cancel, false),
+            ),
+        ]));
+        lines.push(shortcut_line());
+    }
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -700,6 +705,42 @@ fn shortcut_line() -> Line<'static> {
             Style::default().fg(theme::TEXT_SECONDARY),
         ),
     ])
+}
+
+fn saving_line(width: u16, tick: usize, unicode: bool) -> Line<'static> {
+    let label = t!("tui.form.saving_status").to_string();
+    let bar_width = 18usize.min(width.saturating_sub(24) as usize).max(8);
+    let fill = if unicode {
+        theme::ICON_PROGRESS_FILL
+    } else {
+        theme::ascii::ICON_PROGRESS_FILL
+    };
+    let empty = if unicode {
+        theme::ICON_PROGRESS_EMPTY
+    } else {
+        theme::ascii::ICON_PROGRESS_EMPTY
+    };
+    let segment = 5usize.min(bar_width);
+    let start = (tick / 2) % bar_width.max(1);
+    let mut spans = vec![
+        Span::raw("  "),
+        Span::styled(label, Style::default().fg(theme::NL_CYAN)),
+        Span::raw("  "),
+        Span::styled("[", Style::default().fg(theme::NL_TEXT_MUTED)),
+    ];
+    for i in 0..bar_width {
+        let active = (0..segment).any(|offset| (start + offset) % bar_width == i);
+        spans.push(Span::styled(
+            if active { fill } else { empty },
+            Style::default().fg(if active {
+                theme::NL_CYAN
+            } else {
+                theme::NL_LINE
+            }),
+        ));
+    }
+    spans.push(Span::styled("]", Style::default().fg(theme::NL_TEXT_MUTED)));
+    Line::from(spans)
 }
 
 fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize, unicode: bool) {

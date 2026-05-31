@@ -12,7 +12,7 @@ use crate::commands::{Command, Message};
 use crate::tui::components::textarea;
 use crate::tui::screens::form::validation;
 use crate::tui::state::form_state::{
-    ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus,
+    ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus, ValidationError,
 };
 use crate::tui::state::generator_state::{EmbeddedGeneratorState, GenerationStyle, GeneratorFocus};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
@@ -50,9 +50,12 @@ impl CreateRecordScreen {
         ctx: &mut ScreenContext,
     ) -> ScreenResult {
         let key = key_event.code;
+        if self.form.saving {
+            return ScreenResult::Continue;
+        }
         // If dialogs are showing, handle them first
         if self.form.show_weak_password_dialog {
-            return self.handle_weak_password_dialog(key);
+            return self.handle_weak_password_dialog(key, ctx);
         }
         if self.form.show_unsaved_dialog {
             return self.handle_unsaved_dialog(key);
@@ -171,7 +174,7 @@ impl CreateRecordScreen {
                 self.activate_copy_shortcut()
             }
             KeyCode::Char('s') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.attempt_save()
+                self.attempt_save(ctx)
             }
             KeyCode::Enter => self.handle_enter(Some(ctx)),
             KeyCode::Char(' ')
@@ -203,7 +206,10 @@ impl CreateRecordScreen {
         let ct = self.form.credential_type;
 
         if let Some(button) = self.form.footer_focus {
-            return self.activate_footer_button(button);
+            let Some(ctx) = ctx else {
+                return ScreenResult::Continue;
+            };
+            return self.activate_footer_button(button, ctx);
         }
 
         // If notes textarea is focused, insert newline
@@ -589,9 +595,13 @@ impl CreateRecordScreen {
         }
     }
 
-    fn activate_footer_button(&mut self, button: FormFooterButton) -> ScreenResult {
+    fn activate_footer_button(
+        &mut self,
+        button: FormFooterButton,
+        ctx: &ScreenContext,
+    ) -> ScreenResult {
         match button {
-            FormFooterButton::Save => self.attempt_save(),
+            FormFooterButton::Save => self.attempt_save(ctx),
             FormFooterButton::Cancel => self.cancel_form(),
         }
     }
@@ -657,7 +667,7 @@ impl CreateRecordScreen {
         ScreenResult::Continue
     }
 
-    fn attempt_save(&mut self) -> ScreenResult {
+    fn attempt_save(&mut self, ctx: &ScreenContext) -> ScreenResult {
         let errors = validation::validate(&self.form.fields, self.form.credential_type);
         if !errors.is_empty() {
             self.form.validation_errors = errors;
@@ -671,10 +681,10 @@ impl CreateRecordScreen {
             return ScreenResult::Continue;
         }
 
-        self.create_record_command()
+        self.submit_create_record(ctx)
     }
 
-    fn handle_weak_password_dialog(&mut self, key: KeyCode) -> ScreenResult {
+    fn handle_weak_password_dialog(&mut self, key: KeyCode, ctx: &ScreenContext) -> ScreenResult {
         match key {
             KeyCode::Esc => {
                 self.form.show_weak_password_dialog = false;
@@ -698,7 +708,7 @@ impl CreateRecordScreen {
                     ScreenResult::Continue
                 } else {
                     // "Save" continues despite the warning.
-                    self.create_record_command()
+                    self.submit_create_record(ctx)
                 }
             }
             _ => ScreenResult::Continue,
@@ -981,14 +991,24 @@ impl CreateRecordScreen {
         }
     }
 
-    fn create_record_command(&mut self) -> ScreenResult {
-        ScreenResult::Command(Box::new(Command::CreateRecord {
+    fn submit_create_record(&mut self, ctx: &ScreenContext) -> ScreenResult {
+        let command = Command::CreateRecord {
             credential_type: self.form.credential_type,
-            payload: self.form.build_payload(),
-            tags: std::mem::take(&mut self.form.fields.tags),
+            payload: self.form.build_payload_snapshot(),
+            tags: self.form.fields.tags.clone(),
             is_favorite: false,
             expires_at: self.form.expiry_datetime(),
-        }))
+        };
+        if ctx.send_user_command(command).is_some() {
+            self.form.validation_errors = vec![ValidationError {
+                field_index: 1,
+                message: "Action failed: command queue full".to_string(),
+            }];
+            self.form.focused_field = 1;
+            return ScreenResult::Continue;
+        }
+        self.form.start_saving();
+        ScreenResult::Continue
     }
 }
 
@@ -996,15 +1016,25 @@ impl Screen for CreateRecordScreen {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key, ctx),
-            Message::MouseEvent(event) => self.handle_mouse(event),
+            Message::MouseEvent(event) => self.handle_mouse(event, ctx),
             Message::CommandCompleted(result) => match result {
                 CommandResult::TagsLoaded { tags, tag_stats: _ } => {
                     self.all_tags = tags.into_iter().map(|tag| tag.name).collect();
                     ScreenResult::Continue
                 }
                 CommandResult::RecordCreated { .. } => ScreenResult::PopScreen,
+                CommandResult::Error { .. }
+                | CommandResult::FatalError { .. }
+                | CommandResult::Cancelled { .. } => {
+                    self.form.finish_saving();
+                    ScreenResult::Continue
+                }
                 _ => ScreenResult::Continue,
             },
+            Message::Tick => {
+                self.form.tick_saving();
+                ScreenResult::Continue
+            }
             _ => ScreenResult::Continue,
         }
     }
@@ -1072,7 +1102,10 @@ struct FormRowMap {
 }
 
 impl CreateRecordScreen {
-    fn handle_mouse(&mut self, event: MouseEvent) -> ScreenResult {
+    fn handle_mouse(&mut self, event: MouseEvent, ctx: &ScreenContext) -> ScreenResult {
+        if self.form.saving {
+            return ScreenResult::Continue;
+        }
         let is_click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
         let is_move = matches!(event.kind, MouseEventKind::Moved);
         if !is_click && !is_move {
@@ -1140,7 +1173,7 @@ impl CreateRecordScreen {
                 self.form.footer_focus = Some(button);
                 self.form.password_sub_focus = PasswordFieldFocus::Input;
                 if is_click {
-                    return self.activate_footer_button(button);
+                    return self.activate_footer_button(button, ctx);
                 }
                 ScreenResult::Continue
             }
