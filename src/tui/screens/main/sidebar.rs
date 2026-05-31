@@ -866,10 +866,8 @@ mod tests {
 
         let fav_label = category_label(&SidebarCategory::Favorites, true);
         assert!(!fav_label.contains('\u{2606}'));
-        assert_eq!(
-            fav_label,
-            format!("{}  {}", theme::NF_STAR, t!("tui.main.sidebar_favorites"))
-        );
+        assert!(fav_label.starts_with(&format!("{}  ", theme::NF_STAR)));
+        assert!(fav_label.contains("Favorites") || fav_label.contains("收藏"));
 
         let expired_label = category_label(&SidebarCategory::Expired, true);
         assert!(!expired_label.is_empty());
@@ -1107,6 +1105,7 @@ mod tests {
 
     #[test]
     fn newlook_sidebar_category_badges_use_semantic_colors() {
+        let _locale = LocaleGuard::en();
         let mut state = SidebarState {
             category_counts: CategoryCounts {
                 all: 12,

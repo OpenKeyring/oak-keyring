@@ -42,6 +42,29 @@ fn db_recovery_source_selection_cloud_focused() {
 }
 
 #[test]
+fn db_recovery_source_selection_shows_both_restore_sources() {
+    let _locale = snapshot_locale();
+    let screen = DatabaseRecoveryScreen {
+        origin: DatabaseRecoveryOrigin::OnboardingRestore,
+        mode: DatabaseRecoveryMode::SourceSelection,
+        focus: DatabaseRecoveryFocus::Cloud,
+        ..DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::OnboardingRestore)
+    };
+
+    let backend = render_screen(&screen, 80, 24);
+    let rendered = format!("{backend:?}");
+
+    assert!(
+        rendered.contains("Restore from Cloud Sync"),
+        "cloud restore source should be visible"
+    );
+    assert!(
+        rendered.contains("Restore from .okb Backup"),
+        ".okb restore source should be visible"
+    );
+}
+
+#[test]
 fn db_recovery_source_selection_okb_focused() {
     let _locale = snapshot_locale();
     let screen = DatabaseRecoveryScreen {

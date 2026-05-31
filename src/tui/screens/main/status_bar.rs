@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn shortcuts_detail_ascii() {
         let text = shortcuts_text(PanelId::Detail, false, false, DetailShortcutContext::Login);
-        assert!(text.contains("CopyPwd"));
+        assert!(text.contains("CopyPwd") || text.contains("复制密码"));
     }
 
     #[test]

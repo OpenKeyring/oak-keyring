@@ -1154,6 +1154,151 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn trigger_sync_conflict_can_be_resolved_after_detection() {
+        let (cmd_tx, cmd_rx) = mpsc::channel(16);
+        let (event_tx, mut event_rx) = mpsc::channel(16);
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let op = opendal::Operator::new(
+            opendal::services::Fs::default().root(temp_dir.path().to_str().unwrap()),
+        )
+        .unwrap()
+        .finish();
+        let storage = CloudStorage::new(op, "fs".to_string());
+        let record_id = Uuid::new_v4();
+        let record_id_str = record_id.to_string();
+
+        let remote_record = CloudRecord {
+            id: record_id_str.clone(),
+            version: 2,
+            encrypted_data: base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                b"remote",
+            ),
+            nonce: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 24]),
+            dek_version: 1,
+            aad: crate::cloud::record::AadFields {
+                record_id: record_id_str.clone(),
+                dek_version: 1,
+            },
+            metadata: crate::cloud::record::RecordMetadata {
+                name: "remote-record".to_string(),
+                tags: vec![],
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                health: None,
+                ..Default::default()
+            },
+            deleted: None,
+            deleted_at: None,
+        };
+        storage
+            .upload_record(&record_id_str, &remote_record)
+            .await
+            .unwrap();
+
+        let mut metadata = CloudMetadata::new("test-token".to_string());
+        metadata.metadata_version = 2;
+        metadata.upsert_record(
+            record_id_str.clone(),
+            crate::cloud::RecordVersionInfo {
+                version: 2,
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                updated_by: "remote-device".to_string(),
+                checksum: remote_record.compute_checksum().unwrap(),
+                private_metadata_checksum: None,
+                deleted: false,
+            },
+        );
+        storage.upload_metadata(&metadata).await.unwrap();
+
+        let local_record = CloudRecord {
+            id: record_id_str.clone(),
+            version: 1,
+            encrypted_data: base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                b"local",
+            ),
+            nonce: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 24]),
+            dek_version: 1,
+            aad: crate::cloud::record::AadFields {
+                record_id: record_id_str.clone(),
+                dek_version: 1,
+            },
+            metadata: crate::cloud::record::RecordMetadata {
+                name: "local-record".to_string(),
+                tags: vec![],
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                health: None,
+                ..Default::default()
+            },
+            deleted: None,
+            deleted_at: None,
+        };
+        let vault_data = Box::new(SyncVaultData {
+            local_records: vec![LocalRecordInfo {
+                record_id: record_id_str.clone(),
+                sync_status: crate::types::sync::SyncStatus::Pending,
+                version: 1,
+            }],
+            uploads: vec![local_record],
+            local_metadata_version: 1,
+            last_remote_metadata: None,
+            local_vault_token: "test-token".to_string(),
+        });
+
+        let mut task = SyncTask::new(storage, cmd_rx, event_tx, SyncStateMachine::new(5));
+        cmd_tx
+            .send(SyncCommand::TriggerSync(Some(vault_data)))
+            .await
+            .unwrap();
+
+        let handle = tokio::spawn(async move {
+            task.run().await;
+        });
+
+        let mut completed_event = None;
+        while let Ok(Some(event)) = timeout(Duration::from_secs(5), event_rx.recv()).await {
+            match event {
+                SyncEvent::Completed(report, _, _, _, _, conflict_data, _) => {
+                    completed_event = Some((report, conflict_data));
+                    break;
+                }
+                SyncEvent::Failed { error, .. } => {
+                    panic!("sync should detect a resolvable conflict, got failure: {error}");
+                }
+                _ => {}
+            }
+        }
+
+        let (report, conflict_data) =
+            completed_event.expect("sync should emit a completed conflict report");
+        assert_eq!(report.conflicts, 1);
+        assert!(
+            conflict_data.contains_key(&record_id_str),
+            "conflict report must include conflict payload for later resolution"
+        );
+
+        cmd_tx
+            .send(SyncCommand::ResolveConflict {
+                record_id: record_id_str.clone(),
+                strategy: ResolutionStrategy::KeepRemote,
+            })
+            .await
+            .unwrap();
+
+        let event = timeout(Duration::from_secs(2), event_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(event, SyncEvent::ConflictResolved { ref record_id } if record_id == &record_id_str),
+            "detected conflict should be pending and resolvable, got {event:?}"
+        );
+
+        cmd_tx.send(SyncCommand::Shutdown).await.unwrap();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
     async fn resolve_all_with_no_pending_conflicts() {
         let (cmd_tx, cmd_rx) = mpsc::channel(16);
         let (event_tx, mut event_rx) = mpsc::channel(16);

@@ -8,14 +8,15 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
 use crate::t;
-use crate::tui::screens::onboarding::views_setup::{header_rows, render_header};
-use crate::tui::terminal::WidthTier;
-use crate::tui::theme::{self, BRAND, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED};
+use crate::tui::theme::{
+    self, Styles, NL_CYAN as PRIMARY, NL_DANGER as ERROR, NL_SUCCESS as SUCCESS, NL_TEXT as TEXT,
+    NL_TEXT_MUTED as TEXT_MUTED,
+};
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
 
@@ -49,6 +50,12 @@ pub enum DatabaseRecoveryFocus {
     Okb,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitConfirmationFocus {
+    Continue,
+    Exit,
+}
+
 // ── DatabaseRecoveryScreen ─────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -61,6 +68,8 @@ pub struct DatabaseRecoveryScreen {
     pub master_password: SensitiveInput,
     pub error: Option<String>,
     pub progress: Option<(usize, usize, String)>,
+    pub show_exit_confirmation: bool,
+    pub exit_confirmation_focus: ExitConfirmationFocus,
 }
 
 impl Default for DatabaseRecoveryScreen {
@@ -80,6 +89,8 @@ impl DatabaseRecoveryScreen {
             master_password: SensitiveInput::new(),
             error: None,
             progress: None,
+            show_exit_confirmation: false,
+            exit_confirmation_focus: ExitConfirmationFocus::Continue,
         }
     }
 
@@ -123,7 +134,40 @@ impl DatabaseRecoveryScreen {
                 self.error = None;
                 ScreenResult::Continue
             }
-            KeyCode::Esc => ScreenResult::PopScreen,
+            KeyCode::Esc => self.open_exit_confirmation(),
+            _ => ScreenResult::Continue,
+        }
+    }
+
+    fn open_exit_confirmation(&mut self) -> ScreenResult {
+        self.error = None;
+        self.show_exit_confirmation = true;
+        self.exit_confirmation_focus = ExitConfirmationFocus::Continue;
+        ScreenResult::Continue
+    }
+
+    fn handle_exit_confirmation_key(&mut self, key: KeyEvent) -> ScreenResult {
+        match key.code {
+            KeyCode::Tab | KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => {
+                self.exit_confirmation_focus = match self.exit_confirmation_focus {
+                    ExitConfirmationFocus::Continue => ExitConfirmationFocus::Exit,
+                    ExitConfirmationFocus::Exit => ExitConfirmationFocus::Continue,
+                };
+                ScreenResult::Continue
+            }
+            KeyCode::Esc => {
+                self.show_exit_confirmation = false;
+                self.exit_confirmation_focus = ExitConfirmationFocus::Continue;
+                ScreenResult::Continue
+            }
+            KeyCode::Enter => match self.exit_confirmation_focus {
+                ExitConfirmationFocus::Continue => {
+                    self.show_exit_confirmation = false;
+                    self.exit_confirmation_focus = ExitConfirmationFocus::Continue;
+                    ScreenResult::Continue
+                }
+                ExitConfirmationFocus::Exit => ScreenResult::ExitApp,
+            },
             _ => ScreenResult::Continue,
         }
     }
@@ -359,6 +403,9 @@ impl DatabaseRecoveryScreen {
             command_tx: &tx,
             config: &config,
         };
+        if self.show_exit_confirmation {
+            return self.handle_exit_confirmation_key(key);
+        }
         match self.mode {
             DatabaseRecoveryMode::SourceSelection => self.handle_source_selection(key, &mut ctx),
             DatabaseRecoveryMode::OkbPathInput => self.handle_okb_input(key, &mut ctx),
@@ -381,6 +428,9 @@ impl ScreenTrait for DatabaseRecoveryScreen {
                 if key.kind == KeyEventKind::Press
                     && (key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT) =>
             {
+                if self.show_exit_confirmation {
+                    return self.handle_exit_confirmation_key(key);
+                }
                 match self.mode {
                     DatabaseRecoveryMode::SourceSelection => self.handle_source_selection(key, ctx),
                     DatabaseRecoveryMode::OkbPathInput => self.handle_okb_input(key, ctx),
@@ -442,51 +492,56 @@ impl ScreenTrait for DatabaseRecoveryScreen {
     }
 
     fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        let wide = WidthTier::from_width(area.width) != WidthTier::TooSmall;
-        let use_onboarding_header =
-            matches!(self.origin, DatabaseRecoveryOrigin::OnboardingRestore);
-        let brand_rows = if use_onboarding_header {
-            header_rows(wide)
-        } else {
-            1
-        };
-        let separator_rows = if use_onboarding_header { 0 } else { 1 };
-        let content_area = Self::centered_content(area, 15 + brand_rows + separator_rows);
+        frame.render_widget(Block::default().style(Styles::newlook_bg()), area);
+
+        let panel_area = Self::centered_content(area, 22);
+        let panel = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Styles::newlook_focused_border())
+            .style(Styles::newlook_bg());
+        let mut content_area = panel.inner(panel_area);
+        if content_area.width > 4 {
+            content_area.x += 2;
+            content_area.width -= 4;
+        }
+        frame.render_widget(panel, panel_area);
 
         let rows = Layout::vertical([
-            Constraint::Length(brand_rows),     // logo or brand
-            Constraint::Length(separator_rows), // separator for compact startup recovery
-            Constraint::Length(2),              // title
-            Constraint::Length(2),              // instruction
-            Constraint::Length(6),              // content area
-            Constraint::Length(1),              // error/hint
-            Constraint::Length(1),              // hotkeys
-            Constraint::Length(1),              // step
+            Constraint::Length(1), // brand
+            Constraint::Length(1), // separator
+            Constraint::Length(1), // title
+            Constraint::Length(2), // instruction
+            Constraint::Length(9), // content area
+            Constraint::Length(1), // error/hint
+            Constraint::Length(1), // hotkeys
+            Constraint::Length(1), // step
+            Constraint::Fill(1),   // bottom breathing room
         ])
         .split(content_area);
 
-        if use_onboarding_header {
-            render_header(frame, rows[0], wide);
-        } else {
-            // Brand
-            let brand = Paragraph::new(Line::from(vec![
-                Span::styled(format!("{} ", theme::ICON_LOCK), Style::default().fg(BRAND)),
-                Span::styled(
-                    "OpenKeyring",
-                    Style::default().fg(BRAND).add_modifier(Modifier::BOLD),
-                ),
-            ]))
-            .alignment(Alignment::Center);
-            frame.render_widget(brand, rows[0]);
+        let brand = Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!("{} ", theme::ICON_LOCK),
+                Style::default().fg(theme::NL_CYAN),
+            ),
+            Span::styled(
+                "OpenKeyring",
+                Style::default()
+                    .fg(theme::NL_TEXT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]))
+        .style(Styles::newlook_bg())
+        .alignment(Alignment::Center);
+        frame.render_widget(brand, rows[0]);
 
-            // Separator
-            let sep = Paragraph::new(Line::from(Span::styled(
-                "─────────────────────────────",
-                Style::default().fg(TEXT_MUTED),
-            )))
-            .alignment(Alignment::Center);
-            frame.render_widget(sep, rows[1]);
-        }
+        let sep = Paragraph::new(Line::from(Span::styled(
+            "─────────────────────────────",
+            Style::default().fg(theme::NL_LINE).bg(theme::NL_BG),
+        )))
+        .style(Styles::newlook_bg())
+        .alignment(Alignment::Center);
+        frame.render_widget(sep, rows[1]);
 
         // Title + instruction vary by mode
         match self.mode {
@@ -521,6 +576,10 @@ impl ScreenTrait for DatabaseRecoveryScreen {
                 self.render_okb_succeeded(frame, &rows);
             }
         }
+
+        if self.show_exit_confirmation {
+            self.render_exit_confirmation(frame, area);
+        }
     }
 
     fn on_mount(&mut self, _ctx: &mut ScreenContext) {}
@@ -530,6 +589,8 @@ impl ScreenTrait for DatabaseRecoveryScreen {
         self.master_password.clear();
         self.okb_path.clear();
         self.error = None;
+        self.show_exit_confirmation = false;
+        self.exit_confirmation_focus = ExitConfirmationFocus::Continue;
     }
 }
 
@@ -546,7 +607,7 @@ impl DatabaseRecoveryScreen {
 
         let h_layout = Layout::horizontal([
             Constraint::Fill(1),
-            Constraint::Max(60),
+            Constraint::Max(74),
             Constraint::Fill(1),
         ])
         .split(outer[1]);
@@ -562,21 +623,21 @@ impl DatabaseRecoveryScreen {
         .alignment(Alignment::Center);
         frame.render_widget(title, rows[2]);
 
-        let instruction = Paragraph::new(Line::from(Span::styled(
-            t!("tui.entry.db_recovery_select_hint"),
-            Style::default().fg(TEXT),
-        )))
-        .alignment(Alignment::Center);
+        let instruction = Paragraph::new(t!("tui.entry.db_recovery_select_hint").to_string())
+            .style(Style::default().fg(TEXT).bg(theme::NL_BG))
+            .wrap(Wrap { trim: true })
+            .alignment(Alignment::Center);
         frame.render_widget(instruction, rows[3]);
 
         let cards_area = rows[4];
         let cards_layout = Layout::vertical([
-            Constraint::Length(3), // cloud card
+            Constraint::Length(4), // cloud card
             Constraint::Length(1), // gap
-            Constraint::Length(3), // okb card
+            Constraint::Length(4), // okb card
         ])
         .split(cards_area);
 
+        let cloud_focused = self.focus == DatabaseRecoveryFocus::Cloud;
         let cloud_style = if self.focus == DatabaseRecoveryFocus::Cloud {
             Style::default().fg(PRIMARY)
         } else {
@@ -595,14 +656,25 @@ impl DatabaseRecoveryScreen {
         .block(
             Block::default()
                 .borders(ratatui::widgets::Borders::ALL)
-                .border_style(if self.focus == DatabaseRecoveryFocus::Cloud {
+                .border_style(if cloud_focused {
                     cloud_style
                 } else {
                     Style::default().fg(TEXT_MUTED)
+                })
+                .style(if cloud_focused {
+                    Styles::newlook_selected()
+                } else {
+                    Styles::newlook_surface()
                 }),
-        );
+        )
+        .style(if cloud_focused {
+            Styles::newlook_selected()
+        } else {
+            Styles::newlook_surface()
+        });
         frame.render_widget(cloud_card, cards_layout[0]);
 
+        let okb_focused = self.focus == DatabaseRecoveryFocus::Okb;
         let okb_style = if self.focus == DatabaseRecoveryFocus::Okb {
             Style::default().fg(PRIMARY)
         } else {
@@ -621,12 +693,22 @@ impl DatabaseRecoveryScreen {
         .block(
             Block::default()
                 .borders(ratatui::widgets::Borders::ALL)
-                .border_style(if self.focus == DatabaseRecoveryFocus::Okb {
+                .border_style(if okb_focused {
                     okb_style
                 } else {
                     Style::default().fg(TEXT_MUTED)
+                })
+                .style(if okb_focused {
+                    Styles::newlook_selected()
+                } else {
+                    Styles::newlook_surface()
                 }),
-        );
+        )
+        .style(if okb_focused {
+            Styles::newlook_selected()
+        } else {
+            Styles::newlook_surface()
+        });
         frame.render_widget(okb_card, cards_layout[2]);
 
         // Hotkeys
@@ -1088,6 +1170,65 @@ impl DatabaseRecoveryScreen {
         .alignment(Alignment::Center);
         frame.render_widget(step, rows[7]);
     }
+
+    fn render_exit_confirmation(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        let width = area.width.min(60);
+        let height = area.height.min(11);
+        let dialog_area = ratatui::layout::Rect::new(
+            area.x + area.width.saturating_sub(width) / 2,
+            area.y + area.height.saturating_sub(height) / 2,
+            width,
+            height,
+        );
+
+        let continue_style = if self.exit_confirmation_focus == ExitConfirmationFocus::Continue {
+            Style::default().fg(PRIMARY).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TEXT_MUTED)
+        };
+        let exit_style = if self.exit_confirmation_focus == ExitConfirmationFocus::Exit {
+            Style::default().fg(ERROR).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TEXT_MUTED)
+        };
+
+        let lines = vec![
+            Line::raw(""),
+            Line::from(Span::styled(
+                t!("tui.entry.db_recovery_exit_title").to_string(),
+                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+            )),
+            Line::raw(""),
+            Line::from(t!("tui.entry.db_recovery_exit_body_line1").to_string()),
+            Line::from(t!("tui.entry.db_recovery_exit_body_line2").to_string()),
+            Line::from(t!("tui.entry.db_recovery_exit_body_line3").to_string()),
+            Line::raw(""),
+            Line::from(vec![
+                Span::styled(
+                    format!(" {} ", t!("tui.entry.db_recovery_continue_button")),
+                    continue_style,
+                ),
+                Span::raw("    "),
+                Span::styled(
+                    format!(" {} ", t!("tui.entry.db_recovery_exit_button")),
+                    exit_style,
+                ),
+            ]),
+        ];
+
+        let dialog = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(PRIMARY))
+                    .style(Styles::newlook_bg()),
+            )
+            .style(Style::default().fg(TEXT).bg(theme::NL_BG))
+            .alignment(Alignment::Center);
+
+        frame.render_widget(Clear, dialog_area);
+        frame.render_widget(dialog, dialog_area);
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -1145,12 +1286,19 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_restore_renders_ascii_logo_on_tall_terminal() {
+    fn onboarding_restore_renders_newlook_recovery_panel() {
         let screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::OnboardingRestore);
 
         let buffer = render_database_recovery_buffer(&screen, 80, 24);
+        let rendered = format!("{buffer:?}");
 
-        assert!(format!("{buffer:?}").contains("░█▀█"));
+        assert!(rendered.contains("OpenKeyring"));
+        assert!(
+            (rendered.contains("Restore from Cloud Sync")
+                && rendered.contains("Restore from .okb Backup"))
+                || (rendered.contains("云端同步恢复") && rendered.contains("从 .okb 备份恢复"))
+        );
+        assert!(rendered.contains("┌") && rendered.contains("┘"));
     }
 
     #[test]
@@ -1158,6 +1306,38 @@ mod tests {
         let mut screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::StartupKeyOnly);
         screen.handle_key_for_test(key(KeyCode::Down));
         assert_eq!(screen.focus, DatabaseRecoveryFocus::Okb);
+    }
+
+    #[test]
+    fn esc_on_source_selection_opens_exit_confirmation() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(4);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = context(&tx, &config);
+        let mut screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::StartupKeyOnly);
+
+        let result = screen.update(Message::KeyEvent(key(KeyCode::Esc)), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        let buffer = render_database_recovery_buffer(&screen, 80, 24);
+        let rendered = format!("{buffer:?}");
+        assert!(
+            (rendered.contains("Exit recovery?") && rendered.contains("Continue recovery"))
+                || (rendered.contains("退出恢复？") && rendered.contains("继续恢复"))
+        );
+    }
+
+    #[test]
+    fn exit_confirmation_can_confirm_exit() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(4);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = context(&tx, &config);
+        let mut screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::StartupKeyOnly);
+
+        screen.update(Message::KeyEvent(key(KeyCode::Esc)), &mut ctx);
+        screen.update(Message::KeyEvent(key(KeyCode::Tab)), &mut ctx);
+        let result = screen.update(Message::KeyEvent(key(KeyCode::Enter)), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::ExitApp));
     }
 
     #[test]
@@ -1221,6 +1401,35 @@ mod tests {
                 assert!(master_password.is_none());
             }
             other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn onboarding_oauth_success_retries_cloud_restore_without_master_password() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(4);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = context(&tx, &config);
+        let mut screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::OnboardingRestore);
+        screen.mode = DatabaseRecoveryMode::CloudNeedsOAuth;
+
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::OAuth2Authorized {
+                provider: "google_drive".to_string(),
+                access_token: "access-token".to_string(),
+                refresh_token: Some("refresh-token".to_string()),
+            }),
+            &mut ctx,
+        );
+
+        assert_eq!(screen.mode, DatabaseRecoveryMode::CloudSyncing);
+        match result {
+            ScreenResult::Command(command) => match *command {
+                Command::RestoreDatabaseFromCloud { master_password } => {
+                    assert!(master_password.is_none());
+                }
+                other => panic!("unexpected command: {other:?}"),
+            },
+            other => panic!("expected cloud restore command, got {other:?}"),
         }
     }
 

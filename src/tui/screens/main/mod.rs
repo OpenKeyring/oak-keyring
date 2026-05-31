@@ -885,6 +885,7 @@ fn top_padded(area: Rect, padding: u16) -> Rect {
 #[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
+    use crate::tui::i18n::LocaleGuard;
     use crate::tui::state::tag_management::TagSortOrder;
 
     #[test]
@@ -948,6 +949,7 @@ mod tests {
 
     #[test]
     fn list_and_detail_start_on_the_logo_row() {
+        let _locale = LocaleGuard::en();
         let screen = MainScreen::new();
         let state = MainScreenState::default();
         let backend = ratatui::backend::TestBackend::new(120, 30);

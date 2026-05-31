@@ -253,10 +253,10 @@ pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor
     });
 
     // Fire-and-forget: the actual result comes back via the spawned task.
-    // Return a neutral result so the UI doesn't prematurely set Authorized state.
-    CommandResult::ConfigSaved {
-        config: AppConfig::default(),
-        warnings: vec![],
+    // Return the current config as a neutral load so OAuth startup never
+    // overwrites the UI with AppConfig::default().
+    CommandResult::ConfigLoaded {
+        config: executor.config.get_config(),
     }
 }
 

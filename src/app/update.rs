@@ -57,6 +57,29 @@ fn sync_indicator_from_config(config: &crate::config::AppConfig) -> SyncIndicato
     }
 }
 
+fn apply_google_drive_authorization_to_config(
+    config: &mut crate::config::AppConfig,
+    access_token: &str,
+    refresh_token: Option<&str>,
+) {
+    config.sync.provider = crate::config::SyncProvider::GoogleDrive;
+
+    let mut drive_config = match config.sync.provider_config.take() {
+        Some(crate::config::ProviderConfig::GoogleDrive(cfg)) => cfg,
+        _ => crate::config::GoogleDriveConfig::default(),
+    };
+
+    if let Some(refresh_token) = refresh_token {
+        drive_config.refresh_token = refresh_token.to_string();
+        drive_config.access_token.clear();
+    } else {
+        drive_config.access_token = access_token.to_string();
+        drive_config.refresh_token.clear();
+    }
+
+    config.sync.provider_config = Some(crate::config::ProviderConfig::GoogleDrive(drive_config));
+}
+
 fn start_initial_transition(
     state: &mut crate::tui::state::AppState,
     config: &crate::config::AppConfig,
@@ -146,6 +169,7 @@ fn handle_screen_result_navigation(app: &mut App, screen: Screen) {
         return;
     }
 
+    let database_recovery_origin = database_recovery_origin_before_unmount(&app.state, screen);
     let fallback_transition = onboarding_navigation_fallback_transition(&app.state, screen);
     let transition = take_pending_onboarding_motion(&mut app.state).unwrap_or(fallback_transition);
 
@@ -156,7 +180,45 @@ fn handle_screen_result_navigation(app: &mut App, screen: Screen) {
         config: &app.config,
     };
     route_on_mount_from_state(&mut app.state, &mut ctx);
+    if let Some(origin) = database_recovery_origin {
+        app.state.screens.database_recovery =
+            crate::tui::screens::database_recovery::DatabaseRecoveryScreen::new(origin);
+        app.state.screens.database_recovery.on_mount(&mut ctx);
+    }
     start_transition_kind(&mut app.state, transition);
+}
+
+fn database_recovery_origin_before_unmount(
+    state: &crate::tui::state::AppState,
+    target: Screen,
+) -> Option<crate::tui::screens::database_recovery::DatabaseRecoveryOrigin> {
+    if target != Screen::DatabaseRecovery {
+        return None;
+    }
+
+    let origin = match state.current_screen {
+        Screen::SetNewMasterPassword => match state.screens.set_new_master_password.context {
+            SetPasswordContext::RestoreExistingVault {
+                next: RestoreNext::RestoreDatabase,
+                ..
+            }
+            | SetPasswordContext::OnboardingRestore => {
+                crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore
+            }
+            _ => crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly,
+        },
+        Screen::KeyRecovery
+            if matches!(
+                state.screens.key_recovery.origin,
+                crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore
+            ) =>
+        {
+            crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore
+        }
+        _ => crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly,
+    };
+
+    Some(origin)
 }
 
 fn build_set_password_context_before_unmount(
@@ -481,6 +543,21 @@ fn handle_message(
                 CommandResult::ConfigLoaded { config } => {
                     apply_runtime_config(app, config.clone());
                 }
+                CommandResult::OAuth2Authorized {
+                    provider,
+                    access_token,
+                    refresh_token,
+                } => {
+                    if provider == "google_drive" {
+                        let mut config = app.config.clone();
+                        apply_google_drive_authorization_to_config(
+                            &mut config,
+                            access_token,
+                            refresh_token.as_deref(),
+                        );
+                        apply_runtime_config(app, config);
+                    }
+                }
                 CommandResult::SyncConnectionTested { success, message } => {
                     let message = crate::security::redaction::redact_sensitive_values(message);
                     let msg = if *success {
@@ -743,15 +820,25 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
             state.screens.key_recovery.on_mount(ctx)
         }
         Screen::DatabaseRecovery => {
-            let origin = state
+            let came_from_onboarding_recovery_key = state
                 .screen_history
                 .last()
-                .map(|s| s.screen)
-                .and_then(|s| match s {
-                    Screen::KeyRecovery => Some(crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore),
-                    _ => None,
-                })
-                .unwrap_or(crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly);
+                .is_some_and(|snapshot| snapshot.screen == Screen::KeyRecovery);
+            let came_from_onboarding_recovery_password = state
+                .screen_history
+                .last()
+                .is_some_and(|snapshot| snapshot.screen == Screen::SetNewMasterPassword)
+                && matches!(
+                    state.screens.key_recovery.origin,
+                    crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore
+                );
+            let origin = if came_from_onboarding_recovery_key
+                || came_from_onboarding_recovery_password
+            {
+                crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore
+            } else {
+                crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly
+            };
             state.screens.database_recovery =
                 crate::tui::screens::database_recovery::DatabaseRecoveryScreen::new(origin);
             state.screens.database_recovery.on_mount(ctx)
@@ -859,6 +946,38 @@ mod tests {
         assert_eq!(
             sync_indicator_from_config(&crate::config::AppConfig::default()),
             SyncIndicator::NotConfigured
+        );
+    }
+
+    #[test]
+    fn oauth2_authorized_marks_google_drive_sync_configured_in_runtime_config() {
+        let mut app = test_app();
+
+        let result = handle_message(
+            &mut app,
+            Message::CommandCompleted(crate::commands::result::CommandResult::OAuth2Authorized {
+                provider: "google_drive".to_string(),
+                access_token: "runtime-access-token".to_string(),
+                refresh_token: Some("runtime-refresh-token".to_string()),
+            }),
+        )
+        .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(
+            app.config.sync.provider,
+            crate::config::SyncProvider::GoogleDrive
+        );
+        match &app.config.sync.provider_config {
+            Some(crate::config::ProviderConfig::GoogleDrive(cfg)) => {
+                assert_eq!(cfg.refresh_token, "runtime-refresh-token");
+                assert!(cfg.access_token.is_empty());
+            }
+            other => panic!("expected Google Drive config, got {other:?}"),
+        }
+        assert_eq!(
+            app.state.screens.main.status_bar.sync_status,
+            SyncIndicator::Configured
         );
     }
 
@@ -1518,6 +1637,54 @@ mod tests {
         assert_eq!(result, LoopControl::Continue);
         assert!(app.state.shared.notification.current_message.is_none());
         assert!(app.state.screens.database_recovery.error.is_none());
+    }
+
+    #[test]
+    fn database_recovery_after_onboarding_set_password_keeps_onboarding_origin() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+        let mut state = crate::tui::state::AppState {
+            current_screen: Screen::KeyRecovery,
+            ..Default::default()
+        };
+        state.screens.key_recovery.origin = KeyRecoveryOrigin::OnboardingRestore;
+
+        state.navigate_to(Screen::SetNewMasterPassword);
+        state.navigate_to(Screen::DatabaseRecovery);
+        route_on_mount_from_state(&mut state, &mut ctx);
+
+        assert_eq!(
+            state.screens.database_recovery.origin,
+            DatabaseRecoveryOrigin::OnboardingRestore
+        );
+    }
+
+    #[test]
+    fn keyfile_rebuilt_from_restore_database_enters_onboarding_database_recovery() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::SetNewMasterPassword;
+        app.state.screens.set_new_master_password =
+            SetPasswordScreen::new(SetPasswordContext::RestoreExistingVault {
+                recovery_words: recovery_words(),
+                next: RestoreNext::RestoreDatabase,
+            });
+
+        let result = handle_message(
+            &mut app,
+            Message::CommandCompleted(CommandResult::KeyFileRebuilt),
+        )
+        .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::DatabaseRecovery);
+        assert_eq!(
+            app.state.screens.database_recovery.origin,
+            DatabaseRecoveryOrigin::OnboardingRestore
+        );
     }
 
     #[test]

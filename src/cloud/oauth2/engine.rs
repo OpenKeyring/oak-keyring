@@ -11,8 +11,8 @@ use super::pkce::generate_pkce;
 use super::token_store::{OAuth2Token, TokenStore};
 use crate::cloud::providers::OAuth2Provider;
 
-/// Authorization timeout (2 minutes).
-const AUTH_TIMEOUT: Duration = Duration::from_secs(120);
+/// Authorization timeout (10 minutes).
+const AUTH_TIMEOUT: Duration = Duration::from_secs(600);
 
 pub struct OAuth2Engine;
 
@@ -157,4 +157,14 @@ fn urlencoding_encode(s: &str) -> String {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn authorization_timeout_allows_slow_browser_consent() {
+        assert!(AUTH_TIMEOUT >= Duration::from_secs(600));
+    }
 }

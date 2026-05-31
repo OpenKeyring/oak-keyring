@@ -236,11 +236,10 @@ async fn conflict_detection_flow() {
     let stage = DetectStage::new();
     let outcome = stage.execute(&mut context).await;
 
-    // Should classify as Conflict
-    assert!(matches!(
-        outcome,
-        StageOutcome::ConflictDetected { conflict_ids } if conflict_ids.contains(&"record-1".to_string())
-    ));
+    // DetectStage should classify the conflict and continue so the Push stage
+    // can download and store remote conflict payloads for resolution.
+    assert!(matches!(outcome, StageOutcome::Continue));
+    assert_eq!(context.conflicts, vec!["record-1".to_string()]);
 }
 
 // ============================================================================
