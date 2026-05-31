@@ -731,7 +731,7 @@ tui:
     export_path: "已导出至：%{path}"
     step_onboarding_source: "步骤 1/6 · 选择导入源"
     mode_hint_import: "Tab: 切换字段 | ↑↓: 导航 | 1=导入 2=导出"
-    mode_hint_export: "Tab: 切换字段 | ↑↓: 选择范围 | Esc: 返回"
+    mode_hint_export: "Tab: 切换字段 | Enter: 继续 | Esc: 返回"
     file_path_label: " 文件路径 "
     file_path_placeholder: "/导入文件/路径"
     password_label: " 解密密码 "

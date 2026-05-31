@@ -40,6 +40,12 @@ pub fn update_block(textarea: &mut TextArea<'_>, _focused: bool) {
     textarea.remove_block();
 }
 
+/// Make the embedded textarea cursor visually disappear for read-only render passes.
+pub fn hide_cursor(textarea: &mut TextArea<'_>) {
+    textarea.set_cursor_style(Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE));
+    textarea.set_cursor_line_style(Style::default().bg(theme::BG_SURFACE));
+}
+
 /// Render a labeled textarea field, returning lines for the form layout.
 ///
 /// Returns:

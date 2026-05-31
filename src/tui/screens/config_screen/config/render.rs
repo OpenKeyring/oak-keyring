@@ -544,8 +544,8 @@ pub(super) fn render_action_button(
         let style = if focused {
             Style::default()
                 .fg(theme::NL_TEXT)
-                .bg(theme::NL_SELECTED)
-                .add_modifier(Modifier::BOLD)
+                .bg(theme::NL_BG)
+                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
         } else {
             Style::default().fg(theme::NL_CYAN).bg(theme::NL_BG)
         };
@@ -556,6 +556,17 @@ pub(super) fn render_action_button(
         return;
     }
 
+    let content_style = if focused {
+        Style::default()
+            .fg(theme::NL_TEXT)
+            .bg(theme::NL_BG)
+            .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+    } else {
+        Style::default()
+            .fg(theme::NL_TEXT)
+            .bg(theme::NL_BG)
+            .add_modifier(Modifier::BOLD)
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(if focused {
@@ -576,15 +587,10 @@ pub(super) fn render_action_button(
         .saturating_div(2) as usize;
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" ".repeat(left_pad), theme::Styles::newlook_bg()),
-            Span::styled(
-                text,
-                Style::default()
-                    .fg(theme::NL_TEXT)
-                    .bg(theme::NL_BG)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])),
+            Span::styled(" ".repeat(left_pad), content_style),
+            Span::styled(text, content_style),
+        ]))
+        .style(content_style),
         inner,
     );
 }

@@ -21,8 +21,8 @@ const ITEM_RIGHT_MARGIN: usize = 2;
 fn credential_type_prefix(cred_type: &CredentialType, unicode: bool) -> String {
     let icon = match (cred_type, unicode) {
         (CredentialType::Login, true) => theme::NF_ACCOUNT_KEY,
-        (CredentialType::Api, true) => "API",
-        (CredentialType::Ssh, true) => "SSH",
+        (CredentialType::Api, true) => theme::NF_API,
+        (CredentialType::Ssh, true) => theme::NF_SSH,
         (CredentialType::SecureNote, true) => theme::NF_FILE_LOCK,
         (CredentialType::Login, false) => theme::ascii::NF_ACCOUNT_KEY,
         (CredentialType::Api, false) => theme::ascii::NF_API,

@@ -49,7 +49,6 @@ pub struct ImportExportScreen {
     pub export_step: ExportStep,
     pub export_focus: ExportFocus,
     pub export_format: ExportFormat,
-    pub export_scope_option: ExportScopeOption,
     pub export_password: SensitiveInput,
     pub export_confirm_password: SensitiveInput,
     pub export_password_strength: Option<PasswordStrength>,
@@ -96,9 +95,8 @@ impl ImportExportScreen {
             skip_breakdown: std::collections::HashMap::new(),
 
             export_step: ExportStep::Form,
-            export_focus: ExportFocus::Scope,
+            export_focus: ExportFocus::ExportPassword,
             export_format: ExportFormat::Okb,
-            export_scope_option: ExportScopeOption::All,
             export_password: SensitiveInput::new(),
             export_confirm_password: SensitiveInput::new(),
             export_password_strength: None,
@@ -142,26 +140,6 @@ impl ImportExportScreen {
                 self.export_password_strength = Some(evaluate_strength(pw));
             });
         }
-    }
-
-    fn update_export_path_extension(&mut self) {
-        if self.export_output_path.is_empty() {
-            return;
-        }
-        let path = PathBuf::from(&self.export_output_path);
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("keyring-backup");
-        let ext = match self.export_format {
-            ExportFormat::Okb => "okb",
-            ExportFormat::Csv => "csv",
-        };
-        let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-        self.export_output_path = parent
-            .join(format!("{stem}.{ext}"))
-            .to_string_lossy()
-            .to_string();
     }
 
     pub(super) fn current_source(&self) -> ImportSource {
@@ -227,7 +205,7 @@ impl ImportExportScreen {
             }
             ImportExportMode::Export => {
                 self.export_step = ExportStep::Form;
-                self.export_focus = ExportFocus::Scope;
+                self.export_focus = ExportFocus::ExportPassword;
                 self.export_format = ExportFormat::Okb;
             }
         }
@@ -243,7 +221,6 @@ impl ImportExportScreen {
             import_focus: self.import_focus,
             export_step: self.export_step,
             export_focus: self.export_focus,
-            export_scope_option: self.export_scope_option,
         }
     }
 
@@ -259,7 +236,7 @@ impl ImportExportScreen {
         self.import_focus = restore.import_focus;
         self.export_step = restore.export_step;
         self.export_focus = restore.export_focus;
-        self.export_scope_option = restore.export_scope_option;
+        self.export_format = ExportFormat::Okb;
 
         // Clear sensitive buffers
         self.decrypt_password.clear();
@@ -618,59 +595,20 @@ impl ImportExportScreen {
             KeyCode::Esc => return self.go_back(),
             KeyCode::Tab => {
                 self.export_focus = match self.export_focus {
-                    ExportFocus::Format => ExportFocus::Scope,
-                    ExportFocus::Scope => ExportFocus::ExportPassword,
                     ExportFocus::ExportPassword => ExportFocus::ConfirmPassword,
                     ExportFocus::ConfirmPassword => ExportFocus::OutputPath,
-                    ExportFocus::OutputPath => ExportFocus::Format,
+                    ExportFocus::OutputPath => ExportFocus::ExportPassword,
                 };
             }
             KeyCode::BackTab => {
                 self.export_focus = match self.export_focus {
-                    ExportFocus::Format => ExportFocus::OutputPath,
-                    ExportFocus::Scope => ExportFocus::Format,
-                    ExportFocus::ExportPassword => ExportFocus::Scope,
+                    ExportFocus::ExportPassword => ExportFocus::OutputPath,
                     ExportFocus::ConfirmPassword => ExportFocus::ExportPassword,
                     ExportFocus::OutputPath => ExportFocus::ConfirmPassword,
                 };
             }
-            KeyCode::Up
-                if self.export_focus == ExportFocus::Format
-                    && self.export_format != ExportFormat::Okb =>
-            {
-                self.export_format = ExportFormat::Okb;
-                self.update_export_path_extension();
-            }
-            KeyCode::Down
-                if self.export_focus == ExportFocus::Format
-                    && self.export_format != ExportFormat::Csv =>
-            {
-                self.export_format = ExportFormat::Csv;
-                self.update_export_path_extension();
-            }
-            KeyCode::Up if self.export_focus == ExportFocus::Scope => {
-                self.export_scope_option = match self.export_scope_option {
-                    ExportScopeOption::All => ExportScopeOption::All,
-                    ExportScopeOption::CurrentFilter => ExportScopeOption::All,
-                    ExportScopeOption::ByTag => ExportScopeOption::CurrentFilter,
-                };
-            }
-            KeyCode::Down if self.export_focus == ExportFocus::Scope => {
-                self.export_scope_option = match self.export_scope_option {
-                    ExportScopeOption::All => ExportScopeOption::CurrentFilter,
-                    ExportScopeOption::CurrentFilter => ExportScopeOption::ByTag,
-                    ExportScopeOption::ByTag => ExportScopeOption::ByTag,
-                };
-            }
-            KeyCode::Enter => {
-                if self.export_focus == ExportFocus::Scope {
-                    self.export_focus = ExportFocus::ExportPassword;
-                } else {
-                    return self.validate_export_form();
-                }
-            }
+            KeyCode::Enter => return self.validate_export_form(),
             KeyCode::Char(c) => match self.export_focus {
-                ExportFocus::Format => {}
                 ExportFocus::ExportPassword => {
                     self.export_password.push_char(c);
                     self.update_export_strength();
@@ -681,10 +619,8 @@ impl ImportExportScreen {
                 ExportFocus::OutputPath => {
                     self.export_output_path.push(c);
                 }
-                ExportFocus::Scope => {}
             },
             KeyCode::Backspace => match self.export_focus {
-                ExportFocus::Format => {}
                 ExportFocus::ExportPassword => {
                     self.export_password.pop_char();
                     self.update_export_strength();
@@ -695,7 +631,6 @@ impl ImportExportScreen {
                 ExportFocus::OutputPath => {
                     self.export_output_path.pop();
                 }
-                ExportFocus::Scope => {}
             },
             _ => {}
         }
@@ -753,21 +688,13 @@ impl ImportExportScreen {
                     return ScreenResult::Continue;
                 }
 
-                let scope = match self.export_scope_option {
-                    ExportScopeOption::All => ExportScope::All,
-                    ExportScopeOption::CurrentFilter => {
-                        ExportScope::CurrentFilter(crate::commands::types::RecordFilter::All)
-                    }
-                    ExportScopeOption::ByTag => ExportScope::ByTag(String::new()),
-                };
-
                 let export_pw = self.export_password.take_secure();
                 let master_pw = self.master_password.take_secure();
                 self.export_confirm_password.clear();
 
                 let cmd = Command::ExecuteExport {
-                    scope,
-                    format: self.export_format,
+                    scope: ExportScope::All,
+                    format: ExportFormat::Okb,
                     output_path: PathBuf::from(&self.export_output_path),
                     export_password: export_pw,
                     master_password: master_pw,

@@ -90,8 +90,8 @@ pub const NF_SHIELD_ALT: &str = "\u{f3ed}";
 pub const NF_SECURITY_ISSUES: &str = "\u{f0ecc}";
 pub const NF_WARNING_TRIANGLE: &str = "\u{f071}";
 pub const NF_ACCOUNT_KEY: &str = "\u{f000b}";
-pub const NF_API: &str = "\u{f109b}";
-pub const NF_SSH: &str = "\u{f08c0}";
+pub const NF_API: &str = "\u{f0bc4}";
+pub const NF_SSH: &str = "\u{f1575}";
 pub const NF_FILE_LOCK: &str = "\u{f0221}";
 pub const SPINNER_FRAMES: &[&str] = &[
     "\u{280B}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283C}", "\u{2834}", "\u{2826}", "\u{2827}",

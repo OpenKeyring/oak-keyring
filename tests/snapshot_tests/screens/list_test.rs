@@ -621,7 +621,7 @@ fn list_api_record_shows_prefix() {
     let result = render_to_snapshot(&state, 60, 10, true, true, RecordFilter::All);
 
     assert!(
-        result.contains("API AWS"),
+        result.contains("\u{f0bc4} AWS"),
         "API record should show type prefix"
     );
     assert!(
@@ -637,7 +637,7 @@ fn list_ssh_record_shows_prefix() {
     let result = render_to_snapshot(&state, 60, 10, true, true, RecordFilter::All);
 
     assert!(
-        result.contains("SSH Server"),
+        result.contains("\u{f1575} Server"),
         "SSH record should show type prefix"
     );
 }

@@ -732,7 +732,7 @@ tui:
     export_path: "Exported to: %{path}"
     step_onboarding_source: "Step 1/6 · Select Import Source"
     mode_hint_import: "Tab: switch fields | ↑↓: navigate | 1=Import 2=Export"
-    mode_hint_export: "Tab: switch fields | ↑↓: select scope | Esc: back"
+    mode_hint_export: "Tab: switch fields | Enter: continue | Esc: back"
     file_path_label: " File Path "
     file_path_placeholder: "/path/to/import/file"
     password_label: " Decryption Password "

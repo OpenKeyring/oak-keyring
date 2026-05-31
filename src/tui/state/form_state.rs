@@ -342,11 +342,15 @@ impl FormState {
     }
 
     fn new(mode: FormMode, credential_type: CredentialType) -> Self {
+        let focused_field = match mode {
+            FormMode::Create => 0,
+            FormMode::Edit { .. } => 1,
+        };
         Self {
             mode,
             credential_type,
             fields: FormFields::new(credential_type),
-            focused_field: 0,
+            focused_field,
             generator_expanded: false,
             has_changes: false,
             validation_errors: Vec::new(),
@@ -361,6 +365,13 @@ impl FormState {
             footer_focus: None,
             saving: false,
             saving_tick: 0,
+        }
+    }
+
+    fn first_focusable_field(&self) -> usize {
+        match self.mode {
+            FormMode::Create => 0,
+            FormMode::Edit { .. } => 1,
         }
     }
 
@@ -616,7 +627,8 @@ impl FormState {
             return;
         }
 
-        if self.focused_field > 0 {
+        let first = self.first_focusable_field();
+        if self.focused_field > first {
             self.focused_field -= 1;
             self.password_sub_focus = PasswordFieldFocus::Input;
             self.fields.tag_focus = None;
@@ -626,7 +638,9 @@ impl FormState {
 
     /// Set field focus directly, clearing footer and inline-button focus.
     pub fn focus_field(&mut self, field_index: usize) {
-        self.focused_field = field_index.min(self.field_count().saturating_sub(1));
+        self.focused_field = field_index
+            .max(self.first_focusable_field())
+            .min(self.field_count().saturating_sub(1));
         self.footer_focus = None;
         self.password_sub_focus = PasswordFieldFocus::Input;
         if self.focused_field != self.tags_field_index() {
@@ -1001,6 +1015,22 @@ mod tests {
         let state = FormState::new_edit(Uuid::new_v4(), CredentialType::Ssh);
         assert!(!state.is_credential_type_editable());
         assert!(state.fields.public_key.is_some());
+    }
+
+    #[test]
+    fn new_edit_focuses_name_not_locked_type() {
+        let state = FormState::new_edit(Uuid::new_v4(), CredentialType::Login);
+        assert_eq!(state.focused_field, 1);
+    }
+
+    #[test]
+    fn edit_focus_prev_from_name_stays_on_name() {
+        let mut state = FormState::new_edit(Uuid::new_v4(), CredentialType::Login);
+        state.focused_field = 1;
+
+        state.focus_prev();
+
+        assert_eq!(state.focused_field, 1);
     }
 
     #[test]

@@ -546,7 +546,17 @@ pub fn render_form(
             width: area.width.saturating_sub(label_width as u16 + 3),
             height: notes_rows,
         };
-        frame.render_widget(&state.fields.notes, notes_area);
+        if state
+            .fields
+            .is_textarea_field(state.focused_field, state.credential_type)
+            && state.footer_focus.is_none()
+        {
+            frame.render_widget(&state.fields.notes, notes_area);
+        } else {
+            let mut notes = state.fields.notes.clone();
+            textarea::hide_cursor(&mut notes);
+            frame.render_widget(&notes, notes_area);
+        }
     }
 
     if let Some(gen) = generator_state {
@@ -941,5 +951,28 @@ mod tests {
         assert!(find_text(&buffer, "[ Save ]").is_some());
         assert!(find_text(&buffer, "\u{f071}").is_some());
         assert!(find_text(&buffer, "\u{26A0}").is_none());
+    }
+
+    #[test]
+    fn unfocused_notes_textarea_does_not_render_cursor_style() {
+        let mut state = FormState::new_edit(uuid::Uuid::nil(), CredentialType::Login);
+        state.fields.name = "Example".into();
+        state.fields.set_notes_text("internal notes");
+        state.focused_field = 1;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_form(frame, frame.area(), &state, None, &[], true);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let (notes_x, notes_y) = find_text(&buffer, "internal notes").expect("notes text");
+        let cursor_cell = buffer
+            .cell((notes_x + "internal notes".len() as u16, notes_y))
+            .expect("cell after notes text");
+
+        assert_ne!(cursor_cell.style().bg, Some(theme::PRIMARY));
     }
 }

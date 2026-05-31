@@ -1,14 +1,14 @@
 use std::path::PathBuf;
 
 use ratatui::backend::TestBackend;
+use ratatui::style::Modifier;
 use ratatui::Terminal;
 
-use oak_keyring::commands::types::{
-    ExportFormat, FailedItem, ImportPreview, ImportSource, ReviewItem,
-};
+use oak_keyring::commands::types::{FailedItem, ImportPreview, ImportSource, ReviewItem};
 use oak_keyring::tui::screens::import_export::{
     ExportFocus, ExportStep, ImportExportMode, ImportExportScreen, ImportFocus, ImportStep,
 };
+use oak_keyring::tui::theme;
 use oak_keyring::tui::traits::screen::Screen;
 use oak_keyring::types::sensitive::SensitiveInput;
 
@@ -31,6 +31,18 @@ fn render_screen(screen: &ImportExportScreen, width: u16, height: u16) -> TestBa
         })
         .unwrap();
     terminal.backend().clone()
+}
+
+fn backend_text(backend: &TestBackend) -> String {
+    let buffer = backend.buffer();
+    (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[test]
@@ -116,23 +128,48 @@ fn export_form_default() {
     let mut screen = ImportExportScreen::new();
     screen.mode = ImportExportMode::Export;
     screen.export_step = ExportStep::Form;
-    screen.export_focus = ExportFocus::Scope;
+    screen.export_focus = ExportFocus::ExportPassword;
     screen.export_output_path = "/path/to/keyring-backup.okb".to_string();
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("export_form_default", backend);
 }
 
 #[test]
-fn export_form_csv_warning() {
+fn export_form_is_backup_only_without_scope_or_csv_options() {
     let _locale = snapshot_locale();
     let mut screen = ImportExportScreen::new();
     screen.mode = ImportExportMode::Export;
     screen.export_step = ExportStep::Form;
-    screen.export_format = ExportFormat::Csv;
-    screen.export_focus = ExportFocus::OutputPath;
-    screen.export_output_path = "/path/to/plain_export.csv".to_string();
     let backend = render_screen(&screen, 80, 24);
-    insta::assert_snapshot!("export_form_csv_warning", backend);
+    let rendered = backend_text(&backend);
+
+    assert!(rendered.contains(".okb"));
+    assert!(!rendered.contains(".csv"));
+    assert!(!rendered.contains("Export Scope"));
+    assert!(!rendered.contains("Current filter"));
+    assert!(!rendered.contains("By tag"));
+}
+
+#[test]
+fn export_form_focused_input_renders_cursor() {
+    let _locale = snapshot_locale();
+    let mut screen = ImportExportScreen::new();
+    screen.mode = ImportExportMode::Export;
+    screen.export_step = ExportStep::Form;
+    screen.export_focus = ExportFocus::ExportPassword;
+    screen.export_output_path = "/path/to/keyring-backup.okb".to_string();
+    let backend = render_screen(&screen, 80, 24);
+
+    let has_cursor_cell = backend.buffer().content().iter().any(|cell| {
+        cell.symbol() == " "
+            && cell.style().bg == Some(theme::PRIMARY)
+            && cell.style().add_modifier.contains(Modifier::BOLD)
+    });
+
+    assert!(
+        has_cursor_cell,
+        "focused export input should render a cursor"
+    );
 }
 
 #[test]

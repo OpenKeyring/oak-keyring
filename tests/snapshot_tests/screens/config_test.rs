@@ -1,4 +1,5 @@
 use ratatui::backend::TestBackend;
+use ratatui::style::Modifier;
 use ratatui::Terminal;
 
 use chrono::TimeZone;
@@ -147,6 +148,37 @@ fn config_footer_close_focus_uses_newlook_danger_button() {
 
     assert_eq!(close_cell.style().fg, Some(theme::NL_DANGER));
     assert_eq!(close_cell.style().bg, Some(theme::NL_SURFACE_2));
+}
+
+#[test]
+fn config_general_import_export_buttons_use_reversed_focus() {
+    let _locale = snapshot_locale();
+
+    let mut screen = ConfigScreen::new();
+    screen.state.active_tab = ConfigTab::General;
+    screen.state.focused_item = 5;
+    let backend = render_screen(&screen, 120, 30);
+    let import_cell = cell_at_text_start(&backend, "Import from Another Manager")
+        .expect("focused import button should render");
+    assert!(
+        import_cell
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED),
+        "focused import button text should be reversed"
+    );
+
+    screen.state.focused_item = 6;
+    let backend = render_screen(&screen, 120, 30);
+    let export_cell =
+        cell_at_text_start(&backend, "Export Data").expect("focused export button should render");
+    assert!(
+        export_cell
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED),
+        "focused export button text should be reversed"
+    );
 }
 
 #[test]

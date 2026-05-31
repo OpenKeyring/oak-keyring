@@ -1007,7 +1007,9 @@ impl Screen for EditRecordScreen {
                 }
                 CommandResult::RecordForEditLoaded { record } => {
                     let rec_id = record.id();
+                    let credential_type = record.credential_type();
                     let rec_tags = record.tags().to_vec();
+                    self.form = FormState::new_edit(rec_id, credential_type);
                     match record {
                         crate::types::record::DecryptedRecord::Login {
                             version,
@@ -1248,6 +1250,102 @@ mod tests {
         );
         assert!(matches!(result, ScreenResult::Continue));
         assert_eq!(screen.all_tags.len(), 1);
+    }
+
+    fn assert_loaded_record_keeps_edit_type(
+        record: crate::types::record::DecryptedRecord,
+        expected_type: CredentialType,
+    ) {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::RecordForEditLoaded { record }),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.credential_type, expected_type);
+        match (expected_type, screen.form.build_payload_snapshot()) {
+            (CredentialType::Api, crate::types::credential::EncryptedPayload::Api { .. }) => {}
+            (CredentialType::Ssh, crate::types::credential::EncryptedPayload::Ssh { .. }) => {}
+            (
+                CredentialType::SecureNote,
+                crate::types::credential::EncryptedPayload::SecureNote { .. },
+            ) => {}
+            (expected, payload) => panic!("expected {expected:?} payload, got {payload:?}"),
+        }
+    }
+
+    #[test]
+    fn loaded_api_record_keeps_api_edit_form() {
+        let id = uuid::Uuid::new_v4();
+        assert_loaded_record_keeps_edit_type(
+            crate::types::record::DecryptedRecord::Api {
+                id,
+                is_favorite: false,
+                expires_at: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                version: 7,
+                deleted: false,
+                deleted_at: None,
+                tags: vec!["api".into()],
+                name: "Stripe".into(),
+                app_id: "stripe-live".into(),
+                secret_key: SecureStr::new("sk_live".into()),
+                url: Some("https://stripe.com".into()),
+                notes: Some("api notes".into()),
+            },
+            CredentialType::Api,
+        );
+    }
+
+    #[test]
+    fn loaded_ssh_record_keeps_ssh_edit_form() {
+        let id = uuid::Uuid::new_v4();
+        assert_loaded_record_keeps_edit_type(
+            crate::types::record::DecryptedRecord::Ssh {
+                id,
+                is_favorite: false,
+                expires_at: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                version: 8,
+                deleted: false,
+                deleted_at: None,
+                tags: vec!["server".into()],
+                name: "Deploy Key".into(),
+                public_key: "ssh-ed25519 AAAA".into(),
+                private_key: Some(SecureStr::new("PRIVATE".into())),
+                passphrase: Some(SecureStr::new("passphrase".into())),
+                notes: Some("ssh notes".into()),
+            },
+            CredentialType::Ssh,
+        );
+    }
+
+    #[test]
+    fn loaded_secure_note_record_keeps_secure_note_edit_form() {
+        let id = uuid::Uuid::new_v4();
+        assert_loaded_record_keeps_edit_type(
+            crate::types::record::DecryptedRecord::SecureNote {
+                id,
+                is_favorite: false,
+                expires_at: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                version: 9,
+                deleted: false,
+                deleted_at: None,
+                tags: vec!["note".into()],
+                name: "Recovery".into(),
+                notes: Some("secure note body".into()),
+            },
+            CredentialType::SecureNote,
+        );
     }
 
     #[test]

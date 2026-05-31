@@ -261,8 +261,8 @@ fn record_items_render_credential_type_icons_before_names() {
 
     for (marker, name) in [
         ("\u{f000b}", "Login Item"),
-        ("API", "API Item"),
-        ("SSH", "SSH Item"),
+        ("\u{f0bc4}", "API Item"),
+        ("\u{f1575}", "SSH Item"),
         ("\u{f0221}", "Note Item"),
     ] {
         let title = find_buffer_row_text(&buffer, name);
@@ -280,7 +280,7 @@ fn record_items_render_credential_type_icons_before_names() {
 }
 
 #[test]
-fn api_and_ssh_records_use_readable_type_badges() {
+fn api_and_ssh_records_use_nerd_font_type_icons() {
     let records = vec![
         make_record_with_type(Uuid::new_v4(), "API Item", CredentialType::Api),
         make_record_with_type(Uuid::new_v4(), "SSH Item", CredentialType::Ssh),
@@ -292,12 +292,12 @@ fn api_and_ssh_records_use_readable_type_badges() {
     let ssh_row = find_buffer_row_text(&buffer, "SSH Item");
 
     assert!(
-        api_row.contains("API API Item"),
-        "API type marker should be readable at normal text size: {api_row:?}"
+        api_row.contains("\u{f0bc4} API Item"),
+        "API type marker should use Nerd Font icon: {api_row:?}"
     );
     assert!(
-        ssh_row.contains("SSH SSH Item"),
-        "SSH type marker should be readable at normal text size: {ssh_row:?}"
+        ssh_row.contains("\u{f1575} SSH Item"),
+        "SSH type marker should use Nerd Font icon: {ssh_row:?}"
     );
 }
 

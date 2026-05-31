@@ -84,6 +84,45 @@ pub(crate) fn render_input_box_spans(
     ]
 }
 
+pub(crate) fn render_bare_input_spans(
+    value: &str,
+    placeholder: &str,
+    width: usize,
+    focused: bool,
+    style: Style,
+    placeholder_style: Style,
+) -> Vec<Span<'static>> {
+    if !focused {
+        let display_value = if value.is_empty() {
+            truncate_to_width(placeholder, width)
+        } else {
+            truncate_to_width(value, width)
+        };
+        let padded_value = pad_to_width(&display_value, width);
+        let display_style = if value.is_empty() {
+            placeholder_style
+        } else {
+            style
+        };
+        return vec![Span::styled(padded_value, display_style)];
+    }
+
+    let text_width = width.saturating_sub(1);
+    let display_value = truncate_to_width(value, text_width);
+    let used = display_width(&display_value);
+    let rest_width = width.saturating_sub(used + 1);
+    let cursor_style = Style::default()
+        .fg(theme::BG)
+        .bg(theme::PRIMARY)
+        .add_modifier(Modifier::BOLD);
+
+    vec![
+        Span::styled(display_value, style),
+        Span::styled(" ", cursor_style),
+        Span::styled(" ".repeat(rest_width), style),
+    ]
+}
+
 /// Render a labeled text input field.
 pub fn render_text_input(
     label: &str,

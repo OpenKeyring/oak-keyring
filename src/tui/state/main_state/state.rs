@@ -202,20 +202,49 @@ impl SidebarState {
             .unwrap_or(self.items.len())
     }
 
-    /// Number of rows/items available for the scrollable navigation area.
-    pub fn nav_visible_items_for_height(&self, sidebar_height: u16) -> usize {
-        let footer_start = self.footer_start_index();
-        let footer_height = if self.items.len() > footer_start {
-            (self.items.len() - footer_start).min(sidebar_height as usize) as u16
-        } else {
-            0
-        };
-        sidebar_height.saturating_sub(footer_height).max(1) as usize
+    pub fn tag_header_index(&self) -> Option<usize> {
+        self.items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::TagHeader))
     }
 
-    /// Maximum item offset for the scrollable navigation area.
-    pub fn max_tag_scroll_offset(&self, visible_items: usize) -> usize {
+    pub fn tag_scroll_start_index(&self) -> usize {
+        self.tag_header_index()
+            .map(|index| index.saturating_add(1))
+            .unwrap_or_else(|| self.footer_start_index())
+            .min(self.footer_start_index())
+    }
+
+    pub fn tag_scroll_item_count(&self) -> usize {
         self.footer_start_index()
+            .saturating_sub(self.tag_scroll_start_index())
+    }
+
+    pub fn fixed_top_height(&self) -> usize {
+        let end = self.tag_scroll_start_index();
+        (0..end)
+            .map(|index| sidebar_item_render_height(self, index))
+            .sum()
+    }
+
+    pub fn footer_render_height(&self) -> usize {
+        let start = self.footer_start_index();
+        (start..self.items.len())
+            .map(|index| sidebar_item_render_height(self, index))
+            .sum()
+    }
+
+    /// Number of rows/items available for the scrollable tag area.
+    pub fn nav_visible_items_for_height(&self, sidebar_height: u16) -> usize {
+        let footer_height = self.footer_render_height().min(sidebar_height as usize) as u16;
+        let remaining = sidebar_height.saturating_sub(footer_height);
+        let top_height = self.fixed_top_height().min(remaining as usize) as u16;
+        remaining.saturating_sub(top_height).max(1) as usize
+    }
+
+    /// Maximum item offset for the scrollable tag area.
+    pub fn max_tag_scroll_offset(&self, visible_items: usize) -> usize {
+        self.tag_scroll_item_count()
             .saturating_sub(visible_items.max(1))
     }
 
@@ -234,16 +263,18 @@ impl SidebarState {
 
     /// Ensure the current sidebar selection is visible in the scrollable region.
     pub fn ensure_selected_visible(&mut self, visible_items: usize) {
-        let footer_start = self.footer_start_index();
-        if self.selected_index >= footer_start {
+        let scroll_start = self.tag_scroll_start_index();
+        let scroll_end = self.footer_start_index();
+        if self.selected_index < scroll_start || self.selected_index >= scroll_end {
             return;
         }
 
         let visible_items = visible_items.max(1);
-        if self.selected_index < self.tag_scroll_offset {
-            self.tag_scroll_offset = self.selected_index;
-        } else if self.selected_index >= self.tag_scroll_offset.saturating_add(visible_items) {
-            self.tag_scroll_offset = self.selected_index + 1 - visible_items;
+        let relative_index = self.selected_index.saturating_sub(scroll_start);
+        if relative_index < self.tag_scroll_offset {
+            self.tag_scroll_offset = relative_index;
+        } else if relative_index >= self.tag_scroll_offset.saturating_add(visible_items) {
+            self.tag_scroll_offset = relative_index + 1 - visible_items;
         }
         self.tag_scroll_offset = self
             .tag_scroll_offset
@@ -1798,8 +1829,11 @@ impl MainScreenState {
             let detail_rect = top_padded_rect(layout.detail, 1);
 
             if contains_rect(layout.sidebar, event.column, event.row) {
-                self.focused_panel = PanelId::Sidebar;
-                if self.sidebar.tags_expanded && !self.sidebar.tags.is_empty() {
+                if self.sidebar.tags_expanded
+                    && !self.sidebar.tags.is_empty()
+                    && sidebar_tag_scroll_region_contains(&self.sidebar, layout.sidebar, event.row)
+                {
+                    self.focused_panel = PanelId::Sidebar;
                     let visible = self
                         .sidebar
                         .nav_visible_items_for_height(layout.sidebar.height);
@@ -2116,16 +2150,15 @@ fn sidebar_item_index_at(sidebar: &SidebarState, sidebar_rect: Rect, row: u16) -
     }
 
     let footer_start = sidebar.footer_start_index();
-    let footer_height = if sidebar.items.len() > footer_start {
-        (sidebar.items.len() - footer_start).min(sidebar_rect.height as usize) as u16
-    } else {
-        0
-    };
-    let nav_height = sidebar_rect.height.saturating_sub(footer_height);
-    let nav_bottom = sidebar_rect.y.saturating_add(nav_height);
+    let footer_height = sidebar
+        .footer_render_height()
+        .min(sidebar_rect.height as usize) as u16;
+    let footer_top = sidebar_rect
+        .y
+        .saturating_add(sidebar_rect.height.saturating_sub(footer_height));
 
-    if row >= nav_bottom {
-        let relative_row = row.saturating_sub(nav_bottom) as usize;
+    if row >= footer_top {
+        let relative_row = row.saturating_sub(footer_top) as usize;
         return sidebar_item_index_in_range(
             sidebar,
             footer_start,
@@ -2134,12 +2167,44 @@ fn sidebar_item_index_at(sidebar: &SidebarState, sidebar_rect: Rect, row: u16) -
         );
     }
 
-    let visible_items = nav_height.max(1) as usize;
+    let scroll_start = sidebar.tag_scroll_start_index();
+    let top_height = sidebar
+        .fixed_top_height()
+        .min(footer_top.saturating_sub(sidebar_rect.y) as usize) as u16;
+    let top_bottom = sidebar_rect.y.saturating_add(top_height);
+
+    if row < top_bottom {
+        let relative_row = row.saturating_sub(sidebar_rect.y) as usize;
+        return sidebar_item_index_in_range(sidebar, 0, scroll_start, relative_row);
+    }
+
+    let tag_area_height = footer_top.saturating_sub(top_bottom);
+    if tag_area_height == 0 {
+        return None;
+    }
+
+    let visible_items = tag_area_height.max(1) as usize;
     let offset = sidebar
         .tag_scroll_offset
         .min(sidebar.max_tag_scroll_offset(visible_items));
-    let relative_row = row.saturating_sub(sidebar_rect.y) as usize;
-    sidebar_item_index_in_range(sidebar, offset, footer_start, relative_row)
+    let relative_row = row.saturating_sub(top_bottom) as usize;
+    sidebar_item_index_in_range(
+        sidebar,
+        scroll_start.saturating_add(offset),
+        footer_start,
+        relative_row,
+    )
+}
+
+fn sidebar_tag_scroll_region_contains(
+    sidebar: &SidebarState,
+    sidebar_rect: Rect,
+    row: u16,
+) -> bool {
+    let Some(index) = sidebar_item_index_at(sidebar, sidebar_rect, row) else {
+        return false;
+    };
+    index >= sidebar.tag_scroll_start_index() && index < sidebar.footer_start_index()
 }
 
 fn sidebar_item_index_in_range(

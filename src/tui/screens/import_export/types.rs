@@ -44,19 +44,9 @@ pub enum ImportFocus {
 /// Focus targets within the Export Form step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFocus {
-    Format,
-    Scope,
     ExportPassword,
     ConfirmPassword,
     OutputPath,
-}
-
-/// Export scope selection index.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExportScopeOption {
-    All,
-    CurrentFilter,
-    ByTag,
 }
 
 // ── Source metadata ─────────────────────────────────────────────────────────

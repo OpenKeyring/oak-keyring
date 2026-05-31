@@ -48,17 +48,13 @@ impl SidebarPanel {
         );
 
         let footer_start = state.footer_start_index();
-        let footer_height = if state.items.len() > footer_start {
-            (state.items.len() - footer_start).min(area.height as usize) as u16
-        } else {
-            0
-        };
-        let nav_area = Rect::new(
-            area.x,
-            area.y,
-            area.width,
-            area.height.saturating_sub(footer_height),
-        );
+        let tag_scroll_start = state.tag_scroll_start_index();
+        let footer_height = state.footer_render_height().min(area.height as usize) as u16;
+        let remaining_height = area.height.saturating_sub(footer_height);
+        let top_height = state.fixed_top_height().min(remaining_height as usize) as u16;
+        let tag_height = remaining_height.saturating_sub(top_height);
+        let top_area = Rect::new(area.x, area.y, area.width, top_height);
+        let tag_area = Rect::new(area.x, area.y + top_height, area.width, tag_height);
         let footer_area = Rect::new(
             area.x,
             area.y + area.height.saturating_sub(footer_height),
@@ -66,65 +62,73 @@ impl SidebarPanel {
             footer_height,
         );
 
-        let visible_items = nav_area.height.max(1) as usize;
-        let mut list_offset = state
+        if top_height > 0 {
+            let top_items: Vec<ListItem<'_>> = state.items[..tag_scroll_start]
+                .iter()
+                .map(|item| build_list_item(item, state, unicode, area.width, focused))
+                .collect();
+            let top_list = List::new(top_items);
+            let mut top_state = ListState::default();
+            top_state
+                .select((state.selected_index < tag_scroll_start).then_some(state.selected_index));
+            frame.render_stateful_widget(top_list, top_area, &mut top_state);
+        }
+
+        let visible_items = tag_area.height.max(1) as usize;
+        let tag_offset = state
             .tag_scroll_offset
             .min(state.max_tag_scroll_offset(visible_items));
-        if state.tag_scroll_offset == 0 && state.selected_index < footer_start {
-            if state.selected_index < list_offset {
-                list_offset = state.selected_index;
-            } else if state.selected_index >= list_offset.saturating_add(visible_items) {
-                list_offset = state.selected_index + 1 - visible_items;
-            }
-        }
-        list_offset = list_offset.min(state.max_tag_scroll_offset(visible_items));
 
         let needs_scrollbar = state.tags_expanded
             && !state.tags.is_empty()
-            && footer_start > visible_items
-            && nav_area.width > 4;
-        let (nav_list_area, nav_scroll_area) = if needs_scrollbar {
+            && state.tag_scroll_item_count() > visible_items
+            && tag_area.width > 4
+            && tag_area.height > 0;
+        let (tag_list_area, tag_scroll_area) = if needs_scrollbar {
             (
                 Rect::new(
-                    nav_area.x,
-                    nav_area.y,
-                    nav_area.width.saturating_sub(1),
-                    nav_area.height,
+                    tag_area.x,
+                    tag_area.y,
+                    tag_area.width.saturating_sub(1),
+                    tag_area.height,
                 ),
                 Rect::new(
-                    nav_area.x + nav_area.width.saturating_sub(1),
-                    nav_area.y,
+                    tag_area.x + tag_area.width.saturating_sub(1),
+                    tag_area.y,
                     1,
-                    nav_area.height,
+                    tag_area.height,
                 ),
             )
         } else {
-            (nav_area, Rect::default())
+            (tag_area, Rect::default())
         };
 
-        let items: Vec<ListItem<'_>> = state.items[list_offset..footer_start]
-            .iter()
-            .take(visible_items)
-            .map(|item| build_list_item(item, state, unicode, nav_list_area.width, focused))
-            .collect();
+        if tag_area.height > 0 && tag_scroll_start < footer_start {
+            let list_offset = tag_scroll_start.saturating_add(tag_offset);
+            let items: Vec<ListItem<'_>> = state.items[list_offset..footer_start]
+                .iter()
+                .take(visible_items)
+                .map(|item| build_list_item(item, state, unicode, tag_list_area.width, focused))
+                .collect();
 
-        let list = List::new(items);
+            let list = List::new(items);
 
-        let mut list_state = ListState::default();
-        let selected_in_view = state
-            .selected_index
-            .checked_sub(list_offset)
-            .filter(|idx| state.selected_index < footer_start && *idx < visible_items);
-        list_state.select(selected_in_view);
+            let mut list_state = ListState::default();
+            let selected_in_view = state
+                .selected_index
+                .checked_sub(list_offset)
+                .filter(|idx| state.selected_index < footer_start && *idx < visible_items);
+            list_state.select(selected_in_view);
 
-        frame.render_stateful_widget(list, nav_list_area, &mut list_state);
-        render_sidebar_scrollbar(
-            frame,
-            nav_scroll_area,
-            list_offset,
-            visible_items,
-            footer_start,
-        );
+            frame.render_stateful_widget(list, tag_list_area, &mut list_state);
+            render_sidebar_scrollbar(
+                frame,
+                tag_scroll_area,
+                tag_offset,
+                visible_items,
+                state.tag_scroll_item_count(),
+            );
+        }
 
         if footer_height > 0 {
             let footer_items: Vec<ListItem<'_>> = state.items[footer_start..]
@@ -142,7 +146,14 @@ impl SidebarPanel {
         // Render inline rename edit box overlay if active
         if state.tag_management_mode {
             if let Some(ref edit) = state.tag_management.inline_edit {
-                render_inline_rename(frame, area, state, edit, unicode, list_offset);
+                render_inline_rename(
+                    frame,
+                    tag_list_area,
+                    state,
+                    edit,
+                    unicode,
+                    tag_scroll_start.saturating_add(tag_offset),
+                );
             }
         }
     }
@@ -1359,11 +1370,11 @@ mod tests {
         };
         state.rebuild();
 
-        let buffer = render_sidebar_buffer(&state, 36, 16);
+        let buffer = render_sidebar_buffer(&state, 36, 30);
         let rendered = format!("{:?}", buffer);
 
         assert!(
-            rendered.contains("tag_06"),
+            rendered.contains("tag_08"),
             "scrolled sidebar should show later tags"
         );
         assert!(
@@ -1381,6 +1392,56 @@ mod tests {
         assert!(
             rendered_contains_any(&rendered, &["Settings", "配置"]),
             "config footer shortcut should stay visible while tags scroll"
+        );
+    }
+
+    #[test]
+    fn scrolled_tags_keep_fixed_sidebar_sections_and_confine_scrollbar() {
+        let _locale = LocaleGuard::en();
+        use crate::types::Tag;
+
+        let mut state = SidebarState {
+            tags_expanded: true,
+            tags: (0..28)
+                .map(|idx| Tag {
+                    id: idx + 1,
+                    name: format!("tag_{idx:02}"),
+                })
+                .collect(),
+            tag_scroll_offset: 16,
+            ..Default::default()
+        };
+        state.rebuild();
+
+        let buffer = render_sidebar_buffer(&state, 36, 30);
+        let rendered = format!("{:?}", buffer);
+
+        assert!(rendered.contains("OpenKeyring"), "brand must stay fixed");
+        for label in ["All", "Favorites", "Expired", "Health", "Trash"] {
+            assert!(rendered.contains(label), "{label} filter must stay fixed");
+        }
+        let tag_header_row =
+            row_with_any_text(&buffer, &["Tags", "标签"]).expect("tag header should render");
+        let generator_row =
+            row_with_any_text(&buffer, &["Generator", "生成器"]).expect("generator should render");
+        assert!(
+            !rendered.contains("tag_00"),
+            "scrolled tag region should not stay pinned to the first tag"
+        );
+        assert!(
+            rendered.contains("tag_08") || rendered.contains("tag_09"),
+            "scrolled tag region should show later tags"
+        );
+
+        let thumb_rows: Vec<u16> = (0..buffer.area.height)
+            .filter(|row| row_text(&buffer, *row).contains('█'))
+            .collect();
+        assert!(!thumb_rows.is_empty(), "tag scrollbar thumb should render");
+        assert!(
+            thumb_rows
+                .iter()
+                .all(|row| *row > tag_header_row && *row < generator_row),
+            "scrollbar thumb rows {thumb_rows:?} must stay inside tag list rows"
         );
     }
 
@@ -1458,13 +1519,16 @@ mod tests {
         };
         state.rebuild();
 
-        // Select the last tag (index 18: Brand(0), Sep(1), All(2), Fav(3), Exp(4),
-        // Health(5), Trash(6), Sep(7), TagHeader(8), tag_00(9)..tag_09(18))
-        state.selected_index = 18;
+        // Select the last tag. The tag scroll offset is relative to the tag-only
+        // area, so the fixed filters above it stay visible.
+        state.selected_index = state
+            .items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::Tag(name, _) if name == "tag_09"))
+            .expect("tag_09 should exist");
+        state.tag_scroll_offset = 12;
 
-        // Render into a short area (height 12) so the list must scroll.
-        // With 24 items and height 12, offset should be > 0 after rendering.
-        let backend = ratatui::backend::TestBackend::new(40, 12);
+        let backend = ratatui::backend::TestBackend::new(40, 30);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {

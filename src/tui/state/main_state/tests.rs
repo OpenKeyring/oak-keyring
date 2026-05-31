@@ -1138,7 +1138,7 @@ fn mouse_click_list_row_uses_rendered_scroll_offset() {
 #[test]
 fn mouse_scroll_sidebar_moves_tag_view_without_changing_filter() {
     let mut state = MainScreenState::default();
-    state.terminal_area = Rect::new(0, 0, 120, 18);
+    state.terminal_area = Rect::new(0, 0, 120, 30);
     state.sidebar.tags = (0..18)
         .map(|idx| Tag {
             id: idx + 1,
@@ -1151,7 +1151,7 @@ fn mouse_scroll_sidebar_moves_tag_view_without_changing_filter() {
     state.focused_panel = PanelId::List;
     let mut ctx = make_ctx();
 
-    let result = state.update(Message::MouseEvent(mouse_scroll_down(4, 8)), &mut ctx);
+    let result = state.update(Message::MouseEvent(mouse_scroll_down(4, 17)), &mut ctx);
 
     assert!(matches!(result, ScreenResult::Continue));
     assert_eq!(state.focused_panel, PanelId::Sidebar);
@@ -1162,7 +1162,7 @@ fn mouse_scroll_sidebar_moves_tag_view_without_changing_filter() {
 #[test]
 fn mouse_click_visible_sidebar_tag_selects_tag_and_reloads_filter() {
     let mut state = MainScreenState::default();
-    state.terminal_area = Rect::new(0, 0, 120, 18);
+    state.terminal_area = Rect::new(0, 0, 120, 30);
     state.sidebar.tags = (0..18)
         .map(|idx| Tag {
             id: idx + 1,
@@ -1170,13 +1170,13 @@ fn mouse_click_visible_sidebar_tag_selects_tag_and_reloads_filter() {
         })
         .collect();
     state.sidebar.rebuild();
-    state.sidebar.tag_scroll_offset = 18;
+    state.sidebar.tag_scroll_offset = 4;
     state.sidebar.select_category(SidebarCategory::All);
     state.current_filter = RecordFilter::All;
     state.focused_panel = PanelId::List;
     let mut ctx = make_ctx();
 
-    let result = state.update(Message::MouseEvent(mouse_click(4, 1)), &mut ctx);
+    let result = state.update(Message::MouseEvent(mouse_click(4, 17)), &mut ctx);
 
     assert_eq!(state.focused_panel, PanelId::Sidebar);
     assert_eq!(state.sidebar.selected_tag_name(), Some("tag_02"));
