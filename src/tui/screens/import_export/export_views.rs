@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
 use crate::t;
 use crate::tui::components::text_input;
-use crate::tui::theme::{self, Styles, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, TEXT_SECONDARY};
+use crate::tui::theme::{self, Styles, TEXT_MUTED, TEXT_PLACEHOLDER};
 
 use super::screen::ImportExportScreen;
 use super::types::*;
@@ -230,6 +230,7 @@ impl ImportExportScreen {
         let pw_display = export_input_paragraph(
             &pw_value,
             &t!("tui.import_export.export_password_placeholder").to_string(),
+            pw_value.len(),
             self.export_focus == ExportFocus::ExportPassword,
             pw_inner.width,
         );
@@ -242,6 +243,7 @@ impl ImportExportScreen {
         let confirm_display = export_input_paragraph(
             &confirm_value,
             &t!("tui.import_export.confirm_password_placeholder").to_string(),
+            confirm_value.len(),
             self.export_focus == ExportFocus::ConfirmPassword,
             confirm_inner.width,
         );
@@ -256,6 +258,7 @@ impl ImportExportScreen {
         let path_display = export_input_paragraph(
             &path_value,
             &t!("tui.import_export.output_path_placeholder").to_string(),
+            self.export_output_path_cursor,
             self.export_focus == ExportFocus::OutputPath,
             path_inner.width,
         );
@@ -272,18 +275,53 @@ impl ImportExportScreen {
 fn export_input_paragraph(
     value: &str,
     placeholder: &str,
+    cursor: usize,
     focused: bool,
     width: u16,
 ) -> Paragraph<'static> {
-    let spans = text_input::render_bare_input_spans(
+    let spans = text_input::render_bare_input_spans_at_cursor(
         value,
         placeholder,
+        cursor,
         width as usize,
         focused,
         Style::default().fg(theme::NL_TEXT).bg(theme::NL_BG),
         Style::default().fg(TEXT_PLACEHOLDER).bg(theme::NL_BG),
     );
     Paragraph::new(Line::from(spans)).style(Styles::newlook_bg())
+}
+
+fn render_newlook_center_panel(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    height: u16,
+    max_width: u16,
+) -> Rect {
+    let outer = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(height),
+        Constraint::Fill(1),
+    ])
+    .split(area);
+    let center_area = outer[1];
+    let h_layout = Layout::horizontal([
+        Constraint::Fill(1),
+        Constraint::Max(max_width),
+        Constraint::Fill(1),
+    ])
+    .split(center_area);
+    let content_area = h_layout[1];
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Styles::newlook_focused_border())
+        .style(Styles::newlook_bg());
+    let mut inner = block.inner(content_area);
+    if inner.width > 4 {
+        inner.x += 2;
+        inner.width -= 4;
+    }
+    frame.render_widget(block, content_area);
+    inner
 }
 
 // ── View: Export Master Password Confirm ───────────────────────────────────
@@ -294,69 +332,60 @@ impl ImportExportScreen {
         frame: &mut ratatui::Frame,
         area: Rect,
     ) {
-        let outer = Layout::vertical([
-            Constraint::Fill(1),
-            Constraint::Length(12),
-            Constraint::Fill(1),
-        ])
-        .split(area);
+        let content_area = render_newlook_center_panel(frame, area, 14, 74);
 
-        let center_area = outer[1];
-
-        let h_layout = Layout::horizontal([
-            Constraint::Fill(1),
-            Constraint::Max(50),
-            Constraint::Fill(1),
-        ])
-        .split(center_area);
-
-        let content_area = h_layout[1];
-
-        let title = Paragraph::new(t!("tui.import_export.authorize_title").to_string())
-            .style(Styles::brand_text())
-            .alignment(Alignment::Center);
-
-        let subtitle = Paragraph::new(
-            t!(
-                "tui.import_export.authorize_subtitle",
-                scope = t!("tui.import_export.scope_all").to_string(),
-                path = self.export_output_path
-            )
-            .to_string(),
-        )
-        .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled(theme::NF_DOWNLOAD, Style::default().fg(theme::NL_CYAN)),
+            Span::raw("  "),
+            Span::styled(
+                t!("tui.import_export.authorize_title").to_string(),
+                Style::default()
+                    .fg(theme::NL_TEXT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]))
         .alignment(Alignment::Center);
 
-        // Master password input
-        let pw_border = Styles::focused_border();
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!("{}  ", theme::NF_INFO),
+                Style::default().fg(theme::NL_CYAN),
+            ),
+            Span::styled(
+                t!(
+                    "tui.import_export.authorize_subtitle",
+                    scope = t!("tui.import_export.scope_all").to_string(),
+                    path = self.export_output_path
+                )
+                .to_string(),
+                Style::default().fg(theme::NL_TEXT_MUTED),
+            ),
+        ]))
+        .style(Styles::newlook_bg())
+        .wrap(Wrap { trim: true });
+
         let pw_block = Block::default()
             .borders(Borders::ALL)
-            .border_style(pw_border)
+            .border_style(Styles::newlook_focused_border())
+            .style(Styles::newlook_bg())
             .title(t!("tui.import_export.master_password_label").to_string());
 
-        let pw_display = if self.master_password.is_empty() {
-            Paragraph::new(t!("tui.import_export.master_password_placeholder").to_string())
-                .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
-        } else {
-            let masked = self
-                .master_password
-                .expose(|pw| crate::tui::theme::ICON_PASSWORD_MASK.repeat(pw.chars().count()));
-            Paragraph::new(masked).style(ratatui::style::Style::default().fg(TEXT))
-        };
+        let pw_value = self
+            .master_password
+            .expose(|pw| crate::tui::theme::ICON_PASSWORD_MASK.repeat(pw.chars().count()));
 
-        // Error
         let error_line = self.error_message.as_ref().map(|msg| {
             Paragraph::new(format!("{} {}", theme::ICON_ERROR, msg)).style(Styles::error_text())
         });
 
         let hint = Paragraph::new(t!("tui.import_export.hint_export").to_string())
-            .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+            .style(Style::default().fg(TEXT_MUTED).bg(theme::NL_BG))
             .alignment(Alignment::Center);
 
         let rows = Layout::vertical([
             Constraint::Length(1), // title
             Constraint::Length(1), // gap
-            Constraint::Length(1), // subtitle
+            Constraint::Length(2), // subtitle
             Constraint::Length(1), // gap
             Constraint::Length(3), // password input
             Constraint::Length(1), // error or gap
@@ -370,6 +399,13 @@ impl ImportExportScreen {
 
         let pw_inner = pw_block.inner(rows[4]);
         frame.render_widget(pw_block, rows[4]);
+        let pw_display = export_input_paragraph(
+            &pw_value,
+            &t!("tui.import_export.master_password_placeholder").to_string(),
+            pw_value.len(),
+            true,
+            pw_inner.width,
+        );
         frame.render_widget(pw_display, pw_inner);
 
         if let Some(ref el) = error_line {
@@ -384,34 +420,35 @@ impl ImportExportScreen {
 
 impl ImportExportScreen {
     pub(super) fn view_exporting(&self, frame: &mut ratatui::Frame, area: Rect) {
-        let outer = Layout::vertical([
-            Constraint::Fill(1),
-            Constraint::Length(6),
-            Constraint::Fill(1),
-        ])
-        .split(area);
+        let content_area = render_newlook_center_panel(frame, area, 9, 74);
 
-        let center_area = outer[1];
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled(theme::NF_DOWNLOAD, Style::default().fg(theme::NL_CYAN)),
+            Span::raw("  "),
+            Span::styled(
+                t!("tui.import_export.exporting_title").to_string(),
+                Style::default()
+                    .fg(theme::NL_TEXT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]))
+        .alignment(Alignment::Center);
 
-        let h_layout = Layout::horizontal([
-            Constraint::Fill(1),
-            Constraint::Max(50),
-            Constraint::Fill(1),
-        ])
-        .split(center_area);
-
-        let content_area = h_layout[1];
-
-        let title = Paragraph::new(t!("tui.import_export.exporting_title").to_string())
-            .style(Styles::brand_text())
-            .alignment(Alignment::Center);
-
-        let progress = Paragraph::new(t!("tui.import_export.exporting_progress").to_string())
-            .style(ratatui::style::Style::default().fg(TEXT_SECONDARY))
-            .alignment(Alignment::Center);
+        let progress = Paragraph::new(Line::from(vec![
+            Span::styled(
+                theme::SPINNER_FRAMES[0],
+                Style::default().fg(theme::NL_CYAN),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                t!("tui.import_export.exporting_progress").to_string(),
+                Style::default().fg(theme::NL_TEXT_MUTED),
+            ),
+        ]))
+        .alignment(Alignment::Center);
 
         let hint = Paragraph::new(t!("tui.import_export.hint_wait").to_string())
-            .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+            .style(Style::default().fg(TEXT_MUTED).bg(theme::NL_BG))
             .alignment(Alignment::Center);
 
         let rows = Layout::vertical([
@@ -433,27 +470,22 @@ impl ImportExportScreen {
 
 impl ImportExportScreen {
     pub(super) fn view_export_complete(&self, frame: &mut ratatui::Frame, area: Rect) {
-        let outer = Layout::vertical([
-            Constraint::Fill(1),
-            Constraint::Length(8),
-            Constraint::Fill(1),
-        ])
-        .split(area);
+        let content_area = render_newlook_center_panel(frame, area, 10, 74);
 
-        let center_area = outer[1];
-
-        let h_layout = Layout::horizontal([
-            Constraint::Fill(1),
-            Constraint::Max(50),
-            Constraint::Fill(1),
-        ])
-        .split(center_area);
-
-        let content_area = h_layout[1];
-
-        let title = Paragraph::new(t!("tui.import_export.export_complete_title").to_string())
-            .style(Styles::success_text())
-            .alignment(Alignment::Center);
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled(
+                theme::NF_CHECK_CIRCLE,
+                Style::default().fg(theme::NL_SUCCESS),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                t!("tui.import_export.export_complete_title").to_string(),
+                Style::default()
+                    .fg(theme::NL_TEXT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]))
+        .alignment(Alignment::Center);
 
         let path_display = self
             .export_result_path
@@ -463,24 +495,24 @@ impl ImportExportScreen {
 
         let path_line = Paragraph::new(format!(
             "{} {}",
-            theme::ICON_SUCCESS,
+            theme::NF_CHECK_CIRCLE,
             t!("tui.import_export.saved_to", path = path_display)
         ))
-        .style(Styles::success_text())
+        .style(Style::default().fg(theme::NL_SUCCESS).bg(theme::NL_BG))
         .wrap(Wrap { trim: true });
 
         let count_line = Paragraph::new(format!(
             "{} {}",
-            theme::ICON_SUCCESS,
+            theme::NF_CHECK_CIRCLE,
             t!(
                 "tui.import_export.records_exported",
                 count = self.export_record_count
             )
         ))
-        .style(Styles::success_text());
+        .style(Style::default().fg(theme::NL_SUCCESS).bg(theme::NL_BG));
 
         let hint = Paragraph::new(t!("tui.import_export.hint_back_config").to_string())
-            .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+            .style(Style::default().fg(TEXT_MUTED).bg(theme::NL_BG))
             .alignment(Alignment::Center);
 
         let rows = Layout::vertical([

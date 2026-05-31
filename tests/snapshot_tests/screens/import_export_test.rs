@@ -185,6 +185,31 @@ fn export_password_confirm_state() {
 }
 
 #[test]
+fn export_followup_steps_use_newlook_panel_chrome() {
+    let _locale = snapshot_locale();
+    for step in [
+        ExportStep::MasterPasswordConfirm,
+        ExportStep::Exporting,
+        ExportStep::Complete,
+    ] {
+        let mut screen = ImportExportScreen::new();
+        screen.mode = ImportExportMode::Export;
+        screen.export_step = step;
+        screen.export_output_path = "/path/to/keyring-backup.okb".to_string();
+        screen.export_record_count = 42;
+        screen.export_result_path = Some(PathBuf::from("/path/to/keyring-backup.okb"));
+
+        let backend = render_screen(&screen, 80, 24);
+        let rendered = backend_text(&backend);
+
+        assert!(
+            rendered.contains("┌") && rendered.contains("┘"),
+            "{step:?} should render inside the new-look panel chrome"
+        );
+    }
+}
+
+#[test]
 fn export_exporting_state() {
     let _locale = snapshot_locale();
     let mut screen = ImportExportScreen::new();

@@ -15,6 +15,17 @@ fn sensitive(s: &str) -> SensitiveInput {
     input
 }
 
+fn key(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
+    crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+}
+
+fn ctrl(ch: char) -> crossterm::event::KeyEvent {
+    crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char(ch),
+        crossterm::event::KeyModifiers::CONTROL,
+    )
+}
+
 #[test]
 fn new_screen_defaults_to_import() {
     let screen = ImportExportScreen::new();
@@ -219,6 +230,89 @@ fn export_submit_always_uses_okb_all_records() {
         }
         other => panic!("expected ExecuteExport, got {other:?}"),
     }
+}
+
+#[test]
+fn output_path_supports_readline_style_editing() {
+    let mut screen = ImportExportScreen::new();
+    screen.mode = ImportExportMode::Export;
+    screen.export_focus = ExportFocus::OutputPath;
+    screen.export_output_path = "/tmp/keyring-backup.okb".to_string();
+    screen.export_output_path_cursor = screen.export_output_path.len();
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('b')), &mut ctx);
+    assert_eq!(
+        screen.export_output_path_cursor,
+        "/tmp/keyring-backup.".len()
+    );
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('f')), &mut ctx);
+    assert_eq!(
+        screen.export_output_path_cursor,
+        "/tmp/keyring-backup.okb".len()
+    );
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('w')), &mut ctx);
+    assert_eq!(screen.export_output_path, "/tmp/keyring-backup.");
+    assert_eq!(
+        screen.export_output_path_cursor,
+        "/tmp/keyring-backup.".len()
+    );
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('u')), &mut ctx);
+    assert_eq!(screen.export_output_path, "");
+    assert_eq!(screen.export_output_path_cursor, 0);
+
+    for ch in "okb".chars() {
+        ScreenTrait::update(
+            &mut screen,
+            Message::KeyEvent(key(crossterm::event::KeyCode::Char(ch))),
+            &mut ctx,
+        );
+    }
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('e')), &mut ctx);
+    assert_eq!(screen.export_output_path_cursor, "okb".len());
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('a')), &mut ctx);
+    assert_eq!(screen.export_output_path_cursor, 0);
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('f')), &mut ctx);
+    assert_eq!(screen.export_output_path_cursor, "okb".len());
+
+    ScreenTrait::update(
+        &mut screen,
+        Message::KeyEvent(key(crossterm::event::KeyCode::Left)),
+        &mut ctx,
+    );
+    assert_eq!(screen.export_output_path_cursor, "ok".len());
+
+    ScreenTrait::update(
+        &mut screen,
+        Message::KeyEvent(key(crossterm::event::KeyCode::Right)),
+        &mut ctx,
+    );
+    assert_eq!(screen.export_output_path_cursor, "okb".len());
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('a')), &mut ctx);
+    ScreenTrait::update(
+        &mut screen,
+        Message::KeyEvent(key(crossterm::event::KeyCode::Char('/'))),
+        &mut ctx,
+    );
+    assert_eq!(screen.export_output_path, "/okb");
+    assert_eq!(screen.export_output_path_cursor, 1);
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('k')), &mut ctx);
+    assert_eq!(screen.export_output_path, "/");
+    assert_eq!(screen.export_output_path_cursor, 1);
 }
 
 #[test]

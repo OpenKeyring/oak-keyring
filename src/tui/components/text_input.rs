@@ -50,6 +50,20 @@ fn truncate_to_width(value: &str, width: usize) -> String {
     out.chars().rev().collect()
 }
 
+fn take_prefix_to_width(value: &str, width: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in value.chars() {
+        let ch_width = char_width(ch);
+        if used + ch_width > width {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
+    out
+}
+
 pub(crate) fn padded_form_label(label: &str) -> String {
     pad_to_width(&format!("  {}", label.trim()), FORM_LABEL_WIDTH)
 }
@@ -84,9 +98,10 @@ pub(crate) fn render_input_box_spans(
     ]
 }
 
-pub(crate) fn render_bare_input_spans(
+pub(crate) fn render_bare_input_spans_at_cursor(
     value: &str,
     placeholder: &str,
+    cursor: usize,
     width: usize,
     focused: bool,
     style: Style,
@@ -107,9 +122,15 @@ pub(crate) fn render_bare_input_spans(
         return vec![Span::styled(padded_value, display_style)];
     }
 
+    let mut cursor = cursor.min(value.len());
+    while cursor > 0 && !value.is_char_boundary(cursor) {
+        cursor -= 1;
+    }
     let text_width = width.saturating_sub(1);
-    let display_value = truncate_to_width(value, text_width);
-    let used = display_width(&display_value);
+    let before = truncate_to_width(&value[..cursor], text_width);
+    let after_width = text_width.saturating_sub(display_width(&before));
+    let after = take_prefix_to_width(&value[cursor..], after_width);
+    let used = display_width(&before) + display_width(&after);
     let rest_width = width.saturating_sub(used + 1);
     let cursor_style = Style::default()
         .fg(theme::BG)
@@ -117,8 +138,9 @@ pub(crate) fn render_bare_input_spans(
         .add_modifier(Modifier::BOLD);
 
     vec![
-        Span::styled(display_value, style),
+        Span::styled(before, style),
         Span::styled(" ", cursor_style),
+        Span::styled(after, style),
         Span::styled(" ".repeat(rest_width), style),
     ]
 }
