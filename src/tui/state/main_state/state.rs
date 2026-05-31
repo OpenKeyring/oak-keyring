@@ -3,9 +3,11 @@ use ratatui::{layout::Rect, Frame};
 use uuid::Uuid;
 
 use crate::commands::types::{
-    ConfirmVariant, FieldSelector, Overlay, PanelId, RecordFilter, RecordSort, Screen as ScreenEnum,
+    ConfirmVariant, FieldSelector, Overlay, PanelId, RecordFilter, RecordSort,
+    Screen as ScreenEnum, SortDirection, SortField, DEFAULT_RECORD_LIST_PAGE_SIZE,
 };
 use crate::commands::{Command, Message};
+use crate::config::PasswordDefaultsConfig;
 use crate::t;
 use crate::tui::screens::main::overlay::{ActiveOverlay, OverlayKeyResult, OverlayManager};
 use crate::tui::screens::main::MainScreen;
@@ -139,6 +141,7 @@ impl SidebarState {
     /// Rebuild the sidebar item list from categories, tags, and utility entries.
     pub fn rebuild(&mut self) {
         self.items = self.build_items();
+        self.tag_scroll_offset = self.tag_scroll_offset.min(self.footer_start_index());
         // Clamp selection to a valid selectable index
         if self.selected_index >= self.items.len() {
             self.selected_index = 0;
@@ -188,6 +191,94 @@ impl SidebarState {
         items.push(SidebarItem::Config);
 
         items
+    }
+
+    /// Index where fixed footer shortcuts begin.
+    pub fn footer_start_index(&self) -> usize {
+        self.items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::Generator))
+            .and_then(|idx| idx.checked_sub(1))
+            .unwrap_or(self.items.len())
+    }
+
+    pub fn tag_header_index(&self) -> Option<usize> {
+        self.items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::TagHeader))
+    }
+
+    pub fn tag_scroll_start_index(&self) -> usize {
+        self.tag_header_index()
+            .map(|index| index.saturating_add(1))
+            .unwrap_or_else(|| self.footer_start_index())
+            .min(self.footer_start_index())
+    }
+
+    pub fn tag_scroll_item_count(&self) -> usize {
+        self.footer_start_index()
+            .saturating_sub(self.tag_scroll_start_index())
+    }
+
+    pub fn fixed_top_height(&self) -> usize {
+        let end = self.tag_scroll_start_index();
+        (0..end)
+            .map(|index| sidebar_item_render_height(self, index))
+            .sum()
+    }
+
+    pub fn footer_render_height(&self) -> usize {
+        let start = self.footer_start_index();
+        (start..self.items.len())
+            .map(|index| sidebar_item_render_height(self, index))
+            .sum()
+    }
+
+    /// Number of rows/items available for the scrollable tag area.
+    pub fn nav_visible_items_for_height(&self, sidebar_height: u16) -> usize {
+        let footer_height = self.footer_render_height().min(sidebar_height as usize) as u16;
+        let remaining = sidebar_height.saturating_sub(footer_height);
+        let top_height = self.fixed_top_height().min(remaining as usize) as u16;
+        remaining.saturating_sub(top_height).max(1) as usize
+    }
+
+    /// Maximum item offset for the scrollable tag area.
+    pub fn max_tag_scroll_offset(&self, visible_items: usize) -> usize {
+        self.tag_scroll_item_count()
+            .saturating_sub(visible_items.max(1))
+    }
+
+    /// Scroll the expandable tag/navigation region by `delta` items.
+    pub fn scroll_tags_by(&mut self, delta: isize, visible_items: usize) {
+        let max_offset = self.max_tag_scroll_offset(visible_items);
+        if delta < 0 {
+            self.tag_scroll_offset = self.tag_scroll_offset.saturating_sub(delta.unsigned_abs());
+        } else {
+            self.tag_scroll_offset = self
+                .tag_scroll_offset
+                .saturating_add(delta as usize)
+                .min(max_offset);
+        }
+    }
+
+    /// Ensure the current sidebar selection is visible in the scrollable region.
+    pub fn ensure_selected_visible(&mut self, visible_items: usize) {
+        let scroll_start = self.tag_scroll_start_index();
+        let scroll_end = self.footer_start_index();
+        if self.selected_index < scroll_start || self.selected_index >= scroll_end {
+            return;
+        }
+
+        let visible_items = visible_items.max(1);
+        let relative_index = self.selected_index.saturating_sub(scroll_start);
+        if relative_index < self.tag_scroll_offset {
+            self.tag_scroll_offset = relative_index;
+        } else if relative_index >= self.tag_scroll_offset.saturating_add(visible_items) {
+            self.tag_scroll_offset = relative_index + 1 - visible_items;
+        }
+        self.tag_scroll_offset = self
+            .tag_scroll_offset
+            .min(self.max_tag_scroll_offset(visible_items));
     }
 
     /// Move selection to the next selectable item (wraps around).
@@ -274,6 +365,12 @@ impl SidebarState {
     /// Enter tag management mode.
     pub fn enter_tag_management(&mut self) {
         self.tag_management_mode = true;
+        if matches!(
+            self.items.get(self.selected_index),
+            Some(SidebarItem::TagHeader)
+        ) {
+            self.select_first_tag();
+        }
     }
 
     /// Exit tag management mode. Cancels any inline rename.
@@ -329,6 +426,30 @@ impl SidebarState {
         None
     }
 
+    /// Select the tag section header, if present.
+    pub fn select_tag_header(&mut self) {
+        if let Some(index) = self
+            .items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::TagHeader))
+        {
+            self.selected_index = index;
+        }
+    }
+
+    /// Select the first concrete tag item, if present.
+    pub fn select_first_tag(&mut self) -> bool {
+        if let Some(index) = self
+            .items
+            .iter()
+            .position(|item| matches!(item, SidebarItem::Tag(_, _)))
+        {
+            self.selected_index = index;
+            return true;
+        }
+        false
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     /// Find the next selectable index starting from `start` (inclusive, wraps).
@@ -370,6 +491,7 @@ impl SidebarState {
 pub enum SyncIndicator {
     #[default]
     NotConfigured,
+    Configured,
     Synced,
     Syncing,
     Failed,
@@ -509,6 +631,8 @@ pub struct MainScreenState {
     pub unicode_capable: bool,
     /// Trash retention days from config (0 = never auto-delete).
     pub trash_retention_days: u32,
+    /// Password generator defaults from config.
+    pub password_defaults: PasswordDefaultsConfig,
     /// Overlay manager for modal dialogs (help, generator, confirm, etc.).
     pub overlay_manager: OverlayManager,
     /// Animation effect to trigger on the next update cycle.
@@ -525,6 +649,8 @@ pub struct MainScreenState {
     /// longer appears in the reloaded list (e.g. filtered view), detail is
     /// cleared instead.
     pub pending_detail_refresh: Option<Uuid>,
+    /// Remaining hidden fields to reveal after a multi-field show command.
+    pub pending_reveal_fields: Vec<(Uuid, FieldSelector)>,
     /// Last known terminal area, updated during view(). Used by handle_mouse
     /// for hit-testing without calling crossterm::terminal::size() at event time.
     pub terminal_area: Rect,
@@ -539,15 +665,20 @@ impl Default for MainScreenState {
             status_bar: StatusBarState::default(),
             terminal_title: TerminalTitleState::default(),
             current_filter: RecordFilter::All,
-            current_sort: RecordSort::default(),
+            current_sort: RecordSort {
+                field: SortField::CreatedAt,
+                direction: SortDirection::Desc,
+            },
             pre_lock_snapshot: None,
             focused_panel: PanelId::Sidebar,
             unicode_capable: true,
             trash_retention_days: 30,
+            password_defaults: PasswordDefaultsConfig::default(),
             overlay_manager: OverlayManager::new(),
             pending_animation: None,
             list_auto_select: false,
             pending_detail_refresh: None,
+            pending_reveal_fields: Vec::new(),
             terminal_area: Rect::new(0, 0, 100, 24),
         }
     }
@@ -604,9 +735,15 @@ impl MainScreenState {
 
     /// Sync render-only fields from AppState-level shared state.
     /// Called by the screen router before dispatching to update/view.
-    pub fn sync_from_app(&mut self, focused_panel: PanelId, unicode_capable: bool) {
+    pub fn sync_from_app(
+        &mut self,
+        focused_panel: PanelId,
+        unicode_capable: bool,
+        terminal_size: (u16, u16),
+    ) {
         self.focused_panel = focused_panel;
         self.unicode_capable = unicode_capable;
+        self.terminal_area = Rect::new(0, 0, terminal_size.0, terminal_size.1);
     }
 
     /// Capture reusable navigation state for this screen.
@@ -639,6 +776,37 @@ impl MainScreenState {
         self.list.sort = self.current_sort.clone();
         self.detail.focused_field = restore.detail_focused_field;
         self.focused_panel = restore.focused_panel;
+    }
+
+    fn load_record_list_command(&mut self, offset: usize) -> Command {
+        self.list.pending_load_offset = Some(offset);
+        Command::LoadRecordList {
+            filter: self.current_filter.clone(),
+            sort: self.current_sort.clone(),
+            limit: DEFAULT_RECORD_LIST_PAGE_SIZE,
+            offset,
+        }
+    }
+
+    fn reload_record_list_command(&mut self) -> Command {
+        self.load_record_list_command(0)
+    }
+
+    fn maybe_load_more_records_command(&mut self) -> Option<Command> {
+        if self.list.pending_load_offset.is_some()
+            || self.list.records.len() >= self.list.total_count
+            || self.list.records.is_empty()
+        {
+            return None;
+        }
+
+        let selected = self.list.selected_index?;
+        let remaining_loaded = self.list.records.len().saturating_sub(selected + 1);
+        if remaining_loaded <= self.list.visible_items_count().max(1) {
+            return Some(self.load_record_list_command(self.list.records.len()));
+        }
+
+        None
     }
 }
 
@@ -676,6 +844,13 @@ impl Screen for MainScreenState {
                             };
                         } else {
                             self.status_bar.health_check_phase = HealthCheckPhase::AllSecure;
+                        }
+                        // Refresh list to populate health fields and sidebar counts
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
+                        // Refresh detail if a record is selected
+                        if let Some(record) = self.list.selected_record() {
+                            ctx.send_system_command(Command::LoadRecordDetail { id: record.id });
                         }
                         ScreenResult::Continue
                     }
@@ -715,19 +890,15 @@ impl Screen for MainScreenState {
                     CommandResult::RecordCreated { .. } => {
                         // Auto-select the first record (newly created) when list reloads
                         self.list_auto_select = true;
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         ScreenResult::Continue
                     }
                     CommandResult::RecordUpdated { id } => {
                         let was_showing_detail =
                             self.detail.record.as_ref().is_some_and(|r| r.id == id);
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         // Defer detail refresh until list reload completes.
                         // If the updated record no longer matches the current
                         // filter, the list reload will clear detail instead
@@ -742,13 +913,13 @@ impl Screen for MainScreenState {
                         total,
                         category_counts,
                     } => {
+                        let loaded_offset = self.list.pending_load_offset.take().unwrap_or(0);
                         // Save previous selected record id for id-based recovery
                         let prev_selected_id = self
                             .list
                             .selected_index
                             .and_then(|idx| self.list.records.get(idx))
                             .map(|r| r.id);
-                        self.list.records = records;
                         self.list.total_count = total;
                         self.status_bar.record_count = total;
                         self.sidebar.category_counts = CategoryCounts {
@@ -759,6 +930,19 @@ impl Screen for MainScreenState {
                             trash: category_counts.trash,
                         };
                         self.sidebar.rebuild();
+
+                        if loaded_offset > 0 {
+                            let existing: std::collections::HashSet<_> =
+                                self.list.records.iter().map(|record| record.id).collect();
+                            self.list.records.extend(
+                                records
+                                    .into_iter()
+                                    .filter(|record| !existing.contains(&record.id)),
+                            );
+                            return ScreenResult::Continue;
+                        }
+
+                        self.list.records = records;
 
                         if self.list_auto_select && !self.list.records.is_empty() {
                             // Auto-select first record (sidebar filter change or record creation)
@@ -839,10 +1023,8 @@ impl Screen for MainScreenState {
                         self.list.records.retain(|r| r.id != id);
                         self.list.cleanup_after_batch(&[id]);
                         // Reload to get accurate counts
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         ScreenResult::Continue
                     }
                     CommandResult::RecordRestored { id } => {
@@ -852,10 +1034,8 @@ impl Screen for MainScreenState {
                         }
                         self.list.records.retain(|r| r.id != id);
                         // Reload list after restore
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         ScreenResult::Continue
                     }
                     CommandResult::RecordDestroyed { id } => {
@@ -865,10 +1045,8 @@ impl Screen for MainScreenState {
                         }
                         self.list.records.retain(|r| r.id != id);
                         // Reload list after permanent delete
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         ScreenResult::Continue
                     }
                     CommandResult::FavoriteToggled { id, is_favorite } => {
@@ -903,6 +1081,7 @@ impl Screen for MainScreenState {
                         password_strength,
                         health_issue,
                     } => {
+                        self.pending_reveal_fields.clear();
                         let view_data =
                             DetailPanelState::build_from_record(&record, password_strength);
                         self.detail = DetailPanelState::with_record(view_data);
@@ -926,11 +1105,13 @@ impl Screen for MainScreenState {
                                             Some(DetailFieldKind::Username)
                                         }
                                         CredentialType::Api => Some(DetailFieldKind::AppId),
+                                        CredentialType::SecureNote => None, // No username field
                                     },
                                     FieldSelector::Password => match record.credential_type {
                                         CredentialType::Login => Some(DetailFieldKind::Password),
                                         CredentialType::Api => Some(DetailFieldKind::SecretKey),
                                         CredentialType::Ssh => Some(DetailFieldKind::PrivateKey),
+                                        CredentialType::SecureNote => None, // No password field
                                     },
                                     FieldSelector::Passphrase => Some(DetailFieldKind::Passphrase),
                                     // Url and Notes are not decryptable/toggleable
@@ -946,6 +1127,17 @@ impl Screen for MainScreenState {
                                     }
                                 }
                             }
+                        }
+                        if let Some(pos) = self
+                            .pending_reveal_fields
+                            .iter()
+                            .position(|(pending_id, _)| *pending_id == id)
+                        {
+                            let (_, next_field) = self.pending_reveal_fields.remove(pos);
+                            ctx.send_system_command(Command::DecryptField {
+                                id,
+                                field: next_field,
+                            });
                         }
                         ScreenResult::Continue
                     }
@@ -988,45 +1180,43 @@ impl Screen for MainScreenState {
                     CommandResult::TagRenamed { .. } => {
                         ctx.send_system_command(Command::LoadTags);
                         // Also reload record list in case tag filter is active
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         ScreenResult::Continue
                     }
                     // Handle TagDeleted — reload tags and record list
                     CommandResult::TagDeleted { .. } => {
                         ctx.send_system_command(Command::LoadTags);
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         ScreenResult::Continue
                     }
                     // Handle BatchTagAdded — reload tags and list, exit visual, clear selection
                     CommandResult::BatchTagAdded { .. } => {
-                        if self.list.is_visual() {
+                        let batch_tag_panel_open = self.batch_tag_panel_open();
+                        if self.list.is_visual() && !batch_tag_panel_open {
                             self.list.exit_visual();
                         }
                         ctx.send_system_command(Command::LoadTags);
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
-                        self.detail.clear();
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
+                        if !batch_tag_panel_open {
+                            self.detail.clear();
+                        }
                         ScreenResult::Continue
                     }
                     // Handle BatchTagRemoved — reload tags and list, exit visual, clear selection
                     CommandResult::BatchTagRemoved { .. } => {
-                        if self.list.is_visual() {
+                        let batch_tag_panel_open = self.batch_tag_panel_open();
+                        if self.list.is_visual() && !batch_tag_panel_open {
                             self.list.exit_visual();
                         }
                         ctx.send_system_command(Command::LoadTags);
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
-                        self.detail.clear();
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
+                        if !batch_tag_panel_open {
+                            self.detail.clear();
+                        }
                         ScreenResult::Continue
                     }
                     // Handle BatchDeleted — exit visual, reload list/tags/counts
@@ -1035,10 +1225,8 @@ impl Screen for MainScreenState {
                         self.list.cleanup_after_batch(&removed_ids);
                         self.detail.clear();
                         ctx.send_system_command(Command::LoadTags);
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         ScreenResult::Continue
                     }
                     // Handle BatchRestored — exit visual, reload list/tags/counts
@@ -1047,10 +1235,8 @@ impl Screen for MainScreenState {
                         self.list.cleanup_after_batch(&removed_ids);
                         self.detail.clear();
                         ctx.send_system_command(Command::LoadTags);
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         ScreenResult::Continue
                     }
                     // Handle BatchDestroyed — exit visual, reload list
@@ -1058,10 +1244,8 @@ impl Screen for MainScreenState {
                         let removed_ids = self.list.visual_selected_ids();
                         self.list.cleanup_after_batch(&removed_ids);
                         self.detail.clear();
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         ScreenResult::Continue
                     }
                     // Handle TrashEmptied — clear list and detail, reload counts
@@ -1070,14 +1254,13 @@ impl Screen for MainScreenState {
                         self.list.selected_index = None;
                         self.list.scroll_offset = 0;
                         self.detail.clear();
-                        ctx.send_system_command(Command::LoadRecordList {
-                            filter: self.current_filter.clone(),
-                            sort: self.current_sort.clone(),
-                        });
+                        let cmd = self.reload_record_list_command();
+                        ctx.send_system_command(cmd);
                         ScreenResult::Continue
                     }
                     CommandResult::VaultLocked => {
                         // Security: clear all sensitive state on vault lock.
+                        self.pending_reveal_fields.clear();
                         self.list.mode = ListMode::Normal;
                         self.list.records.clear();
                         self.list.selected_index = None;
@@ -1091,7 +1274,12 @@ impl Screen for MainScreenState {
                 }
             }
             Message::ShowOverlay(overlay) => {
-                self.overlay_manager.open(overlay);
+                if matches!(overlay, Overlay::PasswordGenerator) {
+                    self.overlay_manager
+                        .open_password_generator(&ctx.config.password);
+                } else {
+                    self.overlay_manager.open(overlay);
+                }
                 ScreenResult::Continue
             }
             Message::CloseOverlay => {
@@ -1109,15 +1297,14 @@ impl Screen for MainScreenState {
 
     fn on_mount(&mut self, ctx: &mut ScreenContext) {
         self.trash_retention_days = ctx.config.general.trash_retention_days;
+        self.password_defaults = ctx.config.password.clone();
         self.detail.trash_retention_days = ctx.config.general.trash_retention_days;
         if !ctx.config.security.health_check_enabled {
             self.status_bar.health_check_phase = HealthCheckPhase::Skipped;
         }
         // Load initial record list
-        ctx.send_system_command(Command::LoadRecordList {
-            filter: self.current_filter.clone(),
-            sort: self.current_sort.clone(),
-        });
+        let cmd = self.reload_record_list_command();
+        ctx.send_system_command(cmd);
         // Load tags for sidebar
         ctx.send_system_command(Command::LoadTags);
     }
@@ -1128,6 +1315,13 @@ impl Screen for MainScreenState {
 }
 
 impl MainScreenState {
+    fn batch_tag_panel_open(&self) -> bool {
+        matches!(
+            self.overlay_manager.get(),
+            Some(ActiveOverlay::BatchTagPanel(_))
+        )
+    }
+
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         // Layer 1: Overlay gets priority
         if self.overlay_manager.is_active() {
@@ -1139,13 +1333,12 @@ impl MainScreenState {
         if self.focused_panel == PanelId::List && self.list.is_searching() {
             match key.code {
                 KeyCode::Enter => {
-                    // Confirm search: exit search and load selected record detail
-                    if let Some(record) = self.list.selected_record() {
-                        let id = record.id;
-                        self.list.exit_search();
+                    // Commit search: keep filtered results, save snapshot for Esc restore
+                    let id = self.list.selected_record().map(|r| r.id);
+                    self.list.commit_search();
+                    if let Some(id) = id {
                         return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
                     }
-                    self.list.exit_search();
                     return ScreenResult::Continue;
                 }
                 KeyCode::Esc => {
@@ -1225,7 +1418,8 @@ impl MainScreenState {
         if self.focused_panel == PanelId::Sidebar && key.code == KeyCode::Enter {
             match self.sidebar.items.get(self.sidebar.selected_index) {
                 Some(SidebarItem::Generator) => {
-                    self.overlay_manager.open(Overlay::PasswordGenerator);
+                    self.overlay_manager
+                        .open_password_generator(&self.password_defaults);
                     self.pending_animation = Some(EffectKind::ModalAppear);
                     return ScreenResult::Continue;
                 }
@@ -1249,6 +1443,7 @@ impl MainScreenState {
                     KeyCode::Char('j') | KeyCode::Down => {
                         let old_filter = self.sidebar.current_filter();
                         self.sidebar.move_down();
+                        self.ensure_sidebar_selection_visible();
                         // Exit visual mode on sidebar navigation (U3 Spec)
                         if self.list.is_visual() {
                             self.list.exit_visual();
@@ -1258,16 +1453,15 @@ impl MainScreenState {
                             self.current_filter = new_filter.clone();
                             self.detail.clear();
                             self.list_auto_select = true;
-                            return ScreenResult::Command(Box::new(Command::LoadRecordList {
-                                filter: new_filter,
-                                sort: self.current_sort.clone(),
-                            }));
+                            let cmd = self.reload_record_list_command();
+                            return ScreenResult::Command(Box::new(cmd));
                         }
                         return ScreenResult::Continue;
                     }
                     KeyCode::Char('k') | KeyCode::Up => {
                         let old_filter = self.sidebar.current_filter();
                         self.sidebar.move_up();
+                        self.ensure_sidebar_selection_visible();
                         if self.list.is_visual() {
                             self.list.exit_visual();
                         }
@@ -1276,10 +1470,8 @@ impl MainScreenState {
                             self.current_filter = new_filter.clone();
                             self.detail.clear();
                             self.list_auto_select = true;
-                            return ScreenResult::Command(Box::new(Command::LoadRecordList {
-                                filter: new_filter,
-                                sort: self.current_sort.clone(),
-                            }));
+                            let cmd = self.reload_record_list_command();
+                            return ScreenResult::Command(Box::new(cmd));
                         }
                         return ScreenResult::Continue;
                     }
@@ -1296,6 +1488,9 @@ impl MainScreenState {
             match key.code {
                 KeyCode::Char('j') | KeyCode::Down => {
                     self.list.move_down();
+                    if let Some(cmd) = self.maybe_load_more_records_command() {
+                        return ScreenResult::Command(Box::new(cmd));
+                    }
                     if let Some(record) = self.list.selected_record() {
                         return ScreenResult::Command(Box::new(Command::LoadRecordDetail {
                             id: record.id,
@@ -1330,15 +1525,22 @@ impl MainScreenState {
                     }
                     // Step 1: p — toggle password visibility (context-sensitive)
                     KeyCode::Char('p') => {
+                        let reveal_fields = reveal_field_selectors(&self.detail);
+                        if reveal_fields.is_empty() {
+                            return ScreenResult::Continue;
+                        }
                         let needs_decrypt = self.detail.toggle_password();
                         if needs_decrypt {
-                            if let Some(field) = self.detail.current_toggleable_field() {
-                                let selector = detail_field_kind_to_selector(field.kind);
+                            if let Some((&selector, remaining)) = reveal_fields.split_first() {
+                                self.pending_reveal_fields =
+                                    remaining.iter().map(|field| (id, *field)).collect();
                                 return ScreenResult::Command(Box::new(Command::DecryptField {
                                     id,
                                     field: selector,
                                 }));
                             }
+                        } else {
+                            self.pending_reveal_fields.clear();
                         }
                         return ScreenResult::Continue;
                     }
@@ -1428,7 +1630,8 @@ impl MainScreenState {
         // Layer 2: Global shortcuts
         match key.code {
             KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.overlay_manager.open(Overlay::PasswordGenerator);
+                self.overlay_manager
+                    .open_password_generator(&self.password_defaults);
                 self.pending_animation = Some(EffectKind::ModalAppear);
                 ScreenResult::Continue
             }
@@ -1458,7 +1661,8 @@ impl MainScreenState {
                 ScreenResult::Continue
             }
             KeyCode::Char('p') => {
-                self.overlay_manager.open(Overlay::PasswordGenerator);
+                self.overlay_manager
+                    .open_password_generator(&self.password_defaults);
                 self.pending_animation = Some(EffectKind::ModalAppear);
                 ScreenResult::Continue
             }
@@ -1545,6 +1749,19 @@ impl MainScreenState {
                     }
                     return Some(ScreenResult::Continue);
                 }
+                if self.focused_panel == PanelId::Sidebar {
+                    self.focused_panel = PanelId::List;
+                    if self.list.selected_index.is_none() && !self.list.records.is_empty() {
+                        self.list.selected_index = Some(0);
+                        self.list.adjust_scroll();
+                        if let Some(record) = self.list.selected_record() {
+                            return Some(ScreenResult::Command(Box::new(
+                                Command::LoadRecordDetail { id: record.id },
+                            )));
+                        }
+                    }
+                    return Some(ScreenResult::Continue);
+                }
                 self.focused_panel = match self.focused_panel {
                     PanelId::Sidebar => PanelId::List,
                     PanelId::List => PanelId::Detail,
@@ -1553,6 +1770,20 @@ impl MainScreenState {
                 Some(ScreenResult::Continue)
             }
             KeyCode::Char(ch) if key.modifiers.is_empty() => {
+                if ch == '0' {
+                    self.focused_panel = PanelId::Sidebar;
+                    self.sidebar.select_tag_header();
+                    return Some(ScreenResult::Continue);
+                }
+                if ch == '6' {
+                    self.overlay_manager
+                        .open_password_generator(&self.password_defaults);
+                    self.pending_animation = Some(EffectKind::ModalAppear);
+                    return Some(ScreenResult::Continue);
+                }
+                if ch == '7' {
+                    return Some(ScreenResult::NavigateTo(ScreenEnum::Config));
+                }
                 let category = match ch {
                     '1' => Some(SidebarCategory::All),
                     '2' => Some(SidebarCategory::Favorites),
@@ -1568,10 +1799,8 @@ impl MainScreenState {
                     self.current_filter = filter.clone();
                     self.detail.clear();
                     self.list_auto_select = true;
-                    Some(ScreenResult::Command(Box::new(Command::LoadRecordList {
-                        filter,
-                        sort: self.current_sort.clone(),
-                    })))
+                    let cmd = self.reload_record_list_command();
+                    Some(ScreenResult::Command(Box::new(cmd)))
                 } else {
                     Some(ScreenResult::Continue)
                 }
@@ -1583,22 +1812,100 @@ impl MainScreenState {
     fn handle_mouse(&mut self, event: MouseEvent, terminal_area: Rect) -> ScreenResult {
         let is_hover = matches!(event.kind, MouseEventKind::Moved);
         let is_click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
-        if !is_hover && !is_click {
+        let is_scroll_up = matches!(event.kind, MouseEventKind::ScrollUp);
+        let is_scroll_down = matches!(event.kind, MouseEventKind::ScrollDown);
+
+        if !is_hover && !is_click && !is_scroll_up && !is_scroll_down {
+            return ScreenResult::Continue;
+        }
+
+        // Handle scroll events — move selection so ratatui List follows
+        if is_scroll_up || is_scroll_down {
+            let layout = crate::tui::screens::main::layout::calculate_layout(
+                terminal_area,
+                terminal_area.width,
+            );
+            let list_rect = top_padded_rect(layout.list, 1);
+            let detail_rect = top_padded_rect(layout.detail, 1);
+
+            if contains_rect(layout.sidebar, event.column, event.row) {
+                if self.sidebar.tags_expanded
+                    && !self.sidebar.tags.is_empty()
+                    && sidebar_tag_scroll_region_contains(&self.sidebar, layout.sidebar, event.row)
+                {
+                    self.focused_panel = PanelId::Sidebar;
+                    let visible = self
+                        .sidebar
+                        .nav_visible_items_for_height(layout.sidebar.height);
+                    let delta = if is_scroll_up { -3 } else { 3 };
+                    self.sidebar.scroll_tags_by(delta, visible);
+                }
+            } else if contains_rect(list_rect, event.column, event.row) {
+                self.focused_panel = PanelId::List;
+                let steps = 3;
+                for _ in 0..steps {
+                    if is_scroll_up {
+                        self.list.move_up();
+                    } else {
+                        self.list.move_down();
+                    }
+                }
+                if is_scroll_down {
+                    if let Some(cmd) = self.maybe_load_more_records_command() {
+                        return ScreenResult::Command(Box::new(cmd));
+                    }
+                }
+                if let Some(record) = self.list.selected_record() {
+                    let id = record.id;
+                    return ScreenResult::Command(Box::new(Command::LoadRecordDetail { id }));
+                }
+            } else if contains_rect(detail_rect, event.column, event.row) {
+                self.focused_panel = PanelId::Detail;
+            }
             return ScreenResult::Continue;
         }
 
         let layout =
             crate::tui::screens::main::layout::calculate_layout(terminal_area, terminal_area.width);
-        let list_rect = top_padded_rect(layout.list, 2);
-        let detail_rect = top_padded_rect(layout.detail, 2);
+        let list_rect = top_padded_rect(layout.list, 1);
+        let detail_rect = top_padded_rect(layout.detail, 1);
 
         if contains_rect(layout.sidebar, event.column, event.row) {
             self.focused_panel = PanelId::Sidebar;
+            if is_click {
+                if let Some(index) = sidebar_item_index_at(&self.sidebar, layout.sidebar, event.row)
+                {
+                    if self
+                        .sidebar
+                        .items
+                        .get(index)
+                        .is_some_and(SidebarItem::is_selectable)
+                    {
+                        let old_filter = self.sidebar.current_filter();
+                        self.sidebar.selected_index = index;
+                        self.ensure_sidebar_selection_visible();
+                        if self.list.is_visual() {
+                            self.list.exit_visual();
+                        }
+                        let new_filter = self.sidebar.current_filter();
+                        if new_filter != old_filter {
+                            self.current_filter = new_filter.clone();
+                            self.detail.clear();
+                            self.list_auto_select = true;
+                            let cmd = self.reload_record_list_command();
+                            return ScreenResult::Command(Box::new(cmd));
+                        }
+                    }
+                }
+            }
             return ScreenResult::Continue;
         }
 
         if contains_rect(list_rect, event.column, event.row) {
             self.focused_panel = PanelId::List;
+            if is_hover {
+                return ScreenResult::Continue;
+            }
             let row_in_list = event.row.saturating_sub(list_rect.y);
             if row_in_list == 0 {
                 if is_click && !self.list.is_searching() && !self.list.is_visual() {
@@ -1610,10 +1917,8 @@ impl MainScreenState {
                         self.list.toggle_sort_direction();
                         self.current_sort.direction = self.list.sort.direction;
                     }
-                    return ScreenResult::Command(Box::new(Command::LoadRecordList {
-                        filter: self.current_filter.clone(),
-                        sort: self.current_sort.clone(),
-                    }));
+                    let cmd = self.reload_record_list_command();
+                    return ScreenResult::Command(Box::new(cmd));
                 }
                 return ScreenResult::Continue;
             }
@@ -1628,7 +1933,8 @@ impl MainScreenState {
             } else {
                 3
             };
-            let index = ((row_in_list - 2) / item_height) as usize + self.list.scroll_offset;
+            let index = ((row_in_list - 2) / item_height) as usize
+                + rendered_list_offset(&self.list, list_rect);
             if index < self.list.records.len() && self.list.selected_index != Some(index) {
                 self.list.selected_index = Some(index);
                 self.list.adjust_scroll();
@@ -1655,6 +1961,17 @@ impl MainScreenState {
             }
         }
         ScreenResult::Continue
+    }
+
+    fn ensure_sidebar_selection_visible(&mut self) {
+        let layout = crate::tui::screens::main::layout::calculate_layout(
+            self.terminal_area,
+            self.terminal_area.width,
+        );
+        let visible = self
+            .sidebar
+            .nav_visible_items_for_height(layout.sidebar.height);
+        self.sidebar.ensure_selected_visible(visible);
     }
 
     fn execute_detail_action(&mut self, id: Uuid, action: DetailActionFocus) -> ScreenResult {
@@ -1742,25 +2059,17 @@ impl MainScreenState {
             OverlayKeyResult::BatchAddTag {
                 record_ids,
                 tag_name,
-            } => {
-                self.overlay_manager.close();
-                self.pending_animation = Some(EffectKind::ModalDismiss);
-                ScreenResult::Command(Box::new(Command::BatchAddTag {
-                    record_ids,
-                    tag_name,
-                }))
-            }
+            } => ScreenResult::Command(Box::new(Command::BatchAddTag {
+                record_ids,
+                tag_name,
+            })),
             OverlayKeyResult::BatchRemoveTag {
                 record_ids,
                 tag_name,
-            } => {
-                self.overlay_manager.close();
-                self.pending_animation = Some(EffectKind::ModalDismiss);
-                ScreenResult::Command(Box::new(Command::BatchRemoveTag {
-                    record_ids,
-                    tag_name,
-                }))
-            }
+            } => ScreenResult::Command(Box::new(Command::BatchRemoveTag {
+                record_ids,
+                tag_name,
+            })),
             OverlayKeyResult::ErrorRetry => {
                 self.overlay_manager.close();
                 self.pending_animation = Some(EffectKind::ModalDismiss);
@@ -1797,6 +2106,136 @@ fn top_padded_rect(area: Rect, padding: u16) -> Rect {
         area.width,
         area.height.saturating_sub(applied),
     )
+}
+
+fn reveal_field_selectors(detail: &DetailPanelState) -> Vec<FieldSelector> {
+    let Some(record) = detail.record.as_ref() else {
+        return Vec::new();
+    };
+    let mut ordered: Vec<(usize, FieldSelector)> = record
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| field.toggleable)
+        .map(|(index, field)| (index, detail_field_kind_to_selector(field.kind)))
+        .collect();
+
+    if let Some(current_pos) = ordered
+        .iter()
+        .position(|(index, _)| *index == detail.focused_field)
+    {
+        ordered.rotate_left(current_pos);
+    }
+
+    ordered.into_iter().map(|(_, selector)| selector).collect()
+}
+
+fn rendered_list_offset(list: &ListPanelState, list_rect: Rect) -> usize {
+    let item_height = if crate::tui::terminal::WidthTier::from_width(list_rect.width)
+        == crate::tui::terminal::WidthTier::Minimum
+    {
+        2
+    } else {
+        3
+    };
+    let body_height = list_rect.height.saturating_sub(2);
+    let visible = (body_height / item_height).max(1) as usize;
+    list.scroll_offset
+        .min(list.records.len().saturating_sub(visible))
+}
+
+fn sidebar_item_index_at(sidebar: &SidebarState, sidebar_rect: Rect, row: u16) -> Option<usize> {
+    if row < sidebar_rect.y || row >= sidebar_rect.y.saturating_add(sidebar_rect.height) {
+        return None;
+    }
+
+    let footer_start = sidebar.footer_start_index();
+    let footer_height = sidebar
+        .footer_render_height()
+        .min(sidebar_rect.height as usize) as u16;
+    let footer_top = sidebar_rect
+        .y
+        .saturating_add(sidebar_rect.height.saturating_sub(footer_height));
+
+    if row >= footer_top {
+        let relative_row = row.saturating_sub(footer_top) as usize;
+        return sidebar_item_index_in_range(
+            sidebar,
+            footer_start,
+            sidebar.items.len(),
+            relative_row,
+        );
+    }
+
+    let scroll_start = sidebar.tag_scroll_start_index();
+    let top_height = sidebar
+        .fixed_top_height()
+        .min(footer_top.saturating_sub(sidebar_rect.y) as usize) as u16;
+    let top_bottom = sidebar_rect.y.saturating_add(top_height);
+
+    if row < top_bottom {
+        let relative_row = row.saturating_sub(sidebar_rect.y) as usize;
+        return sidebar_item_index_in_range(sidebar, 0, scroll_start, relative_row);
+    }
+
+    let tag_area_height = footer_top.saturating_sub(top_bottom);
+    if tag_area_height == 0 {
+        return None;
+    }
+
+    let visible_items = tag_area_height.max(1) as usize;
+    let offset = sidebar
+        .tag_scroll_offset
+        .min(sidebar.max_tag_scroll_offset(visible_items));
+    let relative_row = row.saturating_sub(top_bottom) as usize;
+    sidebar_item_index_in_range(
+        sidebar,
+        scroll_start.saturating_add(offset),
+        footer_start,
+        relative_row,
+    )
+}
+
+fn sidebar_tag_scroll_region_contains(
+    sidebar: &SidebarState,
+    sidebar_rect: Rect,
+    row: u16,
+) -> bool {
+    let Some(index) = sidebar_item_index_at(sidebar, sidebar_rect, row) else {
+        return false;
+    };
+    index >= sidebar.tag_scroll_start_index() && index < sidebar.footer_start_index()
+}
+
+fn sidebar_item_index_in_range(
+    sidebar: &SidebarState,
+    start: usize,
+    end: usize,
+    relative_row: usize,
+) -> Option<usize> {
+    let mut y = 0usize;
+    for index in start..end {
+        let height = sidebar_item_render_height(sidebar, index);
+        if relative_row < y.saturating_add(height) {
+            return Some(index);
+        }
+        y = y.saturating_add(height);
+    }
+    None
+}
+
+fn sidebar_item_render_height(sidebar: &SidebarState, index: usize) -> usize {
+    let Some(item) = sidebar.items.get(index) else {
+        return 1;
+    };
+    if sidebar.selected_index == index && item.is_selectable() {
+        match item {
+            SidebarItem::Generator | SidebarItem::Config => 1,
+            _ => 3,
+        }
+    } else {
+        1
+    }
 }
 
 /// Convert a [`DetailFieldKind`] to the corresponding [`FieldSelector`] for

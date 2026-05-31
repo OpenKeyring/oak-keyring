@@ -16,10 +16,12 @@ use crate::tui::state::list_state::{
     calculate_remaining_days, format_days_since_deletion, trash_warning_tier, TrashWarningTier,
 };
 use crate::tui::theme;
+use crate::tui::time::format_display_datetime;
 
 pub struct DetailPanel;
 
 impl DetailPanel {
+    #[allow(clippy::too_many_arguments)]
     pub fn view(
         &self,
         frame: &mut Frame,
@@ -28,17 +30,12 @@ impl DetailPanel {
         focused: bool,
         unicode: bool,
         visual_selected_names: &[String],
+        visual_selected_count: usize,
     ) {
         // If visual mode is active with selections, show batch summary
-        if !visual_selected_names.is_empty() {
+        if visual_selected_count > 0 {
             let name_refs: Vec<&str> = visual_selected_names.iter().map(|s| s.as_str()).collect();
-            render_batch_summary_view(
-                frame,
-                area,
-                &name_refs,
-                visual_selected_names.len(),
-                unicode,
-            );
+            render_batch_summary_view(frame, area, &name_refs, visual_selected_count, unicode);
             return;
         }
 
@@ -49,6 +46,7 @@ impl DetailPanel {
     }
 
     fn render_empty(&self, frame: &mut Frame, area: Rect, unicode: bool) {
+        frame.render_widget(Paragraph::new("").style(theme::Styles::newlook_bg()), area);
         let icon = if unicode { "\u{1F510}" } else { "[?]" };
         let content_lines = vec![
             Line::from(""),
@@ -194,9 +192,9 @@ impl DetailPanel {
         match record.expiry_status {
             ExpiryStatus::ExpiringSoon => {
                 let icon = if unicode {
-                    theme::ICON_WARNING
+                    theme::NF_WARNING_TRIANGLE
                 } else {
-                    theme::ascii::ICON_WARNING
+                    theme::ascii::NF_WARNING_TRIANGLE
                 };
                 if let Some(dt) = record.expires_at {
                     let now = chrono::Utc::now().date_naive();
@@ -250,6 +248,7 @@ impl DetailPanel {
             crate::types::credential::CredentialType::Login => t!("tui.form.type_login"),
             crate::types::credential::CredentialType::Api => t!("tui.form.type_api"),
             crate::types::credential::CredentialType::Ssh => t!("tui.form.type_ssh"),
+            crate::types::credential::CredentialType::SecureNote => t!("tui.form.type_secure_note"),
         };
         lines.push(Line::from(Span::styled(
             format!("{}{}", pad, type_label),
@@ -382,7 +381,7 @@ impl DetailPanel {
                 ),
                 Span::raw("  "),
                 Span::styled(
-                    format!("[{}]", t!("tui.overlay.confirm_delete_permanent")),
+                    format!("[{}]", t!("tui.trash.permanent_delete_title")),
                     destroy_style,
                 ),
             ]));
@@ -391,7 +390,7 @@ impl DetailPanel {
                     "{}r {}  D {}",
                     pad,
                     t!("tui.trash.restore_button"),
-                    t!("tui.overlay.confirm_delete_permanent")
+                    t!("tui.trash.permanent_delete_title")
                 ),
                 Style::default().fg(theme::TEXT_MUTED),
             )));
@@ -405,15 +404,15 @@ impl DetailPanel {
                     "{}{}: {}  {}: {}",
                     pad,
                     t!("tui.password_detail.created_at", date = "").trim_end_matches(" %{date}"),
-                    record.created_at.format("%Y-%m-%d %H:%M"),
+                    format_display_datetime(&record.created_at),
                     t!("tui.password_detail.updated_at", date = "").trim_end_matches(" %{date}"),
-                    record.updated_at.format("%Y-%m-%d %H:%M"),
+                    format_display_datetime(&record.updated_at),
                 ),
                 Style::default().fg(theme::TEXT_MUTED),
             )));
         }
 
-        let para = Paragraph::new(lines);
+        let para = Paragraph::new(lines).style(theme::Styles::newlook_bg());
         frame.render_widget(para, area);
     }
 
@@ -427,14 +426,14 @@ impl DetailPanel {
         unicode: bool,
     ) {
         let border_style = if focused {
-            Style::default().fg(theme::PRIMARY)
+            Style::default().fg(theme::NL_FOCUS)
         } else {
-            Style::default().fg(theme::BORDER)
+            Style::default().fg(theme::NL_LINE)
         };
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(border_style)
-            .style(Style::default().bg(theme::BG));
+            .style(Style::default().bg(theme::NL_SURFACE));
         let inner = block.inner(area).inner(Margin {
             horizontal: 2,
             vertical: 1,
@@ -448,12 +447,12 @@ impl DetailPanel {
         let mut title = vec![
             Span::styled(
                 format!("{}  ", db_icon),
-                Style::default().fg(theme::PRIMARY),
+                Style::default().fg(theme::NL_CYAN),
             ),
             Span::styled(
                 record.name.clone(),
                 Style::default()
-                    .fg(theme::TEXT)
+                    .fg(theme::NL_TEXT)
                     .add_modifier(Modifier::BOLD),
             ),
         ];
@@ -468,15 +467,34 @@ impl DetailPanel {
                         t!("tui.password_detail.favorite_badge")
                     ),
                     Style::default()
-                        .fg(theme::WARNING)
+                        .fg(theme::NL_HOT)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" ", Style::default().fg(theme::WARNING)),
             ]);
         }
+        if matches!(
+            state.health_issue,
+            Some(crate::commands::types::HealthIssue::Compromised)
+        ) {
+            title.extend([
+                Span::raw("   "),
+                Span::styled(
+                    format!(
+                        "{} {}",
+                        if unicode { "\u{F06BD}" } else { "[!]" },
+                        t!("tui.password_detail.health_leaked_short"),
+                    ),
+                    Style::default()
+                        .fg(theme::ERROR)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]);
+        }
         lines.push(Line::from(title));
 
         if let Some(expiry_line) = expiry_status_line(record, unicode) {
+            lines.push(Line::from(""));
             lines.push(expiry_line);
         } else {
             lines.push(Line::from(""));
@@ -488,12 +506,12 @@ impl DetailPanel {
         lines.push(Line::from(vec![
             Span::styled(
                 format!("{}  ", key_icon),
-                Style::default().fg(theme::PRIMARY),
+                Style::default().fg(theme::NL_CYAN),
             ),
             Span::styled(
                 credential_type_label(record).into_owned(),
                 Style::default()
-                    .fg(theme::PRIMARY)
+                    .fg(theme::NL_CYAN)
                     .add_modifier(Modifier::BOLD),
             ),
         ]));
@@ -519,7 +537,7 @@ impl DetailPanel {
                 ),
                 Span::raw("  "),
                 Span::styled(
-                    format!("[ {} ]", t!("tui.overlay.confirm_delete_permanent")),
+                    format!("[ {} ]", t!("tui.trash.permanent_delete_title")),
                     Style::default()
                         .fg(theme::ERROR)
                         .add_modifier(Modifier::BOLD),
@@ -527,7 +545,10 @@ impl DetailPanel {
             ]));
         }
 
-        frame.render_widget(Paragraph::new(lines), inner);
+        frame.render_widget(
+            Paragraph::new(lines).style(theme::Styles::newlook_surface()),
+            inner,
+        );
     }
 
     fn render_primary_table(
@@ -539,6 +560,14 @@ impl DetailPanel {
         unicode: bool,
         width: u16,
     ) {
+        let has_primary_fields = record
+            .fields
+            .iter()
+            .any(|field| field.kind != DetailFieldKind::Notes);
+        if !has_primary_fields && !should_render_empty_url_row(record) {
+            return;
+        }
+
         let Some(cols) = table_columns(width) else {
             return;
         };
@@ -581,38 +610,44 @@ impl DetailPanel {
         unicode: bool,
         width: u16,
     ) {
-        let Some(cols) = table_columns(width) else {
+        let Some(cols) = metadata_columns(width) else {
             return;
         };
-        lines.push(table_border_line(cols, "┌", "┬", "┐", unicode));
+        lines.push(metadata_border_line(cols, "┌", "┬", "┐", unicode));
         if !record.tags.is_empty() {
-            lines.push(render_table_row(
+            lines.extend(render_tag_metadata_rows(
                 nf_icon(unicode, theme::NF_TAG, theme::ascii::NF_TAG),
                 t!("tui.password_detail.tags_label").as_ref(),
-                render_tag_chips(&record.tags),
-                Vec::new(),
+                &record.tags,
                 cols,
             ));
-            lines.push(table_border_line(cols, "├", "┼", "┤", unicode));
+            lines.push(metadata_border_line(cols, "├", "┼", "┤", unicode));
         }
         if let Some(notes) = record.notes.as_ref().filter(|notes| !notes.is_empty()) {
-            lines.push(render_plain_table_row(
+            lines.extend(render_notes_metadata_rows(
                 nf_icon(unicode, theme::NF_NOTE, theme::ascii::NF_NOTE),
                 t!("tui.password_detail.notes_label").as_ref(),
                 notes,
-                Vec::new(),
                 cols,
             ));
-            lines.push(table_border_line(cols, "├", "┼", "┤", unicode));
+            lines.push(metadata_border_line(cols, "├", "┼", "┤", unicode));
         }
-        lines.push(render_plain_table_row(
+        let created_at = format_display_datetime(&record.created_at);
+        let updated_at = format_display_datetime(&record.updated_at);
+        lines.push(render_plain_metadata_row(
             nf_icon(unicode, theme::NF_CLOCK, theme::ascii::NF_CLOCK),
-            t!("tui.password_detail.updated_at", date = "").trim_end_matches(" %{date}"),
-            &record.updated_at.format("%Y-%m-%d %H:%M").to_string(),
-            Vec::new(),
+            t!("tui.password_detail.created_at", date = "").trim_end_matches(" %{date}"),
+            &created_at,
             cols,
         ));
-        lines.push(table_border_line(cols, "└", "┴", "┘", unicode));
+        lines.push(metadata_border_line(cols, "├", "┼", "┤", unicode));
+        lines.push(render_plain_metadata_row(
+            nf_icon(unicode, theme::NF_CLOCK, theme::ascii::NF_CLOCK),
+            t!("tui.password_detail.updated_at", date = "").trim_end_matches(" %{date}"),
+            &updated_at,
+            cols,
+        ));
+        lines.push(metadata_border_line(cols, "└", "┴", "┘", unicode));
     }
 
     fn render_field_card_row(
@@ -627,16 +662,16 @@ impl DetailPanel {
         let is_row_focused = focused && state.focused_field == field_idx;
         let row_style = if is_row_focused && state.focused_action.is_none() {
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::NL_TEXT)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::NL_TEXT)
         };
         render_table_row(
             field_icon(field.kind, unicode),
             &field.label,
             vec![Span::styled(field.display_value(), row_style)],
-            field_action_spans(field_idx, field, state, unicode, cols.action < 24),
+            field_action_spans(field_idx, field, state, unicode, cols.action < 20),
             cols,
         )
     }
@@ -667,7 +702,7 @@ impl DetailPanel {
                 Span::styled(fill.repeat(filled), Style::default().fg(strength.color())),
                 Span::styled(
                     empty_char.repeat(empty),
-                    Style::default().fg(theme::TEXT_MUTED),
+                    Style::default().fg(theme::NL_LINE),
                 ),
             ],
             vec![Span::styled(
@@ -718,13 +753,19 @@ fn table_columns(width: u16) -> Option<TableColumns> {
     if total < 42 {
         return None;
     }
-    let label = if total >= 82 { 18 } else { 14 };
-    let action = if total >= 110 {
-        30
-    } else if total >= 78 {
-        22
+    let label = if total >= 82 {
+        18
+    } else if total >= 52 {
+        14
     } else {
         12
+    };
+    let action = if total >= 80 {
+        26
+    } else if total >= 60 {
+        22
+    } else {
+        14
     };
     let value = total.saturating_sub(label + action + 10);
     (value >= 8).then_some(TableColumns {
@@ -732,6 +773,242 @@ fn table_columns(width: u16) -> Option<TableColumns> {
         value,
         action,
     })
+}
+
+#[derive(Clone, Copy)]
+struct MetadataColumns {
+    label: usize,
+    value: usize,
+}
+
+fn metadata_columns(width: u16) -> Option<MetadataColumns> {
+    let total = width as usize;
+    if total < 30 {
+        return None;
+    }
+    let label = if total >= 82 {
+        18
+    } else if total >= 52 {
+        14
+    } else {
+        12
+    };
+    let value = total.saturating_sub(label + 6);
+    (value >= 8).then_some(MetadataColumns { label, value })
+}
+
+fn metadata_border_line(
+    cols: MetadataColumns,
+    left: &str,
+    middle: &str,
+    right: &str,
+    unicode: bool,
+) -> Line<'static> {
+    if !unicode {
+        return Line::from(Span::styled(
+            format!(
+                "+{}+{}+",
+                "-".repeat(cols.label + 2),
+                "-".repeat(cols.value + 2)
+            ),
+            Style::default().fg(theme::NL_LINE),
+        ));
+    }
+    Line::from(Span::styled(
+        format!(
+            "{}{}{}{}{}",
+            left,
+            "─".repeat(cols.label + 2),
+            middle,
+            "─".repeat(cols.value + 2),
+            right
+        ),
+        Style::default().fg(theme::NL_LINE),
+    ))
+}
+
+fn render_plain_metadata_row(
+    icon: &str,
+    label: &str,
+    value: &str,
+    cols: MetadataColumns,
+) -> Line<'static> {
+    render_metadata_row(
+        icon,
+        label,
+        vec![Span::styled(
+            value.to_string(),
+            Style::default().fg(theme::NL_TEXT),
+        )],
+        cols,
+    )
+}
+
+fn render_metadata_row(
+    icon: &str,
+    label: &str,
+    value: Vec<Span<'static>>,
+    cols: MetadataColumns,
+) -> Line<'static> {
+    render_metadata_row_with_label(&format!("{}  {}", icon, label), value, cols)
+}
+
+fn render_metadata_row_with_label(
+    label_text: &str,
+    value: Vec<Span<'static>>,
+    cols: MetadataColumns,
+) -> Line<'static> {
+    let mut spans = vec![
+        Span::styled("│ ", Style::default().fg(theme::NL_LINE)),
+        Span::styled(
+            pad_to_width(label_text, cols.label),
+            Style::default().fg(theme::NL_TEXT_MUTED),
+        ),
+        Span::styled(" │ ", Style::default().fg(theme::NL_LINE)),
+    ];
+    spans.extend(pad_spans(value, cols.value, false));
+    spans.push(Span::styled(" │", Style::default().fg(theme::NL_LINE)));
+    Line::from(spans)
+}
+
+fn render_notes_metadata_rows(
+    icon: &str,
+    label: &str,
+    notes: &str,
+    cols: MetadataColumns,
+) -> Vec<Line<'static>> {
+    let rendered = render_markdown_note_lines(notes);
+    let label_text = format!("{}  {}", icon, label);
+    rendered
+        .into_iter()
+        .enumerate()
+        .map(|(index, spans)| {
+            render_metadata_row_with_label(if index == 0 { &label_text } else { "" }, spans, cols)
+        })
+        .collect()
+}
+
+fn render_tag_metadata_rows(
+    icon: &str,
+    label: &str,
+    tags: &[String],
+    cols: MetadataColumns,
+) -> Vec<Line<'static>> {
+    let label_text = format!("{}  {}", icon, label);
+    render_tag_chip_rows(tags, cols.value)
+        .into_iter()
+        .enumerate()
+        .map(|(index, spans)| {
+            render_metadata_row_with_label(if index == 0 { &label_text } else { "" }, spans, cols)
+        })
+        .collect()
+}
+
+fn render_markdown_note_lines(notes: &str) -> Vec<Vec<Span<'static>>> {
+    let mut in_code_block = false;
+    let mut rows = Vec::new();
+    for raw_line in notes.lines() {
+        let trimmed = raw_line.trim_start();
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+
+        if in_code_block {
+            rows.push(vec![Span::styled(
+                raw_line.to_string(),
+                Style::default().fg(theme::NL_CYAN),
+            )]);
+            continue;
+        }
+
+        if let Some(heading) = trimmed.strip_prefix('#') {
+            let heading = heading.trim_start_matches('#').trim_start();
+            rows.push(vec![Span::styled(
+                heading.to_string(),
+                Style::default()
+                    .fg(theme::NL_TEXT)
+                    .add_modifier(Modifier::BOLD),
+            )]);
+        } else if let Some(item) = markdown_list_item(trimmed) {
+            let mut spans = vec![Span::styled("• ", Style::default().fg(theme::NL_CYAN))];
+            spans.extend(render_inline_markdown_spans(item));
+            rows.push(spans);
+        } else if let Some(quote) = trimmed.strip_prefix("> ") {
+            let mut spans = vec![Span::styled("│ ", Style::default().fg(theme::NL_CYAN))];
+            spans.extend(render_inline_markdown_spans(quote));
+            rows.push(spans);
+        } else {
+            rows.push(render_inline_markdown_spans(raw_line));
+        }
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![Span::raw("")]);
+    }
+    rows
+}
+
+fn markdown_list_item(line: &str) -> Option<&str> {
+    ["- ", "* ", "+ "]
+        .into_iter()
+        .find_map(|marker| line.strip_prefix(marker))
+}
+
+fn render_inline_markdown_spans(text: &str) -> Vec<Span<'static>> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut spans = Vec::new();
+    let mut buffer = String::new();
+    let mut bold = false;
+    let mut italic = false;
+    let mut code = false;
+    let mut index = 0;
+
+    while index < chars.len() {
+        if chars[index] == '`' {
+            push_markdown_buffer(&mut spans, &mut buffer, bold, italic, code);
+            code = !code;
+            index += 1;
+        } else if !code && index + 1 < chars.len() && chars[index] == '*' && chars[index + 1] == '*'
+        {
+            push_markdown_buffer(&mut spans, &mut buffer, bold, italic, code);
+            bold = !bold;
+            index += 2;
+        } else if !code && chars[index] == '*' {
+            push_markdown_buffer(&mut spans, &mut buffer, bold, italic, code);
+            italic = !italic;
+            index += 1;
+        } else {
+            buffer.push(chars[index]);
+            index += 1;
+        }
+    }
+    push_markdown_buffer(&mut spans, &mut buffer, bold, italic, code);
+
+    if spans.is_empty() {
+        spans.push(Span::raw(""));
+    }
+    spans
+}
+
+fn push_markdown_buffer(
+    spans: &mut Vec<Span<'static>>,
+    buffer: &mut String,
+    bold: bool,
+    italic: bool,
+    code: bool,
+) {
+    if buffer.is_empty() {
+        return;
+    }
+    let mut style = Style::default().fg(if code { theme::NL_CYAN } else { theme::NL_TEXT });
+    if bold {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    if italic {
+        style = style.add_modifier(Modifier::ITALIC);
+    }
+    spans.push(Span::styled(std::mem::take(buffer), style));
 }
 
 fn table_border_line(
@@ -749,7 +1026,7 @@ fn table_border_line(
                 "-".repeat(cols.value + 2),
                 "-".repeat(cols.action + 2)
             ),
-            Style::default().fg(theme::BORDER),
+            Style::default().fg(theme::NL_LINE),
         ));
     }
     Line::from(Span::styled(
@@ -763,7 +1040,7 @@ fn table_border_line(
             "─".repeat(cols.action + 2),
             right
         ),
-        Style::default().fg(theme::BORDER),
+        Style::default().fg(theme::NL_LINE),
     ))
 }
 
@@ -785,7 +1062,7 @@ fn render_plain_table_row(
         label,
         vec![Span::styled(
             value.to_string(),
-            Style::default().fg(theme::TEXT),
+            Style::default().fg(theme::NL_TEXT),
         )],
         actions,
         cols,
@@ -801,35 +1078,66 @@ fn render_table_row(
 ) -> Line<'static> {
     let label_text = format!("{}  {}", icon, label);
     let mut spans = vec![
-        Span::styled("│ ", Style::default().fg(theme::BORDER)),
+        Span::styled("│ ", Style::default().fg(theme::NL_LINE)),
         Span::styled(
             pad_to_width(&label_text, cols.label),
-            Style::default().fg(theme::TEXT_SECONDARY),
+            Style::default().fg(theme::NL_TEXT_MUTED),
         ),
-        Span::styled(" │ ", Style::default().fg(theme::BORDER)),
+        Span::styled(" │ ", Style::default().fg(theme::NL_LINE)),
     ];
 
     spans.extend(pad_spans(value, cols.value, false));
-    spans.push(Span::styled(" │ ", Style::default().fg(theme::BORDER)));
+    spans.push(Span::styled(" │ ", Style::default().fg(theme::NL_LINE)));
     spans.extend(pad_spans(actions, cols.action, true));
-    spans.push(Span::styled(" │", Style::default().fg(theme::BORDER)));
+    spans.push(Span::styled(" │", Style::default().fg(theme::NL_LINE)));
     Line::from(spans)
 }
 
-fn pad_spans(mut spans: Vec<Span<'static>>, width: usize, right_align: bool) -> Vec<Span<'static>> {
+fn pad_spans(spans: Vec<Span<'static>>, width: usize, right_align: bool) -> Vec<Span<'static>> {
     let current_width = spans_width(&spans);
-    if current_width >= width {
-        return spans;
+    if current_width <= width {
+        let pad = Span::raw(" ".repeat(width - current_width));
+        if right_align {
+            let mut padded = vec![pad];
+            padded.extend(spans);
+            return padded;
+        } else {
+            let mut spans = spans;
+            spans.push(pad);
+            return spans;
+        }
     }
-    let pad = Span::raw(" ".repeat(width - current_width));
-    if right_align {
-        let mut padded = vec![pad];
-        padded.extend(spans);
-        padded
-    } else {
-        spans.push(pad);
-        spans
+
+    // Truncate: keep last style for the ellipsis span.
+    let last_style = spans.last().map(|s| s.style).unwrap_or_default();
+    let ellipsis = "…";
+    let ellipsis_width = UnicodeWidthStr::width(ellipsis);
+    let target = width.saturating_sub(ellipsis_width);
+
+    let mut truncated = Vec::new();
+    let mut used = 0;
+    for span in &spans {
+        if used >= target {
+            break;
+        }
+        let mut buf = String::new();
+        for ch in span.content.chars() {
+            let cw = UnicodeWidthStr::width(ch.to_string().as_str());
+            if used + cw > target {
+                break;
+            }
+            buf.push(ch);
+            used += cw;
+            if used >= target {
+                break;
+            }
+        }
+        if !buf.is_empty() {
+            truncated.push(Span::styled(buf, span.style));
+        }
     }
+    truncated.push(Span::styled(ellipsis.to_string(), last_style));
+    truncated
 }
 
 fn spans_width(spans: &[Span<'_>]) -> usize {
@@ -952,6 +1260,7 @@ fn credential_type_label(record: &DetailViewData) -> std::borrow::Cow<'static, s
         crate::types::credential::CredentialType::Login => t!("tui.form.type_login"),
         crate::types::credential::CredentialType::Api => t!("tui.form.type_api"),
         crate::types::credential::CredentialType::Ssh => t!("tui.form.type_ssh"),
+        crate::types::credential::CredentialType::SecureNote => t!("tui.form.type_secure_note"),
     }
 }
 
@@ -959,9 +1268,9 @@ fn expiry_status_line(record: &DetailViewData, unicode: bool) -> Option<Line<'st
     match record.expiry_status {
         ExpiryStatus::ExpiringSoon => {
             let icon = if unicode {
-                theme::ICON_WARNING
+                theme::NF_WARNING_TRIANGLE
             } else {
-                theme::ascii::ICON_WARNING
+                theme::ascii::NF_WARNING_TRIANGLE
             };
             let dt = record.expires_at?;
             let now = chrono::Utc::now().date_naive();
@@ -1032,27 +1341,36 @@ fn is_secret_field(kind: DetailFieldKind) -> bool {
 fn health_issue_line(state: &DetailPanelState, unicode: bool) -> Option<Line<'static>> {
     let issue = state.health_issue.as_ref()?;
     use std::borrow::Cow;
-    let (text, color): (Cow<str>, _) = match issue {
+    let (icon, text, color): (&str, Cow<str>, _) = match issue {
         crate::commands::types::HealthIssue::Compromised => {
-            (t!("tui.password_detail.health_leaked"), theme::ERROR)
+            let icon = if unicode { "\u{F06BD}" } else { "!" };
+            (icon, t!("tui.password_detail.health_leaked"), theme::ERROR)
         }
         crate::commands::types::HealthIssue::Weak => {
-            (t!("tui.password_detail.health_weak"), theme::WARNING)
+            let icon = if unicode {
+                theme::ICON_WARNING
+            } else {
+                theme::ascii::ICON_WARNING
+            };
+            (icon, t!("tui.password_detail.health_weak"), theme::WARNING)
         }
-        crate::commands::types::HealthIssue::Duplicate { group_size } => (
-            t!("tui.password_detail.health_duplicate", count = group_size),
-            theme::WARNING,
-        ),
+        crate::commands::types::HealthIssue::Duplicate { group_size } => {
+            let icon = if unicode {
+                theme::ICON_WARNING
+            } else {
+                theme::ascii::ICON_WARNING
+            };
+            (
+                icon,
+                t!("tui.password_detail.health_duplicate", count = group_size),
+                theme::WARNING,
+            )
+        }
         crate::commands::types::HealthIssue::Expired => return None,
     };
     if text.is_empty() {
         return None;
     }
-    let icon = if unicode {
-        theme::ICON_WARNING
-    } else {
-        theme::ascii::ICON_WARNING
-    };
     Some(Line::from(vec![
         Span::styled(format!("{}  ", icon), Style::default().fg(color)),
         Span::styled(text.into_owned(), Style::default().fg(color)),
@@ -1110,28 +1428,50 @@ fn action_button_span(
     label: String,
     compact: bool,
 ) -> Span<'static> {
-    let mut style = Style::default().fg(theme::PRIMARY);
+    let mut style = Style::default().fg(theme::NL_FOCUS);
     if state.focused_action == Some(action) {
         style = style
-            .fg(theme::TEXT)
-            .bg(theme::PRIMARY)
+            .fg(theme::NL_BG)
+            .bg(theme::NL_CYAN)
             .add_modifier(Modifier::BOLD);
     }
     if compact {
-        Span::styled(format!("[ {} ]", icon), style)
+        Span::styled(format!("{} {}", icon, label), style)
     } else {
         Span::styled(format!("[ {} {} ]", icon, label), style)
     }
 }
 
-fn render_tag_chips(tags: &[String]) -> Vec<Span<'static>> {
-    let mut spans = Vec::new();
+fn render_tag_chip_rows(tags: &[String], width: usize) -> Vec<Vec<Span<'static>>> {
+    let mut rows: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut row: Vec<Span<'static>> = Vec::new();
+    let mut row_width = 0usize;
+    let width = width.max(1);
+
     for tag in tags {
-        spans.push(Span::styled("[ ", Style::default().fg(theme::PRIMARY)));
-        spans.push(Span::styled(tag.clone(), Style::default().fg(theme::TEXT)));
-        spans.push(Span::styled(" ] ", Style::default().fg(theme::PRIMARY)));
+        let chip = tag_chip_spans(tag);
+        let chip_width = spans_width(&chip);
+        if row_width > 0 && row_width + chip_width > width {
+            rows.push(row);
+            row = Vec::new();
+            row_width = 0;
+        }
+        row.extend(chip);
+        row_width = row_width.saturating_add(chip_width);
     }
-    spans
+
+    if !row.is_empty() {
+        rows.push(row);
+    }
+    rows
+}
+
+fn tag_chip_spans(tag: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled("[ ", Style::default().fg(theme::NL_CYAN)),
+        Span::styled(tag.to_string(), Style::default().fg(theme::NL_TEXT)),
+        Span::styled(" ] ", Style::default().fg(theme::NL_CYAN)),
+    ]
 }
 
 /// Render the batch summary view in the detail panel when visual mode is active.
@@ -1183,13 +1523,14 @@ fn render_batch_summary_view(
     }
 
     // Overflow indicator
-    if total_count > display_limit {
-        let remaining = total_count - display_limit;
+    let displayed_count = selected_names.len().min(display_limit);
+    if total_count > displayed_count {
+        let remaining = total_count - displayed_count;
         lines.push(Line::from(Span::styled(
             format!(
                 "{}  ... {}",
                 pad,
-                t!("tui.password_list.selected_count", count = remaining)
+                t!("tui.batch.more_selected", count = remaining)
             ),
             Style::default().fg(theme::TEXT_SECONDARY),
         )));
@@ -1213,7 +1554,7 @@ fn render_batch_summary_view(
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("{}  ", t!("tui.notification.deleted")),
+            format!("{}  ", t!("tui.batch.delete_action")),
             Style::default().fg(theme::TEXT_SECONDARY),
         ),
         Span::styled(
@@ -1223,18 +1564,19 @@ fn render_batch_summary_view(
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            t!("tui.sidebar_tags"),
+            t!("tui.batch.tag_action"),
             Style::default().fg(theme::TEXT_SECONDARY),
         ),
     ]));
 
-    let para = Paragraph::new(lines);
+    let para = Paragraph::new(lines).style(theme::Styles::newlook_bg());
     frame.render_widget(para, area);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::i18n::LocaleGuard;
     use crate::tui::state::detail_state::*;
     use ratatui::backend::TestBackend;
 
@@ -1284,7 +1626,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let panel = DetailPanel;
-                panel.view(frame, frame.area(), state, focused, unicode, &[]);
+                panel.view(frame, frame.area(), state, focused, unicode, &[], 0);
             })
             .unwrap();
         let buf = terminal.backend().buffer().clone();
@@ -1303,10 +1645,68 @@ mod tests {
         terminal
             .draw(|frame| {
                 let panel = DetailPanel;
-                panel.view(frame, frame.area(), state, focused, unicode, &[]);
+                panel.view(frame, frame.area(), state, focused, unicode, &[], 0);
             })
             .unwrap();
         terminal.backend().buffer().clone()
+    }
+
+    fn detail_buffer_row_text(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+        (0..buffer.area.width)
+            .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+            .collect()
+    }
+
+    fn find_detail_row(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<u16> {
+        (0..buffer.area.height).find(|y| detail_buffer_row_text(buffer, *y).contains(needle))
+    }
+
+    fn make_secure_note_detail_data() -> DetailViewData {
+        DetailViewData {
+            id: uuid::Uuid::new_v4(),
+            name: "SecureNote".into(),
+            subtitle: String::new(),
+            credential_type: crate::types::credential::CredentialType::SecureNote,
+            is_favorite: false,
+            expires_at: None,
+            expiry_status: ExpiryStatus::None,
+            tags: vec![],
+            notes: Some("private note body".into()),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            fields: vec![DetailField {
+                label: t!("tui.password_detail.notes_label").to_string(),
+                value: FieldValue::Plain("private note body".into()),
+                copyable: true,
+                toggleable: false,
+                kind: DetailFieldKind::Notes,
+            }],
+            password_strength: None,
+            deleted_at: None,
+        }
+    }
+
+    #[test]
+    fn expiring_soon_detail_line_uses_newlook_warning_icon() {
+        let mut data = make_trash_detail_data();
+        data.expires_at = Some(chrono::Utc::now() + chrono::Duration::days(7));
+        data.expiry_status = ExpiryStatus::ExpiringSoon;
+
+        let line = expiry_status_line(&data, true).expect("expiry warning line should render");
+        let text: String = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+
+        assert!(
+            text.contains('\u{f071}'),
+            "expiring-soon detail line should use the requested warning icon: {text:?}"
+        );
+        assert!(
+            !text.contains('\u{26A0}'),
+            "expiring-soon detail line should not duplicate the old warning icon: {text:?}"
+        );
     }
 
     #[test]
@@ -1328,6 +1728,25 @@ mod tests {
     }
 
     #[test]
+    fn trash_detail_delete_action_uses_delete_label_not_warning_text() {
+        let _locale = LocaleGuard::en();
+        let data = make_trash_detail_data();
+        let mut state = DetailPanelState::with_record(data);
+        state.set_trash_context(true, 30);
+
+        let snapshot = render_detail_snapshot(&state, 120, 30, true, true);
+
+        assert!(
+            snapshot.contains(t!("tui.trash.permanent_delete_title").as_ref()),
+            "trash detail should render a delete action label"
+        );
+        assert!(
+            !snapshot.contains(t!("tui.overlay.confirm_delete_permanent").as_ref()),
+            "irreversible warning belongs in the confirmation dialog, not as a detail action label"
+        );
+    }
+
+    #[test]
     fn render_normal_detail_no_trash_banner() {
         let data = make_trash_detail_data();
         let state = DetailPanelState::with_record(data);
@@ -1337,6 +1756,7 @@ mod tests {
 
     #[test]
     fn wide_detail_renders_card_grid_and_nerd_font_actions() {
+        let _locale = LocaleGuard::en();
         let mut data = make_trash_detail_data();
         data.name = "GitHub".into();
         data.subtitle = "github.com".into();
@@ -1397,6 +1817,7 @@ mod tests {
 
     #[test]
     fn wide_detail_renders_table_borders_badges_and_empty_url_row() {
+        let _locale = LocaleGuard::en();
         let mut data = make_trash_detail_data();
         data.tags = vec!["github".into()];
         data.notes = Some("primary account".into());
@@ -1426,6 +1847,85 @@ mod tests {
             snapshot.contains("[ github ]"),
             "tags should render as badge-like chips"
         );
+    }
+
+    #[test]
+    fn detail_metadata_wraps_tag_chips_without_ellipsis() {
+        let mut data = make_trash_detail_data();
+        data.tags = (1..=10).map(|n| format!("tag-{n}")).collect();
+
+        let state = DetailPanelState::with_record(data);
+        let snapshot = render_detail_snapshot(&state, 92, 30, true, true);
+
+        assert!(
+            !snapshot.contains("tag-7 …") && !snapshot.contains("[ tag-7 …"),
+            "detail tags should wrap instead of truncating with an ellipsis:\n{snapshot}"
+        );
+        assert!(
+            snapshot.contains("[ tag-10 ]"),
+            "wrapped detail tags should still show the final tag chip:\n{snapshot}"
+        );
+    }
+
+    #[test]
+    fn secure_note_detail_does_not_render_empty_primary_table() {
+        let _locale = LocaleGuard::en();
+        let state = DetailPanelState::with_record(make_secure_note_detail_data());
+        let buffer = render_detail_buffer(&state, 120, 30, true, true);
+
+        let type_row = find_detail_row(&buffer, t!("tui.form.type_secure_note").as_ref())
+            .expect("secure note type label should render");
+        let notes_row = find_detail_row(&buffer, t!("tui.password_detail.notes_label").as_ref())
+            .expect("notes metadata row should render");
+
+        for y in type_row + 1..notes_row {
+            let row = detail_buffer_row_text(&buffer, y);
+            assert!(
+                !row.contains('└') && !row.contains('┴') && !row.contains('┘'),
+                "secure note should not render an empty primary table before notes: {row:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn detail_timestamps_use_display_timezone_formatter() {
+        use chrono::TimeZone;
+
+        let mut data = make_trash_detail_data();
+        data.created_at = chrono::Utc.with_ymd_and_hms(2026, 5, 30, 1, 2, 0).unwrap();
+        data.updated_at = chrono::Utc.with_ymd_and_hms(2026, 5, 30, 3, 4, 0).unwrap();
+        let state = DetailPanelState::with_record(data);
+
+        let snapshot = render_detail_snapshot(&state, 140, 40, true, true);
+
+        assert!(
+            snapshot.contains(&crate::tui::time::format_display_datetime(
+                &state.record.as_ref().unwrap().created_at
+            ))
+        );
+        assert!(
+            snapshot.contains(&crate::tui::time::format_display_datetime(
+                &state.record.as_ref().unwrap().updated_at
+            ))
+        );
+    }
+
+    #[test]
+    fn notes_metadata_renders_light_markdown_without_source_markers() {
+        let mut data = make_trash_detail_data();
+        data.notes = Some("# Heading\n- task\n`token` and **bold**".into());
+        let state = DetailPanelState::with_record(data);
+
+        let snapshot = render_detail_snapshot(&state, 120, 30, true, true);
+
+        assert!(snapshot.contains("Heading"));
+        assert!(snapshot.contains("task"));
+        assert!(snapshot.contains("token"));
+        assert!(snapshot.contains("bold"));
+        assert!(!snapshot.contains("# Heading"));
+        assert!(!snapshot.contains("- task"));
+        assert!(!snapshot.contains("`token`"));
+        assert!(!snapshot.contains("**bold**"));
     }
 
     #[test]
@@ -1503,6 +2003,10 @@ mod tests {
     fn batch_summary_shows_count() {
         let result = render_batch_snapshot(&["GitHub", "AWS"], 2, 50, 15);
         assert!(
+            !result.contains("tui.batch.selected_count"),
+            "batch summary should render localized selected count instead of the i18n key"
+        );
+        assert!(
             result.contains("2") || result.contains("selected"),
             "should show count"
         );
@@ -1524,6 +2028,23 @@ mod tests {
     }
 
     #[test]
+    fn batch_summary_hints_are_localized_actions() {
+        let _locale = LocaleGuard::zh_cn();
+        let result = render_batch_snapshot(&["GitHub"], 1, 50, 15);
+
+        assert!(result.contains("删除"), "d hint should mean delete");
+        assert!(result.contains("标签"), "t hint should mean tags");
+        assert!(
+            !result.contains("已删除"),
+            "d hint should not use the deleted notification text"
+        );
+        assert!(
+            !result.contains("tui.sidebar_tags"),
+            "t hint should render localized text instead of a key"
+        );
+    }
+
+    #[test]
     fn batch_summary_limits_to_five_names() {
         let names = vec!["A", "B", "C", "D", "E", "F", "G"];
         let result = render_batch_snapshot(&names, 7, 50, 20);
@@ -1531,6 +2052,22 @@ mod tests {
         assert!(
             result.contains("2") || result.contains("selected"),
             "should show overflow indicator"
+        );
+    }
+
+    #[test]
+    fn batch_summary_overflow_uses_loaded_names_not_fixed_limit() {
+        let _locale = LocaleGuard::zh_cn();
+        let result = render_batch_snapshot(&["A", "B", "C", "D", "E"], 7, 50, 20);
+
+        assert!(result.contains("已选 7 项"));
+        assert!(
+            result.contains("还有 2 项"),
+            "overflow should describe remaining undisplayed items"
+        );
+        assert!(
+            !result.contains("已选 2 项"),
+            "overflow should not look like a second selected-count total"
         );
     }
 }

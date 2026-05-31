@@ -11,8 +11,8 @@ use super::pkce::generate_pkce;
 use super::token_store::{OAuth2Token, TokenStore};
 use crate::cloud::providers::OAuth2Provider;
 
-/// Authorization timeout (2 minutes).
-const AUTH_TIMEOUT: Duration = Duration::from_secs(120);
+/// Authorization timeout (10 minutes).
+const AUTH_TIMEOUT: Duration = Duration::from_secs(600);
 
 pub struct OAuth2Engine;
 
@@ -26,8 +26,10 @@ impl OAuth2Engine {
         let (verifier, challenge) = generate_pkce();
 
         let auth_url = build_auth_url(provider, &challenge);
-        eprintln!("请在浏览器中完成授权 (2 分钟内有效):");
-        eprintln!("{}", auth_url);
+        tracing::info!(
+            provider = provider.provider_id(),
+            "starting OAuth2 browser authorization"
+        );
 
         open_url(&auth_url).map_err(|msg| OAuth2Error::BrowserOpen { message: msg })?;
 
@@ -155,4 +157,14 @@ fn urlencoding_encode(s: &str) -> String {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn authorization_timeout_allows_slow_browser_consent() {
+        assert!(AUTH_TIMEOUT >= Duration::from_secs(600));
+    }
 }

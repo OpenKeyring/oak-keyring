@@ -11,6 +11,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::t;
+use crate::tui::screens::main::overlay::centered_rect;
 use crate::tui::state::overlay_state::{BatchTagPanelFullState, TagPanelFocus};
 use crate::tui::theme;
 
@@ -33,17 +34,11 @@ pub enum BatchTagAction {
 
 /// Render the batch tag panel overlay.
 ///
-/// Panel width is capped at 48 columns and positioned at the top-left of `area`.
+/// Panel width is capped and centered inside `area`.
 pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFullState) {
-    let panel_width = area.width.min(48);
+    let panel_width = area.width.min(64);
     let panel_height = compute_panel_height(state);
-
-    let panel_area = Rect {
-        x: area.x,
-        y: area.y,
-        width: panel_width,
-        height: panel_height.min(area.height),
-    };
+    let panel_area = centered_rect(area, panel_width, panel_height.min(area.height));
 
     // ── Title ────────────────────────────────────────────────────────────
     let n = state.selected_record_ids.len();
@@ -51,10 +46,10 @@ pub fn render_batch_tag(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
 
     let outer_block = Block::default()
         .title(title)
-        .title_style(Style::default().fg(theme::TEXT))
+        .title_style(Style::default().fg(theme::NL_TEXT))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
-        .style(Style::default().bg(theme::BG));
+        .border_style(Style::default().fg(theme::NL_FOCUS))
+        .style(Style::default().bg(theme::NL_SURFACE));
 
     let inner = outer_block.inner(panel_area);
     frame.render_widget(Clear, panel_area);
@@ -119,6 +114,36 @@ fn compute_panel_height(state: &BatchTagPanelFullState) -> u16 {
     3 + (current_rows + 2) + (available_rows + 2) + 3 + 2 // +2 for outer borders
 }
 
+fn add_current_tag(state: &mut BatchTagPanelFullState, tag: String) -> Option<String> {
+    let tag = tag.trim().to_string();
+    if tag.is_empty() || state.current_tags.iter().any(|existing| existing == &tag) {
+        return None;
+    }
+    state.current_tags.push(tag.clone());
+    state.current_tags.sort();
+    state.available_tags.retain(|existing| existing != &tag);
+    if state.tag_cursor >= state.available_tags.len() {
+        state.tag_cursor = state.available_tags.len().saturating_sub(1);
+    }
+    Some(tag)
+}
+
+fn remove_current_tag(state: &mut BatchTagPanelFullState, tag: String) -> Option<String> {
+    let position = state
+        .current_tags
+        .iter()
+        .position(|existing| existing == &tag)?;
+    let tag = state.current_tags.remove(position);
+    if !state.available_tags.iter().any(|existing| existing == &tag) {
+        state.available_tags.push(tag.clone());
+        state.available_tags.sort();
+    }
+    if state.tag_cursor >= state.current_tags.len() {
+        state.tag_cursor = state.current_tags.len().saturating_sub(1);
+    }
+    Some(tag)
+}
+
 /// Calculate how many rows are needed to display tags within a given width.
 fn tag_display_rows(tags: &[String], max_width: u16) -> u16 {
     if tags.is_empty() {
@@ -145,17 +170,17 @@ fn tag_display_rows(tags: &[String], max_width: u16) -> u16 {
 fn render_input_section(frame: &mut Frame, area: Rect, state: &BatchTagPanelFullState) {
     let focused = state.focus == TagPanelFocus::Input;
     let border_color = if focused {
-        theme::PRIMARY
+        theme::NL_CYAN
     } else {
-        theme::BORDER
+        theme::NL_LINE
     };
 
     let input_block = Block::default()
         .title(format!(" {} ", t!("tui.batch.add_tag")))
-        .title_style(Style::default().fg(theme::TEXT_SECONDARY))
+        .title_style(Style::default().fg(theme::NL_TEXT_MUTED))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        .style(Style::default().bg(theme::BG));
+        .style(Style::default().bg(theme::NL_SURFACE));
 
     let inner = input_block.inner(area);
     frame.render_widget(input_block, area);
@@ -168,7 +193,7 @@ fn render_input_section(frame: &mut Frame, area: Rect, state: &BatchTagPanelFull
         input_text.clone()
     };
 
-    let input_style = Style::default().fg(theme::TEXT).bg(theme::BG);
+    let input_style = Style::default().fg(theme::NL_TEXT).bg(theme::NL_SURFACE);
     let input = Paragraph::new(display_text)
         .style(input_style)
         .wrap(Wrap { trim: false });
@@ -185,24 +210,24 @@ fn render_tags_section(
     cursor: usize,
 ) {
     let border_color = if focused {
-        theme::PRIMARY
+        theme::NL_CYAN
     } else {
-        theme::BORDER
+        theme::NL_LINE
     };
 
     let section_block = Block::default()
         .title(format!(" {header} "))
-        .title_style(Style::default().fg(theme::TEXT_SECONDARY))
+        .title_style(Style::default().fg(theme::NL_TEXT_MUTED))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        .style(Style::default().bg(theme::BG));
+        .style(Style::default().bg(theme::NL_SURFACE));
 
     let inner = section_block.inner(area);
     frame.render_widget(section_block, area);
 
     if tags.is_empty() {
         let empty = Paragraph::new(format!("  {}", t!("tui.batch.no_tags")))
-            .style(Style::default().fg(theme::TEXT_MUTED))
+            .style(Style::default().fg(theme::NL_TEXT_MUTED))
             .wrap(Wrap { trim: false });
         frame.render_widget(empty, inner);
         return;
@@ -232,8 +257,8 @@ fn render_done_button(frame: &mut Frame, area: Rect, state: &BatchTagPanelFullSt
 
     let button_block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
-        .style(Style::default().bg(theme::BG));
+        .border_style(Style::default().fg(theme::NL_LINE))
+        .style(Style::default().bg(theme::NL_SURFACE));
 
     let inner = button_block.inner(area);
     frame.render_widget(button_block, area);
@@ -241,11 +266,11 @@ fn render_done_button(frame: &mut Frame, area: Rect, state: &BatchTagPanelFullSt
     let button_text = format!(" {} ", t!("tui.batch.done"));
     let button_style = if focused {
         Style::default()
-            .fg(theme::PRIMARY)
+            .fg(theme::NL_CYAN)
             .add_modifier(Modifier::REVERSED | Modifier::BOLD)
     } else {
         Style::default()
-            .fg(theme::PRIMARY)
+            .fg(theme::NL_CYAN)
             .add_modifier(Modifier::BOLD)
     };
 
@@ -306,10 +331,12 @@ fn handle_input_focus(key: KeyCode, state: &mut BatchTagPanelFullState) -> Batch
             BatchTagAction::None
         }
         KeyCode::Enter => {
-            if !state.input_text.is_empty() {
-                let tag = state.input_text.clone();
+            if !state.input_text.trim().is_empty() {
+                let tag = state.input_text.trim().to_string();
                 state.input_text.clear();
-                BatchTagAction::AddTag(tag)
+                add_current_tag(state, tag)
+                    .map(BatchTagAction::AddTag)
+                    .unwrap_or(BatchTagAction::None)
             } else {
                 BatchTagAction::None
             }
@@ -342,12 +369,9 @@ fn handle_current_tags_focus(key: KeyCode, state: &mut BatchTagPanelFullState) -
         KeyCode::Backspace | KeyCode::Char('d') => {
             if count > 0 && state.tag_cursor < count {
                 let tag = state.current_tags[state.tag_cursor].clone();
-                state.current_tags.remove(state.tag_cursor);
-                // Adjust cursor if now out of bounds
-                if state.tag_cursor > 0 && state.tag_cursor >= state.current_tags.len() {
-                    state.tag_cursor = state.current_tags.len().saturating_sub(1);
-                }
-                BatchTagAction::RemoveTag(tag)
+                remove_current_tag(state, tag)
+                    .map(BatchTagAction::RemoveTag)
+                    .unwrap_or(BatchTagAction::None)
             } else {
                 BatchTagAction::None
             }
@@ -384,7 +408,9 @@ fn handle_available_tags_focus(key: KeyCode, state: &mut BatchTagPanelFullState)
         KeyCode::Char(' ') | KeyCode::Enter => {
             if count > 0 && state.tag_cursor < count {
                 let tag = state.available_tags[state.tag_cursor].clone();
-                BatchTagAction::AddTag(tag)
+                add_current_tag(state, tag)
+                    .map(BatchTagAction::AddTag)
+                    .unwrap_or(BatchTagAction::None)
             } else {
                 BatchTagAction::None
             }
@@ -533,5 +559,52 @@ mod tests {
                 focus
             );
         }
+    }
+
+    #[test]
+    fn render_batch_tag_is_centered_in_available_area() {
+        let state = test_state();
+        let backend = ratatui::backend::TestBackend::new(100, 30);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| render_batch_tag(frame, frame.area(), &state))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let mut first_border = None;
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                if buffer.cell((x, y)).is_some_and(|cell| cell.symbol() == "┌") {
+                    first_border = Some((x, y));
+                    break;
+                }
+            }
+            if first_border.is_some() {
+                break;
+            }
+        }
+
+        assert!(
+            first_border.is_some_and(|(x, y)| x > 0 && y > 0),
+            "batch tag panel should be centered instead of pinned to the left edge"
+        );
+    }
+
+    #[test]
+    fn enter_on_available_tag_moves_it_to_current_tags_for_multiple_adds() {
+        let mut state = test_state();
+        state.focus = TagPanelFocus::AvailableTags;
+        state.tag_cursor = 0;
+
+        let first = handle_key(KeyCode::Enter, &mut state);
+        assert_eq!(first, BatchTagAction::AddTag("finance".into()));
+        assert!(state.current_tags.contains(&"finance".to_string()));
+        assert!(!state.available_tags.contains(&"finance".to_string()));
+
+        let second = handle_key(KeyCode::Enter, &mut state);
+        assert_eq!(second, BatchTagAction::AddTag("social".into()));
+        assert!(state.current_tags.contains(&"social".to_string()));
+        assert!(!state.available_tags.contains(&"social".to_string()));
     }
 }

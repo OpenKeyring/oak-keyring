@@ -31,6 +31,26 @@ pub(crate) fn pad_to_width(value: &str, width: usize) -> String {
 }
 
 fn truncate_to_width(value: &str, width: usize) -> String {
+    let total = display_width(value);
+    if total <= width {
+        return value.to_string();
+    }
+
+    // Content exceeds width: show the tail so the cursor (always at end) is visible.
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in value.chars().rev() {
+        let ch_width = char_width(ch);
+        if used + ch_width > width {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
+    out.chars().rev().collect()
+}
+
+fn take_prefix_to_width(value: &str, width: usize) -> String {
     let mut out = String::new();
     let mut used = 0;
     for ch in value.chars() {
@@ -75,6 +95,53 @@ pub(crate) fn render_input_box_spans(
         Span::styled(" ", cursor_style),
         Span::styled(" ".repeat(rest_width), style),
         Span::styled("]", style),
+    ]
+}
+
+pub(crate) fn render_bare_input_spans_at_cursor(
+    value: &str,
+    placeholder: &str,
+    cursor: usize,
+    width: usize,
+    focused: bool,
+    style: Style,
+    placeholder_style: Style,
+) -> Vec<Span<'static>> {
+    if !focused {
+        let display_value = if value.is_empty() {
+            truncate_to_width(placeholder, width)
+        } else {
+            truncate_to_width(value, width)
+        };
+        let padded_value = pad_to_width(&display_value, width);
+        let display_style = if value.is_empty() {
+            placeholder_style
+        } else {
+            style
+        };
+        return vec![Span::styled(padded_value, display_style)];
+    }
+
+    let mut cursor = cursor.min(value.len());
+    while cursor > 0 && !value.is_char_boundary(cursor) {
+        cursor -= 1;
+    }
+    let text_width = width.saturating_sub(1);
+    let before = truncate_to_width(&value[..cursor], text_width);
+    let after_width = text_width.saturating_sub(display_width(&before));
+    let after = take_prefix_to_width(&value[cursor..], after_width);
+    let used = display_width(&before) + display_width(&after);
+    let rest_width = width.saturating_sub(used + 1);
+    let cursor_style = Style::default()
+        .fg(theme::BG)
+        .bg(theme::PRIMARY)
+        .add_modifier(Modifier::BOLD);
+
+    vec![
+        Span::styled(before, style),
+        Span::styled(" ", cursor_style),
+        Span::styled(after, style),
+        Span::styled(" ".repeat(rest_width), style),
     ]
 }
 

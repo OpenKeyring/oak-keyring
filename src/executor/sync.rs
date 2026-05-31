@@ -2,6 +2,8 @@ use uuid::Uuid;
 
 use crate::commands::types::ConflictResolution;
 use crate::commands::CommandResult;
+use crate::config::sync::{GoogleDriveConfig, ProviderConfig, SyncProvider};
+use crate::config::ConfigManager;
 use crate::errors::{ErrorCode, ErrorContext, ServiceError};
 use crate::services::vault::VaultServiceImpl;
 use crate::sync::conflict::ResolutionStrategy;
@@ -37,7 +39,7 @@ pub(super) fn build_sync_vault_data(executor: &CommandExecutor) -> Option<Box<Sy
     }
 
     // Read local stored records
-    let stored_records = match vault.list_all_stored_records() {
+    let stored_records = match vault.list_stored_records_for_sync() {
         Ok(records) => records,
         Err(e) => {
             tracing::warn!(error = %e, "Failed to list stored records for sync");
@@ -602,10 +604,14 @@ pub async fn handle_restore_database_from_cloud(
     executor: &mut CommandExecutor,
     master_password: Option<SecureStr>,
 ) -> CommandResult {
-    let sync = match executor.sync.as_mut() {
-        Some(s) => s.as_mut(),
-        None => return CommandResult::DatabaseRestoreNeedsOAuth,
-    };
+    if let Err(result) = ensure_cloud_restore_sync_service(executor).await {
+        return result;
+    }
+    let sync = executor
+        .sync
+        .as_mut()
+        .expect("sync service ensured")
+        .as_mut();
     if let Err(result) = ensure_cloud_restore_has_records(sync).await {
         return result;
     }
@@ -720,15 +726,88 @@ pub async fn handle_restore_database_from_cloud(
     }
 }
 
+async fn ensure_cloud_restore_sync_service(
+    executor: &mut CommandExecutor,
+) -> Result<(), CommandResult> {
+    if executor.sync.is_some() {
+        return Ok(());
+    }
+
+    let token_store = {
+        let mut guard = executor.oauth2_token_store.lock().await;
+        if let Some(store) = guard.as_ref() {
+            store.clone()
+        } else {
+            let store = crate::cloud::oauth2::TokenStore::new(executor.config_dir.join("tokens"));
+            *guard = Some(store.clone());
+            store
+        }
+    };
+
+    let token = match token_store.load("google_drive") {
+        Ok(Some(token)) if token.refresh_token.is_some() => token,
+        Ok(_) => return Err(CommandResult::DatabaseRestoreNeedsOAuth),
+        Err(e) => {
+            return Err(CommandResult::Error {
+                code: ErrorCode::SyncAuthenticationFailed,
+                context: ErrorContext::default(),
+                message_key: "error.sync_auth_failed",
+                fallback: format!("Failed to load Google Drive authorization: {}", e),
+            });
+        }
+    };
+    let refresh_token = token
+        .refresh_token
+        .expect("refresh token checked before cloud restore sync setup");
+
+    let mut config = executor.config.get_config();
+    config.sync.provider = SyncProvider::GoogleDrive;
+    let mut drive_config = match config.sync.provider_config.take() {
+        Some(ProviderConfig::GoogleDrive(cfg)) => cfg,
+        _ => GoogleDriveConfig::default(),
+    };
+    drive_config.access_token.clear();
+    drive_config.refresh_token = refresh_token;
+    config.sync.provider_config = Some(ProviderConfig::GoogleDrive(drive_config));
+
+    match crate::cloud::provider::create_cloud_storage(&config.sync) {
+        Ok(storage) => {
+            if let Err(e) = executor.config.save(&config, &executor.config_dir) {
+                return Err(CommandResult::Error {
+                    code: ErrorCode::ConfigSaveFailed,
+                    context: ErrorContext::default(),
+                    message_key: "error.config_save_failed",
+                    fallback: format!("Failed to enable Google Drive sync after restore: {}", e),
+                });
+            }
+            executor.sync = Some(
+                Box::new(crate::services::sync::SyncServiceImpl::new(storage))
+                    as Box<dyn crate::services::sync::SyncService>,
+            );
+            Ok(())
+        }
+        Err(e) => {
+            let message = crate::security::redaction::redact_sensitive_values(&e.to_string());
+            Err(CommandResult::Error {
+                code: e.to_error_code(),
+                context: e.to_error_context(),
+                message_key: "error.sync_provider_failed",
+                fallback: format!("Failed to initialize Google Drive sync: {}", message),
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod restore_password_tests {
     use super::{
-        handle_restore_database_from_cloud, persist_restored_cloud_data,
-        take_restore_master_password, RestoreMasterPassword,
+        ensure_cloud_restore_sync_service, handle_restore_database_from_cloud,
+        persist_restored_cloud_data, take_restore_master_password, RestoreMasterPassword,
     };
+    use crate::cloud::oauth2::{OAuth2Token, TokenStore};
     use crate::cloud::{CloudMetadata, CloudRecord};
     use crate::commands::CommandResult;
-    use crate::config::AppConfig;
+    use crate::config::{AppConfig, ConfigManager, ProviderConfig, SyncProvider};
     use crate::db::schema::init_db_in_memory;
     use crate::executor::CommandExecutor;
     use crate::services::clipboard::{ClipboardService, MockBackend};
@@ -748,6 +827,73 @@ mod restore_password_tests {
             op,
             "memory".to_string(),
         ))) as Box<dyn crate::services::sync::SyncService>
+    }
+
+    #[tokio::test]
+    async fn cloud_restore_sync_service_rebuilds_from_oauth_token_store() {
+        let temp = tempfile::tempdir().unwrap();
+        let vault_dir = temp.path().join("vault");
+        let config_dir = temp.path().join("config");
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        let token_store = TokenStore::new(config_dir.join("tokens"));
+        token_store
+            .save(
+                "google_drive",
+                &OAuth2Token {
+                    access_token: "access-token".to_string(),
+                    refresh_token: Some("refresh-token".to_string()),
+                    expires_at: None,
+                    token_type: "Bearer".to_string(),
+                },
+            )
+            .unwrap();
+
+        let conn = init_db_in_memory().unwrap();
+        let vault = VaultServiceImpl::new(conn);
+        let (result_tx, _) = mpsc::channel(64);
+        let mut executor = CommandExecutor::builder(vault_dir, config_dir.clone())
+            .vault(Box::new(vault))
+            .config(AppConfig::default())
+            .result_tx(result_tx)
+            .shutdown_token(CancellationToken::new())
+            .clipboard(Arc::new(ClipboardService::with_backend(
+                Box::new(MockBackend::new()),
+                30,
+            )))
+            .oauth2_token_store(Arc::new(tokio::sync::Mutex::new(Some(token_store))))
+            .build()
+            .expect("executor should build");
+
+        assert!(executor.sync.is_none());
+
+        ensure_cloud_restore_sync_service(&mut executor)
+            .await
+            .expect("sync service should rebuild from OAuth token store");
+
+        assert!(executor.sync.is_some());
+        let config = executor.config.get_config();
+        assert_eq!(config.sync.provider, SyncProvider::GoogleDrive);
+        match &config.sync.provider_config {
+            Some(ProviderConfig::GoogleDrive(cfg)) => {
+                assert_eq!(cfg.root_path, ".oak-keyring/");
+                assert_eq!(cfg.refresh_token, "refresh-token");
+                assert!(cfg.access_token.is_empty());
+            }
+            other => panic!("expected Google Drive config, got {other:?}"),
+        }
+        let saved_config = std::fs::read_to_string(config_dir.join("config.toml"))
+            .expect("cloud restore should persist sync config");
+        assert!(saved_config.contains("provider = \"GoogleDrive\""));
+        assert!(saved_config.contains("[sync.provider_config.GoogleDrive]"));
+        assert!(saved_config.contains("root_path = \".oak-keyring/\""));
+        assert!(
+            !saved_config.contains("refresh-token"),
+            "config.toml must not persist OAuth refresh tokens"
+        );
+        assert!(
+            !saved_config.contains("access-token"),
+            "config.toml must not persist OAuth access tokens"
+        );
     }
 
     #[test]

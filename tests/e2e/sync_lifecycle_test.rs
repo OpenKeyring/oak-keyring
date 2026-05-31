@@ -9,17 +9,20 @@
 
 use oak_keyring::cloud::metadata::{serialize_metadata, CloudMetadata};
 use oak_keyring::cloud::schema::METADATA_FILENAME;
-use oak_keyring::commands::types::{ConflictResolution, RecordFilter, RecordSort};
+use oak_keyring::commands::types::{
+    ConflictResolution, RecordFilter, RecordSort, DEFAULT_RECORD_LIST_PAGE_SIZE,
+};
 use oak_keyring::commands::{Command, CommandResult, Message};
 use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::bip39::{MnemonicLanguage, Passkey};
 use oak_keyring::errors::ErrorCode;
-use oak_keyring::executor::{CommandExecutor, DbStartupMode};
+use oak_keyring::executor::{ActivityTracker, CommandExecutor, DbStartupMode};
 use oak_keyring::services::clipboard::ClipboardService;
 use oak_keyring::services::sync::SyncService;
 use oak_keyring::services::sync::SyncServiceImpl;
 use oak_keyring::services::vault::VaultServiceImpl;
-use oak_keyring::types::credential::EncryptedPayload;
+use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
+use oak_keyring::types::record::CreateRecordParams;
 use oak_keyring::types::sensitive::SecureStr;
 use oak_keyring::types::SyncStatus;
 use std::sync::Arc;
@@ -30,6 +33,10 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
+
+fn synthetic_credential_value() -> String {
+    Uuid::new_v4().to_string()
+}
 
 /// Holds the cloud storage temp dir alive for the lifetime of the test.
 struct SyncTestContext {
@@ -68,6 +75,7 @@ async fn setup_executor(vault_dir: &TempDir) -> (mpsc::Sender<Command>, mpsc::Re
         data_dir,
         config_dir,
         DbStartupMode::FileBacked,
+        ActivityTracker::new(),
     )
     .expect("executor construction should succeed");
 
@@ -137,6 +145,7 @@ fn build_executor_with_sync(
         .result_tx(result_tx)
         .shutdown_token(cancel_token)
         .clipboard(clipboard)
+        .activity(ActivityTracker::new())
         .build()
         .expect("executor should build")
 }
@@ -297,7 +306,7 @@ fn read_uploaded_cloud_record_json(ctx: &SyncTestContext) -> String {
     std::fs::read_to_string(entries[0].path()).expect("cloud record should be readable")
 }
 
-async fn rebuild_keyfile_from_recovery(ctx: &mut SyncTestContext) {
+async fn rebuild_keyfile_from_recovery(ctx: &mut SyncTestContext) -> Passkey {
     let passkey = Passkey::generate(24, MnemonicLanguage::English).expect("passkey");
     ctx.command_tx
         .send(Command::RebuildKeyFileFromRecovery {
@@ -312,6 +321,7 @@ async fn rebuild_keyfile_from_recovery(ctx: &mut SyncTestContext) {
         CommandResult::KeyFileRebuilt => {}
         other => panic!("Expected KeyFileRebuilt, got {:?}", other),
     }
+    passkey
 }
 
 fn write_empty_cloud_metadata(ctx: &SyncTestContext) {
@@ -481,13 +491,15 @@ async fn restore_database_from_cloud_metadata_without_records_does_not_create_va
 async fn sync_uploads_pending_records_to_cloud() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
     let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+    let first_credential = synthetic_credential_value();
+    let second_credential = synthetic_credential_value();
 
     create_login_record(
         &ctx.command_tx,
         &mut ctx.result_rx,
         "Test Site",
         "user@example.com",
-        "password123",
+        &first_credential,
     )
     .await;
     create_login_record(
@@ -495,7 +507,7 @@ async fn sync_uploads_pending_records_to_cloud() {
         &mut ctx.result_rx,
         "Another Site",
         "admin@example.com",
-        "admin456",
+        &second_credential,
     )
     .await;
 
@@ -520,6 +532,8 @@ async fn sync_uploads_pending_records_to_cloud() {
         .send(Command::LoadRecordList {
             filter: RecordFilter::All,
             sort: RecordSort::default(),
+            limit: DEFAULT_RECORD_LIST_PAGE_SIZE,
+            offset: 0,
         })
         .await
         .expect("send should succeed");
@@ -543,13 +557,14 @@ async fn sync_uploads_pending_records_to_cloud() {
 async fn sync_upload_encrypts_private_cloud_metadata() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
     let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+    let credential = synthetic_credential_value();
 
     create_login_record_with_tags(
         &ctx.command_tx,
         &mut ctx.result_rx,
         "Sensitive Payroll",
         "payroll@example.com",
-        "password123",
+        &credential,
         vec!["finance-secret".to_string()],
     )
     .await;
@@ -589,13 +604,14 @@ async fn sync_upload_encrypts_private_cloud_metadata() {
 async fn sync_download_restores_encrypted_private_cloud_metadata() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
     let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+    let credential = synthetic_credential_value();
 
     let record_id = create_login_record_with_tags(
         &ctx.command_tx,
         &mut ctx.result_rx,
         "Download Secret",
         "download@example.com",
-        "password123",
+        &credential,
         vec!["restore-private".to_string()],
     )
     .await;
@@ -640,6 +656,8 @@ async fn sync_download_restores_encrypted_private_cloud_metadata() {
         .send(Command::LoadRecordList {
             filter: RecordFilter::All,
             sort: RecordSort::default(),
+            limit: DEFAULT_RECORD_LIST_PAGE_SIZE,
+            offset: 0,
         })
         .await
         .expect("send should succeed");
@@ -656,19 +674,88 @@ async fn sync_download_restores_encrypted_private_cloud_metadata() {
     }
 }
 
+#[tokio::test]
+async fn sync_uploads_soft_deleted_records_as_cloud_tombstones() {
+    let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
+    let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+    let credential = synthetic_credential_value();
+
+    let record_id = create_login_record_with_tags(
+        &ctx.command_tx,
+        &mut ctx.result_rx,
+        "Delete Me",
+        "delete@example.com",
+        &credential,
+        vec!["delete-sync".to_string()],
+    )
+    .await;
+
+    ctx.command_tx
+        .send(Command::TriggerSync)
+        .await
+        .expect("send should succeed");
+    assert!(
+        matches!(
+            recv_command_result(&mut ctx.result_rx).await,
+            CommandResult::SyncCompleted { .. }
+        ),
+        "initial upload should complete"
+    );
+
+    ctx.command_tx
+        .send(Command::SoftDeleteRecord { id: record_id })
+        .await
+        .expect("send should succeed");
+    assert!(
+        matches!(
+            recv_command_result(&mut ctx.result_rx).await,
+            CommandResult::RecordDeleted { .. }
+        ),
+        "soft delete should complete"
+    );
+    drain_background_results(&mut ctx.result_rx).await;
+
+    ctx.command_tx
+        .send(Command::TriggerSync)
+        .await
+        .expect("send should succeed");
+    assert!(
+        matches!(
+            recv_command_result(&mut ctx.result_rx).await,
+            CommandResult::SyncCompleted { .. }
+        ),
+        "deleted-state upload should complete"
+    );
+
+    let cloud_json = read_uploaded_cloud_record_json(&ctx);
+    let cloud_record: oak_keyring::cloud::CloudRecord =
+        serde_json::from_str(&cloud_json).expect("cloud record should parse");
+    assert_eq!(cloud_record.id, record_id.to_string());
+    assert_eq!(cloud_record.deleted, Some(true));
+    assert!(
+        cloud_record.deleted_at.is_some(),
+        "soft-deleted cloud record should carry deleted_at"
+    );
+    assert!(
+        cloud_record.metadata.encrypted_metadata.is_some(),
+        "soft-deleted uploads should keep private metadata encrypted"
+    );
+}
+
 // ==================== Test 6: Locked Vault Skips Uploads ====================
 
 #[tokio::test]
 async fn sync_with_locked_vault_completes_without_uploads() {
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
     let mut ctx = setup_unlocked_sync_executor(&vault_dir).await;
+    let credential = synthetic_credential_value();
 
     create_login_record(
         &ctx.command_tx,
         &mut ctx.result_rx,
         "Locked Site",
         "locked@example.com",
-        "locked789",
+        &credential,
     )
     .await;
 
@@ -790,55 +877,55 @@ async fn resolve_conflict_without_sync_returns_error() {
 #[tokio::test]
 async fn restore_database_from_cloud_with_valid_records_creates_vault_db() {
     use oak_keyring::cloud::metadata::serialize_metadata;
-    use oak_keyring::cloud::{CloudRecord, RecordVersionInfo};
+    use oak_keyring::cloud::RecordVersionInfo;
+    use oak_keyring::services::vault::VaultService;
 
     let vault_dir = tempfile::tempdir().expect("tempdir should succeed");
     let data_dir = vault_dir.path().join("oak-keyring");
 
     // Set up a key-only executor with a FS-backed cloud storage.
     let mut ctx = setup_key_only_sync_executor(&vault_dir).await;
-    rebuild_keyfile_from_recovery(&mut ctx).await;
+    let passkey = rebuild_keyfile_from_recovery(&mut ctx).await;
 
-    // Write valid cloud metadata + a valid record directly to cloud storage.
-    let record_id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-    let nonce_b64 = {
-        use base64::Engine;
-        base64::engine::general_purpose::STANDARD.encode([0u8; 24])
-    };
-    let encrypted_data_b64 = {
-        use base64::Engine;
-        // 32 bytes of dummy ciphertext (passes base64 decode, not real encryption)
-        base64::engine::general_purpose::STANDARD.encode([0xABu8; 48])
-    };
-    let record = CloudRecord {
-        id: record_id.clone(),
-        version: 1,
-        encrypted_data: encrypted_data_b64.clone(),
-        nonce: nonce_b64,
-        dek_version: 1,
-        aad: oak_keyring::cloud::AadFields {
-            record_id: record_id.clone(),
-            dek_version: 1,
-        },
-        metadata: oak_keyring::cloud::RecordMetadata {
-            name: "Test Record".to_string(),
+    // Write valid cloud metadata + a real encrypted record directly to cloud
+    // storage. The record must be encrypted with the same recovery key as the
+    // restore target, otherwise the restore path correctly rejects it.
+    let conn = oak_keyring::db::schema::init_db_in_memory().expect("source db should initialize");
+    let mut source_vault = VaultService::new(conn);
+    source_vault
+        .unlock_with_mnemonic(&passkey)
+        .expect("source vault should unlock");
+    let source_record_id = source_vault
+        .create_record(CreateRecordParams {
+            credential_type: CredentialType::Login,
+            payload: EncryptedPayload::Login {
+                name: "Test Record".to_string(),
+                username: "restore@example.com".to_string(),
+                password: SecureStr::new("valid-cloud-secret".to_string()),
+                url: Some("https://example.com".to_string()),
+                notes: Some("restored from cloud".to_string()),
+            },
             tags: vec!["test".to_string()],
-            updated_at: now.clone(),
-            health: None,
-            ..Default::default()
-        },
-        deleted: None,
-        deleted_at: None,
-    };
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("source record should be created");
+    let source_record = source_vault
+        .get_stored_record(source_record_id)
+        .expect("source record should exist");
+    let record = source_vault
+        .build_cloud_record_for_sync(&source_record, None)
+        .expect("cloud record should build");
+    let record_id = record.id.clone();
     let checksum = record.compute_checksum().expect("checksum");
+    let updated_at = record.metadata.updated_at.clone();
 
     let mut metadata = CloudMetadata::new("test-vault-token".to_string());
     metadata.upsert_record(
         record_id.clone(),
         RecordVersionInfo {
             version: 1,
-            updated_at: now,
+            updated_at,
             updated_by: "test-device".to_string(),
             checksum,
             private_metadata_checksum: record.compute_private_metadata_checksum().unwrap(),

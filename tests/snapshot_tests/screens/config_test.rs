@@ -1,12 +1,16 @@
 use ratatui::backend::TestBackend;
+use ratatui::style::Modifier;
 use ratatui::Terminal;
 
 use chrono::TimeZone;
-use oak_keyring::config::{GoogleDriveConfig, ProviderConfig, SyncMode, SyncProvider};
+use oak_keyring::config::{
+    GoogleDriveConfig, PasswordGenerationStyle, ProviderConfig, SyncMode, SyncProvider,
+};
 use oak_keyring::tui::screens::config_screen::ConfigScreen;
 use oak_keyring::tui::state::config_state::{
     ConfigOverlay, ConfigTab, ConfirmButton, DropdownField, GDriveAuthStatus, SyncConnectionStatus,
 };
+use oak_keyring::tui::theme;
 use oak_keyring::tui::traits::screen::Screen;
 
 use crate::support::snapshot_locale;
@@ -20,6 +24,61 @@ fn render_screen(screen: &ConfigScreen, width: u16, height: u16) -> TestBackend 
         })
         .unwrap();
     terminal.backend().clone()
+}
+
+fn backend_text(backend: &TestBackend) -> String {
+    let buffer = backend.buffer();
+    (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn text_position(backend: &TestBackend, text: &str) -> Option<(u16, u16)> {
+    let buffer = backend.buffer();
+    let target: Vec<String> = text.chars().map(|ch| ch.to_string()).collect();
+    if target.is_empty() {
+        return None;
+    }
+    for y in 0..buffer.area.height {
+        let symbols: Vec<&str> = (0..buffer.area.width)
+            .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+            .collect();
+        if let Some(start) = symbols
+            .windows(target.len())
+            .position(|window| window.iter().zip(&target).all(|(cell, ch)| *cell == ch))
+        {
+            return Some((start as u16, y));
+        }
+    }
+    None
+}
+
+fn cell_at_text_start<'a>(
+    backend: &'a TestBackend,
+    text: &str,
+) -> Option<&'a ratatui::buffer::Cell> {
+    let buffer = backend.buffer();
+    let target: Vec<String> = text.chars().map(|ch| ch.to_string()).collect();
+    if target.is_empty() {
+        return None;
+    }
+    for y in 0..buffer.area.height {
+        let symbols: Vec<&str> = (0..buffer.area.width)
+            .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+            .collect();
+        if let Some(start) = symbols
+            .windows(target.len())
+            .position(|window| window.iter().zip(&target).all(|(cell, ch)| *cell == ch))
+        {
+            return buffer.cell((start as u16, y));
+        }
+    }
+    None
 }
 
 fn configure_google_drive_sync(screen: &mut ConfigScreen) {
@@ -38,6 +97,88 @@ fn config_general_tab() {
     screen.state.active_tab = ConfigTab::General;
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("config_general_tab", backend);
+}
+
+#[test]
+fn config_general_newlook_chrome_and_controls() {
+    let _locale = snapshot_locale();
+    let mut screen = ConfigScreen::new();
+    screen.state.active_tab = ConfigTab::General;
+    let backend = render_screen(&screen, 120, 30);
+    let rendered = backend_text(&backend);
+
+    assert!(
+        rendered.contains(theme::NF_GEAR),
+        "config tab bar should use the new-look gear icon"
+    );
+    assert!(
+        rendered.contains(theme::NF_GLOBE),
+        "general rows should use field icons"
+    );
+    assert!(
+        rendered.contains("\u{f093}"),
+        "import action should use the upload icon"
+    );
+    assert!(
+        rendered.contains("\u{f019}"),
+        "export action should use the download icon"
+    );
+    assert!(
+        rendered.contains("┌") && rendered.contains("┘"),
+        "config screen should render bordered panels"
+    );
+    assert!(
+        rendered.contains("\u{258C}  General"),
+        "content panel should render a marked General section title"
+    );
+    assert!(
+        rendered.contains("[  auto") || rendered.contains("[ auto"),
+        "dropdown values should render as bracket controls"
+    );
+}
+
+#[test]
+fn config_footer_close_focus_uses_newlook_danger_button() {
+    let _locale = snapshot_locale();
+    let mut screen = ConfigScreen::new();
+    screen.state.footer_focus = Some(oak_keyring::tui::state::config_state::FooterButton::Close);
+    let backend = render_screen(&screen, 120, 30);
+    let close_cell =
+        cell_at_text_start(&backend, "Close").expect("focused close button should render");
+
+    assert_eq!(close_cell.style().fg, Some(theme::NL_DANGER));
+    assert_eq!(close_cell.style().bg, Some(theme::NL_SURFACE_2));
+}
+
+#[test]
+fn config_general_import_export_buttons_use_reversed_focus() {
+    let _locale = snapshot_locale();
+
+    let mut screen = ConfigScreen::new();
+    screen.state.active_tab = ConfigTab::General;
+    screen.state.focused_item = 5;
+    let backend = render_screen(&screen, 120, 30);
+    let import_cell = cell_at_text_start(&backend, "Import from Another Manager")
+        .expect("focused import button should render");
+    assert!(
+        import_cell
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED),
+        "focused import button text should be reversed"
+    );
+
+    screen.state.focused_item = 6;
+    let backend = render_screen(&screen, 120, 30);
+    let export_cell =
+        cell_at_text_start(&backend, "Export Data").expect("focused export button should render");
+    assert!(
+        export_cell
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED),
+        "focused export button text should be reversed"
+    );
 }
 
 #[test]
@@ -133,12 +274,51 @@ fn config_password_tab() {
 }
 
 #[test]
+fn config_password_tab_shows_all_generator_defaults() {
+    let _locale = snapshot_locale();
+    let mut screen = ConfigScreen::new();
+    screen.state.active_tab = ConfigTab::Password;
+    screen.state.password.style = PasswordGenerationStyle::Memorable;
+    let backend = render_screen(&screen, 120, 30);
+    let rendered = backend_text(&backend);
+
+    assert!(rendered.contains("Default Style"));
+    assert!(rendered.contains("Random Length"));
+    assert!(rendered.contains("Lowercase"));
+    assert!(rendered.contains("Memorable Words"));
+    assert!(rendered.contains("Capitalize Words"));
+    assert!(rendered.contains("Separator"));
+    assert!(rendered.contains("PIN Length"));
+}
+
+#[test]
 fn config_about_tab() {
     let _locale = snapshot_locale();
     let mut screen = ConfigScreen::new();
     screen.state.active_tab = ConfigTab::About;
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("config_about_tab", backend);
+}
+
+#[test]
+fn config_about_content_aligns_with_title_and_has_product_context() {
+    let _locale = snapshot_locale();
+    let mut screen = ConfigScreen::new();
+    screen.state.active_tab = ConfigTab::About;
+    let backend = render_screen(&screen, 120, 30);
+    let rendered = backend_text(&backend);
+
+    let about_marker = text_position(&backend, "▌  About").expect("About title should render");
+    let version_label = text_position(&backend, "Version").expect("Version label should render");
+
+    assert_eq!(
+        version_label.0,
+        about_marker.0 + 3,
+        "about metadata rows should align with the section title text"
+    );
+    assert!(rendered.contains("OpenKeyring / oak-keyring"));
+    assert!(rendered.contains("Local-first"));
+    assert!(rendered.contains("Encrypted vault"));
 }
 
 #[test]
@@ -160,8 +340,35 @@ fn config_unsaved_changes_dialog() {
     let _locale = snapshot_locale();
     let mut screen = ConfigScreen::new();
     screen.state.overlay = Some(ConfigOverlay::UnsavedChanges {
-        focused_button: ConfirmButton::Confirm,
+        focused_button: ConfirmButton::SaveExit,
     });
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("config_unsaved_changes_dialog", backend);
+}
+
+#[test]
+fn config_footer_names_reverse_tab_navigation() {
+    let _locale = snapshot_locale();
+    let screen = ConfigScreen::new();
+    let backend = render_screen(&screen, 120, 30);
+    let rendered = backend_text(&backend);
+
+    assert!(rendered.contains("Shift+Tab"));
+}
+
+#[test]
+fn config_sync_google_drive_authorize_row_is_focusable() {
+    let _locale = snapshot_locale();
+    let mut screen = ConfigScreen::new();
+    configure_google_drive_sync(&mut screen);
+    screen.state.focused_item = 3;
+    screen.state.gdrive_auth_status = GDriveAuthStatus::NotAuthorized;
+    let backend = render_screen(&screen, 120, 30);
+
+    let auth_cell = cell_at_text_start(&backend, "Authorize")
+        .expect("Google Drive authorize action should render");
+    assert_eq!(auth_cell.style().bg, Some(theme::NL_SELECTED));
+
+    let rendered = backend_text(&backend);
+    assert!(rendered.contains("Google Drive Folder"));
 }

@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 /// Current schema version expected by the code.
 /// Equals the number of registered migrations.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// A migration function that takes a database connection and applies schema changes.
 type MigrationFn = fn(&Connection) -> Result<(), MigrationError>;
@@ -16,11 +16,18 @@ struct Migration {
 
 /// Returns all registered migrations in version order.
 fn migrations() -> Vec<Migration> {
-    vec![Migration {
-        version: 1,
-        name: "initial_schema",
-        up: crate::db::migrations::m001_initial::up,
-    }]
+    vec![
+        Migration {
+            version: 1,
+            name: "initial_schema",
+            up: crate::db::migrations::m001_initial::up,
+        },
+        Migration {
+            version: 2,
+            name: "record_list_index",
+            up: crate::db::migrations::m002_record_list_index::up,
+        },
+    ]
 }
 
 /// Reads the current schema version from the metadata table.

@@ -79,8 +79,12 @@ pub struct ListPanelState {
     pub sort: RecordSort,
     /// Total record count (before filtering), for status display.
     pub total_count: usize,
+    /// Page offset currently being fetched, if a record-list load is in flight.
+    pub pending_load_offset: Option<usize>,
     /// Visible height of the list panel in rows, updated from layout.
     pub _visible_height: usize,
+    /// Snapshot saved when search is committed via Enter, so Esc can restore.
+    pub committed_search_snapshot: Option<SearchSnapshot>,
 }
 
 impl Default for ListPanelState {
@@ -95,7 +99,9 @@ impl Default for ListPanelState {
                 direction: SortDirection::Desc,
             },
             total_count: 0,
+            pending_load_offset: None,
             _visible_height: 0,
+            committed_search_snapshot: None,
         }
     }
 }
@@ -208,9 +214,27 @@ impl ListPanelState {
         });
     }
 
-    /// Exit search mode back to normal browsing, discarding search state.
-    pub fn exit_search(&mut self) {
+    /// Commit search: exit search mode, keeping filtered results but saving
+    /// the pre-search snapshot so Esc can later restore the original list.
+    pub fn commit_search(&mut self) {
+        if let ListMode::Search(ref mut state) = self.mode {
+            self.committed_search_snapshot = state.pre_search.take();
+        }
         self.mode = ListMode::Normal;
+    }
+
+    /// Restore the list from a committed search snapshot (Esc after Enter).
+    /// Returns the restored selected record id, if any.
+    pub fn restore_committed_search(&mut self) -> Option<Uuid> {
+        let snapshot = self.committed_search_snapshot.take()?;
+        let restored_id = snapshot
+            .selected_index
+            .and_then(|idx| snapshot.records.get(idx))
+            .map(|r| r.id);
+        self.records = snapshot.records;
+        self.selected_index = snapshot.selected_index;
+        self.scroll_offset = snapshot.scroll_offset;
+        restored_id
     }
 
     /// Cancel search and restore pre-search snapshot (for Esc).
@@ -421,11 +445,13 @@ pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
 /// - Login -> ""
 /// - Api -> "[API] "
 /// - Ssh -> "[SSH] "
+/// - SecureNote -> "[N] "
 pub fn format_type_prefix(cred_type: &CredentialType) -> String {
     match cred_type {
         CredentialType::Login => String::new(),
         CredentialType::Api => t!("tui.list_state.type_prefix_api").to_string(),
         CredentialType::Ssh => t!("tui.list_state.type_prefix_ssh").to_string(),
+        CredentialType::SecureNote => t!("tui.list_state.type_prefix_note").to_string(),
     }
 }
 

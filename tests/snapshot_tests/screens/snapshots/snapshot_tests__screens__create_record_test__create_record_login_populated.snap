@@ -23,6 +23,6 @@ expression: backend
 "│  Tags       [                    ]  Enter Add  ←/→ Select  Del Delete        │"
 "│             [ work ×] [ personal ×]                                          │"
 "│                                                                              │"
-"│  Notes      [Do not share this login info with anyone.         ] ← Optional  │"
-"│                                                                              │"
+"│  Notes       ← Optional                                                      │"
+"│             Do not share this login info with anyone.                        │"
 "└──────────────────────────────────────────────────────────────────────────────┘"

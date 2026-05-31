@@ -1,6 +1,7 @@
 pub mod crash_handler;
 pub mod memory;
 pub mod process;
+pub mod redaction;
 
 #[cfg(target_os = "macos")]
 pub mod mach_exception;

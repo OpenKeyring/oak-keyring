@@ -47,10 +47,8 @@ impl VaultServiceImpl {
     /// - `search` — case-insensitive LIKE match on `record_name` and `detail`.
     ///
     /// # Pagination
-    /// The `AuditFilter` does not carry limit/offset. This method uses a
-    /// default page size of 50 with offset 0, returning all matching entries
-    /// up to that limit. Callers needing pagination can re-query with higher
-    /// offsets.
+    /// `AuditFilter::limit` and `AuditFilter::offset` control the returned
+    /// slice. When limit is absent, this method uses a default page size of 50.
     pub fn query_audit_log(
         &self,
         filter: &AuditFilter,
@@ -71,8 +69,11 @@ impl VaultServiceImpl {
             time_start,
             time_end,
             search,
-            DEFAULT_AUDIT_PAGE_SIZE,
-            0,
+            filter
+                .limit
+                .map(|limit| limit.min(i64::MAX as usize) as i64)
+                .unwrap_or(DEFAULT_AUDIT_PAGE_SIZE),
+            filter.offset.min(i64::MAX as usize) as i64,
         )
         .map_err(record::db_error_to_vault)?;
 
@@ -190,6 +191,7 @@ mod tests {
             operation: None,
             time_range: None,
             search: None,
+            ..Default::default()
         };
         let (entries, total) = svc.query_audit_log(&filter).unwrap();
 
@@ -219,6 +221,7 @@ mod tests {
             operation: Some(AuditOperation::RecordCreate),
             time_range: None,
             search: None,
+            ..Default::default()
         };
         let (entries, total) = svc.query_audit_log(&filter).unwrap();
 
@@ -227,6 +230,38 @@ mod tests {
         assert!(entries
             .iter()
             .all(|e| e.operation == AuditOperation::RecordCreate));
+    }
+
+    #[test]
+    fn query_audit_log_respects_limit_and_offset() {
+        let svc = setup_service();
+
+        for id in 0..60 {
+            svc.conn
+                .execute(
+                    "INSERT INTO audit_log (operation, record_name, occurred_at) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![
+                        "record.create",
+                        format!("record-{id:02}"),
+                        Utc::now().timestamp() + id
+                    ],
+                )
+                .unwrap();
+        }
+
+        let filter = AuditFilter {
+            operation: None,
+            time_range: None,
+            search: None,
+            limit: Some(25),
+            offset: 50,
+        };
+        let (entries, total) = svc.query_audit_log(&filter).unwrap();
+
+        assert_eq!(total, 60);
+        assert_eq!(entries.len(), 10);
+        assert_eq!(entries[0].record_name.as_deref(), Some("record-09"));
+        assert_eq!(entries[9].record_name.as_deref(), Some("record-00"));
     }
 
     // =========================================================================
@@ -263,6 +298,7 @@ mod tests {
             operation: None,
             time_range: Some(AuditTimeRange::LastWeek),
             search: None,
+            ..Default::default()
         };
         let (entries, total) = svc.query_audit_log(&filter).unwrap();
 
@@ -300,6 +336,7 @@ mod tests {
             operation: None,
             time_range: None,
             search: Some("GitHub".to_string()),
+            ..Default::default()
         };
         let (entries, total) = svc.query_audit_log(&filter).unwrap();
 
@@ -447,6 +484,7 @@ mod tests {
             operation: Some(AuditOperation::RecordCreate),
             time_range: None,
             search: Some("GitHub".to_string()),
+            ..Default::default()
         };
         let (entries, total) = svc.query_audit_log(&filter).unwrap();
 
@@ -468,6 +506,7 @@ mod tests {
             operation: Some(AuditOperation::RecordDestroy),
             time_range: None,
             search: None,
+            ..Default::default()
         };
         let (entries, total) = svc.query_audit_log(&filter).unwrap();
 

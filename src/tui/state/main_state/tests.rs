@@ -5,6 +5,7 @@ use crate::commands::types::{
     Screen as ScreenEnum,
 };
 use crate::commands::{Command, Message};
+use crate::config::PasswordGenerationStyle;
 use crate::tui::state::list_state::ListPanelState;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::{SecureStr, Tag};
@@ -234,9 +235,17 @@ fn on_mount_sends_load_record_list() {
         .try_recv()
         .expect("on_mount should send a LoadRecordList command");
     match cmd {
-        Command::LoadRecordList { filter, sort } => {
+        Command::LoadRecordList {
+            filter,
+            sort,
+            limit,
+            offset,
+        } => {
             assert_eq!(filter, RecordFilter::All);
-            assert_eq!(sort, crate::commands::types::RecordSort::default());
+            assert_eq!(sort.field, crate::commands::types::SortField::CreatedAt);
+            assert_eq!(sort.direction, crate::commands::types::SortDirection::Desc);
+            assert_eq!(limit, 500);
+            assert_eq!(offset, 0);
         }
         _ => panic!("Expected LoadRecordList command, got a different command"),
     }
@@ -268,11 +277,108 @@ fn on_mount_sends_load_record_list_with_current_filter() {
         .try_recv()
         .expect("on_mount should send a LoadRecordList command");
     match cmd {
-        Command::LoadRecordList { filter, .. } => {
+        Command::LoadRecordList {
+            filter,
+            limit,
+            offset,
+            ..
+        } => {
             assert_eq!(filter, RecordFilter::Favorites);
+            assert_eq!(limit, 500);
+            assert_eq!(offset, 0);
         }
         _ => panic!("Expected LoadRecordList command"),
     }
+}
+
+#[test]
+fn record_list_scroll_near_loaded_bottom_requests_next_page() {
+    let mut state = MainScreenState::default();
+    state.focused_panel = PanelId::List;
+    state.terminal_area = Rect::new(0, 0, 120, 30);
+    state.list.records = (0..500)
+        .map(|idx| make_test_record_with_name(Uuid::new_v4(), &format!("record-{idx:03}")))
+        .collect();
+    state.list.total_count = 600;
+    state.list.selected_index = Some(497);
+    state.list.scroll_offset = 490;
+    state.list.set_visible_height(8);
+
+    let layout = crate::tui::screens::main::layout::calculate_layout(state.terminal_area, 120);
+    let list_rect = Rect::new(
+        layout.list.x,
+        layout.list.y + 2,
+        layout.list.width,
+        layout.list.height.saturating_sub(2),
+    );
+    let event = crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::ScrollDown,
+        column: list_rect.x + 1,
+        row: list_rect.y + 3,
+        modifiers: KeyModifiers::NONE,
+    };
+
+    let config = crate::config::AppConfig::default();
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = state.update(Message::MouseEvent(event), &mut ctx);
+
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::LoadRecordList {
+                filter,
+                limit,
+                offset,
+                ..
+            } => {
+                assert_eq!(filter, RecordFilter::All);
+                assert_eq!(limit, 500);
+                assert_eq!(offset, 500);
+            }
+            other => panic!("expected LoadRecordList, got {other:?}"),
+        },
+        other => panic!("expected command result, got {other:?}"),
+    }
+}
+
+#[test]
+fn record_list_loaded_appends_next_page_without_replacing_existing_records() {
+    use crate::commands::result::CommandResult;
+
+    let mut state = MainScreenState::default();
+    state.list.records = (0..500)
+        .map(|idx| make_test_record_with_name(Uuid::new_v4(), &format!("record-{idx:03}")))
+        .collect();
+    state.list.total_count = 600;
+    state.list.pending_load_offset = Some(500);
+    let next_page: Vec<_> = (500..525)
+        .map(|idx| make_test_record_with_name(Uuid::new_v4(), &format!("record-{idx:03}")))
+        .collect();
+
+    let config = crate::config::AppConfig::default();
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    state.update(
+        Message::CommandCompleted(CommandResult::RecordListLoaded {
+            records: next_page,
+            total: 600,
+            category_counts: Default::default(),
+        }),
+        &mut ctx,
+    );
+
+    assert_eq!(state.list.records.len(), 525);
+    assert_eq!(state.list.records[0].name, "record-000");
+    assert_eq!(state.list.records[524].name, "record-524");
+    assert_eq!(state.list.total_count, 600);
 }
 
 #[test]
@@ -646,7 +752,7 @@ fn visual_mode_and_search_are_mutually_exclusive() {
     assert!(!state.list.is_visual());
 
     // Entering visual should exit search
-    state.list.exit_search();
+    state.list.commit_search();
     state.list.enter_visual();
     assert!(state.list.is_visual());
     assert!(!state.list.is_searching());
@@ -788,6 +894,16 @@ fn mouse_click(column: u16, row: u16) -> crossterm::event::MouseEvent {
     }
 }
 
+fn mouse_scroll_down(column: u16, row: u16) -> crossterm::event::MouseEvent {
+    use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+    MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
 #[test]
 fn default_state_has_no_active_overlay() {
     let state = MainScreenState::default();
@@ -839,6 +955,30 @@ fn left_right_arrows_switch_main_panels() {
 }
 
 #[test]
+fn right_from_sidebar_selects_first_list_item_when_list_has_no_selection() {
+    let mut state = MainScreenState::default();
+    let first = make_test_record(None);
+    let first_id = first.id;
+    let second = make_test_record(None);
+    state.list.records = vec![first, second];
+    state.list.selected_index = None;
+    state.focused_panel = PanelId::Sidebar;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Right)), &mut ctx);
+
+    assert_eq!(state.focused_panel, PanelId::List);
+    assert_eq!(state.list.selected_index, Some(0));
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::LoadRecordDetail { id } => assert_eq!(id, first_id),
+            other => panic!("expected LoadRecordDetail, got {other:?}"),
+        },
+        other => panic!("expected LoadRecordDetail command, got {other:?}"),
+    }
+}
+
+#[test]
 fn number_shortcuts_select_sidebar_categories() {
     let mut state = MainScreenState::default();
     let mut ctx = make_ctx();
@@ -880,7 +1020,62 @@ fn ctrl_g_opens_generator_and_ctrl_p_opens_config() {
 }
 
 #[test]
-fn mouse_hover_list_row_selects_record_and_loads_detail() {
+fn number_six_opens_generator_and_seven_opens_config() {
+    let mut state = MainScreenState::default();
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('6'))), &mut ctx);
+    assert!(matches!(result, ScreenResult::Continue));
+    assert!(state.overlay_manager.is_active());
+
+    let mut state = MainScreenState::default();
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('7'))), &mut ctx);
+    assert!(matches!(
+        result,
+        ScreenResult::NavigateTo(ScreenEnum::Config)
+    ));
+}
+
+#[test]
+fn number_zero_focuses_sidebar_tag_header() {
+    let mut state = MainScreenState::default();
+    state.sidebar.tags = vec![Tag {
+        id: 1,
+        name: "work".to_string(),
+    }];
+    state.sidebar.rebuild();
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('0'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.focused_panel, PanelId::Sidebar);
+    assert!(matches!(
+        state.sidebar.items[state.sidebar.selected_index],
+        SidebarItem::TagHeader
+    ));
+}
+
+#[test]
+fn mouse_hover_list_row_only_focuses_list() {
+    let mut state = MainScreenState::default();
+    let mut first = make_test_record(None);
+    first.name = "First".to_string();
+    let mut second = make_test_record(None);
+    second.name = "Second".to_string();
+    state.list = ListPanelState::with_records(vec![first, second]);
+    state.focused_panel = PanelId::Sidebar;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::MouseEvent(mouse_move(42, 7)), &mut ctx);
+
+    assert_eq!(state.focused_panel, PanelId::List);
+    assert_eq!(state.list.selected_index, Some(0));
+    assert!(matches!(result, ScreenResult::Continue));
+}
+
+#[test]
+fn mouse_click_list_row_selects_record_and_loads_detail() {
     let mut state = MainScreenState::default();
     let mut first = make_test_record(None);
     first.name = "First".to_string();
@@ -891,7 +1086,7 @@ fn mouse_hover_list_row_selects_record_and_loads_detail() {
     state.focused_panel = PanelId::Sidebar;
     let mut ctx = make_ctx();
 
-    let result = state.update(Message::MouseEvent(mouse_move(42, 7)), &mut ctx);
+    let result = state.update(Message::MouseEvent(mouse_click(42, 7)), &mut ctx);
 
     assert_eq!(state.focused_panel, PanelId::List);
     assert_eq!(state.list.selected_index, Some(1));
@@ -905,15 +1100,112 @@ fn mouse_hover_list_row_selects_record_and_loads_detail() {
 }
 
 #[test]
+fn mouse_click_list_row_uses_rendered_scroll_offset() {
+    let mut state = MainScreenState::default();
+    state.terminal_area = Rect::new(0, 0, 120, 30);
+    state.list.records = (0..10)
+        .map(|idx| make_test_record_with_name(Uuid::new_v4(), &format!("record-{idx}")))
+        .collect();
+    state.list.total_count = state.list.records.len();
+    state.list.selected_index = None;
+    state.list.scroll_offset = 8;
+    let expected_id = state.list.records[2].id;
+    let mut ctx = make_ctx();
+
+    let layout = crate::tui::screens::main::layout::calculate_layout(state.terminal_area, 120);
+    let list_rect = Rect::new(
+        layout.list.x,
+        layout.list.y + 1,
+        layout.list.width,
+        layout.list.height.saturating_sub(1),
+    );
+    let result = state.update(
+        Message::MouseEvent(mouse_click(list_rect.x + 2, list_rect.y + 2)),
+        &mut ctx,
+    );
+
+    assert_eq!(state.focused_panel, PanelId::List);
+    assert_eq!(state.list.selected_index, Some(2));
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::LoadRecordDetail { id } => assert_eq!(id, expected_id),
+            other => panic!("expected LoadRecordDetail, got {other:?}"),
+        },
+        other => panic!("expected command result, got {other:?}"),
+    }
+}
+
+#[test]
+fn mouse_scroll_sidebar_moves_tag_view_without_changing_filter() {
+    let mut state = MainScreenState::default();
+    state.terminal_area = Rect::new(0, 0, 120, 30);
+    state.sidebar.tags = (0..18)
+        .map(|idx| Tag {
+            id: idx + 1,
+            name: format!("tag_{idx:02}"),
+        })
+        .collect();
+    state.sidebar.rebuild();
+    state.sidebar.select_category(SidebarCategory::All);
+    state.current_filter = RecordFilter::All;
+    state.focused_panel = PanelId::List;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::MouseEvent(mouse_scroll_down(4, 17)), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    assert_eq!(state.focused_panel, PanelId::Sidebar);
+    assert_eq!(state.current_filter, RecordFilter::All);
+    assert!(state.sidebar.tag_scroll_offset > 0);
+}
+
+#[test]
+fn mouse_click_visible_sidebar_tag_selects_tag_and_reloads_filter() {
+    let mut state = MainScreenState::default();
+    state.terminal_area = Rect::new(0, 0, 120, 30);
+    state.sidebar.tags = (0..18)
+        .map(|idx| Tag {
+            id: idx + 1,
+            name: format!("tag_{idx:02}"),
+        })
+        .collect();
+    state.sidebar.rebuild();
+    state.sidebar.tag_scroll_offset = 4;
+    state.sidebar.select_category(SidebarCategory::All);
+    state.current_filter = RecordFilter::All;
+    state.focused_panel = PanelId::List;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::MouseEvent(mouse_click(4, 17)), &mut ctx);
+
+    assert_eq!(state.focused_panel, PanelId::Sidebar);
+    assert_eq!(state.sidebar.selected_tag_name(), Some("tag_02"));
+    assert_eq!(
+        state.current_filter,
+        RecordFilter::Tag("tag_02".to_string())
+    );
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::LoadRecordList { filter, offset, .. } => {
+                assert_eq!(filter, RecordFilter::Tag("tag_02".to_string()));
+                assert_eq!(offset, 0);
+            }
+            other => panic!("expected LoadRecordList, got {other:?}"),
+        },
+        other => panic!("expected command result, got {other:?}"),
+    }
+}
+
+#[test]
 fn mouse_click_list_sort_bar_changes_sort() {
     let mut state = MainScreenState::default();
     let original = state.current_sort.field;
     let mut ctx = make_ctx();
 
     // Default terminal_area is Rect(0,0,100,24). With sidebar_width=40,
-    // list_rect = top_padded(Rect(42,0,17,22), 2) = Rect(42,2,17,20).
-    // Click (45,2): row_in_list=0 (sort bar), col_in_list=3 < 8 → cycle_sort_field.
-    let result = state.update(Message::MouseEvent(mouse_click(45, 2)), &mut ctx);
+    // list_rect = top_padded(Rect(42,0,17,22), 1) = Rect(42,1,17,21).
+    // Click (45,1): row_in_list=0 (sort bar), col_in_list=3 < 8 → cycle_sort_field.
+    let result = state.update(Message::MouseEvent(mouse_click(45, 1)), &mut ctx);
 
     assert!(matches!(result, ScreenResult::Command(_)));
     assert_ne!(state.current_sort.field, original);
@@ -929,6 +1221,28 @@ fn p_key_opens_generator_overlay() {
     assert!(matches!(result, ScreenResult::Continue));
     assert!(state.overlay_manager.is_active());
     assert_eq!(state.pending_animation, Some(EffectKind::ModalAppear));
+}
+
+#[test]
+fn p_key_opens_generator_overlay_with_configured_defaults() {
+    let mut state = MainScreenState::default();
+    state.password_defaults.style = PasswordGenerationStyle::Pin;
+    state.password_defaults.pin_length = 10;
+    let mut ctx = make_ctx();
+
+    let result = state.update(Message::KeyEvent(key_event(KeyCode::Char('p'))), &mut ctx);
+
+    assert!(matches!(result, ScreenResult::Continue));
+    match state.overlay_manager.get() {
+        Some(crate::tui::screens::main::overlay::ActiveOverlay::PasswordGenerator(gen)) => {
+            assert_eq!(
+                gen.style,
+                crate::tui::state::generator_state::GenerationStyle::Pin
+            );
+            assert_eq!(gen.pin_config.length, 10);
+        }
+        other => panic!("expected password generator overlay, got {other:?}"),
+    }
 }
 
 #[test]
@@ -2916,6 +3230,32 @@ fn make_ssh_detail_view(id: Uuid, is_favorite: bool) -> DetailViewData {
     }
 }
 
+fn make_secure_note_detail_view(id: Uuid, is_favorite: bool) -> DetailViewData {
+    use crate::tui::state::detail_state::{DetailField, DetailFieldKind, FieldValue};
+    DetailViewData {
+        id,
+        name: "Secure Note".to_string(),
+        subtitle: String::new(),
+        credential_type: CredentialType::SecureNote,
+        is_favorite,
+        expires_at: None,
+        expiry_status: ExpiryStatus::None,
+        tags: Vec::new(),
+        notes: Some("private note".to_string()),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        fields: vec![DetailField {
+            label: "Notes".to_string(),
+            value: FieldValue::Plain("private note".to_string()),
+            copyable: false,
+            toggleable: false,
+            kind: DetailFieldKind::Notes,
+        }],
+        password_strength: None,
+        deleted_at: None,
+    }
+}
+
 #[test]
 fn ssh_passphrase_maps_to_passphrase_selector() {
     use crate::tui::state::detail_state::DetailFieldKind;
@@ -3040,6 +3380,113 @@ fn p_on_focused_passphrase_sends_decrypt_passphrase() {
         }
     }
     assert!(state.detail.password_visible);
+}
+
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn p_on_ssh_detail_reveals_all_hidden_fields() {
+    use crate::commands::result::CommandResult;
+    use crate::commands::types::PanelId;
+    use crate::tui::state::detail_state::{DetailFieldKind, FieldValue};
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Detail,
+        ..Default::default()
+    };
+    state.detail.record = Some(make_ssh_detail_view(id, false));
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(Message::KeyEvent(make_key(KeyCode::Char('p'))), &mut ctx);
+    match result {
+        ScreenResult::Command(cmd) => match *cmd {
+            Command::DecryptField { id: cmd_id, field } => {
+                assert_eq!(cmd_id, id);
+                assert_eq!(field, FieldSelector::Password);
+            }
+            other => panic!("Expected DecryptField(Password), got {other:?}"),
+        },
+        other => panic!("Expected command result, got {other:?}"),
+    }
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::FieldDecrypted {
+            id,
+            field: FieldSelector::Password,
+            value: SecureStr::new("private-key".to_string()),
+        }),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+    match rx.try_recv().expect("passphrase decrypt should be queued") {
+        Command::DecryptField { id: cmd_id, field } => {
+            assert_eq!(cmd_id, id);
+            assert_eq!(field, FieldSelector::Passphrase);
+        }
+        other => panic!("Expected queued DecryptField(Passphrase), got {other:?}"),
+    }
+
+    let result = state.update(
+        Message::CommandCompleted(CommandResult::FieldDecrypted {
+            id,
+            field: FieldSelector::Passphrase,
+            value: SecureStr::new("passphrase".to_string()),
+        }),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+
+    let fields = &state.detail.record.as_ref().expect("detail").fields;
+    let private_key = fields
+        .iter()
+        .find(|f| f.kind == DetailFieldKind::PrivateKey)
+        .expect("private key");
+    assert!(matches!(private_key.value, FieldValue::Revealed(ref v) if v == "private-key"));
+    let passphrase = fields
+        .iter()
+        .find(|f| f.kind == DetailFieldKind::Passphrase)
+        .expect("passphrase");
+    assert!(matches!(passphrase.value, FieldValue::Revealed(ref v) if v == "passphrase"));
+}
+
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn secure_note_detail_shortcuts_do_not_copy_or_toggle() {
+    use crate::commands::types::PanelId;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState {
+        focused_panel: PanelId::Detail,
+        ..Default::default()
+    };
+    state.detail.record = Some(make_secure_note_detail_view(id, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    for key in ['c', 'u', 'p'] {
+        let result = state.update(Message::KeyEvent(make_key(KeyCode::Char(key))), &mut ctx);
+        assert!(
+            matches!(result, ScreenResult::Continue),
+            "{key} should not trigger a Secure Note copy/toggle command"
+        );
+    }
 }
 
 #[test]
@@ -3489,9 +3936,9 @@ fn mouse_click_detail_password_copy_action_copies_password() {
     let layout = crate::tui::screens::main::layout::calculate_layout(state.terminal_area, 140);
     let detail_rect = Rect::new(
         layout.detail.x,
-        layout.detail.y + 2,
+        layout.detail.y + 1,
         layout.detail.width,
-        layout.detail.height.saturating_sub(2),
+        layout.detail.height.saturating_sub(1),
     );
     let column = detail_rect.right().saturating_sub(8);
     let row = detail_rect.y + 12;
@@ -3593,6 +4040,61 @@ fn password_history_loaded_opens_overlay() {
         }
         other => panic!("Expected PasswordHistory overlay, got {:?}", other),
     }
+}
+
+#[test]
+fn batch_tag_add_keeps_overlay_active_and_visual_selection() {
+    let id = Uuid::new_v4();
+    let mut state = MainScreenState::default();
+    state.list = ListPanelState::with_records(vec![make_test_record_with_name(id, "GitHub")]);
+    state.list.enter_visual();
+    state.list.select_all();
+    state.overlay_manager.open(Overlay::BatchTagPanel(
+        crate::commands::types::BatchTagPanelState {
+            record_ids: vec![id],
+            selected_record_names: vec!["GitHub".to_string()],
+            current_tag: String::new(),
+            current_tags: Vec::new(),
+            available_tags: vec!["work".to_string(), "personal".to_string()],
+        },
+    ));
+
+    let (tx, _rx) = mpsc::channel(16);
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &Default::default(),
+    };
+
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+        &mut ctx,
+    );
+    assert!(matches!(result, ScreenResult::Continue));
+    let result = state.update(
+        Message::KeyEvent(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        &mut ctx,
+    );
+
+    match result {
+        ScreenResult::Command(command) => match *command {
+            Command::BatchAddTag {
+                record_ids,
+                tag_name,
+            } => {
+                assert_eq!(record_ids, vec![id]);
+                assert_eq!(tag_name, "work");
+            }
+            other => panic!("Expected BatchAddTag command, got {other:?}"),
+        },
+        other => panic!("Expected command result, got {other:?}"),
+    }
+    assert!(state.overlay_manager.is_active());
+    assert!(state.list.is_visual());
 }
 
 // ── Task 8: Help overlay toggle test ─────────────────────────────────────────

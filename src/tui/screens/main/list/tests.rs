@@ -12,7 +12,7 @@ use crate::types::credential::CredentialType;
 use crate::types::record::TuiRecord;
 use chrono::Utc;
 use ratatui::backend::TestBackend;
-use ratatui::style::Modifier;
+use ratatui::style::{Color, Modifier};
 use ratatui::text::Span;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -186,6 +186,19 @@ fn render_buffer(
     terminal.backend().buffer().clone()
 }
 
+fn buffer_row_text(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+    (0..buffer.area.width)
+        .map(|x| buffer.cell((x, y)).expect("cell").symbol())
+        .collect()
+}
+
+fn find_buffer_row_text(buffer: &ratatui::buffer::Buffer, needle: &str) -> String {
+    (0..buffer.area.height)
+        .map(|y| buffer_row_text(buffer, y))
+        .find(|row| row.contains(needle))
+        .unwrap_or_else(|| panic!("row containing {needle:?} should render"))
+}
+
 #[test]
 fn render_empty_state_no_passwords() {
     let state = ListPanelState::default();
@@ -232,6 +245,60 @@ fn render_multiple_records() {
     let state = ListPanelState::with_records(vec![r1, r2, r3]);
     let result = render_snapshot(&state, 50, 15, true, true, RecordFilter::All);
     assert!(!result.is_empty());
+}
+
+#[test]
+fn record_items_render_credential_type_icons_before_names() {
+    let records = vec![
+        make_record_with_type(Uuid::new_v4(), "Login Item", CredentialType::Login),
+        make_record_with_type(Uuid::new_v4(), "API Item", CredentialType::Api),
+        make_record_with_type(Uuid::new_v4(), "SSH Item", CredentialType::Ssh),
+        make_record_with_type(Uuid::new_v4(), "Note Item", CredentialType::SecureNote),
+    ];
+    let state = ListPanelState::with_records(records);
+
+    let buffer = render_buffer(&state, 100, 16, true, true, RecordFilter::All);
+
+    for (marker, name) in [
+        ("\u{f000b}", "Login Item"),
+        ("\u{f0bc4}", "API Item"),
+        ("\u{f1575}", "SSH Item"),
+        ("\u{f0221}", "Note Item"),
+    ] {
+        let title = find_buffer_row_text(&buffer, name);
+        let icon_at = title
+            .find(marker)
+            .unwrap_or_else(|| panic!("credential marker {marker:?} missing from row {title:?}"));
+        let name_at = title
+            .find(name)
+            .unwrap_or_else(|| panic!("record name {name:?} missing from row {title:?}"));
+        assert!(
+            icon_at < name_at,
+            "credential marker should render before the record name: {title:?}"
+        );
+    }
+}
+
+#[test]
+fn api_and_ssh_records_use_nerd_font_type_icons() {
+    let records = vec![
+        make_record_with_type(Uuid::new_v4(), "API Item", CredentialType::Api),
+        make_record_with_type(Uuid::new_v4(), "SSH Item", CredentialType::Ssh),
+    ];
+    let state = ListPanelState::with_records(records);
+
+    let buffer = render_buffer(&state, 80, 8, true, true, RecordFilter::All);
+    let api_row = find_buffer_row_text(&buffer, "API Item");
+    let ssh_row = find_buffer_row_text(&buffer, "SSH Item");
+
+    assert!(
+        api_row.contains("\u{f0bc4} API Item"),
+        "API type marker should use Nerd Font icon: {api_row:?}"
+    );
+    assert!(
+        ssh_row.contains("\u{f1575} SSH Item"),
+        "SSH type marker should use Nerd Font icon: {ssh_row:?}"
+    );
 }
 
 #[test]
@@ -289,7 +356,7 @@ fn render_ascii_mode() {
 }
 
 #[test]
-fn selected_record_is_reversed_even_when_list_is_not_focused() {
+fn selected_record_keeps_newlook_background_when_list_is_not_focused() {
     let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
     let mut state = ListPanelState::with_records(vec![record]);
     state.selected_index = Some(0);
@@ -298,9 +365,10 @@ fn selected_record_is_reversed_even_when_list_is_not_focused() {
 
     // Row 0 is the sort bar, row 1 is the padding row, row 2 is the title.
     let title_cell = buffer.cell((3, 2)).expect("selected title cell exists");
-    assert!(
-        title_cell.style().add_modifier.contains(Modifier::REVERSED),
-        "selected title should be reverse highlighted even when the list panel is not focused"
+    assert_eq!(
+        title_cell.style().bg,
+        Some(theme::NL_SELECTED),
+        "selected title should keep the explicit new-look background even when the list panel is not focused"
     );
 }
 
@@ -342,21 +410,19 @@ fn sort_bar_has_padding_before_first_record() {
 }
 
 #[test]
-fn selected_record_marker_keeps_right_padding() {
+fn selected_record_has_no_marker() {
     let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
     let mut state = ListPanelState::with_records(vec![record]);
     state.selected_index = Some(0);
 
     let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
 
-    assert_eq!(
-        buffer.cell((60, 2)).expect("marker cell").symbol(),
-        "\u{25C0}",
-        "selected marker should leave one column of right padding plus right margin"
-    );
-    assert_eq!(
-        buffer.cell((61, 2)).expect("right padding cell").symbol(),
-        " "
+    let title_line = (0..64)
+        .map(|x| buffer.cell((x, 2)).expect("title row cell").symbol())
+        .collect::<String>();
+    assert!(
+        !title_line.contains('\u{25C0}'),
+        "selected row should not have a triangle marker: {title_line:?}"
     );
     for x in 62..64 {
         assert_eq!(
@@ -383,15 +449,14 @@ fn selected_chinese_timestamp_keeps_compact_right_margin() {
         title_line.contains('3') && title_line.contains('天') && title_line.contains('前'),
         "selected item should render the full Chinese relative timestamp: {title_line:?}"
     );
-    assert_eq!(
-        buffer.cell((60, 2)).expect("marker cell").symbol(),
-        "\u{25C0}",
-        "selected timestamp marker should not be pushed too far left: {title_line:?}"
+    assert!(
+        !title_line.contains('\u{25C0}'),
+        "selected row should not have a triangle marker: {title_line:?}"
     );
 }
 
 #[test]
-fn selected_record_title_and_subtitle_use_same_reverse_style() {
+fn selected_record_title_and_subtitle_use_same_newlook_background() {
     let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
     let mut state = ListPanelState::with_records(vec![record]);
     state.selected_index = Some(0);
@@ -400,21 +465,95 @@ fn selected_record_title_and_subtitle_use_same_reverse_style() {
 
     let title_cell = buffer.cell((2, 2)).expect("selected title cell exists");
     let subtitle_cell = buffer.cell((2, 3)).expect("selected subtitle cell exists");
-    assert!(
-        title_cell.style().add_modifier.contains(Modifier::REVERSED),
-        "selected title should be reversed"
+    assert_eq!(
+        title_cell.style().bg,
+        Some(theme::NL_SELECTED),
+        "selected title should use the selected background"
+    );
+    assert_eq!(
+        subtitle_cell.style().bg,
+        Some(theme::NL_SELECTED),
+        "selected subtitle should use the selected background"
+    );
+    assert_eq!(
+        subtitle_cell.style().fg,
+        Some(theme::NL_TEXT_MUTED),
+        "selected subtitle should use muted text on the selected background"
+    );
+}
+
+#[test]
+fn selected_trash_record_title_and_metadata_use_same_newlook_background() {
+    let record = make_trash_record(Uuid::new_v4(), "DeletedSite", 5);
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::Trash);
+
+    let gutter_cell = buffer.cell((0, 2)).expect("selected trash gutter exists");
+    let title_cell = buffer
+        .cell((2, 2))
+        .expect("selected trash title cell exists");
+    let metadata_cell = buffer
+        .cell((2, 3))
+        .expect("selected trash metadata cell exists");
+    let separator_cell = buffer
+        .cell((0, 4))
+        .expect("selected trash separator cell exists");
+
+    assert_eq!(
+        gutter_cell.style().bg,
+        Some(theme::NL_CYAN),
+        "selected trash row should use the same focused gutter as normal rows"
+    );
+    assert_eq!(
+        title_cell.style().bg,
+        Some(theme::NL_SELECTED),
+        "selected trash title should use the selected background"
+    );
+    assert_eq!(
+        metadata_cell.style().bg,
+        Some(theme::NL_SELECTED),
+        "selected trash metadata should use the selected background"
+    );
+    assert_eq!(
+        metadata_cell.style().fg,
+        Some(theme::NL_TEXT_MUTED),
+        "selected trash metadata should use muted text on the selected background"
     );
     assert!(
-        subtitle_cell
+        !separator_cell
             .style()
             .add_modifier
             .contains(Modifier::REVERSED),
-        "selected subtitle should be reversed"
+        "trash separator line should not be part of the selected item body"
+    );
+}
+
+#[test]
+fn selected_record_uses_newlook_background() {
+    let record = make_record(Uuid::new_v4(), "GitHub", "github.com · user");
+    let mut state = ListPanelState::with_records(vec![record]);
+    state.selected_index = Some(0);
+
+    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+
+    let title_cell = buffer.cell((2, 2)).expect("selected title cell exists");
+    let subtitle_cell = buffer.cell((2, 3)).expect("selected subtitle cell exists");
+
+    assert_eq!(
+        title_cell.style().bg,
+        Some(Color::Rgb(36, 45, 79)),
+        "selected title should use the new-look selected background"
     );
     assert_eq!(
-        title_cell.style().fg,
-        subtitle_cell.style().fg,
-        "selected title and subtitle should use the same foreground so the highlight reads as one block"
+        subtitle_cell.style().bg,
+        Some(Color::Rgb(36, 45, 79)),
+        "selected subtitle should share the selected background"
+    );
+    assert!(
+        !title_cell.style().add_modifier.contains(Modifier::REVERSED),
+        "new-look selected rows should use explicit colors instead of reverse video"
     );
 }
 
@@ -532,16 +671,16 @@ fn render_visual_mode_bar() {
         "label span should contain 'VISUAL'"
     );
     assert!(
-        label_span.style.fg == Some(theme::TEXT),
-        "label should use TEXT color (white bold on BG_BAR)"
+        label_span.style.fg == Some(theme::NL_TEXT),
+        "label should use primary text color"
     );
     assert!(
         label_span.style.add_modifier.contains(Modifier::BOLD),
         "label should be BOLD"
     );
     assert!(
-        label_span.style.bg == Some(theme::BG_BAR),
-        "label should have BG_BAR background"
+        label_span.style.bg == Some(theme::NL_SELECTED),
+        "label should have selected new-look background"
     );
 
     let count_span = &line.spans[1];
@@ -550,8 +689,8 @@ fn render_visual_mode_bar() {
         "count span should contain the number 5"
     );
     assert!(
-        count_span.style.bg == Some(theme::BG_BAR),
-        "count should have BG_BAR background"
+        count_span.style.bg == Some(theme::NL_SELECTED),
+        "count should have selected new-look background"
     );
 }
 
@@ -868,8 +1007,8 @@ fn build_empty_state_variant_search_mode_overrides_filter() {
 fn health_badge_compromised() {
     let span = health_badge(Some(&HealthIssue::Compromised), true).unwrap();
     let text = span.content.as_ref();
-    assert!(text.contains('\u{1F534}')); // 🔴
-    assert!(text.contains("Leaked") || text.contains("leaked"));
+    assert!(text.contains('\u{F06BD}')); // Nerd Font leaked icon
+    assert!(!text.contains("Leaked"), "badge should be icon-only");
     assert!(span.style.fg == Some(theme::ERROR));
 }
 
@@ -877,7 +1016,10 @@ fn health_badge_compromised() {
 fn health_badge_compromised_ascii() {
     let span = health_badge(Some(&HealthIssue::Compromised), false).unwrap();
     let text = span.content.as_ref();
-    assert!(text.contains('!'));
+    assert!(
+        text.contains("[leaked]"),
+        "ascii fallback should be [leaked]"
+    );
     assert!(span.style.fg == Some(theme::ERROR));
 }
 
@@ -1004,8 +1146,8 @@ fn render_compromised_takes_priority_over_expired() {
     let state = ListPanelState::with_records(vec![record]);
     let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
     assert!(
-        result.contains("Leaked"),
-        "compromised badge should be visible"
+        result.contains('\u{F06BD}'),
+        "compromised badge icon should be visible"
     );
     assert!(
         !result.contains("Expired"),

@@ -27,6 +27,10 @@ enum PayloadPlaintextDto {
         passphrase: Option<String>,
         notes: Option<String>,
     },
+    SecureNote {
+        name: String,
+        notes: Option<String>,
+    },
 }
 
 impl PayloadPlaintextDto {
@@ -71,6 +75,10 @@ impl PayloadPlaintextDto {
                 public_key: public_key.clone(),
                 private_key: private_key.as_ref().map(|pk| pk.expose().to_string()),
                 passphrase: passphrase.as_ref().map(|pp| pp.expose().to_string()),
+                notes: notes.clone(),
+            },
+            EncryptedPayload::SecureNote { name, notes } => PayloadPlaintextDto::SecureNote {
+                name: name.clone(),
                 notes: notes.clone(),
             },
         }
@@ -119,6 +127,9 @@ impl PayloadPlaintextDto {
                 passphrase: passphrase.map(SecureStr::new),
                 notes,
             },
+            PayloadPlaintextDto::SecureNote { name, notes } => {
+                EncryptedPayload::SecureNote { name, notes }
+            }
         }
     }
 }
@@ -181,6 +192,10 @@ pub fn decrypt_subtitle(
         CredentialType::Login => "username",
         CredentialType::Api => "app_id",
         CredentialType::Ssh => "public_key",
+        CredentialType::SecureNote => {
+            // SecureNote has no subtitle field, return empty string
+            return Ok(String::new());
+        }
     };
 
     let s = inner[field].as_str().unwrap_or("").to_string();

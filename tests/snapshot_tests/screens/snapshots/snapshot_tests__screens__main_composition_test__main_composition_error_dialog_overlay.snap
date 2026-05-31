@@ -3,12 +3,12 @@ source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
 "                                        │                       │                                   "
-"  [1] All                          2  │  Sort: [ Created ▼ ]  │  GitHub Account                   "
+"    All                           2  │  Sort: [ Created ▼ ]  │  GitHub Account                   "
 "                                        │                       │  octocat                          "
-"  [2] Favorites                    1  │  GitHub Account   ◀   │★                                  "
-"  [3] Expired                      0  │  octocat              │                                   "
+"    Favorites                     1  │  󰀋 GitHub Account     │★                                  "
+"    Expired                       0  │  octocat              │                                   "
 "                                        │───────────────────────│  ─────────────────                "
-"                                        │  Personal Email       │                                   "
+"                                        │  󰀋 Personal Email     │                                   "
 "                                        │  alice@example.com    │  Login                            "
 "                      ┌─────────────────────── Error ────────────────────────┐                      "
 "                      │      Unable to upload the latest vault snapshot.     │                      "

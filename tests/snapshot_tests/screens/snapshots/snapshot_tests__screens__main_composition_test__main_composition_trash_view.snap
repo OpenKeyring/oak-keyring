@@ -3,12 +3,12 @@ source: tests/snapshot_tests/screens/main_composition_test.rs
 expression: backend
 ---
 "                                        │                       │                                   "
-"  [1] All                          2  │  Sort: [ Created ▼ ]  │                                   "
+"    All                           2  │  Sort: [ Created ▼ ]  │                                   "
 "                                        │                       │                                   "
-"  [2] Favorites                    1  │  Old GitHub Login ◀   │                                   "
-"  [3] Expired                      0  │  Deleted 5 days ago  A│                                   "
+"    Favorites                     1  │  󰀋 Old GitHub Login   │                                   "
+"    Expired                       0  │  Deleted 5 days ago  A│                                   "
 "                                        │───────────────────────│                                   "
-"                                        │  Expired API Key      │                                   "
+"                                        │  󰀋 Expired API Key    │                                   "
 "                                        │  Deleted 20 days ago  │                                   "
 "                                        │───────────────────────│                                   "
 "                                        │                       │                                   "

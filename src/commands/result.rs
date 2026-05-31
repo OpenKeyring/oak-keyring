@@ -190,6 +190,7 @@ pub enum CommandResult {
         config: AppConfig,
     },
     ConfigSaved {
+        config: AppConfig,
         warnings: Vec<String>,
     },
     SyncConnectionTested {

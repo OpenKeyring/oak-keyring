@@ -237,12 +237,7 @@ impl SyncTask {
                     if let Some(next_retry) = self.next_retry {
                         if Instant::now() >= next_retry {
                             self.next_retry = None;
-                            self.backoff_timer.reset();
-                            // Transition to retry
-                            let from_state = self.state_machine.current_state().clone();
-                            if let Ok(to_state) = self.state_machine.transition(SyncTrigger::BackoffExpired) {
-                                let _ = self.event_tx.send(SyncEvent::StateChanged { from: from_state, to: to_state }).await;
-                            }
+                            self.handle_retry_after_backoff().await;
                         }
                     }
                 }
@@ -253,6 +248,14 @@ impl SyncTask {
     /// Handles TriggerSync command.
     async fn handle_trigger_sync(&mut self) {
         if self.paused {
+            return;
+        }
+
+        if !self.state_machine.can_accept_commands() {
+            tracing::debug!(
+                state = %self.state_machine.current_state(),
+                "sync trigger ignored because a sync cycle is already active"
+            );
             return;
         }
 
@@ -299,6 +302,14 @@ impl SyncTask {
             return;
         }
 
+        if !self.state_machine.can_accept_commands() {
+            tracing::debug!(
+                state = %self.state_machine.current_state(),
+                "pull-only sync trigger ignored because a sync cycle is already active"
+            );
+            return;
+        }
+
         let from_state = self.state_machine.current_state().clone();
 
         // Transition to Pulling state
@@ -334,6 +345,41 @@ impl SyncTask {
         let start = Instant::now();
         let outcome = self.execute_pipeline().await;
         self.handle_pipeline_result(outcome, start).await;
+    }
+
+    async fn handle_retry_after_backoff(&mut self) {
+        let from_state = self.state_machine.current_state().clone();
+        match self.state_machine.transition(SyncTrigger::BackoffExpired) {
+            Ok(to_state) => {
+                let _ = self
+                    .event_tx
+                    .send(SyncEvent::StateChanged {
+                        from: from_state,
+                        to: to_state.clone(),
+                    })
+                    .await;
+
+                if matches!(to_state, SyncState::Pulling) {
+                    if let Err(e) = self.storage.check_connectivity().await {
+                        self.handle_error(e).await;
+                        return;
+                    }
+
+                    let start = Instant::now();
+                    let outcome = self.execute_pipeline().await;
+                    self.handle_pipeline_result(outcome, start).await;
+                }
+            }
+            Err(e) => {
+                let _ = self
+                    .event_tx
+                    .send(SyncEvent::Failed {
+                        error: e.to_string(),
+                        state: self.state_machine.current_state().clone(),
+                    })
+                    .await;
+            }
+        }
     }
 
     /// Handles ResolveConflict command.
@@ -654,6 +700,7 @@ impl SyncTask {
 
         match outcome.result {
             PipelineResult::Completed => {
+                self.backoff_timer.reset();
                 let from_state = self.state_machine.current_state().clone();
                 self.state_machine.reset();
                 let to_state = self.state_machine.current_state().clone();
@@ -686,6 +733,7 @@ impl SyncTask {
                     .await;
             }
             PipelineResult::NoChanges => {
+                self.backoff_timer.reset();
                 let from_state = self.state_machine.current_state().clone();
                 self.state_machine.reset();
                 let to_state = self.state_machine.current_state().clone();
@@ -718,6 +766,7 @@ impl SyncTask {
                     .await;
             }
             PipelineResult::ConflictsDetected { conflict_ids } => {
+                self.backoff_timer.reset();
                 let from_state = self.state_machine.current_state().clone();
                 self.state_machine.reset();
                 let to_state = self.state_machine.current_state().clone();
@@ -824,6 +873,53 @@ mod tests {
             .unwrap()
             .finish();
         CloudStorage::new(op, "memory".to_string())
+    }
+
+    #[tokio::test]
+    async fn duplicate_trigger_while_pulling_is_ignored() {
+        let (_cmd_tx, cmd_rx) = mpsc::channel(16);
+        let (event_tx, mut event_rx) = mpsc::channel(16);
+        let storage = create_test_storage();
+        let mut task = SyncTask::new(storage, cmd_rx, event_tx, SyncStateMachine::new(5));
+
+        task.state_machine
+            .transition(SyncTrigger::TriggerSync)
+            .unwrap();
+
+        task.handle_trigger_sync().await;
+
+        let event = timeout(Duration::from_millis(50), event_rx.recv()).await;
+        assert!(
+            event.is_err(),
+            "duplicate trigger should not emit a failure while sync is already running: {event:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn retry_after_backoff_runs_sync_instead_of_staying_pulling() {
+        let (_cmd_tx, cmd_rx) = mpsc::channel(16);
+        let (event_tx, _event_rx) = mpsc::channel(16);
+        let storage = create_test_storage();
+        let mut task = SyncTask::new(storage, cmd_rx, event_tx, SyncStateMachine::new(5));
+
+        task.state_machine
+            .transition(SyncTrigger::TriggerSync)
+            .unwrap();
+        task.handle_error(SyncError::ProviderError {
+            provider: "google_drive".to_string(),
+            message: "temporary token endpoint failure".to_string(),
+        })
+        .await;
+
+        assert_eq!(*task.state_machine.current_state(), SyncState::Error);
+
+        task.handle_retry_after_backoff().await;
+
+        assert_ne!(
+            *task.state_machine.current_state(),
+            SyncState::Pulling,
+            "retry must execute the sync cycle instead of leaving the state machine in Pulling"
+        );
     }
 
     #[tokio::test]
@@ -1051,6 +1147,151 @@ mod tests {
             matches!(event, SyncEvent::Failed { .. }),
             "Expected Failed for unknown record, got {:?}",
             event
+        );
+
+        cmd_tx.send(SyncCommand::Shutdown).await.unwrap();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn trigger_sync_conflict_can_be_resolved_after_detection() {
+        let (cmd_tx, cmd_rx) = mpsc::channel(16);
+        let (event_tx, mut event_rx) = mpsc::channel(16);
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let op = opendal::Operator::new(
+            opendal::services::Fs::default().root(temp_dir.path().to_str().unwrap()),
+        )
+        .unwrap()
+        .finish();
+        let storage = CloudStorage::new(op, "fs".to_string());
+        let record_id = Uuid::new_v4();
+        let record_id_str = record_id.to_string();
+
+        let remote_record = CloudRecord {
+            id: record_id_str.clone(),
+            version: 2,
+            encrypted_data: base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                b"remote",
+            ),
+            nonce: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 24]),
+            dek_version: 1,
+            aad: crate::cloud::record::AadFields {
+                record_id: record_id_str.clone(),
+                dek_version: 1,
+            },
+            metadata: crate::cloud::record::RecordMetadata {
+                name: "remote-record".to_string(),
+                tags: vec![],
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                health: None,
+                ..Default::default()
+            },
+            deleted: None,
+            deleted_at: None,
+        };
+        storage
+            .upload_record(&record_id_str, &remote_record)
+            .await
+            .unwrap();
+
+        let mut metadata = CloudMetadata::new("test-token".to_string());
+        metadata.metadata_version = 2;
+        metadata.upsert_record(
+            record_id_str.clone(),
+            crate::cloud::RecordVersionInfo {
+                version: 2,
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                updated_by: "remote-device".to_string(),
+                checksum: remote_record.compute_checksum().unwrap(),
+                private_metadata_checksum: None,
+                deleted: false,
+            },
+        );
+        storage.upload_metadata(&metadata).await.unwrap();
+
+        let local_record = CloudRecord {
+            id: record_id_str.clone(),
+            version: 1,
+            encrypted_data: base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                b"local",
+            ),
+            nonce: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 24]),
+            dek_version: 1,
+            aad: crate::cloud::record::AadFields {
+                record_id: record_id_str.clone(),
+                dek_version: 1,
+            },
+            metadata: crate::cloud::record::RecordMetadata {
+                name: "local-record".to_string(),
+                tags: vec![],
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                health: None,
+                ..Default::default()
+            },
+            deleted: None,
+            deleted_at: None,
+        };
+        let vault_data = Box::new(SyncVaultData {
+            local_records: vec![LocalRecordInfo {
+                record_id: record_id_str.clone(),
+                sync_status: crate::types::sync::SyncStatus::Pending,
+                version: 1,
+            }],
+            uploads: vec![local_record],
+            local_metadata_version: 1,
+            last_remote_metadata: None,
+            local_vault_token: "test-token".to_string(),
+        });
+
+        let mut task = SyncTask::new(storage, cmd_rx, event_tx, SyncStateMachine::new(5));
+        cmd_tx
+            .send(SyncCommand::TriggerSync(Some(vault_data)))
+            .await
+            .unwrap();
+
+        let handle = tokio::spawn(async move {
+            task.run().await;
+        });
+
+        let mut completed_event = None;
+        while let Ok(Some(event)) = timeout(Duration::from_secs(5), event_rx.recv()).await {
+            match event {
+                SyncEvent::Completed(report, _, _, _, _, conflict_data, _) => {
+                    completed_event = Some((report, conflict_data));
+                    break;
+                }
+                SyncEvent::Failed { error, .. } => {
+                    panic!("sync should detect a resolvable conflict, got failure: {error}");
+                }
+                _ => {}
+            }
+        }
+
+        let (report, conflict_data) =
+            completed_event.expect("sync should emit a completed conflict report");
+        assert_eq!(report.conflicts, 1);
+        assert!(
+            conflict_data.contains_key(&record_id_str),
+            "conflict report must include conflict payload for later resolution"
+        );
+
+        cmd_tx
+            .send(SyncCommand::ResolveConflict {
+                record_id: record_id_str.clone(),
+                strategy: ResolutionStrategy::KeepRemote,
+            })
+            .await
+            .unwrap();
+
+        let event = timeout(Duration::from_secs(2), event_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(event, SyncEvent::ConflictResolved { ref record_id } if record_id == &record_id_str),
+            "detected conflict should be pending and resolvable, got {event:?}"
         );
 
         cmd_tx.send(SyncCommand::Shutdown).await.unwrap();

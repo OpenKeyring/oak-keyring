@@ -31,17 +31,26 @@ pub(super) fn build_sort_bar<'a>(
     let sort_label = t!("tui.password_list.sort_label");
 
     Line::from(vec![
-        Span::raw(format!("  {}: [ ", sort_label)),
+        Span::styled(
+            format!("  {}: [ ", sort_label),
+            Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG),
+        ),
         Span::styled(
             format!("{} {}", field_name, down_icon),
-            Style::default().fg(theme::BRAND),
+            Style::default().fg(theme::NL_TEXT).bg(theme::NL_BG),
         ),
-        Span::raw(" ]  [ "),
+        Span::styled(
+            " ]  [ ",
+            Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG),
+        ),
         Span::styled(
             format!("{} {}", dir_icon, dir_label),
-            Style::default().fg(theme::BRAND),
+            Style::default().fg(theme::NL_CYAN).bg(theme::NL_BG),
         ),
-        Span::raw(" ]"),
+        Span::styled(
+            " ]",
+            Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG),
+        ),
     ])
 }
 
@@ -57,7 +66,7 @@ pub(super) fn build_search_bar<'a>(query: &str, unicode: bool) -> Line<'a> {
 
     Line::from(vec![Span::styled(
         format!("  {}", display_query),
-        Style::default().fg(theme::TEXT),
+        Style::default().fg(theme::NL_TEXT).bg(theme::NL_BG),
     )])
 }
 
@@ -69,13 +78,13 @@ pub(super) fn build_visual_bar<'a>(selected_count: usize) -> Line<'a> {
         Span::styled(
             format!("  {} ", visual_label),
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::NL_TEXT)
                 .add_modifier(Modifier::BOLD)
-                .bg(theme::BG_BAR),
+                .bg(theme::NL_SELECTED),
         ),
         Span::styled(
             format!("({})", selected_label),
-            Style::default().fg(theme::TEXT).bg(theme::BG_BAR),
+            Style::default().fg(theme::NL_TEXT).bg(theme::NL_SELECTED),
         ),
     ])
 }

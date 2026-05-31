@@ -18,7 +18,7 @@ use crate::tui::theme;
 
 // ── Colour constants ──────────────────────────────────────────
 
-const OVERLAY_BG: Color = Color::Rgb(26, 27, 38); // #1a1b26
+const OVERLAY_BG: Color = Color::Rgb(20, 24, 39); // #141827
 
 // ── Layout constants ──────────────────────────────────────────
 
@@ -64,16 +64,16 @@ pub fn render_password_history(frame: &mut Frame, area: Rect, state: &PasswordHi
         .title(Span::styled(
             title,
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::NL_TEXT)
                 .add_modifier(Modifier::BOLD),
         ))
         .title_alignment(Alignment::Left)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
+        .border_style(Style::default().fg(theme::NL_FOCUS))
         .style(Style::default().bg(OVERLAY_BG))
         .title_bottom(Span::styled(
             close_button,
-            Style::default().fg(theme::TEXT_SECONDARY),
+            Style::default().fg(theme::NL_TEXT_MUTED),
         ));
 
     let mut all_lines = body_lines;
@@ -81,6 +81,7 @@ pub fn render_password_history(frame: &mut Frame, area: Rect, state: &PasswordHi
 
     let paragraph = Paragraph::new(all_lines)
         .block(block)
+        .style(theme::Styles::newlook_surface())
         .wrap(Wrap { trim: false });
 
     frame.render_widget(Clear, overlay_rect);
@@ -132,7 +133,7 @@ fn build_body_lines(state: &PasswordHistoryState) -> Vec<Line<'static>> {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!("  {}", t!("tui.history.no_history")),
-            Style::default().fg(theme::TEXT_MUTED),
+            Style::default().fg(theme::NL_LINE),
         )));
         return lines;
     }
@@ -144,26 +145,26 @@ fn build_body_lines(state: &PasswordHistoryState) -> Vec<Line<'static>> {
 
         let date_style = if is_selected {
             Style::default()
-                .fg(theme::TEXT_SECONDARY)
+                .fg(theme::NL_TEXT_MUTED)
                 .add_modifier(Modifier::REVERSED)
         } else {
-            Style::default().fg(theme::TEXT_SECONDARY)
+            Style::default().fg(theme::NL_TEXT_MUTED)
         };
 
         let desc_style = if is_selected {
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::NL_TEXT)
                 .add_modifier(Modifier::REVERSED)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::NL_TEXT)
         };
 
         let copy_style = if is_selected {
             Style::default()
-                .fg(theme::PRIMARY)
+                .fg(theme::NL_CYAN)
                 .add_modifier(Modifier::REVERSED)
         } else {
-            Style::default().fg(theme::PRIMARY)
+            Style::default().fg(theme::NL_CYAN)
         };
 
         lines.push(Line::from(vec![
@@ -184,7 +185,7 @@ fn build_footer_line(state: &PasswordHistoryState) -> Line<'static> {
     let n = state.entries.len();
     Line::from(Span::styled(
         format!(" {}", t!("tui.history.record_count", count = n)),
-        Style::default().fg(theme::TEXT_MUTED),
+        Style::default().fg(theme::NL_LINE),
     ))
 }
 

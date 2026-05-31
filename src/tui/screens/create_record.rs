@@ -4,13 +4,15 @@ use std::cell::Cell;
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
+use tui_textarea::CursorMove;
 use unicode_width::UnicodeWidthStr;
 
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
+use crate::tui::components::textarea;
 use crate::tui::screens::form::validation;
 use crate::tui::state::form_state::{
-    ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus,
+    ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus, ValidationError,
 };
 use crate::tui::state::generator_state::{EmbeddedGeneratorState, GenerationStyle, GeneratorFocus};
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
@@ -45,12 +47,15 @@ impl CreateRecordScreen {
     fn handle_key(
         &mut self,
         key_event: crossterm::event::KeyEvent,
-        _ctx: &mut ScreenContext,
+        ctx: &mut ScreenContext,
     ) -> ScreenResult {
         let key = key_event.code;
+        if self.form.saving {
+            return ScreenResult::Continue;
+        }
         // If dialogs are showing, handle them first
         if self.form.show_weak_password_dialog {
-            return self.handle_weak_password_dialog(key);
+            return self.handle_weak_password_dialog(key, ctx);
         }
         if self.form.show_unsaved_dialog {
             return self.handle_unsaved_dialog(key);
@@ -71,13 +76,39 @@ impl CreateRecordScreen {
 
         // Normal form navigation
         match key {
-            KeyCode::Tab | KeyCode::Down => {
+            KeyCode::Tab => {
                 self.form.focus_next();
                 ScreenResult::Continue
             }
-            KeyCode::BackTab | KeyCode::Up => {
+            KeyCode::Down => {
+                if self.form.textarea_captures_vertical() {
+                    if textarea::cursor_has_line_below(&self.form.fields.notes) {
+                        self.form.fields.notes.move_cursor(CursorMove::Down);
+                    } else {
+                        self.form.focus_next();
+                    }
+                    ScreenResult::Continue
+                } else {
+                    self.form.focus_next();
+                    ScreenResult::Continue
+                }
+            }
+            KeyCode::BackTab => {
                 self.form.focus_prev();
                 ScreenResult::Continue
+            }
+            KeyCode::Up => {
+                if self.form.textarea_captures_vertical() {
+                    if textarea::cursor_has_line_above(&self.form.fields.notes) {
+                        self.form.fields.notes.move_cursor(CursorMove::Up);
+                    } else {
+                        self.form.focus_prev();
+                    }
+                    ScreenResult::Continue
+                } else {
+                    self.form.focus_prev();
+                    ScreenResult::Continue
+                }
             }
             KeyCode::Right => {
                 if self.is_tags_focused() && self.form.fields.focus_next_tag() {
@@ -86,6 +117,21 @@ impl CreateRecordScreen {
                 if self.open_focused_dropdown() {
                     return ScreenResult::Continue;
                 }
+
+                // If textarea is focused, handle cursor movement
+                if self.form.textarea_captures_vertical() {
+                    let (row, col) = self.form.fields.notes.cursor();
+                    // Check if we're at the rightmost position of the current line
+                    let lines = self.form.fields.notes.lines();
+                    if let Some(current_line) = lines.get(row) {
+                        if col < current_line.len() {
+                            self.form.fields.notes.move_cursor(CursorMove::Forward);
+                            return ScreenResult::Continue;
+                        }
+                    }
+                    // At rightmost position, fall through to focus_next
+                }
+
                 if self.form.sub_focus_next() {
                     ScreenResult::Continue
                 } else {
@@ -98,6 +144,17 @@ impl CreateRecordScreen {
                 if self.is_tags_focused() && self.form.fields.focus_prev_tag() {
                     return ScreenResult::Continue;
                 }
+
+                // If textarea is focused, handle cursor movement
+                if self.form.textarea_captures_vertical() {
+                    let (_row, col) = self.form.fields.notes.cursor();
+                    if col > 0 {
+                        self.form.fields.notes.move_cursor(CursorMove::Back);
+                        return ScreenResult::Continue;
+                    }
+                    // At leftmost position, fall through to focus_prev
+                }
+
                 if self.form.sub_focus_prev() {
                     ScreenResult::Continue
                 } else {
@@ -108,7 +165,7 @@ impl CreateRecordScreen {
             }
             KeyCode::Esc => self.cancel_form(),
             KeyCode::Char('g') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.activate_generate_shortcut()
+                self.activate_generate_shortcut(ctx)
             }
             KeyCode::Char('v') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.activate_visibility_shortcut()
@@ -117,13 +174,13 @@ impl CreateRecordScreen {
                 self.activate_copy_shortcut()
             }
             KeyCode::Char('s') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.attempt_save()
+                self.attempt_save(ctx)
             }
-            KeyCode::Enter => self.handle_enter(),
+            KeyCode::Enter => self.handle_enter(Some(ctx)),
             KeyCode::Char(' ')
                 if self.is_dropdown_focused() || self.form.footer_focus.is_some() =>
             {
-                self.handle_enter()
+                self.handle_enter(Some(ctx))
             }
             KeyCode::Char(c) => {
                 if self.is_custom_date_focused() {
@@ -144,12 +201,32 @@ impl CreateRecordScreen {
         }
     }
 
-    fn handle_enter(&mut self) -> ScreenResult {
+    fn handle_enter(&mut self, ctx: Option<&ScreenContext>) -> ScreenResult {
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 
         if let Some(button) = self.form.footer_focus {
-            return self.activate_footer_button(button);
+            let Some(ctx) = ctx else {
+                return ScreenResult::Continue;
+            };
+            return self.activate_footer_button(button, ctx);
+        }
+
+        // If notes textarea is focused, insert newline
+        let notes_idx = match ct {
+            CredentialType::Login | CredentialType::Api => 7,
+            CredentialType::Ssh => 8,
+            CredentialType::SecureNote => 2,
+        };
+        if focused == notes_idx {
+            if !self.form.can_insert_char_into_current_field('\n') {
+                self.form.set_current_limit_error();
+                return ScreenResult::Continue;
+            }
+            self.form.fields.notes.insert_newline();
+            self.form.clear_current_limit_error();
+            self.form.has_changes = true;
+            return ScreenResult::Continue;
         }
 
         // Check inline button actions first
@@ -171,7 +248,11 @@ impl CreateRecordScreen {
             crate::tui::state::form_state::PasswordFieldFocus::Generate => {
                 // Only Login password field has Generate button
                 if ct == CredentialType::Login && focused == 4 {
-                    self.generator.expand();
+                    if let Some(ctx) = ctx {
+                        self.generator.expand_from_config(&ctx.config.password);
+                    } else {
+                        self.generator.expand();
+                    }
                     return ScreenResult::Continue;
                 }
             }
@@ -190,6 +271,7 @@ impl CreateRecordScreen {
         let expiry_idx = match ct {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         if focused == expiry_idx {
             self.form.expiry_dropdown.expanded = true;
@@ -200,9 +282,11 @@ impl CreateRecordScreen {
         let tags_idx = match ct {
             CredentialType::Login | CredentialType::Api => 6,
             CredentialType::Ssh => 7,
+            CredentialType::SecureNote => 4,
         };
         if focused == tags_idx && !self.form.fields.tag_input.is_empty() {
             if self.form.fields.commit_tag_input() {
+                self.form.clear_current_limit_error();
                 self.form.has_changes = true;
             }
             return ScreenResult::Continue;
@@ -221,6 +305,11 @@ impl CreateRecordScreen {
             return ScreenResult::Continue;
         }
 
+        if !self.form.can_insert_char_into_current_field(c) {
+            self.form.set_current_limit_error();
+            return ScreenResult::Continue;
+        }
+
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 
@@ -230,8 +319,17 @@ impl CreateRecordScreen {
                 self.form.has_changes = true;
             }
             2 => {
-                self.form.fields.url.push(c);
-                self.form.has_changes = true;
+                match ct {
+                    CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                        self.form.fields.url.push(c);
+                        self.form.has_changes = true;
+                    }
+                    CredentialType::SecureNote => {
+                        // Field 2 for SecureNote is the notes textarea
+                        self.form.fields.notes.insert_char(c);
+                        self.form.has_changes = true;
+                    }
+                }
             }
             3 => {
                 match ct {
@@ -255,6 +353,9 @@ impl CreateRecordScreen {
                             .public_key
                             .get_or_insert_with(String::new)
                             .push(c);
+                    }
+                    CredentialType::SecureNote => {
+                        // Field 3 for SecureNote is expiry - handled in default branch
                     }
                 }
                 self.form.has_changes = true;
@@ -283,6 +384,9 @@ impl CreateRecordScreen {
                             .get_or_insert_with(SensitiveInput::new)
                             .push_char(c);
                     }
+                    CredentialType::SecureNote => {
+                        // Field 4 for SecureNote is tags - handled in default branch
+                    }
                 }
                 self.form.has_changes = true;
             }
@@ -299,10 +403,12 @@ impl CreateRecordScreen {
                 let tags_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 6,
                     CredentialType::Ssh => 7,
+                    CredentialType::SecureNote => 4,
                 };
                 let notes_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 7,
                     CredentialType::Ssh => 8,
+                    CredentialType::SecureNote => 2,
                 };
                 if focused == tags_idx {
                     if matches!(c, ',' | '，') {
@@ -315,11 +421,12 @@ impl CreateRecordScreen {
                         self.form.has_changes = true;
                     }
                 } else if focused == notes_idx {
-                    self.form.fields.notes.push(c);
+                    self.form.fields.notes.insert_char(c);
                     self.form.has_changes = true;
                 }
             }
         }
+        self.form.clear_current_limit_error();
         ScreenResult::Continue
     }
 
@@ -340,9 +447,15 @@ impl CreateRecordScreen {
             1 => {
                 self.form.fields.name.pop();
             }
-            2 => {
-                self.form.fields.url.pop();
-            }
+            2 => match ct {
+                CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                    self.form.fields.url.pop();
+                }
+                CredentialType::SecureNote => {
+                    // Field 2 for SecureNote is notes textarea
+                    self.form.fields.notes.delete_char();
+                }
+            },
             3 => match ct {
                 CredentialType::Login => {
                     self.form.fields.username.as_mut().and_then(|s| s.pop());
@@ -352,6 +465,9 @@ impl CreateRecordScreen {
                 }
                 CredentialType::Ssh => {
                     self.form.fields.public_key.as_mut().and_then(|s| s.pop());
+                }
+                CredentialType::SecureNote => {
+                    // Field 3 for SecureNote is expiry - no text input
                 }
             },
             4 => match ct {
@@ -371,6 +487,9 @@ impl CreateRecordScreen {
                         s.pop_char()
                     };
                 }
+                CredentialType::SecureNote => {
+                    // Field 4 for SecureNote is tags - no text input
+                }
             },
             5 if ct == CredentialType::Ssh => {
                 if let Some(s) = self.form.fields.passphrase.as_mut() {
@@ -381,6 +500,12 @@ impl CreateRecordScreen {
                 let tags_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 6,
                     CredentialType::Ssh => 7,
+                    CredentialType::SecureNote => 4,
+                };
+                let notes_idx = match ct {
+                    CredentialType::Login | CredentialType::Api => 7,
+                    CredentialType::Ssh => 8,
+                    CredentialType::SecureNote => 2,
                 };
                 if focused == tags_idx {
                     if self.form.fields.tag_input.is_empty() {
@@ -391,15 +516,21 @@ impl CreateRecordScreen {
                     } else {
                         self.form.fields.tag_input.pop();
                     }
+                } else if focused == notes_idx {
+                    self.form.fields.notes.delete_char();
                 }
             }
         }
         self.form.has_changes = true;
+        self.form.clear_current_limit_error();
         ScreenResult::Continue
     }
 
     fn handle_delete(&mut self) -> ScreenResult {
         if self.is_tags_focused() && self.form.fields.remove_focused_tag() {
+            self.form.has_changes = true;
+        } else if self.form.textarea_captures_vertical() {
+            self.form.fields.notes.delete_next_char();
             self.form.has_changes = true;
         }
         ScreenResult::Continue
@@ -410,6 +541,7 @@ impl CreateRecordScreen {
         let expiry_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         self.form.focused_field == expiry_idx && self.form.fields.expires_at == ExpiryOption::Custom
     }
@@ -421,6 +553,7 @@ impl CreateRecordScreen {
         let expiry_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         (self.form.focused_field == 0 && self.form.is_credential_type_editable())
             || self.form.focused_field == expiry_idx
@@ -442,6 +575,7 @@ impl CreateRecordScreen {
         let expiry_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         if self.form.focused_field == expiry_idx {
             self.form.expiry_dropdown.expanded = true;
@@ -461,17 +595,21 @@ impl CreateRecordScreen {
         }
     }
 
-    fn activate_footer_button(&mut self, button: FormFooterButton) -> ScreenResult {
+    fn activate_footer_button(
+        &mut self,
+        button: FormFooterButton,
+        ctx: &ScreenContext,
+    ) -> ScreenResult {
         match button {
-            FormFooterButton::Save => self.attempt_save(),
+            FormFooterButton::Save => self.attempt_save(ctx),
             FormFooterButton::Cancel => self.cancel_form(),
         }
     }
 
-    fn activate_generate_shortcut(&mut self) -> ScreenResult {
+    fn activate_generate_shortcut(&mut self, ctx: &ScreenContext) -> ScreenResult {
         if self.form.credential_type == CredentialType::Login {
             self.form.focus_field(4);
-            self.generator.expand();
+            self.generator.expand_from_config(&ctx.config.password);
         }
         ScreenResult::Continue
     }
@@ -529,7 +667,7 @@ impl CreateRecordScreen {
         ScreenResult::Continue
     }
 
-    fn attempt_save(&mut self) -> ScreenResult {
+    fn attempt_save(&mut self, ctx: &ScreenContext) -> ScreenResult {
         let errors = validation::validate(&self.form.fields, self.form.credential_type);
         if !errors.is_empty() {
             self.form.validation_errors = errors;
@@ -543,10 +681,10 @@ impl CreateRecordScreen {
             return ScreenResult::Continue;
         }
 
-        self.create_record_command()
+        self.submit_create_record(ctx)
     }
 
-    fn handle_weak_password_dialog(&mut self, key: KeyCode) -> ScreenResult {
+    fn handle_weak_password_dialog(&mut self, key: KeyCode, ctx: &ScreenContext) -> ScreenResult {
         match key {
             KeyCode::Esc => {
                 self.form.show_weak_password_dialog = false;
@@ -566,11 +704,11 @@ impl CreateRecordScreen {
                 self.form.show_weak_password_dialog = false;
                 self.form.weak_dialog_focus = 0;
                 if focus == 0 {
-                    // "Go Back" — return to editing
+                    // "Cancel" returns to editing.
                     ScreenResult::Continue
                 } else {
-                    // "Save Anyway"
-                    self.create_record_command()
+                    // "Save" continues despite the warning.
+                    self.submit_create_record(ctx)
                 }
             }
             _ => ScreenResult::Continue,
@@ -800,7 +938,7 @@ impl CreateRecordScreen {
                 ScreenResult::Continue
             }
             KeyCode::Down => {
-                if self.form.credential_dropdown.selected_index < 2 {
+                if self.form.credential_dropdown.selected_index < 3 {
                     self.form.credential_dropdown.selected_index += 1;
                 }
                 ScreenResult::Continue
@@ -809,7 +947,8 @@ impl CreateRecordScreen {
                 let ct = match self.form.credential_dropdown.selected_index {
                     0 => CredentialType::Login,
                     1 => CredentialType::Api,
-                    _ => CredentialType::Ssh,
+                    2 => CredentialType::Ssh,
+                    _ => CredentialType::SecureNote,
                 };
                 self.form.switch_credential_type(ct);
                 self.form.credential_dropdown.expanded = false;
@@ -852,14 +991,24 @@ impl CreateRecordScreen {
         }
     }
 
-    fn create_record_command(&mut self) -> ScreenResult {
-        ScreenResult::Command(Box::new(Command::CreateRecord {
+    fn submit_create_record(&mut self, ctx: &ScreenContext) -> ScreenResult {
+        let command = Command::CreateRecord {
             credential_type: self.form.credential_type,
-            payload: self.form.build_payload(),
-            tags: std::mem::take(&mut self.form.fields.tags),
+            payload: self.form.build_payload_snapshot(),
+            tags: self.form.fields.tags.clone(),
             is_favorite: false,
             expires_at: self.form.expiry_datetime(),
-        }))
+        };
+        if ctx.send_user_command(command).is_some() {
+            self.form.validation_errors = vec![ValidationError {
+                field_index: 1,
+                message: "Action failed: command queue full".to_string(),
+            }];
+            self.form.focused_field = 1;
+            return ScreenResult::Continue;
+        }
+        self.form.start_saving();
+        ScreenResult::Continue
     }
 }
 
@@ -867,15 +1016,25 @@ impl Screen for CreateRecordScreen {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key, ctx),
-            Message::MouseEvent(event) => self.handle_mouse(event),
+            Message::MouseEvent(event) => self.handle_mouse(event, ctx),
             Message::CommandCompleted(result) => match result {
                 CommandResult::TagsLoaded { tags, tag_stats: _ } => {
                     self.all_tags = tags.into_iter().map(|tag| tag.name).collect();
                     ScreenResult::Continue
                 }
                 CommandResult::RecordCreated { .. } => ScreenResult::PopScreen,
+                CommandResult::Error { .. }
+                | CommandResult::FatalError { .. }
+                | CommandResult::Cancelled { .. } => {
+                    self.form.finish_saving();
+                    ScreenResult::Continue
+                }
                 _ => ScreenResult::Continue,
             },
+            Message::Tick => {
+                self.form.tick_saving();
+                ScreenResult::Continue
+            }
             _ => ScreenResult::Continue,
         }
     }
@@ -943,7 +1102,10 @@ struct FormRowMap {
 }
 
 impl CreateRecordScreen {
-    fn handle_mouse(&mut self, event: MouseEvent) -> ScreenResult {
+    fn handle_mouse(&mut self, event: MouseEvent, ctx: &ScreenContext) -> ScreenResult {
+        if self.form.saving {
+            return ScreenResult::Continue;
+        }
         let is_click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
         let is_move = matches!(event.kind, MouseEventKind::Moved);
         if !is_click && !is_move {
@@ -969,7 +1131,7 @@ impl CreateRecordScreen {
             }
             FormMouseTarget::CredentialOption(index) => {
                 self.form.focus_field(0);
-                self.form.credential_dropdown.selected_index = index.min(2);
+                self.form.credential_dropdown.selected_index = index.min(3);
                 if is_click {
                     return self.handle_credential_dropdown(KeyCode::Enter);
                 }
@@ -995,7 +1157,7 @@ impl CreateRecordScreen {
                 self.form.focus_field(self.secret_field_index());
                 self.form.password_sub_focus = button;
                 if is_click {
-                    return self.handle_enter();
+                    return self.handle_enter(None);
                 }
                 ScreenResult::Continue
             }
@@ -1011,7 +1173,7 @@ impl CreateRecordScreen {
                 self.form.footer_focus = Some(button);
                 self.form.password_sub_focus = PasswordFieldFocus::Input;
                 if is_click {
-                    return self.activate_footer_button(button);
+                    return self.activate_footer_button(button, ctx);
                 }
                 ScreenResult::Continue
             }
@@ -1099,7 +1261,7 @@ impl CreateRecordScreen {
         let mut row = 3;
         let credential = row;
         let credential_options = if self.form.credential_dropdown.expanded {
-            Some((row + 1, 3))
+            Some((row + 1, 4))
         } else {
             None
         };
@@ -1125,6 +1287,10 @@ impl CreateRecordScreen {
                 row += 2; // optional marker + blank after private key
                 passphrase = Some(row);
                 row += 2; // passphrase row + optional marker
+            }
+            CredentialType::SecureNote => {
+                // SecureNote has no account/secret/passphrase fields
+                // After name (field 1), notes is at field 2
             }
         }
         row += 1;
@@ -1152,7 +1318,7 @@ impl CreateRecordScreen {
         row += 1;
 
         let notes = row;
-        row += 1 + 1;
+        row += 1 + textarea::visible_rows(&self.form.fields.notes);
 
         let inner_height = self.last_area.get().height.saturating_sub(2);
         if row.saturating_add(3) < inner_height {
@@ -1188,6 +1354,7 @@ impl CreateRecordScreen {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         }
     }
 
@@ -1195,6 +1362,7 @@ impl CreateRecordScreen {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 6,
             CredentialType::Ssh => 7,
+            CredentialType::SecureNote => 4,
         }
     }
 
@@ -1202,18 +1370,27 @@ impl CreateRecordScreen {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 7,
             CredentialType::Ssh => 8,
+            CredentialType::SecureNote => 2,
         }
     }
 
     fn secret_field_index(&self) -> usize {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
+            CredentialType::SecureNote => {
+                // SecureNote has no secret field
+                0
+            }
         }
     }
 
     fn shortcut_secret_field_index(&self) -> usize {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
+            CredentialType::SecureNote => {
+                // SecureNote has no secret field, return notes field as fallback
+                2
+            }
         }
     }
 
@@ -1266,6 +1443,7 @@ impl CreateRecordScreen {
                 PasswordFieldFocus::Paste,
                 PasswordFieldFocus::Copy,
             ]),
+            CredentialType::SecureNote => None, // No secret field
         }
     }
 
@@ -1479,807 +1657,5 @@ fn contains(area: Rect, col: u16, row: u16) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::commands::result::CommandResult;
-    use crate::tui::state::form_state::PasswordFieldFocus;
-    use crate::tui::state::generator_state::GeneratorFocus;
-    use crate::types::tag::Tag;
-    use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-    use ratatui::backend::TestBackend;
-    use ratatui::buffer::Buffer;
-    use ratatui::Terminal;
-    use std::collections::HashMap;
-    use tokio::sync::mpsc;
-
-    fn make_screen() -> CreateRecordScreen {
-        CreateRecordScreen::new()
-    }
-
-    struct TestEnv {
-        config: crate::config::AppConfig,
-    }
-
-    impl TestEnv {
-        fn new() -> Self {
-            Self {
-                config: crate::config::AppConfig::default(),
-            }
-        }
-
-        fn make_ctx<'a>(&'a self, tx: &'a mpsc::Sender<Command>) -> ScreenContext<'a> {
-            ScreenContext {
-                command_tx: tx,
-                config: &self.config,
-            }
-        }
-    }
-
-    fn render_buffer(screen: &CreateRecordScreen, width: u16, height: u16) -> Buffer {
-        let backend = TestBackend::new(width, height);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal
-            .draw(|frame| {
-                screen.view(frame, frame.area());
-            })
-            .unwrap();
-        terminal.backend().buffer().clone()
-    }
-
-    fn find_text(buffer: &Buffer, needle: &str) -> Option<(u16, u16)> {
-        let needle_chars: Vec<char> = needle.chars().collect();
-        for y in buffer.area.y..buffer.area.y + buffer.area.height {
-            let row: Vec<String> = (buffer.area.x..buffer.area.x + buffer.area.width)
-                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
-                .map(ToOwned::to_owned)
-                .collect();
-            for start in 0..row.len() {
-                if needle_chars.iter().enumerate().all(|(offset, ch)| {
-                    row.get(start + offset)
-                        .is_some_and(|cell| cell == &ch.to_string())
-                }) {
-                    return Some((buffer.area.x + start as u16, y));
-                }
-            }
-        }
-        None
-    }
-
-    fn contains_required_marker(row: &str) -> bool {
-        row.contains("Required") || (row.contains('←') && row.contains('必') && row.contains('填'))
-    }
-
-    fn first_symbol_in_row(buffer: &Buffer, row: u16, symbol: &str) -> Option<u16> {
-        (buffer.area.x..buffer.area.x + buffer.area.width).find(|x| {
-            buffer
-                .cell((*x, row))
-                .is_some_and(|cell| cell.symbol() == symbol)
-        })
-    }
-
-    fn click(column: u16, row: u16) -> MouseEvent {
-        MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column,
-            row,
-            modifiers: KeyModifiers::NONE,
-        }
-    }
-
-    fn mouse_move(column: u16, row: u16) -> MouseEvent {
-        MouseEvent {
-            kind: MouseEventKind::Moved,
-            column,
-            row,
-            modifiers: KeyModifiers::NONE,
-        }
-    }
-
-    fn key(code: KeyCode) -> crossterm::event::KeyEvent {
-        crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)
-    }
-
-    fn ctrl(ch: char) -> crossterm::event::KeyEvent {
-        crossterm::event::KeyEvent::new(KeyCode::Char(ch), KeyModifiers::CONTROL)
-    }
-
-    #[test]
-    fn on_mount_sends_load_tags() {
-        let (tx, mut rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.on_mount(&mut ctx);
-        let cmd = rx.try_recv().unwrap();
-        assert!(matches!(cmd, Command::LoadTags));
-    }
-
-    #[test]
-    fn update_tags_loaded_populates_all_tags() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        let tags = vec![
-            Tag {
-                id: 1,
-                name: "work".into(),
-            },
-            Tag {
-                id: 2,
-                name: "personal".into(),
-            },
-        ];
-        let result = screen.update(
-            Message::CommandCompleted(CommandResult::TagsLoaded {
-                tags,
-                tag_stats: HashMap::new(),
-            }),
-            &mut ctx,
-        );
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.all_tags.len(), 2);
-    }
-
-    #[test]
-    fn update_record_created_pops_screen() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        let result = screen.update(
-            Message::CommandCompleted(CommandResult::RecordCreated {
-                id: uuid::Uuid::new_v4(),
-            }),
-            &mut ctx,
-        );
-        assert!(matches!(result, ScreenResult::PopScreen));
-    }
-
-    #[test]
-    fn esc_without_changes_navigates_to_main() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.has_changes = false;
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Esc,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-        assert!(matches!(
-            result,
-            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
-        ));
-    }
-
-    #[test]
-    fn esc_with_changes_shows_unsaved_dialog() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.has_changes = true;
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Esc,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-        assert!(matches!(result, ScreenResult::Continue));
-        assert!(screen.form.show_unsaved_dialog);
-    }
-
-    #[test]
-    fn unsaved_dialog_esc_cancels_and_keeps_editing() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.show_unsaved_dialog = true;
-
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Esc,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert!(!screen.form.show_unsaved_dialog);
-    }
-
-    #[test]
-    fn unsaved_dialog_enter_defaults_to_continue_editing() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.show_unsaved_dialog = true;
-
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Enter,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert!(!screen.form.show_unsaved_dialog);
-    }
-
-    #[test]
-    fn unsaved_dialog_tab_then_enter_discards_and_exits() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.show_unsaved_dialog = true;
-
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Tab,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.form.unsaved_dialog_focus, 1);
-
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Enter,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-        assert!(matches!(
-            result,
-            ScreenResult::NavigateTo(crate::commands::types::Screen::Main)
-        ));
-    }
-
-    #[test]
-    fn right_arrow_on_type_field_opens_dropdown() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Right,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert!(screen.form.credential_dropdown.expanded);
-        assert_eq!(screen.form.focused_field, 0);
-    }
-
-    #[test]
-    fn mouse_click_show_password_button_toggles_visibility() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        for c in "secret".chars() {
-            screen.form.fields.password.as_mut().unwrap().push_char(c);
-        }
-
-        let buffer = render_buffer(&screen, 100, 28);
-        let (x, y) = find_text(&buffer, "Show").expect("show button should be rendered");
-        let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert!(screen.form.fields.password_visible);
-        assert_eq!(screen.form.focused_field, 4);
-        assert_eq!(screen.form.password_sub_focus, PasswordFieldFocus::Show);
-    }
-
-    #[test]
-    fn mouse_click_type_dropdown_opens_options() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-
-        let buffer = render_buffer(&screen, 100, 28);
-        let (x, y) = find_text(&buffer, "Login").expect("type dropdown should be rendered");
-        let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert!(screen.form.credential_dropdown.expanded);
-        assert_eq!(screen.form.focused_field, 0);
-    }
-
-    #[test]
-    fn mouse_hover_save_button_sets_footer_focus() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-
-        let buffer = render_buffer(&screen, 100, 28);
-        let (x, y) = find_text(&buffer, "Save").expect("save button should be rendered");
-        let result = screen.update(Message::MouseEvent(mouse_move(x, y)), &mut ctx);
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(
-            screen.form.footer_focus,
-            Some(crate::tui::state::form_state::FormFooterButton::Save)
-        );
-    }
-
-    #[test]
-    fn empty_required_fields_stay_on_one_row() {
-        let screen = make_screen();
-        let buffer = render_buffer(&screen, 80, 24);
-        let (_, name_row) = find_text(&buffer, "Name").expect("name field should render");
-        let name_line = (0..80)
-            .filter_map(|x| buffer.cell((x, name_row)).map(|cell| cell.symbol()))
-            .collect::<String>();
-        let next_line = (0..80)
-            .filter_map(|x| buffer.cell((x, name_row + 1)).map(|cell| cell.symbol()))
-            .collect::<String>();
-
-        assert!(contains_required_marker(&name_line), "{name_line:?}");
-        assert!(
-            !next_line.trim_start().starts_with(']'),
-            "input closing bracket wrapped to next row: {next_line:?}"
-        );
-    }
-
-    #[test]
-    fn required_validation_does_not_render_duplicate_error_rows() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-
-        let result = screen.update(Message::KeyEvent(ctrl('s')), &mut ctx);
-        assert!(matches!(result, ScreenResult::Continue));
-
-        let buffer = render_buffer(&screen, 100, 28);
-        for y in buffer.area.y..buffer.area.y + buffer.area.height {
-            let row = (buffer.area.x..buffer.area.x + buffer.area.width)
-                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
-                .collect::<String>();
-            let duplicate_required_row = row.contains("│  ← Required")
-                || (row.contains("│  ←") && row.contains('必') && row.contains('填'));
-            assert!(
-                !duplicate_required_row,
-                "required validation should not render a duplicate error row: {row:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn focused_dropdown_has_visible_highlight_style() {
-        let screen = make_screen();
-        let buffer = render_buffer(&screen, 80, 24);
-        let (x, y) = find_text(&buffer, "Login").expect("focused type value should render");
-        let cell = buffer.cell((x, y)).expect("cell should exist");
-
-        assert_eq!(cell.bg, crate::tui::theme::PRIMARY);
-    }
-
-    #[test]
-    fn form_auxiliary_controls_align_to_text_input_column() {
-        let mut screen = make_screen();
-        for c in "weak".chars() {
-            screen.form.fields.password.as_mut().unwrap().push_char(c);
-        }
-        screen.form.fields.update_strength();
-
-        let buffer = render_buffer(&screen, 100, 32);
-        let (_, name_row) = find_text(&buffer, "Name").expect("name should render");
-        let (_, type_row) = find_text(&buffer, "Type").expect("type should render");
-        let (_, expiry_row) = find_text(&buffer, "Expiry").expect("expiry should render");
-        let (_, tags_row) = find_text(&buffer, "Tags").expect("tags should render");
-        let (_, strength_row) = find_text(&buffer, "Strength").expect("strength should render");
-
-        let input_col = first_symbol_in_row(&buffer, name_row, "[").expect("name input bracket");
-        assert_eq!(first_symbol_in_row(&buffer, type_row, "["), Some(input_col));
-        assert_eq!(
-            first_symbol_in_row(&buffer, expiry_row, "["),
-            Some(input_col)
-        );
-        assert_eq!(first_symbol_in_row(&buffer, tags_row, "["), Some(input_col));
-
-        let strength_bar_col = (0..100)
-            .find(|x| {
-                buffer
-                    .cell((*x, strength_row))
-                    .is_some_and(|cell| cell.symbol() == crate::tui::theme::ICON_PROGRESS_FILL)
-            })
-            .expect("strength bar should render");
-        assert_eq!(strength_bar_col, input_col);
-    }
-
-    #[test]
-    fn focused_empty_text_input_renders_single_block_cursor() {
-        let mut screen = make_screen();
-        screen.form.focus_field(1);
-
-        let buffer = render_buffer(&screen, 100, 28);
-        let (_, name_row) = find_text(&buffer, "Name").expect("name should render");
-        let input_col = first_symbol_in_row(&buffer, name_row, "[").expect("name input bracket");
-        let cursor_cell = buffer
-            .cell((input_col + 1, name_row))
-            .expect("cursor cell should exist");
-        let next_cell = buffer
-            .cell((input_col + 2, name_row))
-            .expect("next input cell should exist");
-
-        assert_eq!(cursor_cell.bg, crate::tui::theme::PRIMARY);
-        assert_ne!(next_cell.bg, crate::tui::theme::PRIMARY);
-    }
-
-    #[test]
-    fn expanded_generator_renders_as_dialog_over_form() {
-        let mut screen = make_screen();
-        let collapsed_expiry_row = screen.form_row_map().expiry;
-        screen.generator.expand();
-        let expanded_expiry_row = screen.form_row_map().expiry;
-
-        let buffer = render_buffer(&screen, 100, 40);
-        let (_, title_row) = find_text(&buffer, "Password Generator")
-            .or_else(|| find_text(&buffer, "密码生成器"))
-            .expect("generator dialog title should render");
-        let (_, use_row) = find_text(&buffer, "Use Password")
-            .or_else(|| find_text(&buffer, "使用此密码"))
-            .expect("use password action should render");
-
-        assert_eq!(
-            expanded_expiry_row, collapsed_expiry_row,
-            "generator dialog should not insert rows into the form layout"
-        );
-        assert!(title_row > 4, "dialog should be centered over the form");
-        assert!(use_row > title_row);
-    }
-
-    #[test]
-    fn tag_input_commits_trimmed_tags_with_comma_separators() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.focus_field(6);
-
-        for ch in " work,personal，work,".chars() {
-            let result = screen.update(Message::KeyEvent(key(KeyCode::Char(ch))), &mut ctx);
-            assert!(matches!(result, ScreenResult::Continue));
-        }
-
-        assert_eq!(screen.form.fields.tags, vec!["work", "personal"]);
-        assert!(screen.form.fields.tag_input.is_empty());
-    }
-
-    #[test]
-    fn tag_input_shows_enter_add_and_delete_hint() {
-        let mut screen = make_screen();
-        screen.form.focus_field(6);
-
-        let buffer = render_buffer(&screen, 120, 32);
-
-        assert!(find_text(&buffer, "Enter Add")
-            .or_else(|| find_text(&buffer, "Enter 添加"))
-            .is_some());
-        assert!(find_text(&buffer, "Del Delete")
-            .or_else(|| find_text(&buffer, "Del 删除"))
-            .is_some());
-    }
-
-    #[test]
-    fn tag_chips_can_be_selected_and_deleted_with_keyboard() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.focus_field(6);
-        screen.form.fields.tags = vec!["work".into(), "personal".into()];
-
-        let result = screen.update(Message::KeyEvent(key(KeyCode::Right)), &mut ctx);
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.form.fields.tag_focus, Some(0));
-
-        let result = screen.update(Message::KeyEvent(key(KeyCode::Right)), &mut ctx);
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.form.fields.tag_focus, Some(1));
-
-        let result = screen.update(Message::KeyEvent(key(KeyCode::Backspace)), &mut ctx);
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.form.fields.tags, vec!["work"]);
-        assert_eq!(screen.form.fields.tag_focus, Some(0));
-    }
-
-    #[test]
-    fn mouse_click_tag_chip_selects_it_for_deletion() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.fields.tags = vec!["work".into(), "personal".into()];
-
-        let buffer = render_buffer(&screen, 120, 32);
-        let (x, y) = find_text(&buffer, "personal").expect("tag chip should render");
-        let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.form.focused_field, 6);
-        assert_eq!(screen.form.fields.tag_focus, Some(1));
-    }
-
-    #[test]
-    fn form_shortcuts_render_at_bottom() {
-        let screen = make_screen();
-        let buffer = render_buffer(&screen, 100, 32);
-
-        assert!(find_text(&buffer, "Ctrl+G").is_some());
-        assert!(find_text(&buffer, "Ctrl+V").is_some());
-        assert!(find_text(&buffer, "Ctrl+C").is_some());
-        assert!(find_text(&buffer, "Ctrl+S").is_some());
-    }
-
-    #[test]
-    fn ctrl_g_opens_password_generator_from_any_field() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.focus_field(1);
-
-        let result = screen.update(Message::KeyEvent(ctrl('g')), &mut ctx);
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert!(screen.generator.expanded);
-        assert_eq!(screen.form.focused_field, 4);
-    }
-
-    #[test]
-    fn ctrl_v_toggles_password_visibility_from_any_field() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.focus_field(1);
-
-        let result = screen.update(Message::KeyEvent(ctrl('v')), &mut ctx);
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert!(screen.form.fields.password_visible);
-        assert_eq!(screen.form.focused_field, 4);
-    }
-
-    #[test]
-    fn ctrl_c_copies_password_from_any_field() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.focus_field(1);
-        for ch in "secret".chars() {
-            screen.form.fields.password.as_mut().unwrap().push_char(ch);
-        }
-
-        let result = screen.update(Message::KeyEvent(ctrl('c')), &mut ctx);
-
-        assert!(matches!(result, ScreenResult::Command(_)));
-        assert_eq!(screen.form.focused_field, 4);
-    }
-
-    #[test]
-    fn unicode_input_values_do_not_expand_form_rows() {
-        let mut screen = make_screen();
-        screen.form.fields.name = "求求了的".into();
-        screen.form.fields.url = "例子.example".into();
-        screen.form.fields.username = Some("用户甲".into());
-        screen.form.fields.tag_input = "等dddddd".into();
-        screen.form.fields.notes = "备注中文".into();
-
-        let rows = screen.form_row_map();
-        let buffer = render_buffer(&screen, 80, 32);
-        for (text, row) in [
-            ("name", rows.name + 1),
-            ("url", rows.url + 1),
-            ("account", rows.account + 1),
-            ("tags", rows.tags + 1),
-            ("notes", rows.notes + 1),
-        ] {
-            let next_line = (1..79)
-                .filter_map(|x| buffer.cell((x, row + 1)).map(|cell| cell.symbol()))
-                .collect::<String>();
-            assert!(
-                next_line.trim().is_empty(),
-                "{text:?} input wrapped into next row: {next_line:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn embedded_generator_arrow_keys_adjust_parameters() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.generator.expand();
-        screen.generator.generator.random_config.length = 16;
-        screen.generator.generator.focus = GeneratorFocus::LengthSlider;
-
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Right,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.generator.generator.random_config.length, 17);
-
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Down,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.generator.generator.focus, GeneratorFocus::Toggle(0));
-    }
-
-    #[test]
-    fn mouse_click_embedded_generator_plus_increments_length() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.generator.expand();
-        screen.generator.generator.random_config.length = 16;
-        screen.generator.generator.focus = GeneratorFocus::LengthSlider;
-
-        let buffer = render_buffer(&screen, 100, 40);
-        let (x, y) = find_text(&buffer, "[+]").expect("generator plus button should render");
-        let result = screen.update(Message::MouseEvent(click(x, y)), &mut ctx);
-
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.generator.generator.random_config.length, 17);
-        assert_eq!(
-            screen.generator.generator.focus,
-            GeneratorFocus::LengthSlider
-        );
-    }
-
-    #[test]
-    fn weak_dialog_esc_returns_to_edit() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.show_weak_password_dialog = true;
-        screen.form.weak_dialog_focus = 1;
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Esc,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-        assert!(matches!(result, ScreenResult::Continue));
-        assert!(!screen.form.show_weak_password_dialog);
-        assert_eq!(screen.form.weak_dialog_focus, 0);
-    }
-
-    #[test]
-    fn weak_dialog_left_focuses_go_back() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.show_weak_password_dialog = true;
-        screen.form.weak_dialog_focus = 1;
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Left,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.form.weak_dialog_focus, 0);
-        assert!(screen.form.show_weak_password_dialog);
-    }
-
-    #[test]
-    fn weak_dialog_right_focuses_save_anyway() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.show_weak_password_dialog = true;
-        screen.form.weak_dialog_focus = 0;
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Right,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.form.weak_dialog_focus, 1);
-        assert!(screen.form.show_weak_password_dialog);
-    }
-
-    #[test]
-    fn weak_dialog_tab_focuses_go_back() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.show_weak_password_dialog = true;
-        screen.form.weak_dialog_focus = 1;
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Tab,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-        assert!(matches!(result, ScreenResult::Continue));
-        assert_eq!(screen.form.weak_dialog_focus, 0);
-    }
-
-    #[test]
-    fn weak_dialog_enter_go_back_returns_to_edit() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.show_weak_password_dialog = true;
-        screen.form.weak_dialog_focus = 0;
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Enter,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-        assert!(matches!(result, ScreenResult::Continue));
-        assert!(!screen.form.show_weak_password_dialog);
-        assert_eq!(screen.form.weak_dialog_focus, 0);
-    }
-
-    #[test]
-    fn weak_dialog_enter_save_anyway_saves() {
-        let (tx, _rx) = mpsc::channel(1);
-        let mut screen = make_screen();
-        let env = TestEnv::new();
-        let mut ctx = env.make_ctx(&tx);
-        screen.form.show_weak_password_dialog = true;
-        screen.form.weak_dialog_focus = 1;
-        screen.form.fields.name = "Test".into();
-        screen.form.fields.username = Some("user".into());
-        for c in "weak".chars() {
-            screen.form.fields.password.as_mut().unwrap().push_char(c);
-        }
-        let result = screen.update(
-            Message::KeyEvent(crossterm::event::KeyEvent::new(
-                KeyCode::Enter,
-                KeyModifiers::NONE,
-            )),
-            &mut ctx,
-        );
-        assert!(matches!(result, ScreenResult::Command(_)));
-        assert!(!screen.form.show_weak_password_dialog);
-    }
-}
+#[path = "create_record_test.rs"]
+mod tests;

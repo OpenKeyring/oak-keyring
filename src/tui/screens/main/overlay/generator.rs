@@ -2,7 +2,7 @@
 
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -16,10 +16,14 @@ use crate::tui::theme;
 
 /// Render the standalone generator overlay.
 pub fn render_generator(frame: &mut Frame, area: Rect, state: &GeneratorState, unicode: bool) {
-    let dialog_w: u16 = 56.min(area.width);
+    let dialog_w: u16 = 60.min(area.width);
     let dialog_area = centered_rect(dialog_w, area);
 
-    let mut lines = vec![title_line(dialog_w), separator_line(), Line::raw("")];
+    let mut lines = vec![
+        title_line(dialog_w),
+        separator_line(dialog_w),
+        Line::raw(""),
+    ];
 
     // Generator panel content
     let panel_lines = generator_panel::render_generator_panel(state, false, dialog_w, unicode);
@@ -27,11 +31,12 @@ pub fn render_generator(frame: &mut Frame, area: Rect, state: &GeneratorState, u
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
-        .style(Style::default().bg(Color::Rgb(26, 27, 38)));
+        .border_style(Style::default().fg(theme::NL_FOCUS))
+        .style(Style::default().bg(theme::NL_SURFACE));
 
     let paragraph = Paragraph::new(lines)
         .block(block)
+        .style(theme::Styles::newlook_surface())
         .wrap(Wrap { trim: false });
 
     frame.render_widget(Clear, dialog_area);
@@ -230,9 +235,9 @@ fn title_line(dialog_width: u16) -> Line<'static> {
     ])
 }
 
-fn separator_line() -> Line<'static> {
+fn separator_line(width: u16) -> Line<'static> {
     Line::from(Span::styled(
-        "─".repeat(54),
+        "─".repeat(width.saturating_sub(2) as usize),
         Style::default().fg(theme::BORDER),
     ))
 }

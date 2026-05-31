@@ -1,10 +1,12 @@
 //! Edit record screen (U7).
 
 use crossterm::event::{KeyCode, KeyModifiers};
+use tui_textarea::CursorMove;
 use uuid::Uuid;
 
 use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
+use crate::tui::components::textarea;
 use crate::tui::screens::form::validation;
 use crate::tui::state::form_state::{ExpiryOption, FormFooterButton, FormState};
 use crate::tui::state::generator_state::{EmbeddedGeneratorState, GenerationStyle, GeneratorFocus};
@@ -49,13 +51,16 @@ impl EditRecordScreen {
     fn handle_key(
         &mut self,
         key_event: crossterm::event::KeyEvent,
-        _ctx: &mut ScreenContext,
+        ctx: &mut ScreenContext,
     ) -> ScreenResult {
         let key = key_event.code;
+        if self.form.saving {
+            return ScreenResult::Continue;
+        }
 
         // If dialogs are showing, handle them first
         if self.form.show_weak_password_dialog {
-            return self.handle_weak_password_dialog(key);
+            return self.handle_weak_password_dialog(key, ctx);
         }
         if self.form.show_unsaved_dialog {
             return self.handle_unsaved_dialog(key);
@@ -73,13 +78,39 @@ impl EditRecordScreen {
 
         // Normal form navigation (credential type dropdown is disabled)
         match key {
-            KeyCode::Tab | KeyCode::Down => {
+            KeyCode::Tab => {
                 self.form.focus_next();
                 ScreenResult::Continue
             }
-            KeyCode::BackTab | KeyCode::Up => {
+            KeyCode::Down => {
+                if self.form.textarea_captures_vertical() {
+                    if textarea::cursor_has_line_below(&self.form.fields.notes) {
+                        self.form.fields.notes.move_cursor(CursorMove::Down);
+                    } else {
+                        self.form.focus_next();
+                    }
+                    ScreenResult::Continue
+                } else {
+                    self.form.focus_next();
+                    ScreenResult::Continue
+                }
+            }
+            KeyCode::BackTab => {
                 self.form.focus_prev();
                 ScreenResult::Continue
+            }
+            KeyCode::Up => {
+                if self.form.textarea_captures_vertical() {
+                    if textarea::cursor_has_line_above(&self.form.fields.notes) {
+                        self.form.fields.notes.move_cursor(CursorMove::Up);
+                    } else {
+                        self.form.focus_prev();
+                    }
+                    ScreenResult::Continue
+                } else {
+                    self.form.focus_prev();
+                    ScreenResult::Continue
+                }
             }
             KeyCode::Right => {
                 if self.is_tags_focused() && self.form.fields.focus_next_tag() {
@@ -88,6 +119,21 @@ impl EditRecordScreen {
                 if self.open_focused_dropdown() {
                     return ScreenResult::Continue;
                 }
+
+                // If textarea is focused, handle cursor movement
+                if self.form.textarea_captures_vertical() {
+                    let (row, col) = self.form.fields.notes.cursor();
+                    // Check if we're at the rightmost position of the current line
+                    let lines = self.form.fields.notes.lines();
+                    if let Some(current_line) = lines.get(row) {
+                        if col < current_line.len() {
+                            self.form.fields.notes.move_cursor(CursorMove::Forward);
+                            return ScreenResult::Continue;
+                        }
+                    }
+                    // At rightmost position, fall through to focus_next
+                }
+
                 if self.form.sub_focus_next() {
                     ScreenResult::Continue
                 } else {
@@ -99,6 +145,17 @@ impl EditRecordScreen {
                 if self.is_tags_focused() && self.form.fields.focus_prev_tag() {
                     return ScreenResult::Continue;
                 }
+
+                // If textarea is focused, handle cursor movement
+                if self.form.textarea_captures_vertical() {
+                    let (_row, col) = self.form.fields.notes.cursor();
+                    if col > 0 {
+                        self.form.fields.notes.move_cursor(CursorMove::Back);
+                        return ScreenResult::Continue;
+                    }
+                    // At leftmost position, fall through to focus_prev
+                }
+
                 if self.form.sub_focus_prev() {
                     ScreenResult::Continue
                 } else {
@@ -108,7 +165,7 @@ impl EditRecordScreen {
             }
             KeyCode::Esc => self.cancel_form(),
             KeyCode::Char('g') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.activate_generate_shortcut()
+                self.activate_generate_shortcut(ctx)
             }
             KeyCode::Char('v') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.activate_visibility_shortcut()
@@ -117,10 +174,10 @@ impl EditRecordScreen {
                 self.activate_copy_shortcut()
             }
             KeyCode::Char('s') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.attempt_save()
+                self.attempt_save(ctx)
             }
-            KeyCode::Enter => self.handle_enter(),
-            KeyCode::Char(' ') if self.form.footer_focus.is_some() => self.handle_enter(),
+            KeyCode::Enter => self.handle_enter(ctx),
+            KeyCode::Char(' ') if self.form.footer_focus.is_some() => self.handle_enter(ctx),
             KeyCode::Char(c) => {
                 if self.is_custom_date_focused() {
                     self.handle_date_char(c)
@@ -140,11 +197,28 @@ impl EditRecordScreen {
         }
     }
 
-    fn handle_enter(&mut self) -> ScreenResult {
+    fn handle_enter(&mut self, ctx: &ScreenContext) -> ScreenResult {
         let ct = self.form.credential_type;
 
         if let Some(button) = self.form.footer_focus {
-            return self.activate_footer_button(button);
+            return self.activate_footer_button(button, ctx);
+        }
+
+        // If notes textarea is focused, insert newline
+        let notes_idx = match ct {
+            CredentialType::Login | CredentialType::Api => 7,
+            CredentialType::Ssh => 8,
+            CredentialType::SecureNote => 2,
+        };
+        if self.form.focused_field == notes_idx {
+            if !self.form.can_insert_char_into_current_field('\n') {
+                self.form.set_current_limit_error();
+                return ScreenResult::Continue;
+            }
+            self.form.fields.notes.insert_newline();
+            self.form.clear_current_limit_error();
+            self.form.has_changes = true;
+            return ScreenResult::Continue;
         }
 
         // Check inline button actions first
@@ -166,7 +240,7 @@ impl EditRecordScreen {
             crate::tui::state::form_state::PasswordFieldFocus::Generate => {
                 // Only Login password field has Generate button
                 if ct == CredentialType::Login && self.form.focused_field == 4 {
-                    self.generator.expand();
+                    self.generator.expand_from_config(&ctx.config.password);
                     return ScreenResult::Continue;
                 }
             }
@@ -180,6 +254,7 @@ impl EditRecordScreen {
         let expiry_idx = match ct {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         if self.form.focused_field == expiry_idx {
             self.form.expiry_dropdown.expanded = true;
@@ -190,9 +265,11 @@ impl EditRecordScreen {
         let tags_idx = match ct {
             CredentialType::Login | CredentialType::Api => 6,
             CredentialType::Ssh => 7,
+            CredentialType::SecureNote => 4,
         };
         if self.form.focused_field == tags_idx && !self.form.fields.tag_input.is_empty() {
             if self.form.fields.commit_tag_input() {
+                self.form.clear_current_limit_error();
                 self.form.has_changes = true;
             }
             return ScreenResult::Continue;
@@ -212,6 +289,11 @@ impl EditRecordScreen {
             return ScreenResult::Continue;
         }
 
+        if !self.form.can_insert_char_into_current_field(c) {
+            self.form.set_current_limit_error();
+            return ScreenResult::Continue;
+        }
+
         let focused = self.form.focused_field;
         let ct = self.form.credential_type;
 
@@ -221,8 +303,17 @@ impl EditRecordScreen {
                 self.form.has_changes = true;
             }
             2 => {
-                self.form.fields.url.push(c);
-                self.form.has_changes = true;
+                match ct {
+                    CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                        self.form.fields.url.push(c);
+                        self.form.has_changes = true;
+                    }
+                    CredentialType::SecureNote => {
+                        // Field 2 for SecureNote is notes textarea
+                        self.form.fields.notes.insert_char(c);
+                        self.form.has_changes = true;
+                    }
+                }
             }
             3 => {
                 match ct {
@@ -246,6 +337,9 @@ impl EditRecordScreen {
                             .public_key
                             .get_or_insert_with(String::new)
                             .push(c);
+                    }
+                    CredentialType::SecureNote => {
+                        // Field 3 for SecureNote is expiry - no text input
                     }
                 }
                 self.form.has_changes = true;
@@ -274,6 +368,9 @@ impl EditRecordScreen {
                             .get_or_insert_with(SensitiveInput::new)
                             .push_char(c);
                     }
+                    CredentialType::SecureNote => {
+                        // Field 4 for SecureNote is tags - no text input
+                    }
                 }
                 self.form.has_changes = true;
             }
@@ -290,10 +387,12 @@ impl EditRecordScreen {
                 let tags_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 6,
                     CredentialType::Ssh => 7,
+                    CredentialType::SecureNote => 4,
                 };
                 let notes_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 7,
                     CredentialType::Ssh => 8,
+                    CredentialType::SecureNote => 2,
                 };
                 if focused == tags_idx {
                     if matches!(c, ',' | '，') {
@@ -306,11 +405,12 @@ impl EditRecordScreen {
                         self.form.has_changes = true;
                     }
                 } else if focused == notes_idx {
-                    self.form.fields.notes.push(c);
+                    self.form.fields.notes.insert_char(c);
                     self.form.has_changes = true;
                 }
             }
         }
+        self.form.clear_current_limit_error();
         ScreenResult::Continue
     }
 
@@ -332,9 +432,15 @@ impl EditRecordScreen {
             1 => {
                 self.form.fields.name.pop();
             }
-            2 => {
-                self.form.fields.url.pop();
-            }
+            2 => match ct {
+                CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                    self.form.fields.url.pop();
+                }
+                CredentialType::SecureNote => {
+                    // Field 2 for SecureNote is notes textarea
+                    self.form.fields.notes.delete_char();
+                }
+            },
             3 => match ct {
                 CredentialType::Login => {
                     self.form.fields.username.as_mut().and_then(|s| s.pop());
@@ -344,6 +450,9 @@ impl EditRecordScreen {
                 }
                 CredentialType::Ssh => {
                     self.form.fields.public_key.as_mut().and_then(|s| s.pop());
+                }
+                CredentialType::SecureNote => {
+                    // Field 3 for SecureNote is expiry - no text input
                 }
             },
             4 => match ct {
@@ -363,6 +472,9 @@ impl EditRecordScreen {
                         s.pop_char()
                     };
                 }
+                CredentialType::SecureNote => {
+                    // Field 4 for SecureNote is tags - no text input
+                }
             },
             5 if ct == CredentialType::Ssh => {
                 if let Some(s) = self.form.fields.passphrase.as_mut() {
@@ -373,6 +485,12 @@ impl EditRecordScreen {
                 let tags_idx = match ct {
                     CredentialType::Login | CredentialType::Api => 6,
                     CredentialType::Ssh => 7,
+                    CredentialType::SecureNote => 4,
+                };
+                let notes_idx = match ct {
+                    CredentialType::Login | CredentialType::Api => 7,
+                    CredentialType::Ssh => 8,
+                    CredentialType::SecureNote => 2,
                 };
                 if focused == tags_idx {
                     if self.form.fields.tag_input.is_empty() {
@@ -383,15 +501,21 @@ impl EditRecordScreen {
                     } else {
                         self.form.fields.tag_input.pop();
                     }
+                } else if focused == notes_idx {
+                    self.form.fields.notes.delete_char();
                 }
             }
         }
         self.form.has_changes = true;
+        self.form.clear_current_limit_error();
         ScreenResult::Continue
     }
 
     fn handle_delete(&mut self) -> ScreenResult {
         if self.is_tags_focused() && self.form.fields.remove_focused_tag() {
+            self.form.has_changes = true;
+        } else if self.form.textarea_captures_vertical() {
+            self.form.fields.notes.delete_next_char();
             self.form.has_changes = true;
         }
         ScreenResult::Continue
@@ -402,6 +526,7 @@ impl EditRecordScreen {
         let expiry_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         self.form.focused_field == expiry_idx && self.form.fields.expires_at == ExpiryOption::Custom
     }
@@ -413,6 +538,7 @@ impl EditRecordScreen {
         let expiry_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         if self.form.focused_field == expiry_idx {
             self.form.expiry_dropdown.expanded = true;
@@ -425,6 +551,7 @@ impl EditRecordScreen {
         let tags_idx = match self.form.credential_type {
             CredentialType::Login | CredentialType::Api => 6,
             CredentialType::Ssh => 7,
+            CredentialType::SecureNote => 4,
         };
         self.form.footer_focus.is_none() && self.form.focused_field == tags_idx
     }
@@ -466,7 +593,7 @@ impl EditRecordScreen {
         ScreenResult::Continue
     }
 
-    fn attempt_save(&mut self) -> ScreenResult {
+    fn attempt_save(&mut self, ctx: &ScreenContext) -> ScreenResult {
         let errors = validation::validate(&self.form.fields, self.form.credential_type);
         if !errors.is_empty() {
             self.form.validation_errors = errors;
@@ -480,7 +607,7 @@ impl EditRecordScreen {
             return ScreenResult::Continue;
         }
 
-        self.update_record_command()
+        self.submit_update_record(ctx)
     }
 
     fn cancel_form(&mut self) -> ScreenResult {
@@ -493,17 +620,21 @@ impl EditRecordScreen {
         }
     }
 
-    fn activate_footer_button(&mut self, button: FormFooterButton) -> ScreenResult {
+    fn activate_footer_button(
+        &mut self,
+        button: FormFooterButton,
+        ctx: &ScreenContext,
+    ) -> ScreenResult {
         match button {
-            FormFooterButton::Save => self.attempt_save(),
+            FormFooterButton::Save => self.attempt_save(ctx),
             FormFooterButton::Cancel => self.cancel_form(),
         }
     }
 
-    fn activate_generate_shortcut(&mut self) -> ScreenResult {
+    fn activate_generate_shortcut(&mut self, ctx: &ScreenContext) -> ScreenResult {
         if self.form.credential_type == CredentialType::Login {
             self.form.focus_field(4);
-            self.generator.expand();
+            self.generator.expand_from_config(&ctx.config.password);
         }
         ScreenResult::Continue
     }
@@ -527,21 +658,35 @@ impl EditRecordScreen {
     fn shortcut_secret_field_index(&self) -> usize {
         match self.form.credential_type {
             CredentialType::Login | CredentialType::Api | CredentialType::Ssh => 4,
+            CredentialType::SecureNote => {
+                // SecureNote has no secret field, return notes field as fallback
+                2
+            }
         }
     }
 
-    fn update_record_command(&mut self) -> ScreenResult {
-        ScreenResult::Command(Box::new(Command::UpdateRecord {
+    fn submit_update_record(&mut self, ctx: &ScreenContext) -> ScreenResult {
+        let command = Command::UpdateRecord {
             id: self.record_id.unwrap_or_else(Uuid::nil),
-            payload: self.form.build_payload(),
-            tags: std::mem::take(&mut self.form.fields.tags),
+            payload: self.form.build_payload_snapshot(),
+            tags: self.form.fields.tags.clone(),
             is_favorite: false,
             expires_at: self.form.expiry_datetime(),
             expected_version: self.record_version.unwrap_or(0),
-        }))
+        };
+        if ctx.send_user_command(command).is_some() {
+            self.form.validation_errors = vec![crate::tui::state::form_state::ValidationError {
+                field_index: 1,
+                message: "Action failed: command queue full".to_string(),
+            }];
+            self.form.focused_field = 1;
+            return ScreenResult::Continue;
+        }
+        self.form.start_saving();
+        ScreenResult::Continue
     }
 
-    fn handle_weak_password_dialog(&mut self, key: KeyCode) -> ScreenResult {
+    fn handle_weak_password_dialog(&mut self, key: KeyCode, ctx: &ScreenContext) -> ScreenResult {
         match key {
             KeyCode::Esc => {
                 self.form.show_weak_password_dialog = false;
@@ -561,11 +706,11 @@ impl EditRecordScreen {
                 self.form.show_weak_password_dialog = false;
                 self.form.weak_dialog_focus = 0;
                 if focus == 0 {
-                    // "Go Back" — return to editing
+                    // "Cancel" returns to editing.
                     ScreenResult::Continue
                 } else {
-                    // "Save Anyway"
-                    self.update_record_command()
+                    // "Save" continues despite the warning.
+                    self.submit_update_record(ctx)
                 }
             }
             _ => ScreenResult::Continue,
@@ -842,7 +987,7 @@ impl EditRecordScreen {
         self.form.fields.passphrase = passphrase.map(SensitiveInput::from);
         self.form.fields.update_strength();
         self.form.fields.tags = tags;
-        self.form.fields.notes = notes;
+        self.form.fields.set_notes_text(&notes);
         self.form.has_changes = false;
     }
 }
@@ -851,6 +996,10 @@ impl Screen for EditRecordScreen {
     fn update(&mut self, msg: Message, ctx: &mut ScreenContext) -> ScreenResult {
         match msg {
             Message::KeyEvent(key) => self.handle_key(key, ctx),
+            Message::Tick => {
+                self.form.tick_saving();
+                ScreenResult::Continue
+            }
             Message::CommandCompleted(result) => match result {
                 CommandResult::TagsLoaded { tags, tag_stats: _ } => {
                     self.all_tags = tags.into_iter().map(|tag| tag.name).collect();
@@ -858,7 +1007,9 @@ impl Screen for EditRecordScreen {
                 }
                 CommandResult::RecordForEditLoaded { record } => {
                     let rec_id = record.id();
+                    let credential_type = record.credential_type();
                     let rec_tags = record.tags().to_vec();
+                    self.form = FormState::new_edit(rec_id, credential_type);
                     match record {
                         crate::types::record::DecryptedRecord::Login {
                             version,
@@ -932,11 +1083,38 @@ impl Screen for EditRecordScreen {
                                 notes.unwrap_or_default(),
                             );
                         }
+                        crate::types::record::DecryptedRecord::SecureNote {
+                            version,
+                            name,
+                            notes,
+                            ..
+                        } => {
+                            self.record_version = Some(version);
+                            self.load_record_data(
+                                name,
+                                String::new(),
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                rec_tags,
+                                notes.unwrap_or_default(),
+                            );
+                        }
                     }
                     self.record_id = Some(rec_id);
                     ScreenResult::Continue
                 }
                 CommandResult::RecordUpdated { .. } => ScreenResult::PopScreen,
+                CommandResult::Error { .. }
+                | CommandResult::FatalError { .. }
+                | CommandResult::Cancelled { .. } => {
+                    self.form.finish_saving();
+                    ScreenResult::Continue
+                }
                 _ => ScreenResult::Continue,
             },
             _ => ScreenResult::Continue,
@@ -986,6 +1164,10 @@ mod tests {
             crossterm::event::KeyCode::Char(ch),
             crossterm::event::KeyModifiers::CONTROL,
         )
+    }
+
+    fn key(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
     }
 
     struct TestEnv {
@@ -1070,6 +1252,187 @@ mod tests {
         assert_eq!(screen.all_tags.len(), 1);
     }
 
+    fn assert_loaded_record_keeps_edit_type(
+        record: crate::types::record::DecryptedRecord,
+        expected_type: CredentialType,
+    ) {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::RecordForEditLoaded { record }),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.credential_type, expected_type);
+        match (expected_type, screen.form.build_payload_snapshot()) {
+            (CredentialType::Api, crate::types::credential::EncryptedPayload::Api { .. }) => {}
+            (CredentialType::Ssh, crate::types::credential::EncryptedPayload::Ssh { .. }) => {}
+            (
+                CredentialType::SecureNote,
+                crate::types::credential::EncryptedPayload::SecureNote { .. },
+            ) => {}
+            (expected, payload) => panic!("expected {expected:?} payload, got {payload:?}"),
+        }
+    }
+
+    #[test]
+    fn loaded_api_record_keeps_api_edit_form() {
+        let id = uuid::Uuid::new_v4();
+        assert_loaded_record_keeps_edit_type(
+            crate::types::record::DecryptedRecord::Api {
+                id,
+                is_favorite: false,
+                expires_at: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                version: 7,
+                deleted: false,
+                deleted_at: None,
+                tags: vec!["api".into()],
+                name: "Stripe".into(),
+                app_id: "stripe-live".into(),
+                secret_key: SecureStr::new("sk_live".into()),
+                url: Some("https://stripe.com".into()),
+                notes: Some("api notes".into()),
+            },
+            CredentialType::Api,
+        );
+    }
+
+    #[test]
+    fn loaded_ssh_record_keeps_ssh_edit_form() {
+        let id = uuid::Uuid::new_v4();
+        assert_loaded_record_keeps_edit_type(
+            crate::types::record::DecryptedRecord::Ssh {
+                id,
+                is_favorite: false,
+                expires_at: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                version: 8,
+                deleted: false,
+                deleted_at: None,
+                tags: vec!["server".into()],
+                name: "Deploy Key".into(),
+                public_key: "ssh-ed25519 AAAA".into(),
+                private_key: Some(SecureStr::new("PRIVATE".into())),
+                passphrase: Some(SecureStr::new("passphrase".into())),
+                notes: Some("ssh notes".into()),
+            },
+            CredentialType::Ssh,
+        );
+    }
+
+    #[test]
+    fn loaded_secure_note_record_keeps_secure_note_edit_form() {
+        let id = uuid::Uuid::new_v4();
+        assert_loaded_record_keeps_edit_type(
+            crate::types::record::DecryptedRecord::SecureNote {
+                id,
+                is_favorite: false,
+                expires_at: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                version: 9,
+                deleted: false,
+                deleted_at: None,
+                tags: vec!["note".into()],
+                name: "Recovery".into(),
+                notes: Some("secure note body".into()),
+            },
+            CredentialType::SecureNote,
+        );
+    }
+
+    #[test]
+    fn valid_save_enters_saving_state_and_queues_update_command() {
+        let (tx, mut rx) = mpsc::channel(2);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.record_id = Some(uuid::Uuid::new_v4());
+        screen.record_version = Some(3);
+        screen.form.fields.name = "Github Page".into();
+        screen.form.fields.username = Some("p1024k".into());
+        screen.form.fields.password = Some(SensitiveInput::from(
+            "correct horse battery staple 2026!".to_string(),
+        ));
+        screen.form.fields.tags = vec!["github".into()];
+
+        let result = screen.update(Message::KeyEvent(ctrl('s')), &mut ctx);
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(screen.form.saving);
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            Command::UpdateRecord { .. }
+        ));
+    }
+
+    #[test]
+    fn command_error_leaves_edit_screen_saving_state() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.start_saving();
+
+        let result = screen.update(
+            Message::CommandCompleted(CommandResult::Error {
+                code: crate::errors::ErrorCode::VaultDatabaseIoError,
+                context: crate::errors::ErrorContext::new(),
+                message_key: "test",
+                fallback: "write failed".into(),
+            }),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert!(!screen.form.saving);
+    }
+
+    #[test]
+    fn notes_textarea_up_at_first_line_moves_to_previous_field() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.fields.set_notes_text("first\nsecond");
+        screen.form.focus_field(7);
+        screen.form.fields.notes.move_cursor(CursorMove::Top);
+
+        let result = screen.update(
+            Message::KeyEvent(key(crossterm::event::KeyCode::Up)),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.focused_field, 6);
+    }
+
+    #[test]
+    fn notes_textarea_down_at_last_line_moves_to_footer() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut screen = make_screen();
+        let env = TestEnv::new();
+        let mut ctx = env.make_ctx(&tx);
+        screen.form.fields.set_notes_text("first\nsecond");
+        screen.form.focus_field(7);
+        screen.form.fields.notes.move_cursor(CursorMove::Bottom);
+
+        let result = screen.update(
+            Message::KeyEvent(key(crossterm::event::KeyCode::Down)),
+            &mut ctx,
+        );
+
+        assert!(matches!(result, ScreenResult::Continue));
+        assert_eq!(screen.form.footer_focus, Some(FormFooterButton::Save));
+    }
+
     #[test]
     fn weak_dialog_esc_returns_to_edit() {
         let (tx, _rx) = mpsc::channel(1);
@@ -1091,7 +1454,7 @@ mod tests {
     }
 
     #[test]
-    fn weak_dialog_left_focuses_go_back() {
+    fn weak_dialog_left_focuses_cancel() {
         let (tx, _rx) = mpsc::channel(1);
         let mut screen = make_screen();
         let env = TestEnv::new();
@@ -1111,7 +1474,7 @@ mod tests {
     }
 
     #[test]
-    fn weak_dialog_right_focuses_save_anyway() {
+    fn weak_dialog_right_focuses_save() {
         let (tx, _rx) = mpsc::channel(1);
         let mut screen = make_screen();
         let env = TestEnv::new();
@@ -1131,7 +1494,7 @@ mod tests {
     }
 
     #[test]
-    fn weak_dialog_tab_focuses_go_back() {
+    fn weak_dialog_tab_focuses_cancel() {
         let (tx, _rx) = mpsc::channel(1);
         let mut screen = make_screen();
         let env = TestEnv::new();
@@ -1150,7 +1513,7 @@ mod tests {
     }
 
     #[test]
-    fn weak_dialog_enter_go_back_returns_to_edit() {
+    fn weak_dialog_enter_cancel_returns_to_edit() {
         let (tx, _rx) = mpsc::channel(1);
         let mut screen = make_screen();
         let env = TestEnv::new();
@@ -1301,8 +1664,8 @@ mod tests {
     }
 
     #[test]
-    fn weak_dialog_enter_save_anyway_saves() {
-        let (tx, _rx) = mpsc::channel(1);
+    fn weak_dialog_enter_save_saves() {
+        let (tx, mut rx) = mpsc::channel(1);
         let mut screen = make_screen();
         let env = TestEnv::new();
         let mut ctx = env.make_ctx(&tx);
@@ -1321,7 +1684,12 @@ mod tests {
             )),
             &mut ctx,
         );
-        assert!(matches!(result, ScreenResult::Command(_)));
+        assert!(matches!(result, ScreenResult::Continue));
         assert!(!screen.form.show_weak_password_dialog);
+        assert!(screen.form.saving);
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            Command::UpdateRecord { .. }
+        ));
     }
 }

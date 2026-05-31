@@ -5,4 +5,5 @@ pub mod screens;
 pub mod state;
 pub mod terminal;
 pub mod theme;
+pub mod time;
 pub mod traits;

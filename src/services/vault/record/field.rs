@@ -13,16 +13,12 @@ use crate::types::sensitive::SecureStr;
 use super::helpers::{db_error_to_vault, extract_field};
 
 impl VaultServiceImpl {
-    /// Decrypt and return a single field from a record.
-    ///
-    /// Unlike `get_decrypted_record`, this method provides fine-grained
-    /// audit control: only `FieldSelector::Password` and
-    /// `FieldSelector::Passphrase` trigger a `RecordViewPassword` audit entry.
-    ///
-    /// Returns `VaultError::InvalidField` when the field does not exist
-    /// for the credential type (e.g. `Url` on an SSH record) or when the
-    /// optional field value is `None`.
-    pub fn decrypt_field(&self, id: Uuid, field: FieldSelector) -> Result<SecureStr, VaultError> {
+    fn decrypt_field_with_audit(
+        &self,
+        id: Uuid,
+        field: FieldSelector,
+        audit_operation: Option<AuditOperation>,
+    ) -> Result<SecureStr, VaultError> {
         if !self.crypto.is_unlocked() {
             return Err(VaultError::NotUnlocked);
         }
@@ -41,17 +37,46 @@ impl VaultServiceImpl {
         let record_name = decrypted_payload.name().to_string();
         let value = extract_field(stored.credential_type, decrypted_payload, field)?;
 
-        if matches!(field, FieldSelector::Password | FieldSelector::Passphrase) {
-            queries::insert_audit_entry(
-                &self.conn,
-                AuditOperation::RecordViewPassword,
-                Some(&id),
-                Some(&record_name),
-                None,
-            )
-            .map_err(db_error_to_vault)?;
+        if let Some(operation) = audit_operation {
+            queries::insert_audit_entry(&self.conn, operation, Some(&id), Some(&record_name), None)
+                .map_err(db_error_to_vault)?;
         }
 
         Ok(value)
+    }
+
+    /// Decrypt and return a single field from a record.
+    ///
+    /// Unlike `get_decrypted_record`, this method provides fine-grained
+    /// audit control: only `FieldSelector::Password` and
+    /// `FieldSelector::Passphrase` trigger a `RecordViewPassword` audit entry.
+    ///
+    /// Returns `VaultError::InvalidField` when the field does not exist
+    /// for the credential type (e.g. `Url` on an SSH record) or when the
+    /// optional field value is `None`.
+    pub fn decrypt_field(&self, id: Uuid, field: FieldSelector) -> Result<SecureStr, VaultError> {
+        let audit_operation = matches!(field, FieldSelector::Password | FieldSelector::Passphrase)
+            .then_some(AuditOperation::RecordViewPassword);
+        self.decrypt_field_with_audit(id, field, audit_operation)
+    }
+
+    /// Decrypt a field for an explicit clipboard copy operation.
+    ///
+    /// This records copy-specific audit events instead of a generic password
+    /// view event, so audit filters can separate user copy actions.
+    pub fn decrypt_field_for_copy(
+        &self,
+        id: Uuid,
+        field: FieldSelector,
+    ) -> Result<SecureStr, VaultError> {
+        let audit_operation = match field {
+            FieldSelector::Password | FieldSelector::Passphrase => {
+                AuditOperation::RecordCopyPassword
+            }
+            FieldSelector::Username | FieldSelector::Url | FieldSelector::Notes => {
+                AuditOperation::RecordCopyField
+            }
+        };
+        self.decrypt_field_with_audit(id, field, Some(audit_operation))
     }
 }

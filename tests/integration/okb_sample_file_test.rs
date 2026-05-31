@@ -388,6 +388,10 @@ fn fields_to_payload(
             passphrase: fields.get("passphrase").cloned().map(SecureStr::new),
             notes: fields.get("notes").cloned(),
         },
+        CredentialType::SecureNote => EncryptedPayload::SecureNote {
+            name: fields.get("name").cloned().unwrap_or_default(),
+            notes: fields.get("notes").cloned(),
+        },
     }
 }
 

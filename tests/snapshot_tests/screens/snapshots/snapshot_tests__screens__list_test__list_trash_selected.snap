@@ -4,10 +4,10 @@ expression: terminal.backend()
 ---
 "  Sort: [ Created ▼ ]  [ ↓ Descending ]                     "
 "                                                            "
-"  DeletedSite                                           ◀   "
+"  󰀋 DeletedSite                                             "
 "  Deleted 5 days ago  Auto-delete in 25 days                "
 "────────────────────────────────────────────────────────────"
-"  AnotherDeleted                                            "
+"  󰀋 AnotherDeleted                                          "
 "  Deleted 10 days ago  Auto-delete in 20 days               "
 "────────────────────────────────────────────────────────────"
 "                                                            "

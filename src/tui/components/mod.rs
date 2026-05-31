@@ -10,3 +10,4 @@ pub mod strength_bar;
 pub mod sync_indicator;
 pub mod tag_input;
 pub mod text_input;
+pub mod textarea;

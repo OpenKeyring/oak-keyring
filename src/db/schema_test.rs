@@ -43,11 +43,11 @@ fn metadata_value(conn: &Connection, key: &str) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1: Schema creates all 8 tables
+// Test 1: Schema creates all 9 tables
 // ---------------------------------------------------------------------------
 
 #[test]
-fn schema_creates_all_eight_tables() {
+fn schema_creates_all_nine_tables() {
     let db = fresh_db();
     let tables = table_names(&db);
 
@@ -57,6 +57,7 @@ fn schema_creates_all_eight_tables() {
         "metadata",
         "password_history",
         "record_health_state",
+        "record_list_index",
         "record_tags",
         "records",
         "sync_state",
@@ -170,17 +171,44 @@ fn initial_metadata_keys_exist() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 5: Schema version is "1"
+// Test 5: Schema version is "2"
 // ---------------------------------------------------------------------------
 
 #[test]
-fn schema_version_is_one() {
+fn schema_version_is_two() {
     let db = fresh_db();
 
     let version = metadata_value(&db, "schema_version").unwrap();
     assert_eq!(
-        version, "1",
-        "schema_version should be \"1\", got \"{version}\""
+        version, "2",
+        "schema_version should be \"2\", got \"{version}\""
+    );
+}
+
+#[test]
+fn record_list_index_table_has_required_columns() {
+    let db = fresh_db();
+    let columns = column_names(&db, "record_list_index");
+
+    let expected = vec![
+        "record_id",
+        "name",
+        "subtitle",
+        "search_text",
+        "name_sort_key",
+    ];
+
+    for col in &expected {
+        assert!(
+            columns.contains(&col.to_string()),
+            "record_list_index missing column: {col}"
+        );
+    }
+    assert_eq!(
+        columns.len(),
+        expected.len(),
+        "record_list_index has unexpected columns: {:?}",
+        columns
     );
 }
 

@@ -6,9 +6,7 @@ use crate::commands::result::CommandResult;
 use crate::commands::{Command, Message};
 use crate::crypto::strength::{evaluate_strength, PasswordStrength, StrengthLevel};
 use crate::t;
-use crate::tui::theme::{
-    self, Styles, ERROR, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, TEXT_PLACEHOLDER, WARNING,
-};
+use crate::tui::theme;
 use crate::tui::traits::screen::{Screen, ScreenContext, ScreenResult};
 use crate::types::sensitive::SensitiveInput;
 
@@ -72,10 +70,10 @@ impl ChangeMasterPasswordScreen {
     /// Map strength level to a theme color.
     fn strength_color(level: &StrengthLevel) -> ratatui::style::Color {
         match level {
-            StrengthLevel::VeryWeak | StrengthLevel::Weak => ERROR,
-            StrengthLevel::Fair => WARNING,
-            StrengthLevel::Strong => PRIMARY,
-            StrengthLevel::VeryStrong => SUCCESS,
+            StrengthLevel::VeryWeak | StrengthLevel::Weak => theme::NL_DANGER,
+            StrengthLevel::Fair => theme::NL_HOT,
+            StrengthLevel::Strong => theme::NL_FOCUS,
+            StrengthLevel::VeryStrong => theme::NL_SUCCESS,
         }
     }
 }
@@ -99,7 +97,10 @@ impl Screen for ChangeMasterPasswordScreen {
 
     fn view(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
         use ratatui::layout::{Alignment, Constraint, Layout};
+        use ratatui::style::{Modifier, Style};
         use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+
+        frame.render_widget(Paragraph::new("").style(theme::Styles::newlook_bg()), area);
 
         if self.step == 1 {
             self.view_step1(frame, area);
@@ -126,14 +127,19 @@ impl Screen for ChangeMasterPasswordScreen {
 
             // Title
             let title = Paragraph::new(t!("tui.entry.set_password_title"))
-                .style(Styles::brand_text())
+                .style(
+                    Style::default()
+                        .fg(theme::NL_CYAN)
+                        .bg(theme::NL_BG)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .alignment(Alignment::Center);
 
             // -- New password field --
             let new_border_style = if self.focused == PasswordField::New {
-                Styles::focused_border()
+                theme::Styles::newlook_focused_border()
             } else {
-                Styles::unfocused_border()
+                theme::Styles::newlook_border()
             };
 
             let new_display = if self.new_password.is_empty() {
@@ -150,13 +156,18 @@ impl Screen for ChangeMasterPasswordScreen {
             let new_input_block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(new_border_style)
+                .style(theme::Styles::newlook_surface())
                 .title(format!(" {} ", t!("tui.entry.new_password")));
 
             let new_input_text = if new_display.is_empty() {
-                Paragraph::new(new_placeholder)
-                    .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
+                Paragraph::new(new_placeholder).style(
+                    Style::default()
+                        .fg(theme::NL_TEXT_MUTED)
+                        .bg(theme::NL_SURFACE),
+                )
             } else {
-                Paragraph::new(new_display).style(ratatui::style::Style::default().fg(TEXT))
+                Paragraph::new(new_display)
+                    .style(Style::default().fg(theme::NL_TEXT).bg(theme::NL_SURFACE))
             };
 
             // -- Strength bar --
@@ -192,17 +203,17 @@ impl Screen for ChangeMasterPasswordScreen {
                     bar_str
                 );
                 let color = Self::strength_color(&s.level);
-                Paragraph::new(label).style(ratatui::style::Style::default().fg(color))
+                Paragraph::new(label).style(Style::default().fg(color).bg(theme::NL_BG))
             } else {
                 Paragraph::new(t!("tui.entry.strength_label"))
-                    .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+                    .style(Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG))
             };
 
             // -- Confirm password field --
             let confirm_border_style = if self.focused == PasswordField::Confirm {
-                Styles::focused_border()
+                theme::Styles::newlook_focused_border()
             } else {
-                Styles::unfocused_border()
+                theme::Styles::newlook_border()
             };
 
             let confirm_display = if self.confirm_password.is_empty() {
@@ -219,13 +230,18 @@ impl Screen for ChangeMasterPasswordScreen {
             let confirm_input_block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(confirm_border_style)
+                .style(theme::Styles::newlook_surface())
                 .title(format!(" {} ", t!("tui.entry.confirm_password")));
 
             let confirm_input_text = if confirm_display.is_empty() {
-                Paragraph::new(confirm_placeholder)
-                    .style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
+                Paragraph::new(confirm_placeholder).style(
+                    Style::default()
+                        .fg(theme::NL_TEXT_MUTED)
+                        .bg(theme::NL_SURFACE),
+                )
             } else {
-                Paragraph::new(confirm_display).style(ratatui::style::Style::default().fg(TEXT))
+                Paragraph::new(confirm_display)
+                    .style(Style::default().fg(theme::NL_TEXT).bg(theme::NL_SURFACE))
             };
 
             // -- Match indicator --
@@ -240,7 +256,7 @@ impl Screen for ChangeMasterPasswordScreen {
                             theme::ICON_SUCCESS,
                             t!("tui.entry.password_match")
                         ))
-                        .style(Styles::success_text()),
+                        .style(Style::default().fg(theme::NL_SUCCESS).bg(theme::NL_BG)),
                     )
                 } else {
                     None
@@ -252,13 +268,13 @@ impl Screen for ChangeMasterPasswordScreen {
             // -- Error message --
             let error_line = self.error_message.as_ref().map(|msg| {
                 Paragraph::new(format!("{} {}", theme::ICON_ERROR, msg))
-                    .style(Styles::error_text())
+                    .style(Style::default().fg(theme::NL_DANGER).bg(theme::NL_BG))
                     .wrap(Wrap { trim: true })
             });
 
             // -- Hint --
             let hint = Paragraph::new(t!("tui.entry.input_hint"))
-                .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+                .style(Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG))
                 .alignment(Alignment::Center);
 
             // -- Layout rows --
@@ -330,6 +346,7 @@ impl ChangeMasterPasswordScreen {
     /// Render step 1: verify current password.
     fn view_step1(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
         use ratatui::layout::{Alignment, Constraint, Layout};
+        use ratatui::style::{Modifier, Style};
         use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
         // Vertical centering
@@ -354,22 +371,25 @@ impl ChangeMasterPasswordScreen {
 
         // Title
         let title = Paragraph::new(t!("tui.entry.verify_current_title"))
-            .style(Styles::brand_text())
+            .style(
+                Style::default()
+                    .fg(theme::NL_CYAN)
+                    .bg(theme::NL_BG)
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center);
 
         // Subtitle
         let subtitle = Paragraph::new(t!("tui.entry.verify_current_hint"))
-            .style(ratatui::style::Style::default().fg(theme::TEXT_SECONDARY))
+            .style(Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG))
             .alignment(Alignment::Center);
 
         // Password field
         let input_block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Styles::focused_border())
-            .title(format!(
-                " {} ",
-                t!("tui.import_export.current_password_label")
-            ));
+            .border_style(theme::Styles::newlook_focused_border())
+            .style(theme::Styles::newlook_surface())
+            .title(format!(" {} ", t!("tui.config.current_password_label")));
 
         let display = if self.current_password.is_empty() {
             String::new()
@@ -383,21 +403,25 @@ impl ChangeMasterPasswordScreen {
         };
 
         let input_text = if display.is_empty() {
-            Paragraph::new(placeholder).style(ratatui::style::Style::default().fg(TEXT_PLACEHOLDER))
+            Paragraph::new(placeholder).style(
+                Style::default()
+                    .fg(theme::NL_TEXT_MUTED)
+                    .bg(theme::NL_SURFACE),
+            )
         } else {
-            Paragraph::new(display).style(ratatui::style::Style::default().fg(TEXT))
+            Paragraph::new(display).style(Style::default().fg(theme::NL_TEXT).bg(theme::NL_SURFACE))
         };
 
         // Error message
         let error_line = self.error_message.as_ref().map(|msg| {
             Paragraph::new(format!("{} {}", theme::ICON_ERROR, msg))
-                .style(Styles::error_text())
+                .style(Style::default().fg(theme::NL_DANGER).bg(theme::NL_BG))
                 .wrap(Wrap { trim: true })
         });
 
         // Hint
         let hint = Paragraph::new(t!("tui.misc.enter_verify_esc_back"))
-            .style(ratatui::style::Style::default().fg(TEXT_MUTED))
+            .style(Style::default().fg(theme::NL_TEXT_MUTED).bg(theme::NL_BG))
             .alignment(Alignment::Center);
 
         // Layout rows
@@ -656,23 +680,23 @@ mod tests {
     fn strength_color_mapping() {
         assert_eq!(
             ChangeMasterPasswordScreen::strength_color(&StrengthLevel::VeryWeak),
-            ERROR
+            theme::NL_DANGER
         );
         assert_eq!(
             ChangeMasterPasswordScreen::strength_color(&StrengthLevel::Weak),
-            ERROR
+            theme::NL_DANGER
         );
         assert_eq!(
             ChangeMasterPasswordScreen::strength_color(&StrengthLevel::Fair),
-            WARNING
+            theme::NL_HOT
         );
         assert_eq!(
             ChangeMasterPasswordScreen::strength_color(&StrengthLevel::Strong),
-            PRIMARY
+            theme::NL_FOCUS
         );
         assert_eq!(
             ChangeMasterPasswordScreen::strength_color(&StrengthLevel::VeryStrong),
-            SUCCESS
+            theme::NL_SUCCESS
         );
     }
 

@@ -1,5 +1,6 @@
 use super::*;
-use crate::commands::types::ImportSource;
+use crate::commands::types::{ExportFormat, ExportScope, ImportSource};
+use crate::commands::{Command, Message};
 use crate::crypto::strength::StrengthLevel;
 use crate::tui::theme::{ERROR, PRIMARY, SUCCESS, WARNING};
 use crate::tui::traits::screen::Screen as ScreenTrait;
@@ -12,6 +13,17 @@ fn sensitive(s: &str) -> SensitiveInput {
         input.push_char(c);
     }
     input
+}
+
+fn key(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
+    crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+}
+
+fn ctrl(ch: char) -> crossterm::event::KeyEvent {
+    crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char(ch),
+        crossterm::event::KeyModifiers::CONTROL,
+    )
 }
 
 #[test]
@@ -176,18 +188,131 @@ fn import_focus_cycle() {
 #[test]
 fn export_focus_cycle() {
     let mut screen = ImportExportScreen::new();
-    assert_eq!(screen.export_focus, ExportFocus::Scope);
+    assert_eq!(screen.export_focus, ExportFocus::ExportPassword);
 
-    screen.export_focus = ExportFocus::ExportPassword;
     screen.export_focus = ExportFocus::ConfirmPassword;
     screen.export_focus = ExportFocus::OutputPath;
-    screen.export_focus = ExportFocus::Scope;
+    screen.export_focus = ExportFocus::ExportPassword;
 }
 
 #[test]
-fn export_scope_options() {
-    let screen = ImportExportScreen::new();
-    assert_eq!(screen.export_scope_option, ExportScopeOption::All);
+fn export_submit_always_uses_okb_all_records() {
+    let mut screen = ImportExportScreen::new();
+    screen.mode = ImportExportMode::Export;
+    screen.export_step = ExportStep::MasterPasswordConfirm;
+    screen.export_format = ExportFormat::Csv;
+    screen.export_output_path = "/tmp/plain.csv".to_string();
+    screen.export_password = sensitive("export-password");
+    screen.master_password = sensitive("master-password");
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    let result = ScreenTrait::update(
+        &mut screen,
+        Message::KeyEvent(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        )),
+        &mut ctx,
+    );
+
+    assert!(matches!(result, ScreenResult::Continue));
+    let command = rx.try_recv().expect("export command should be queued");
+    match command {
+        Command::ExecuteExport { scope, format, .. } => {
+            assert_eq!(scope, ExportScope::All);
+            assert_eq!(format, ExportFormat::Okb);
+        }
+        other => panic!("expected ExecuteExport, got {other:?}"),
+    }
+}
+
+#[test]
+fn output_path_supports_readline_style_editing() {
+    let mut screen = ImportExportScreen::new();
+    screen.mode = ImportExportMode::Export;
+    screen.export_focus = ExportFocus::OutputPath;
+    screen.export_output_path = "/tmp/keyring-backup.okb".to_string();
+    screen.export_output_path_cursor = screen.export_output_path.len();
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let config = crate::config::AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('b')), &mut ctx);
+    assert_eq!(
+        screen.export_output_path_cursor,
+        "/tmp/keyring-backup.".len()
+    );
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('f')), &mut ctx);
+    assert_eq!(
+        screen.export_output_path_cursor,
+        "/tmp/keyring-backup.okb".len()
+    );
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('w')), &mut ctx);
+    assert_eq!(screen.export_output_path, "/tmp/keyring-backup.");
+    assert_eq!(
+        screen.export_output_path_cursor,
+        "/tmp/keyring-backup.".len()
+    );
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('u')), &mut ctx);
+    assert_eq!(screen.export_output_path, "");
+    assert_eq!(screen.export_output_path_cursor, 0);
+
+    for ch in "okb".chars() {
+        ScreenTrait::update(
+            &mut screen,
+            Message::KeyEvent(key(crossterm::event::KeyCode::Char(ch))),
+            &mut ctx,
+        );
+    }
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('e')), &mut ctx);
+    assert_eq!(screen.export_output_path_cursor, "okb".len());
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('a')), &mut ctx);
+    assert_eq!(screen.export_output_path_cursor, 0);
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('f')), &mut ctx);
+    assert_eq!(screen.export_output_path_cursor, "okb".len());
+
+    ScreenTrait::update(
+        &mut screen,
+        Message::KeyEvent(key(crossterm::event::KeyCode::Left)),
+        &mut ctx,
+    );
+    assert_eq!(screen.export_output_path_cursor, "ok".len());
+
+    ScreenTrait::update(
+        &mut screen,
+        Message::KeyEvent(key(crossterm::event::KeyCode::Right)),
+        &mut ctx,
+    );
+    assert_eq!(screen.export_output_path_cursor, "okb".len());
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('a')), &mut ctx);
+    ScreenTrait::update(
+        &mut screen,
+        Message::KeyEvent(key(crossterm::event::KeyCode::Char('/'))),
+        &mut ctx,
+    );
+    assert_eq!(screen.export_output_path, "/okb");
+    assert_eq!(screen.export_output_path_cursor, 1);
+
+    ScreenTrait::update(&mut screen, Message::KeyEvent(ctrl('k')), &mut ctx);
+    assert_eq!(screen.export_output_path, "/");
+    assert_eq!(screen.export_output_path_cursor, 1);
 }
 
 #[test]
@@ -200,7 +325,6 @@ fn import_export_restore_state_restores_navigation_without_sensitive_buffers() {
     screen.import_focus = ImportFocus::CsvUsername;
     screen.export_step = ExportStep::MasterPasswordConfirm;
     screen.export_focus = ExportFocus::ConfirmPassword;
-    screen.export_scope_option = ExportScopeOption::CurrentFilter;
     screen.decrypt_password = sensitive("secret");
     screen.export_password = sensitive("export-secret");
     screen.master_password = sensitive("master-secret");
@@ -216,10 +340,6 @@ fn import_export_restore_state_restores_navigation_without_sensitive_buffers() {
     assert_eq!(restored.import_focus, ImportFocus::CsvUsername);
     assert_eq!(restored.export_step, ExportStep::MasterPasswordConfirm);
     assert_eq!(restored.export_focus, ExportFocus::ConfirmPassword);
-    assert_eq!(
-        restored.export_scope_option,
-        ExportScopeOption::CurrentFilter
-    );
     assert!(restored.decrypt_password.is_empty());
     assert!(restored.export_password.is_empty());
     assert!(restored.master_password.is_empty());

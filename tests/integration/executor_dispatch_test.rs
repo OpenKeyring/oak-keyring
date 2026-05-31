@@ -5,7 +5,7 @@ use oak_keyring::crypto::{
     bip39::{MnemonicLanguage, Passkey},
     xchacha20,
 };
-use oak_keyring::executor::{CommandExecutor, DbStartupMode};
+use oak_keyring::executor::{ActivityTracker, CommandExecutor, DbStartupMode};
 use oak_keyring::types::SecureStr;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -71,6 +71,7 @@ async fn test_executor() -> ExecutorHarness {
         data_dir,
         config_dir,
         DbStartupMode::FileBacked,
+        ActivityTracker::new(),
     )
     .unwrap();
 
@@ -107,6 +108,7 @@ async fn executor_can_be_constructed() {
         data_dir,
         config_dir,
         DbStartupMode::FileBacked,
+        ActivityTracker::new(),
     );
     assert!(executor.is_ok());
     assert!(!executor.unwrap().is_unlocked());
@@ -128,6 +130,7 @@ fn executor_without_existing_vault_does_not_create_vault_db_on_startup() {
         data_dir.clone(),
         config_dir,
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .expect("executor should construct");
 
@@ -157,6 +160,7 @@ async fn executor_run_loop_processes_commands() {
         data_dir,
         config_dir,
         DbStartupMode::FileBacked,
+        ActivityTracker::new(),
     )
     .unwrap();
 
@@ -209,6 +213,7 @@ async fn restore_database_from_okb_rejects_empty_path() {
         data_dir,
         config_dir,
         DbStartupMode::FileBacked,
+        ActivityTracker::new(),
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -253,6 +258,7 @@ async fn restore_database_from_okb_rejects_missing_file() {
         data_dir,
         config_dir,
         DbStartupMode::FileBacked,
+        ActivityTracker::new(),
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -297,6 +303,7 @@ async fn restore_database_from_okb_wrong_password_does_not_create_vault_db() {
         data_dir.clone(),
         config_dir,
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -352,6 +359,7 @@ async fn restore_database_from_malformed_okb_does_not_create_vault_db() {
         data_dir.clone(),
         config_dir,
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -404,6 +412,7 @@ async fn restore_database_from_empty_okb_does_not_create_vault_db() {
         data_dir.clone(),
         config_dir,
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -452,6 +461,7 @@ async fn restore_database_from_okb_without_cached_master_password_does_not_creat
         data_dir.clone(),
         config_dir,
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -521,6 +531,7 @@ async fn restore_database_from_okb_with_valid_records_creates_vault_db() {
         data_dir.clone(),
         config_dir,
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -593,6 +604,7 @@ fn executor_with_key_only_does_not_create_vault_db() {
         data_dir.clone(),
         config_dir,
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .expect("executor should construct");
 
@@ -618,6 +630,7 @@ fn executor_with_empty_vault_state_does_not_create_vault_db() {
         data_dir.clone(),
         config_dir,
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .expect("executor should construct without creating vault.db");
 
@@ -644,6 +657,7 @@ async fn initialize_vault_creates_file_backed_database_after_empty_startup() {
         data_dir.clone(),
         config_dir,
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });
@@ -694,6 +708,7 @@ async fn initialize_vault_db_failure_removes_new_key_file() {
         data_dir.clone(),
         config_dir,
         DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .unwrap();
     let handle = tokio::spawn(async move { executor.run(command_rx).await });

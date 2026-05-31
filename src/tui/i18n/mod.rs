@@ -84,7 +84,7 @@ pub struct LocaleGuard {
 #[cfg(test)]
 impl LocaleGuard {
     pub fn new(locale: &str) -> Self {
-        let lock = LOCALE_LOCK.lock().unwrap();
+        let lock = LOCALE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let original = rust_i18n::locale().to_string();
         init(locale);
         Self {

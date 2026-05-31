@@ -1,6 +1,9 @@
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::cloud::{
+    AadFields, CloudPrivateMetadata, CloudRecord, EncryptedRecordMetadata, RecordMetadata,
+};
 use crate::commands::types::{FieldSelector, RecordFilter, RecordSort, SortDirection, SortField};
 use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 use crate::crypto::payload;
@@ -11,6 +14,7 @@ use crate::services::vault::VaultService;
 use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::record::{CreateRecordParams, DecryptedRecord, UpdateRecordParams};
+use crate::types::record_limits::{MAX_RECORD_NAME_CHARS, MAX_TAGS_PER_RECORD};
 use crate::types::sensitive::SecureStr;
 
 /// Helper: create an in-memory VaultService with schema initialized.
@@ -35,6 +39,57 @@ fn sample_login_payload(name: &str) -> EncryptedPayload {
         password: SecureStr::new("s3cret!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+    }
+}
+
+fn build_downloaded_cloud_record(
+    svc: &VaultService,
+    id: Uuid,
+    credential_type: CredentialType,
+    payload: &EncryptedPayload,
+    tags: Vec<String>,
+) -> CloudRecord {
+    use base64::Engine;
+
+    let aad = format!("record:{}", id);
+    let (encrypted_data, nonce) =
+        payload::encrypt_payload(&svc.crypto, payload, aad.as_bytes()).unwrap();
+    let private_metadata = CloudPrivateMetadata {
+        name: "Downloaded".to_string(),
+        tags,
+        credential_type: Some(credential_type),
+        ..Default::default()
+    };
+    let private_json = serde_json::to_vec(&private_metadata).unwrap();
+    let metadata_aad = format!("cloud-metadata:{}", id);
+    let (private_encrypted, private_nonce) = svc
+        .crypto
+        .encrypt(&private_json, metadata_aad.as_bytes())
+        .unwrap();
+
+    CloudRecord {
+        id: id.to_string(),
+        version: 1,
+        encrypted_data: base64::engine::general_purpose::STANDARD.encode(encrypted_data),
+        nonce: base64::engine::general_purpose::STANDARD.encode(nonce),
+        dek_version: svc.crypto.current_dek_version(),
+        aad: AadFields {
+            record_id: id.to_string(),
+            dek_version: svc.crypto.current_dek_version(),
+        },
+        metadata: RecordMetadata {
+            name: "encrypted".to_string(),
+            tags: Vec::new(),
+            updated_at: Utc::now().to_rfc3339(),
+            encrypted_metadata: Some(EncryptedRecordMetadata {
+                encrypted_data: base64::engine::general_purpose::STANDARD.encode(private_encrypted),
+                nonce: base64::engine::general_purpose::STANDARD.encode(private_nonce),
+                dek_version: svc.crypto.current_dek_version(),
+            }),
+            ..Default::default()
+        },
+        deleted: None,
+        deleted_at: None,
     }
 }
 
@@ -181,6 +236,83 @@ fn create_record_stores_encrypted_data_and_nonce() {
         "encrypted_data must not be empty"
     );
     assert_eq!(stored.nonce.len(), 24, "nonce must be 24 bytes");
+}
+
+#[test]
+fn create_record_rejects_too_many_tags() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    let params = CreateRecordParams {
+        credential_type: CredentialType::Login,
+        payload: sample_login_payload("TooManyTags"),
+        tags: (0..11).map(|n| format!("tag-{n}")).collect(),
+        is_favorite: false,
+        expires_at: None,
+    };
+
+    let result = svc.create_record(params);
+    assert!(
+        result.is_err(),
+        "service validation must reject records with more than 10 tags"
+    );
+}
+
+#[test]
+fn create_record_rejects_login_name_over_limit() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    let params = CreateRecordParams {
+        credential_type: CredentialType::Login,
+        payload: sample_login_payload(&"a".repeat(MAX_RECORD_NAME_CHARS + 1)),
+        tags: vec![],
+        is_favorite: false,
+        expires_at: None,
+    };
+
+    let result = svc.create_record(params);
+    assert!(
+        result.is_err(),
+        "service validation must reject overlong record names"
+    );
+}
+
+#[test]
+fn apply_downloaded_cloud_record_rejects_too_many_tags() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = Uuid::new_v4();
+    let record = build_downloaded_cloud_record(
+        &svc,
+        id,
+        CredentialType::Login,
+        &sample_login_payload("RemoteTags"),
+        (0..=MAX_TAGS_PER_RECORD)
+            .map(|n| format!("tag-{n}"))
+            .collect(),
+    );
+
+    let result = svc.apply_downloaded_cloud_record(&record);
+    assert!(
+        matches!(result, Err(VaultError::DataError(_))),
+        "sync download must reject records with more than {MAX_TAGS_PER_RECORD} tags"
+    );
+}
+
+#[test]
+fn apply_downloaded_cloud_record_rejects_overlong_payload() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = Uuid::new_v4();
+    let payload = sample_login_payload(&"a".repeat(MAX_RECORD_NAME_CHARS + 1));
+    let record = build_downloaded_cloud_record(&svc, id, CredentialType::Login, &payload, vec![]);
+
+    let result = svc.apply_downloaded_cloud_record(&record);
+    assert!(
+        matches!(result, Err(VaultError::DataError(_))),
+        "sync download must reject overlong decrypted payload fields"
+    );
 }
 
 // --- DEK version is stored correctly ---
@@ -364,6 +496,47 @@ fn get_decrypted_record_decrypts_login_credentials() {
             assert!(!is_favorite);
         }
         other => panic!("expected DecryptedRecord::Login, got {:?}", other),
+    }
+}
+
+#[test]
+fn get_decrypted_record_decrypts_secure_note() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    let params = CreateRecordParams {
+        credential_type: CredentialType::SecureNote,
+        payload: EncryptedPayload::SecureNote {
+            name: "Secure Note".to_string(),
+            notes: Some("private note body".to_string()),
+        },
+        tags: vec!["notes".to_string()],
+        is_favorite: true,
+        expires_at: None,
+    };
+
+    let id = svc
+        .create_record(params)
+        .expect("create_record must succeed");
+
+    let decrypted = svc
+        .get_decrypted_record(id)
+        .expect("get_decrypted_record must succeed");
+
+    match decrypted {
+        DecryptedRecord::SecureNote {
+            name,
+            notes,
+            tags,
+            is_favorite,
+            ..
+        } => {
+            assert_eq!(name, "Secure Note");
+            assert_eq!(notes.as_deref(), Some("private note body"));
+            assert_eq!(tags, vec!["notes"]);
+            assert!(is_favorite);
+        }
+        other => panic!("expected DecryptedRecord::SecureNote, got {:?}", other),
     }
 }
 
@@ -1278,6 +1451,88 @@ fn list_records_all_returns_all_active_records() {
     assert_eq!(records.len(), 3, "should return 3 active records");
 }
 
+#[test]
+fn list_records_page_limits_offsets_and_reports_total() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    for idx in 0..12 {
+        create_named_record(&mut svc, &format!("record-{idx:02}"));
+    }
+
+    let sort = RecordSort {
+        field: SortField::Name,
+        direction: SortDirection::Asc,
+    };
+
+    let (records, total) = svc
+        .list_records_page(&RecordFilter::All, &sort, 5, 5)
+        .expect("list_records_page must succeed");
+
+    assert_eq!(total, 12);
+    assert_eq!(records.len(), 5);
+    assert_eq!(records[0].name, "record-05");
+    assert_eq!(records[4].name, "record-09");
+}
+
+#[test]
+fn list_records_page_searches_index_before_pagination() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    for idx in 0..12 {
+        create_named_record(&mut svc, &format!("record-{idx:02}"));
+    }
+    create_named_record(&mut svc, "zz-special-target");
+
+    let sort = RecordSort {
+        field: SortField::Name,
+        direction: SortDirection::Asc,
+    };
+
+    let (records, total) = svc
+        .list_records_page(
+            &RecordFilter::Search("special target".to_string()),
+            &sort,
+            5,
+            0,
+        )
+        .expect("search page must succeed");
+
+    assert_eq!(total, 1);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].name, "zz-special-target");
+}
+
+#[test]
+fn list_records_page_rebuilds_missing_index_after_unlock() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+
+    create_named_record(&mut svc, "Indexed Later");
+    svc.conn
+        .execute("DELETE FROM record_list_index", [])
+        .expect("delete index rows");
+    svc.conn
+        .execute(
+            "DELETE FROM metadata WHERE key = 'record_list_index_version'",
+            [],
+        )
+        .expect("delete index metadata");
+
+    let sort = RecordSort {
+        field: SortField::Name,
+        direction: SortDirection::Asc,
+    };
+
+    let (records, total) = svc
+        .list_records_page(&RecordFilter::Search("indexed".to_string()), &sort, 5, 0)
+        .expect("list_records_page should rebuild index");
+
+    assert_eq!(total, 1);
+    assert_eq!(records[0].name, "Indexed Later");
+}
+
 // --- list_records: sort by UpdatedAt Desc uses correct ordering ---
 
 #[test]
@@ -2044,6 +2299,54 @@ fn decrypt_field_password_writes_audit_record_view_password() {
         .expect("expected a RecordViewPassword audit entry");
     assert_eq!(view_entry.record_id, Some(id));
     assert_eq!(view_entry.record_name.as_deref(), Some("TestLogin"));
+}
+
+// --- decrypt_field_for_copy: Password field writes audit RecordCopyPassword ---
+
+#[test]
+fn decrypt_field_for_copy_password_writes_audit_record_copy_password() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    svc.decrypt_field_for_copy(id, FieldSelector::Password)
+        .expect("decrypt_field_for_copy must succeed");
+
+    let entries =
+        queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+    let copy_entry = entries
+        .iter()
+        .find(|e| e.operation == AuditOperation::RecordCopyPassword)
+        .expect("expected a RecordCopyPassword audit entry");
+    assert_eq!(copy_entry.record_id, Some(id));
+    assert_eq!(copy_entry.record_name.as_deref(), Some("TestLogin"));
+    assert!(
+        entries
+            .iter()
+            .all(|e| e.operation != AuditOperation::RecordViewPassword),
+        "copying must not also write a generic view-password audit entry"
+    );
+}
+
+// --- decrypt_field_for_copy: non-secret fields write audit RecordCopyField ---
+
+#[test]
+fn decrypt_field_for_copy_username_writes_audit_record_copy_field() {
+    let mut svc = setup_service();
+    unlock_service(&mut svc);
+    let id = create_test_login_record(&mut svc);
+
+    svc.decrypt_field_for_copy(id, FieldSelector::Username)
+        .expect("decrypt_field_for_copy must succeed");
+
+    let entries =
+        queries::list_audit_entries(&svc.conn, 10, 0).expect("list_audit_entries must succeed");
+    let copy_entry = entries
+        .iter()
+        .find(|e| e.operation == AuditOperation::RecordCopyField)
+        .expect("expected a RecordCopyField audit entry");
+    assert_eq!(copy_entry.record_id, Some(id));
+    assert_eq!(copy_entry.record_name.as_deref(), Some("TestLogin"));
 }
 
 // --- decrypt_field: Passphrase field writes audit RecordViewPassword ---

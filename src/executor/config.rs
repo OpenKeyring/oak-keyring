@@ -28,7 +28,7 @@ pub fn handle_save_config(executor: &mut CommandExecutor, config: AppConfig) -> 
                 tracing::info!(changed_fields = ?changed, warnings = warnings.len(), "Config saved and changes applied");
             }
 
-            CommandResult::ConfigSaved { warnings }
+            CommandResult::ConfigSaved { config, warnings }
         }
         Err(e) => CommandResult::Error {
             code: ErrorCode::ConfigSaveFailed,
@@ -90,8 +90,9 @@ fn apply_config_changes(
             .notify_config_change(new_config, &[]);
         for result in &results {
             if let Err(e) = result {
-                tracing::error!(error = %e, "Service failed to reload config");
-                warnings.push(format!("Service reload failed: {}", e));
+                let message = crate::security::redaction::redact_sensitive_values(&e.to_string());
+                tracing::error!(error = %message, "Service failed to reload config");
+                warnings.push(format!("Service reload failed: {}", message));
             }
         }
     }
@@ -115,9 +116,11 @@ fn apply_config_changes(
                         tracing::info!("SyncService rebuilt with updated config");
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e, "SyncService rebuild failed — sync disabled");
+                        let message =
+                            crate::security::redaction::redact_sensitive_values(&e.to_string());
+                        tracing::warn!(error = %message, "SyncService rebuild failed — sync disabled");
                         executor.sync = None;
-                        warnings.push(format!("Sync service rebuild failed: {}", e));
+                        warnings.push(format!("Sync service rebuild failed: {}", message));
                     }
                 }
             }
@@ -250,8 +253,11 @@ pub async fn handle_oauth2_authorize_google_drive(executor: &mut CommandExecutor
     });
 
     // Fire-and-forget: the actual result comes back via the spawned task.
-    // Return a neutral result so the UI doesn't prematurely set Authorized state.
-    CommandResult::ConfigSaved { warnings: vec![] }
+    // Return the current config as a neutral load so OAuth startup never
+    // overwrites the UI with AppConfig::default().
+    CommandResult::ConfigLoaded {
+        config: executor.config.get_config(),
+    }
 }
 
 #[tracing::instrument(skip_all)]
@@ -419,7 +425,7 @@ mod tests {
 
         let result = handle_save_config(&mut executor, new_config);
         match result {
-            CommandResult::ConfigSaved { warnings } => {
+            CommandResult::ConfigSaved { warnings, .. } => {
                 assert!(warnings.is_empty());
             }
             _ => panic!("Expected ConfigSaved"),

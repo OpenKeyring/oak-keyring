@@ -16,7 +16,7 @@ pub async fn handle_copy_to_clipboard(
     // Step 1: Decrypt field via VaultService
     let plaintext = match executor
         .vault_mut()
-        .and_then(|v| v.decrypt_field(id, field))
+        .and_then(|v| v.decrypt_field_for_copy(id, field))
     {
         Ok(s) => s,
         Err(e) => {

@@ -3,6 +3,7 @@ pub mod credential;
 pub mod health;
 pub mod history;
 pub mod record;
+pub mod record_limits;
 pub mod recovery_words;
 pub mod rotation;
 pub mod sensitive;
