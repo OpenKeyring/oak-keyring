@@ -9,6 +9,9 @@
     "bin",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "os": [
     "darwin"
