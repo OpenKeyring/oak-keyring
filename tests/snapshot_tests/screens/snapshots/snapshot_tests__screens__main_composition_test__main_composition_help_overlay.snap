@@ -25,4 +25,4 @@ expression: backend
 "                      │  p/Ctrl+G  Password generator│                       │                      "
 "                      │  g         Settings       │                          │                      "
 "──────────────────────│  l         Audit log      │                          │──────────────────────"
-"  Ctrl+K Search  Ctrl+└──────────────────────────────────────────────────────┘3 │ — Not configured  "
+"  Ctrl+K Search  Ctrl+└──────────────────────────────────────────────────────┘1 │ — Not configured  "
