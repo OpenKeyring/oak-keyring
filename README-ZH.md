@@ -2,6 +2,11 @@
 
 [English](README.md) | 简体中文
 
+[![Release](https://img.shields.io/github/v/release/OpenKeyring/oak-keyring?include_prereleases&label=release)](https://github.com/OpenKeyring/oak-keyring/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/OpenKeyring/oak-keyring/ci.yml?branch=develop&label=ci)](https://github.com/OpenKeyring/oak-keyring/actions/workflows/ci.yml?query=branch%3Adevelop)
+[![npm](https://img.shields.io/npm/v/%40openkeyring%2Fok?label=npm)](https://www.npmjs.com/package/@openkeyring/ok)
+[![License](https://img.shields.io/github/license/OpenKeyring/oak-keyring)](LICENSE)
+
 oak-keyring 是一个 privacy-first、local-first 的密码管理器，提供键盘驱动的终端 TUI 体验。
 
 它面向习惯在终端中工作的用户：你可以在交互式全屏 TUI 中浏览、创建和编辑记录，生成密码，复制敏感字段，导入导出数据，并完成密码库恢复流程。
