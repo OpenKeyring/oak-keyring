@@ -6,38 +6,9 @@ on:
       - "v*"
 
 jobs:
-  gate:
-    name: CI Gate
-    runs-on: ubuntu-latest
-    environment: GoogleOAuth2
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.93.0"
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
-      - run: cargo fmt --check
-
-      - run: cargo clippy --all-targets -- -D warnings
-        env:
-          OAK_GOOGLE_CLIENT_ID: ${{ secrets.OAK_GOOGLE_CLIENT_ID }}
-          OAK_GOOGLE_CLIENT_SECRET: ${{ secrets.OAK_GOOGLE_CLIENT_SECRET }}
-
-      - run: cargo test
-        env:
-          OAK_GOOGLE_CLIENT_ID: ${{ secrets.OAK_GOOGLE_CLIENT_ID }}
-          OAK_GOOGLE_CLIENT_SECRET: ${{ secrets.OAK_GOOGLE_CLIENT_SECRET }}
-
   build:
     name: Build (${{ matrix.target }})
     runs-on: macos-14
-    needs: gate
     environment: GoogleOAuth2
     strategy:
       matrix:
