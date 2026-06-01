@@ -28,7 +28,7 @@ stage_binary() {
   local binary_path
 
   if [[ -f "$archive" ]]; then
-    binary_path="$(tar -tzf "$archive" | awk '/\/ok$/ { print; exit }')"
+    binary_path="$(tar -tzf "$archive" | awk 'found == "" && /\/ok$/ { found = $0 } END { print found }')"
     if [[ -z "$binary_path" ]]; then
       echo "No ok binary found in $archive" >&2
       exit 1
