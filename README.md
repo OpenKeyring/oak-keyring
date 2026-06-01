@@ -2,6 +2,11 @@
 
 English | [简体中文](README-ZH.md)
 
+[![Release](https://img.shields.io/github/v/release/OpenKeyring/oak-keyring?include_prereleases&label=release)](https://github.com/OpenKeyring/oak-keyring/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/OpenKeyring/oak-keyring/ci.yml?branch=develop&label=ci)](https://github.com/OpenKeyring/oak-keyring/actions/workflows/ci.yml?query=branch%3Adevelop)
+[![npm](https://img.shields.io/npm/v/%40openkeyring%2Fok?label=npm)](https://www.npmjs.com/package/@openkeyring/ok)
+[![License](https://img.shields.io/github/license/OpenKeyring/oak-keyring)](LICENSE)
+
 oak-keyring is a privacy-first, local-first password manager with a
 keyboard-driven terminal UI.
 
