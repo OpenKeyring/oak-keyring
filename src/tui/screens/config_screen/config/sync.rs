@@ -1,5 +1,5 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
@@ -12,9 +12,8 @@ use crate::tui::theme;
 
 // ── Color palette (for provider-specific field area, not focusable) ────────
 
-const LABEL: ratatui::style::Color = ratatui::style::Color::Rgb(86, 95, 137);
-const VALUE: ratatui::style::Color = ratatui::style::Color::Rgb(192, 202, 245);
-const DIVIDER: ratatui::style::Color = ratatui::style::Color::Rgb(41, 46, 66);
+const LABEL: ratatui::style::Color = theme::NL_TEXT_MUTED;
+const VALUE: ratatui::style::Color = theme::NL_TEXT;
 
 // ── Masking helpers ────────────────────────────────────────────────────────
 
@@ -46,25 +45,15 @@ pub fn render(
     sync_error_message: Option<&str>,
     focused: usize,
 ) {
-    let dim_style = Style::default().fg(theme::TEXT_SECONDARY).bold();
-    let normal_style = Style::default().fg(theme::TEXT);
-    let focused_style = Style::default()
-        .fg(theme::TEXT)
-        .add_modifier(Modifier::BOLD)
-        .bg(theme::BG_SURFACE);
-
-    // Count provider-specific field rows so we can size the layout dynamically.
     let field_count = provider_field_count(&form.provider_config, &gdrive_auth_status);
-
-    // Build constraints: title, provider, mode, interval, divider, N fields, button+status
     let mut constraints: Vec<Constraint> = Vec::with_capacity(6 + field_count as usize);
-    constraints.push(Constraint::Length(1)); // Title
+    constraints.push(Constraint::Length(2)); // Title
     constraints.push(Constraint::Length(1)); // Provider
     constraints.push(Constraint::Length(1)); // Sync mode
     constraints.push(Constraint::Length(1)); // Auto interval
-    constraints.push(Constraint::Length(1)); // Divider
 
     if field_count > 0 {
+        constraints.push(Constraint::Length(1)); // Divider
         constraints.push(Constraint::Length(field_count)); // Provider fields
     }
 
@@ -78,14 +67,9 @@ pub fn render(
 
     let mut row = 0;
 
-    // ── Title (not focusable) ─────────────────────────────────────────────
-    frame.render_widget(
-        Paragraph::new(t!("tui.config.tab_sync").to_string()).style(dim_style),
-        chunks[row],
-    );
+    super::render::render_section_title(frame, chunks[row], t!("tui.config.tab_sync").as_ref());
     row += 1;
 
-    // ── Provider dropdown (focus index 0) ─────────────────────────────────
     let provider_name = match form.provider {
         SyncProvider::Disabled => t!("tui.config.sync_disabled").to_string(),
         SyncProvider::ICloud => t!("tui.config.sync_icloud").to_string(),
@@ -101,76 +85,51 @@ pub fn render(
         SyncProvider::HuaweiObs => t!("tui.config.sync_huawei_obs").to_string(),
         SyncProvider::Upyun => t!("tui.config.sync_upyun").to_string(),
     };
-    frame.render_widget(
-        Paragraph::new(format!(
-            "{}     [ {} {} ]",
-            t!("tui.config.sync_provider"),
-            provider_name,
-            theme::ICON_DROPDOWN
-        ))
-        .style(if focused == 0 {
-            focused_style
-        } else {
-            normal_style
-        }),
+    super::render::render_setting_row(
+        frame,
         chunks[row],
+        theme::NF_SYNC,
+        t!("tui.config.sync_provider").as_ref(),
+        &super::render::dropdown_control(&provider_name),
+        focused == 0,
+        true,
     );
     row += 1;
 
-    // ── Sync mode (focus index 1) ─────────────────────────────────────────
     let mode_label = match form.sync_mode {
         SyncMode::Auto => t!("tui.config.sync_mode_auto").to_string(),
         SyncMode::Manual => t!("tui.config.sync_mode_manual").to_string(),
     };
-    frame.render_widget(
-        Paragraph::new(format!(
-            "{}            [ {} {} ]",
-            t!("tui.config.sync_mode"),
-            mode_label,
-            theme::ICON_DROPDOWN
-        ))
-        .style(if focused == 1 {
-            focused_style
-        } else {
-            normal_style
-        }),
+    super::render::render_setting_row(
+        frame,
         chunks[row],
+        theme::NF_SLIDERS,
+        t!("tui.config.sync_mode").as_ref(),
+        &super::render::dropdown_control(&mode_label),
+        focused == 1,
+        true,
     );
     row += 1;
 
-    // ── Auto interval (focus index 2) ─────────────────────────────────────
-    let interval_style = if form.sync_mode == SyncMode::Manual {
-        Style::default()
-            .fg(theme::TEXT_MUTED)
-            .add_modifier(Modifier::DIM)
-    } else if focused == 2 {
-        focused_style
-    } else {
-        normal_style
-    };
-    frame.render_widget(
-        Paragraph::new(format!(
-            "{}        [ {} {} ]",
-            t!("tui.config.sync_interval"),
-            t!("tui.config.seconds", n = form.auto_interval_seconds),
-            theme::ICON_DROPDOWN
-        ))
-        .style(interval_style),
+    super::render::render_setting_row(
+        frame,
         chunks[row],
+        theme::NF_CLOCK,
+        t!("tui.config.sync_interval").as_ref(),
+        &super::render::dropdown_control(&t!("tui.config.seconds", n = form.auto_interval_seconds)),
+        focused == 2,
+        form.sync_mode != SyncMode::Manual,
     );
     row += 1;
 
-    // ── Divider (not focusable) ───────────────────────────────────────────
-    let divider_width = area.width as usize;
-    let divider_text: String = "\u{2500}".repeat(divider_width);
-    frame.render_widget(
-        Paragraph::new(divider_text).style(Style::default().fg(DIVIDER)),
-        chunks[row],
-    );
-    row += 1;
-
-    // ── Provider-specific fields (not focusable) ──────────────────────────
     if field_count > 0 {
+        let divider_text: String = "┄".repeat(area.width as usize);
+        frame.render_widget(
+            Paragraph::new(divider_text).style(Style::default().fg(theme::NL_LINE)),
+            chunks[row],
+        );
+        row += 1;
+
         let field_area = chunks[row];
         let field_constraints = (0..field_count)
             .map(|_| Constraint::Length(1))
@@ -185,6 +144,7 @@ pub fn render(
             &form.provider_config,
             gdrive_auth_status,
             last_sync,
+            focused,
             &field_chunks,
             &mut fi,
             frame,
@@ -192,15 +152,14 @@ pub fn render(
         row += 1;
     }
 
-    // ── Test button + status (focus index 3) ──────────────────────────────
-    let (status_text, status_color) = match status {
+    let (status_text, enabled) = match status {
         SyncConnectionStatus::Connected => (
             format!(
                 "{} {}",
                 theme::ICON_SUCCESS,
                 t!("tui.config.sync_connected")
             ),
-            ratatui::style::Color::Rgb(158, 206, 106),
+            true,
         ),
         SyncConnectionStatus::Disconnected => {
             let base = format!(
@@ -212,7 +171,7 @@ pub fn render(
                 Some(err) if !err.is_empty() => format!("{}: {}", base, err),
                 _ => base,
             };
-            (text, ratatui::style::Color::Rgb(247, 118, 142))
+            (text, true)
         }
         SyncConnectionStatus::NotConfigured => (
             format!(
@@ -220,7 +179,7 @@ pub fn render(
                 theme::ICON_NOT_CONFIGURED,
                 t!("tui.config.sync_not_configured")
             ),
-            ratatui::style::Color::Rgb(59, 66, 97),
+            false,
         ),
         SyncConnectionStatus::Testing => (
             format!(
@@ -228,23 +187,26 @@ pub fn render(
                 theme::ICON_SYNC_SYNCING,
                 t!("tui.config.sync_testing")
             ),
-            theme::PRIMARY,
+            true,
         ),
     };
 
-    let status_line = format!(
-        "[ {} ]   {}  {}",
-        t!("tui.config.sync_test_button"),
-        t!("tui.config.sync_status"),
-        status_text
-    );
-    frame.render_widget(
-        Paragraph::new(status_line).style(if focused == 3 {
-            focused_style
-        } else {
-            Style::default().fg(status_color)
-        }),
+    super::render::render_setting_row(
+        frame,
         chunks[row],
+        theme::NF_CHECK_CIRCLE,
+        t!("tui.config.sync_test_button").as_ref(),
+        &super::render::plain_control(&format!(
+            "{}  {}",
+            t!("tui.config.sync_status"),
+            status_text
+        )),
+        if form.provider == SyncProvider::GoogleDrive {
+            focused == 4
+        } else {
+            focused == 3
+        },
+        enabled,
     );
 }
 
@@ -280,6 +242,7 @@ fn render_provider_fields(
     pc: &Option<ProviderConfig>,
     gdrive_auth_status: GDriveAuthStatus,
     last_sync: Option<DateTime<Utc>>,
+    focused: usize,
     chunks: &[Rect],
     fi: &mut u16,
     frame: &mut Frame,
@@ -335,16 +298,17 @@ fn render_provider_fields(
                 GDriveAuthStatus::Authorizing => &t!("tui.config.sync_authorizing"),
                 GDriveAuthStatus::Authorized => &t!("tui.config.sync_authorized"),
             };
-            render_label_value(
+            render_label_value_focused(
                 chunks,
                 fi,
                 frame,
                 &t!("tui.config.sync_action"),
                 button_text,
                 LABEL,
+                focused == 3,
             );
 
-            let l = t!("tui.config.field_work_dir");
+            let l = t!("tui.config.field_google_drive_dir");
             render_field(chunks, fi, frame, &l, &cfg.root_path, false);
         }
         Some(ProviderConfig::Dropbox(cfg)) => {
@@ -519,6 +483,18 @@ fn render_label_value(
     value: &str,
     label_color: ratatui::style::Color,
 ) {
+    render_label_value_focused(chunks, fi, frame, label, value, label_color, false);
+}
+
+fn render_label_value_focused(
+    chunks: &[Rect],
+    fi: &mut u16,
+    frame: &mut Frame,
+    label: &str,
+    value: &str,
+    label_color: ratatui::style::Color,
+    focused: bool,
+) {
     let idx = *fi as usize;
     if idx < chunks.len() {
         let row_area = chunks[idx];
@@ -527,13 +503,18 @@ fn render_label_value(
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(22), Constraint::Min(0)])
             .split(row_area);
+        let bg = if focused {
+            theme::NL_SELECTED
+        } else {
+            theme::NL_BG
+        };
 
         frame.render_widget(
-            Paragraph::new(label).style(Style::default().fg(label_color)),
+            Paragraph::new(label).style(Style::default().fg(label_color).bg(bg)),
             h_chunks[0],
         );
         frame.render_widget(
-            Paragraph::new(value.to_string()).style(Style::default().fg(VALUE)),
+            Paragraph::new(value.to_string()).style(Style::default().fg(VALUE).bg(bg)),
             h_chunks[1],
         );
     }

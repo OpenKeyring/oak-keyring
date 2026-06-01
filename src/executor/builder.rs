@@ -17,6 +17,7 @@ use crate::services::vault::Vault;
 
 use super::config_impl::{ClipboardConfigAdapter, ConfigManagerImpl, ServiceNotificationImpl};
 use super::runtime;
+use super::timer::ActivityTracker;
 use super::CommandExecutor;
 
 #[derive(Debug, thiserror::Error)]
@@ -51,6 +52,7 @@ pub struct ExecutorBuilder {
     last_health_check_time: Option<chrono::DateTime<chrono::Utc>>,
     verified_master_password: Option<crate::types::SecureStr>,
     oauth2_token_store: Option<Arc<tokio::sync::Mutex<Option<crate::cloud::oauth2::TokenStore>>>>,
+    activity: Option<ActivityTracker>,
 }
 
 impl ExecutorBuilder {
@@ -79,6 +81,7 @@ impl ExecutorBuilder {
             last_health_check_time: None,
             verified_master_password: None,
             oauth2_token_store: None,
+            activity: None,
         }
     }
 
@@ -183,6 +186,13 @@ impl ExecutorBuilder {
         self
     }
 
+    /// Set the activity tracker (optional, defaults to a fresh tracker).
+    #[must_use]
+    pub fn activity(mut self, tracker: ActivityTracker) -> Self {
+        self.activity = Some(tracker);
+        self
+    }
+
     /// Build the [`CommandExecutor`].
     ///
     /// # Errors
@@ -270,6 +280,7 @@ impl ExecutorBuilder {
             oauth2_token_store: self
                 .oauth2_token_store
                 .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(None))),
+            activity: self.activity.unwrap_or_default(),
         })
     }
 }

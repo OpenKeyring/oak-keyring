@@ -44,6 +44,7 @@ pub enum CommandResult {
     RecordListLoaded {
         records: Vec<TuiRecord>,
         total: usize,
+        category_counts: RecordCategoryCounts,
     },
     RecordDetailLoaded {
         record: DecryptedRecord,
@@ -189,6 +190,7 @@ pub enum CommandResult {
         config: AppConfig,
     },
     ConfigSaved {
+        config: AppConfig,
         warnings: Vec<String>,
     },
     SyncConnectionTested {

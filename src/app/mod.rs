@@ -2,7 +2,10 @@ use std::io;
 use std::time::Duration;
 
 use crate::instance_lock::InstanceLock;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -15,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use crate::commands::types::AppPhase;
 use crate::commands::{Command, Message};
 use crate::config::AppConfig;
-use crate::tui::animation::detect_animation_level;
+use crate::tui::animation::level_for_mode;
 use crate::tui::state::AppState;
 use crate::tui::terminal;
 
@@ -67,6 +70,8 @@ pub struct App {
     _instance_lock: InstanceLock,
     /// Startup vault file state used by UI routing and executor DB mode.
     pub vault_state: VaultInitState,
+    /// Shared activity tracker for auto-lock idle detection.
+    pub activity: Option<crate::executor::timer::ActivityTracker>,
 }
 
 impl App {
@@ -98,6 +103,7 @@ impl App {
             cancel_token,
             _instance_lock: instance_lock,
             vault_state,
+            activity: None,
         })
     }
 
@@ -111,6 +117,8 @@ impl App {
         // Instantiate and spawn the CommandExecutor.
         // It consumes command_rx and sends results back via result_tx.
         if let Some(command_rx) = self.command_rx.take() {
+            let activity = crate::executor::timer::ActivityTracker::new();
+            self.activity = Some(activity.clone());
             let executor = crate::executor::CommandExecutor::new(
                 self.config.clone(),
                 self.result_tx.clone(),
@@ -118,6 +126,7 @@ impl App {
                 self.vault_dir.clone(),
                 self.config_dir.clone(),
                 crate::executor::DbStartupMode::from_vault_state(self.vault_state),
+                activity,
             )?;
 
             executor_handle = Some(tokio::spawn(async move { executor.run(command_rx).await }));
@@ -126,7 +135,12 @@ impl App {
         // Terminal setup.
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        crossterm::execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -137,7 +151,7 @@ impl App {
         self.state.unicode_capable = terminal::WidthTier::from_width(width)
             != terminal::WidthTier::TooSmall
             || std::env::var("TERM").unwrap_or_default().contains("utf");
-        self.state.shared.animation.level = detect_animation_level();
+        self.state.shared.animation.level = level_for_mode(self.config.general.animation);
 
         // Set terminal title.
         terminal::set_terminal_title("OpenKeyring");
@@ -150,9 +164,17 @@ impl App {
 
         // Terminal cleanup (always attempt even if loop errored).
         terminal::clear_terminal_title();
+        // Clear the alternate screen buffer before switching back to avoid a
+        // brief flash of the last rendered frame.
+        let _ = terminal.clear();
         disable_raw_mode()?;
         let stdout = terminal.backend_mut();
-        crossterm::execute!(stdout, LeaveAlternateScreen, DisableMouseCapture)?;
+        crossterm::execute!(
+            stdout,
+            PopKeyboardEnhancementFlags,
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
 
         if let Some(handle) = executor_handle {
             let ok = rt.block_on(wait_for_executor_shutdown(handle));

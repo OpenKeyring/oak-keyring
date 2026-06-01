@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use uuid::Uuid;
 use zeroize::Zeroize;
@@ -49,11 +49,11 @@ pub struct ImportExportScreen {
     pub export_step: ExportStep,
     pub export_focus: ExportFocus,
     pub export_format: ExportFormat,
-    pub export_scope_option: ExportScopeOption,
     pub export_password: SensitiveInput,
     pub export_confirm_password: SensitiveInput,
     pub export_password_strength: Option<PasswordStrength>,
     pub export_output_path: String,
+    pub export_output_path_cursor: usize,
     pub master_password: SensitiveInput,
     pub export_result_path: Option<PathBuf>,
     pub export_record_count: usize,
@@ -64,6 +64,8 @@ pub struct ImportExportScreen {
 
 impl ImportExportScreen {
     pub fn new() -> Self {
+        let export_output_path = default_export_path(ExportFormat::Okb);
+        let export_output_path_cursor = export_output_path.len();
         Self {
             mode: ImportExportMode::Import,
             entry_point: ImportEntryPoint::ConfigPage,
@@ -96,13 +98,13 @@ impl ImportExportScreen {
             skip_breakdown: std::collections::HashMap::new(),
 
             export_step: ExportStep::Form,
-            export_focus: ExportFocus::Scope,
+            export_focus: ExportFocus::ExportPassword,
             export_format: ExportFormat::Okb,
-            export_scope_option: ExportScopeOption::All,
             export_password: SensitiveInput::new(),
             export_confirm_password: SensitiveInput::new(),
             export_password_strength: None,
-            export_output_path: default_export_path(ExportFormat::Okb),
+            export_output_path,
+            export_output_path_cursor,
             master_password: SensitiveInput::new(),
             export_result_path: None,
             export_record_count: 0,
@@ -144,24 +146,85 @@ impl ImportExportScreen {
         }
     }
 
-    fn update_export_path_extension(&mut self) {
-        if self.export_output_path.is_empty() {
-            return;
+    fn normalize_export_output_path_cursor(&mut self) {
+        self.export_output_path_cursor = self
+            .export_output_path_cursor
+            .min(self.export_output_path.len());
+        while self.export_output_path_cursor > 0
+            && !self
+                .export_output_path
+                .is_char_boundary(self.export_output_path_cursor)
+        {
+            self.export_output_path_cursor -= 1;
         }
-        let path = PathBuf::from(&self.export_output_path);
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("keyring-backup");
-        let ext = match self.export_format {
-            ExportFormat::Okb => "okb",
-            ExportFormat::Csv => "csv",
+    }
+
+    fn insert_export_output_path_char(&mut self, c: char) {
+        self.normalize_export_output_path_cursor();
+        self.export_output_path
+            .insert(self.export_output_path_cursor, c);
+        self.export_output_path_cursor += c.len_utf8();
+    }
+
+    fn backspace_export_output_path(&mut self) {
+        self.normalize_export_output_path_cursor();
+        let Some(prev) =
+            prev_char_boundary(&self.export_output_path, self.export_output_path_cursor)
+        else {
+            return;
         };
-        let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-        self.export_output_path = parent
-            .join(format!("{stem}.{ext}"))
-            .to_string_lossy()
-            .to_string();
+        self.export_output_path
+            .drain(prev..self.export_output_path_cursor);
+        self.export_output_path_cursor = prev;
+    }
+
+    fn move_export_output_path_left(&mut self) {
+        self.normalize_export_output_path_cursor();
+        if let Some(prev) =
+            prev_char_boundary(&self.export_output_path, self.export_output_path_cursor)
+        {
+            self.export_output_path_cursor = prev;
+        }
+    }
+
+    fn move_export_output_path_right(&mut self) {
+        self.normalize_export_output_path_cursor();
+        self.export_output_path_cursor =
+            next_char_boundary(&self.export_output_path, self.export_output_path_cursor);
+    }
+
+    fn move_export_output_path_word_left(&mut self) {
+        self.normalize_export_output_path_cursor();
+        self.export_output_path_cursor =
+            prev_path_word_boundary(&self.export_output_path, self.export_output_path_cursor);
+    }
+
+    fn move_export_output_path_word_right(&mut self) {
+        self.normalize_export_output_path_cursor();
+        self.export_output_path_cursor =
+            next_path_word_boundary(&self.export_output_path, self.export_output_path_cursor);
+    }
+
+    fn kill_export_output_path_before_cursor(&mut self) {
+        self.normalize_export_output_path_cursor();
+        self.export_output_path
+            .drain(..self.export_output_path_cursor);
+        self.export_output_path_cursor = 0;
+    }
+
+    fn kill_export_output_path_after_cursor(&mut self) {
+        self.normalize_export_output_path_cursor();
+        self.export_output_path
+            .truncate(self.export_output_path_cursor);
+    }
+
+    fn delete_export_output_path_previous_word(&mut self) {
+        self.normalize_export_output_path_cursor();
+        let start =
+            prev_path_word_boundary(&self.export_output_path, self.export_output_path_cursor);
+        self.export_output_path
+            .drain(start..self.export_output_path_cursor);
+        self.export_output_path_cursor = start;
     }
 
     pub(super) fn current_source(&self) -> ImportSource {
@@ -227,7 +290,7 @@ impl ImportExportScreen {
             }
             ImportExportMode::Export => {
                 self.export_step = ExportStep::Form;
-                self.export_focus = ExportFocus::Scope;
+                self.export_focus = ExportFocus::ExportPassword;
                 self.export_format = ExportFormat::Okb;
             }
         }
@@ -243,7 +306,6 @@ impl ImportExportScreen {
             import_focus: self.import_focus,
             export_step: self.export_step,
             export_focus: self.export_focus,
-            export_scope_option: self.export_scope_option,
         }
     }
 
@@ -259,7 +321,7 @@ impl ImportExportScreen {
         self.import_focus = restore.import_focus;
         self.export_step = restore.export_step;
         self.export_focus = restore.export_focus;
-        self.export_scope_option = restore.export_scope_option;
+        self.export_format = ExportFormat::Okb;
 
         // Clear sensitive buffers
         self.decrypt_password.clear();
@@ -274,6 +336,82 @@ impl Default for ImportExportScreen {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn prev_char_boundary(value: &str, cursor: usize) -> Option<usize> {
+    if cursor == 0 {
+        return None;
+    }
+    value[..cursor].char_indices().last().map(|(idx, _)| idx)
+}
+
+fn next_char_boundary(value: &str, cursor: usize) -> usize {
+    if cursor >= value.len() {
+        return value.len();
+    }
+    value[cursor..]
+        .char_indices()
+        .nth(1)
+        .map(|(idx, _)| cursor + idx)
+        .unwrap_or(value.len())
+}
+
+fn char_at_boundary(value: &str, cursor: usize) -> Option<char> {
+    value[cursor..].chars().next()
+}
+
+fn is_path_word_separator(ch: char) -> bool {
+    ch.is_whitespace() || matches!(ch, '/' | '\\' | '.' | '-' | '_')
+}
+
+fn prev_path_word_boundary(value: &str, cursor: usize) -> usize {
+    let mut cursor = cursor.min(value.len());
+    while cursor > 0 && !value.is_char_boundary(cursor) {
+        cursor -= 1;
+    }
+
+    while let Some(prev) = prev_char_boundary(value, cursor) {
+        let ch = char_at_boundary(value, prev).expect("prev char boundary should contain char");
+        if !is_path_word_separator(ch) {
+            break;
+        }
+        cursor = prev;
+    }
+
+    while let Some(prev) = prev_char_boundary(value, cursor) {
+        let ch = char_at_boundary(value, prev).expect("prev char boundary should contain char");
+        if is_path_word_separator(ch) {
+            break;
+        }
+        cursor = prev;
+    }
+
+    cursor
+}
+
+fn next_path_word_boundary(value: &str, cursor: usize) -> usize {
+    let mut cursor = cursor.min(value.len());
+    while cursor < value.len() && !value.is_char_boundary(cursor) {
+        cursor += 1;
+    }
+
+    while cursor < value.len() {
+        let ch = char_at_boundary(value, cursor).expect("cursor boundary should contain char");
+        if !is_path_word_separator(ch) {
+            break;
+        }
+        cursor = next_char_boundary(value, cursor);
+    }
+
+    while cursor < value.len() {
+        let ch = char_at_boundary(value, cursor).expect("cursor boundary should contain char");
+        if is_path_word_separator(ch) {
+            break;
+        }
+        cursor = next_char_boundary(value, cursor);
+    }
+
+    cursor
 }
 
 // ── Screen trait impl ───────────────────────────────────────────────────────
@@ -618,73 +756,110 @@ impl ImportExportScreen {
             KeyCode::Esc => return self.go_back(),
             KeyCode::Tab => {
                 self.export_focus = match self.export_focus {
-                    ExportFocus::Format => ExportFocus::Scope,
-                    ExportFocus::Scope => ExportFocus::ExportPassword,
                     ExportFocus::ExportPassword => ExportFocus::ConfirmPassword,
                     ExportFocus::ConfirmPassword => ExportFocus::OutputPath,
-                    ExportFocus::OutputPath => ExportFocus::Format,
+                    ExportFocus::OutputPath => ExportFocus::ExportPassword,
                 };
             }
             KeyCode::BackTab => {
                 self.export_focus = match self.export_focus {
-                    ExportFocus::Format => ExportFocus::OutputPath,
-                    ExportFocus::Scope => ExportFocus::Format,
-                    ExportFocus::ExportPassword => ExportFocus::Scope,
+                    ExportFocus::ExportPassword => ExportFocus::OutputPath,
                     ExportFocus::ConfirmPassword => ExportFocus::ExportPassword,
                     ExportFocus::OutputPath => ExportFocus::ConfirmPassword,
                 };
             }
-            KeyCode::Up
-                if self.export_focus == ExportFocus::Format
-                    && self.export_format != ExportFormat::Okb =>
+            KeyCode::Enter => return self.validate_export_form(),
+            KeyCode::Home if self.export_focus == ExportFocus::OutputPath => {
+                self.export_output_path_cursor = 0;
+            }
+            KeyCode::End if self.export_focus == ExportFocus::OutputPath => {
+                self.export_output_path_cursor = self.export_output_path.len();
+            }
+            KeyCode::Left if self.export_focus == ExportFocus::OutputPath => {
+                self.move_export_output_path_left();
+            }
+            KeyCode::Right if self.export_focus == ExportFocus::OutputPath => {
+                self.move_export_output_path_right();
+            }
+            KeyCode::Char('a')
+                if self.export_focus == ExportFocus::OutputPath
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
-                self.export_format = ExportFormat::Okb;
-                self.update_export_path_extension();
+                self.export_output_path_cursor = 0;
             }
-            KeyCode::Down
-                if self.export_focus == ExportFocus::Format
-                    && self.export_format != ExportFormat::Csv =>
+            KeyCode::Char('e')
+                if self.export_focus == ExportFocus::OutputPath
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
-                self.export_format = ExportFormat::Csv;
-                self.update_export_path_extension();
+                self.export_output_path_cursor = self.export_output_path.len();
             }
-            KeyCode::Up if self.export_focus == ExportFocus::Scope => {
-                self.export_scope_option = match self.export_scope_option {
-                    ExportScopeOption::All => ExportScopeOption::All,
-                    ExportScopeOption::CurrentFilter => ExportScopeOption::All,
-                    ExportScopeOption::ByTag => ExportScopeOption::CurrentFilter,
-                };
+            KeyCode::Char('u')
+                if self.export_focus == ExportFocus::OutputPath
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.kill_export_output_path_before_cursor();
             }
-            KeyCode::Down if self.export_focus == ExportFocus::Scope => {
-                self.export_scope_option = match self.export_scope_option {
-                    ExportScopeOption::All => ExportScopeOption::CurrentFilter,
-                    ExportScopeOption::CurrentFilter => ExportScopeOption::ByTag,
-                    ExportScopeOption::ByTag => ExportScopeOption::ByTag,
-                };
+            KeyCode::Char('k')
+                if self.export_focus == ExportFocus::OutputPath
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.kill_export_output_path_after_cursor();
             }
-            KeyCode::Enter => {
-                if self.export_focus == ExportFocus::Scope {
-                    self.export_focus = ExportFocus::ExportPassword;
-                } else {
-                    return self.validate_export_form();
-                }
+            KeyCode::Char('w')
+                if self.export_focus == ExportFocus::OutputPath
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.delete_export_output_path_previous_word();
+            }
+            KeyCode::Char('f')
+                if self.export_focus == ExportFocus::OutputPath
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.move_export_output_path_word_right();
+            }
+            KeyCode::Char('b')
+                if self.export_focus == ExportFocus::OutputPath
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.move_export_output_path_word_left();
             }
             KeyCode::Char(c) => match self.export_focus {
-                ExportFocus::Format => {}
                 ExportFocus::ExportPassword => {
+                    if key.modifiers.intersects(
+                        KeyModifiers::CONTROL
+                            | KeyModifiers::ALT
+                            | KeyModifiers::SUPER
+                            | KeyModifiers::META,
+                    ) {
+                        return ScreenResult::Continue;
+                    }
                     self.export_password.push_char(c);
                     self.update_export_strength();
                 }
                 ExportFocus::ConfirmPassword => {
+                    if key.modifiers.intersects(
+                        KeyModifiers::CONTROL
+                            | KeyModifiers::ALT
+                            | KeyModifiers::SUPER
+                            | KeyModifiers::META,
+                    ) {
+                        return ScreenResult::Continue;
+                    }
                     self.export_confirm_password.push_char(c);
                 }
                 ExportFocus::OutputPath => {
-                    self.export_output_path.push(c);
+                    if key.modifiers.intersects(
+                        KeyModifiers::CONTROL
+                            | KeyModifiers::ALT
+                            | KeyModifiers::SUPER
+                            | KeyModifiers::META,
+                    ) {
+                        return ScreenResult::Continue;
+                    }
+                    self.insert_export_output_path_char(c);
                 }
-                ExportFocus::Scope => {}
             },
             KeyCode::Backspace => match self.export_focus {
-                ExportFocus::Format => {}
                 ExportFocus::ExportPassword => {
                     self.export_password.pop_char();
                     self.update_export_strength();
@@ -693,9 +868,8 @@ impl ImportExportScreen {
                     self.export_confirm_password.pop_char();
                 }
                 ExportFocus::OutputPath => {
-                    self.export_output_path.pop();
+                    self.backspace_export_output_path();
                 }
-                ExportFocus::Scope => {}
             },
             _ => {}
         }
@@ -753,21 +927,13 @@ impl ImportExportScreen {
                     return ScreenResult::Continue;
                 }
 
-                let scope = match self.export_scope_option {
-                    ExportScopeOption::All => ExportScope::All,
-                    ExportScopeOption::CurrentFilter => {
-                        ExportScope::CurrentFilter(crate::commands::types::RecordFilter::All)
-                    }
-                    ExportScopeOption::ByTag => ExportScope::ByTag(String::new()),
-                };
-
                 let export_pw = self.export_password.take_secure();
                 let master_pw = self.master_password.take_secure();
                 self.export_confirm_password.clear();
 
                 let cmd = Command::ExecuteExport {
-                    scope,
-                    format: self.export_format,
+                    scope: ExportScope::All,
+                    format: ExportFormat::Okb,
                     output_path: PathBuf::from(&self.export_output_path),
                     export_password: export_pw,
                     master_password: master_pw,

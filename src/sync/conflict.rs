@@ -95,7 +95,7 @@ impl ConflictManager {
     /// # Detection Rules
     /// - `local_sync_status == Pending AND remote_version > local_version` → `ConflictAction::Conflict`
     /// - `local_sync_status == Synced AND remote_version > local_version` → `ConflictAction::DownloadOnly`
-    /// - `local_sync_status == Pending AND remote_version == local_version` → `ConflictAction::UploadOnly`
+    /// - `local_sync_status == Pending AND remote_version <= local_version` → `ConflictAction::UploadOnly`
     /// - All other cases → `ConflictAction::NoAction`
     pub fn detect_conflicts(
         &self,
@@ -111,8 +111,10 @@ impl ConflictManager {
             },
             // Remote has newer version, local is synced → download only
             (SyncStatus::Synced, std::cmp::Ordering::Greater) => ConflictAction::DownloadOnly,
-            // Local has pending changes, remote is same version → upload only
-            (SyncStatus::Pending, std::cmp::Ordering::Equal) => ConflictAction::UploadOnly,
+            // Local has pending changes and is at least as new as remote → upload only.
+            (SyncStatus::Pending, std::cmp::Ordering::Equal | std::cmp::Ordering::Less) => {
+                ConflictAction::UploadOnly
+            }
             // All other cases → no action
             _ => ConflictAction::NoAction,
         }
@@ -313,9 +315,9 @@ mod tests {
     #[test]
     fn detect_conflict_pending_remote_lower() {
         let manager = ConflictManager::new();
-        // Pending + remote < local → NoAction (local is ahead, will upload)
+        // Pending + remote < local → UploadOnly (local changed after last upload)
         let result = manager.detect_conflicts(SyncStatus::Pending, 6, 5);
-        assert!(matches!(result, ConflictAction::NoAction));
+        assert!(matches!(result, ConflictAction::UploadOnly));
     }
 
     #[test]

@@ -1,0 +1,290 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    environment: GoogleOAuth2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.93.0"
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - run: cargo fmt --check
+
+      - run: cargo clippy --all-targets -- -D warnings
+        env:
+          OAK_GOOGLE_CLIENT_ID: ${{ secrets.OAK_GOOGLE_CLIENT_ID }}
+          OAK_GOOGLE_CLIENT_SECRET: ${{ secrets.OAK_GOOGLE_CLIENT_SECRET }}
+
+      - run: cargo test
+        env:
+          OAK_GOOGLE_CLIENT_ID: ${{ secrets.OAK_GOOGLE_CLIENT_ID }}
+          OAK_GOOGLE_CLIENT_SECRET: ${{ secrets.OAK_GOOGLE_CLIENT_SECRET }}
+
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: macos-14
+    needs: gate
+    environment: GoogleOAuth2
+    strategy:
+      matrix:
+        target:
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.93.0"
+
+      - name: Install cross-compilation target
+        if: matrix.target != 'aarch64-apple-darwin'
+        run: rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          key: ${{ matrix.target }}
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --bin ok
+        env:
+          OAK_GOOGLE_CLIENT_ID: ${{ secrets.OAK_GOOGLE_CLIENT_ID }}
+          OAK_GOOGLE_CLIENT_SECRET: ${{ secrets.OAK_GOOGLE_CLIENT_SECRET }}
+
+      - name: Package artifact
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          PACKAGE_NAME="ok-v${VERSION}-${TARGET}"
+          PACKAGE_DIR="dist/${PACKAGE_NAME}"
+
+          mkdir -p "${PACKAGE_DIR}"
+          cp "target/${TARGET}/release/ok" "${PACKAGE_DIR}/ok"
+
+          for doc in README.md README-ZH.md INSTALL.md INSTALL-ZH.md SECURITY.md LICENSE; do
+            [ -f "$doc" ] && cp "$doc" "${PACKAGE_DIR}/"
+          done
+
+          tar -C dist -czf "dist/${PACKAGE_NAME}.tar.gz" "${PACKAGE_NAME}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.target }}
+          path: dist/*.tar.gz
+          retention-days: 7
+
+  checksums:
+    name: Generate checksums
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artifact-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          shasum -a 256 *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: dist/checksums.txt
+          retention-days: 7
+
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, checksums]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artifact-*
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: checksums
+          path: dist
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Extract changelog entry for this version
+          if grep -q "^## ${VERSION}" CHANGELOG.md; then
+            sed -n "/^## ${VERSION}/,/^## /{ /^## ${VERSION}/p; /^## [0-9]/!p; }" CHANGELOG.md \
+              | head -n -1 > release_notes.md
+          else
+            {
+              echo "## ok v${VERSION}"
+              echo ""
+              echo "See [CHANGELOG.md](https://github.com/OpenKeyring/oak-keyring/blob/master/CHANGELOG.md) for details."
+            } > release_notes.md
+          fi
+
+          # Append preview caveat + install instructions + checksums
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "## ⚠️ Preview Release Notice"
+            echo ""
+            echo "This is a **preview release** of ok. Preview releases may change local vault, sync, import, and export formats before a stable release line exists."
+            echo ""
+            echo "### macOS Gatekeeper Warning"
+            echo ""
+            echo "The macOS artifacts are **unsigned and not notarized**. On first run you may see:"
+            echo ""
+            echo '> "ok" cannot be opened because the developer cannot be verified.'
+            echo ""
+            echo "From Terminal:"
+            echo ""
+            echo '```bash'
+            echo "xattr -d com.apple.quarantine ok"
+            echo '```'
+            echo ""
+            echo "### Install"
+            echo ""
+            echo '```bash'
+            echo "tar -xzf ok-v${VERSION}-<target>.tar.gz"
+            echo "sudo mv ok-v${VERSION}-<target>/ok /usr/local/bin/"
+            echo '```'
+            echo ""
+            echo "Or install via npm:"
+            echo ""
+            echo '```bash'
+            echo "npm install -g @openkeyring/ok"
+            echo '```'
+            echo ""
+            echo "## Checksums"
+            echo ""
+            cat dist/checksums.txt
+          } >> release_notes.md
+
+      - name: Determine pre-release
+        id: prerelease
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [[ "$VERSION" =~ -(preview|alpha|beta|rc)\. ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ok v${{ steps.version.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ steps.prerelease.outputs.prerelease }}
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-npm:
+    name: Publish npm
+    runs-on: ubuntu-latest
+    needs: build
+    environment: NPM
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artifact-*
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Sync npm package versions
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm --prefix npm/ok-darwin-arm64 version "$VERSION" --no-git-tag-version
+          npm --prefix npm/ok-darwin-x64 version "$VERSION" --no-git-tag-version
+          npm --prefix npm/ok version "$VERSION" --no-git-tag-version
+          # Update optionalDependencies to match
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('npm/ok/package.json', 'utf8'));
+            for (const dep of Object.keys(pkg.optionalDependencies)) {
+              pkg.optionalDependencies[dep] = process.env.VERSION;
+            }
+            fs.writeFileSync('npm/ok/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Stage binaries
+        run: bash npm/stage-binaries.sh
+
+      - name: Verify packages (dry-run)
+        run: |
+          npm pack ./npm/ok-darwin-arm64 --dry-run
+          npm pack ./npm/ok-darwin-x64 --dry-run
+          npm pack ./npm/ok --dry-run
+
+      - name: Publish @openkeyring/ok-darwin-arm64
+        run: npm publish npm/ok-darwin-arm64
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @openkeyring/ok-darwin-x64
+        run: npm publish npm/ok-darwin-x64
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @openkeyring/ok
+        run: npm publish npm/ok
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

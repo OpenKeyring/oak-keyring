@@ -83,6 +83,8 @@ pub enum Command {
     LoadRecordList {
         filter: RecordFilter,
         sort: RecordSort,
+        limit: usize,
+        offset: usize,
     },
 
     LoadRecordDetail {

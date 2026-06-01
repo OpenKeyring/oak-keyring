@@ -22,7 +22,7 @@ fn init_db_creates_working_database_on_fresh_directory() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, "1");
+    assert_eq!(version, "2");
     conn.close().unwrap();
 
     assert!(!dir.path().join("vault.db.migration.bak").exists());
@@ -80,7 +80,7 @@ fn init_db_creates_fresh_db_from_empty_file() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, "1");
+    assert_eq!(version, "2");
     conn.close().unwrap();
 
     assert!(!dir.path().join("vault.db.migration.bak").exists());

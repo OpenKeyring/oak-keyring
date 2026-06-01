@@ -332,10 +332,8 @@ async fn detect_classifies_conflict() {
     let stage = DetectStage::new();
     let outcome = stage.execute(&mut context).await;
 
-    assert!(matches!(
-        outcome,
-        StageOutcome::ConflictDetected { conflict_ids } if conflict_ids.contains(&"record-1".to_string())
-    ));
+    assert!(matches!(outcome, StageOutcome::Continue));
+    assert_eq!(context.conflicts, vec!["record-1".to_string()]);
 }
 
 #[tokio::test]
@@ -495,8 +493,9 @@ async fn push_uploads_records() {
         "test_token".to_string(),
     );
 
-    context.to_upload.push("record-1".to_string());
-    let record = create_test_cloud_record("record-1", 1);
+    let record_id = "550e8400-e29b-41d4-a716-446655440221";
+    context.to_upload.push(record_id.to_string());
+    let record = create_test_cloud_record(record_id, 1);
     context.set_uploads(vec![record]);
 
     let stage = PushStage::new();
@@ -505,9 +504,9 @@ async fn push_uploads_records() {
     assert!(matches!(outcome, StageOutcome::Continue));
     assert!(context.failed_ids.is_empty());
 
-    let downloaded = storage.download_record("record-1").await.unwrap();
+    let downloaded = storage.download_record(record_id).await.unwrap();
     assert!(downloaded.is_some());
-    assert_eq!(downloaded.unwrap().id, "record-1");
+    assert_eq!(downloaded.unwrap().id, record_id);
 }
 
 #[tokio::test]
@@ -698,12 +697,12 @@ async fn full_pipeline_happy_path() {
     );
 
     context.set_local_records(vec![LocalRecordInfo {
-        record_id: "record-1".to_string(),
+        record_id: "550e8400-e29b-41d4-a716-446655440222".to_string(),
         sync_status: SyncStatus::Pending,
         version: 1,
     }]);
 
-    let record = create_test_cloud_record("record-1", 1);
+    let record = create_test_cloud_record("550e8400-e29b-41d4-a716-446655440222", 1);
     context.set_uploads(vec![record]);
 
     let pipeline = SyncPipeline::new();

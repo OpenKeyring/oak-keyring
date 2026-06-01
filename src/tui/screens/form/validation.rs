@@ -3,6 +3,12 @@
 use crate::t;
 use crate::tui::state::form_state::{ExpiryOption, FormFields, ValidationError};
 use crate::types::credential::CredentialType;
+use crate::types::record_limits::{
+    char_count, MAX_API_APP_ID_CHARS, MAX_API_SECRET_CHARS, MAX_LOGIN_PASSWORD_CHARS,
+    MAX_LOGIN_USERNAME_CHARS, MAX_NOTES_CHARS, MAX_RECORD_NAME_CHARS, MAX_SECURE_NOTE_CHARS,
+    MAX_SSH_PASSPHRASE_CHARS, MAX_SSH_PRIVATE_KEY_CHARS, MAX_SSH_PUBLIC_KEY_CHARS,
+    MAX_TAGS_PER_RECORD, MAX_TAG_CHARS, MAX_URL_CHARS,
+};
 
 /// Validate all required fields. Returns list of errors.
 pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<ValidationError> {
@@ -15,6 +21,7 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
             message: t!("tui.form.validation_required").to_string(),
         });
     }
+    push_len_error(&mut errors, 1, &fields.name, MAX_RECORD_NAME_CHARS);
 
     match credential_type {
         CredentialType::Login => {
@@ -24,6 +31,9 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
                     field_index: 3,
                     message: t!("tui.form.validation_required").to_string(),
                 });
+            }
+            if let Some(username) = fields.username.as_ref() {
+                push_len_error(&mut errors, 3, username, MAX_LOGIN_USERNAME_CHARS);
             }
             // Password required (index 4)
             if fields
@@ -36,6 +46,9 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
                     message: t!("tui.form.validation_required").to_string(),
                 });
             }
+            if let Some(password) = fields.password.as_ref() {
+                password.expose(|s| push_len_error(&mut errors, 4, s, MAX_LOGIN_PASSWORD_CHARS));
+            }
         }
         CredentialType::Api => {
             // AppID required (index 3)
@@ -44,6 +57,9 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
                     field_index: 3,
                     message: t!("tui.form.validation_required").to_string(),
                 });
+            }
+            if let Some(app_id) = fields.app_id.as_ref() {
+                push_len_error(&mut errors, 3, app_id, MAX_API_APP_ID_CHARS);
             }
             // SecretKey required (index 4)
             if fields
@@ -55,6 +71,9 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
                     field_index: 4,
                     message: t!("tui.form.validation_required").to_string(),
                 });
+            }
+            if let Some(secret_key) = fields.secret_key.as_ref() {
+                secret_key.expose(|s| push_len_error(&mut errors, 4, s, MAX_API_SECRET_CHARS));
             }
         }
         CredentialType::Ssh => {
@@ -69,7 +88,59 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
                     message: t!("tui.form.validation_required").to_string(),
                 });
             }
+            if let Some(public_key) = fields.public_key.as_ref() {
+                push_len_error(&mut errors, 3, public_key, MAX_SSH_PUBLIC_KEY_CHARS);
+            }
+            if let Some(private_key) = fields.private_key.as_ref() {
+                private_key
+                    .expose(|s| push_len_error(&mut errors, 4, s, MAX_SSH_PRIVATE_KEY_CHARS));
+            }
+            if let Some(passphrase) = fields.passphrase.as_ref() {
+                passphrase.expose(|s| push_len_error(&mut errors, 5, s, MAX_SSH_PASSPHRASE_CHARS));
+            }
         }
+        CredentialType::SecureNote => {
+            // No additional required fields - only name (field 1) is required
+        }
+    }
+
+    let url_index = 2;
+    if credential_type != CredentialType::SecureNote {
+        push_len_error(&mut errors, url_index, &fields.url, MAX_URL_CHARS);
+    }
+
+    let notes_index = match credential_type {
+        CredentialType::Login | CredentialType::Api => 7,
+        CredentialType::Ssh => 8,
+        CredentialType::SecureNote => 2,
+    };
+    let notes_limit = match credential_type {
+        CredentialType::SecureNote => MAX_SECURE_NOTE_CHARS,
+        _ => MAX_NOTES_CHARS,
+    };
+    push_len_error(&mut errors, notes_index, &fields.notes_text(), notes_limit);
+
+    let tags_index = match credential_type {
+        CredentialType::Login | CredentialType::Api => 6,
+        CredentialType::Ssh => 7,
+        CredentialType::SecureNote => 4,
+    };
+    if fields.tags.len() > MAX_TAGS_PER_RECORD {
+        errors.push(ValidationError {
+            field_index: tags_index,
+            message: t!(
+                "tui.form.validation_too_many_tags",
+                max = MAX_TAGS_PER_RECORD,
+                actual = fields.tags.len()
+            )
+            .to_string(),
+        });
+    }
+    for tag in &fields.tags {
+        push_len_error(&mut errors, tags_index, tag, MAX_TAG_CHARS);
+    }
+    if !fields.tag_input.is_empty() {
+        push_len_error(&mut errors, tags_index, &fields.tag_input, MAX_TAG_CHARS);
     }
 
     // Custom date validation
@@ -77,6 +148,7 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
         let expiry_index = match credential_type {
             CredentialType::Login | CredentialType::Api => 5,
             CredentialType::Ssh => 6,
+            CredentialType::SecureNote => 3,
         };
         if let Some(ref date) = fields.custom_date {
             if let Err(msg) = validate_date(date) {
@@ -94,6 +166,16 @@ pub fn validate(fields: &FormFields, credential_type: CredentialType) -> Vec<Val
     }
 
     errors
+}
+
+fn push_len_error(errors: &mut Vec<ValidationError>, field_index: usize, value: &str, max: usize) {
+    let actual = char_count(value);
+    if actual > max {
+        errors.push(ValidationError {
+            field_index,
+            message: t!("tui.form.validation_too_long", max = max, actual = actual).to_string(),
+        });
+    }
 }
 
 /// Validate a date string in YYYY-MM-DD format.
@@ -231,11 +313,69 @@ mod tests {
     }
 
     #[test]
+    fn name_over_limit_errors() {
+        let mut fields = login_fields();
+        fields.name = "a".repeat(121);
+        let errors = validate(&fields, CredentialType::Login);
+        assert!(errors.iter().any(|e| e.field_index == 1));
+    }
+
+    #[test]
     fn empty_username_error() {
         let mut fields = login_fields();
         fields.username = Some(String::new());
         let errors = validate(&fields, CredentialType::Login);
         assert!(errors.iter().any(|e| e.field_index == 3));
+    }
+
+    #[test]
+    fn username_over_limit_errors() {
+        let mut fields = login_fields();
+        fields.username = Some("a".repeat(321));
+        let errors = validate(&fields, CredentialType::Login);
+        assert!(errors.iter().any(|e| e.field_index == 3));
+    }
+
+    #[test]
+    fn too_many_tags_errors() {
+        let mut fields = login_fields();
+        fields.tags = (0..11).map(|n| format!("tag-{n}")).collect();
+        let errors = validate(&fields, CredentialType::Login);
+        assert!(errors.iter().any(|e| e.field_index == 6));
+    }
+
+    #[test]
+    fn tag_name_over_limit_errors() {
+        let mut fields = login_fields();
+        fields.tags = vec!["a".repeat(51)];
+        let errors = validate(&fields, CredentialType::Login);
+        assert!(errors.iter().any(|e| e.field_index == 6));
+    }
+
+    #[test]
+    fn login_notes_over_limit_errors() {
+        let mut fields = login_fields();
+        fields.set_notes_text(&"a".repeat(16_385));
+        let errors = validate(&fields, CredentialType::Login);
+        assert!(errors.iter().any(|e| e.field_index == 7));
+    }
+
+    #[test]
+    fn secure_note_allows_larger_notes() {
+        let mut fields = FormFields::new(CredentialType::SecureNote);
+        fields.name = "note".into();
+        fields.set_notes_text(&"a".repeat(16_385));
+        let errors = validate(&fields, CredentialType::SecureNote);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn secure_note_notes_over_limit_errors() {
+        let mut fields = FormFields::new(CredentialType::SecureNote);
+        fields.name = "note".into();
+        fields.set_notes_text(&"a".repeat(65_537));
+        let errors = validate(&fields, CredentialType::SecureNote);
+        assert!(errors.iter().any(|e| e.field_index == 2));
     }
 
     #[test]

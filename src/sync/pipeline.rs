@@ -339,13 +339,10 @@ impl SyncStage for DetectStage {
             context.to_download.push(remote_id.clone());
         }
 
-        if !context.conflicts.is_empty() {
-            return StageOutcome::ConflictDetected {
-                conflict_ids: context.conflicts.clone(),
-            };
-        }
-
-        if context.to_upload.is_empty() && context.to_download.is_empty() {
+        if context.to_upload.is_empty()
+            && context.to_download.is_empty()
+            && context.conflicts.is_empty()
+        {
             return StageOutcome::NoChanges;
         }
 
@@ -592,6 +589,7 @@ impl PushStage {
             if !context.uploaded_ids.contains(&record.id) {
                 continue;
             }
+            Self::verify_uploaded_record(context, record).await?;
             let checksum = compute_checksum(&record.encrypted_data)?;
             let private_metadata_checksum = record.compute_private_metadata_checksum()?;
             updated_meta.upsert_record(
@@ -615,6 +613,155 @@ impl PushStage {
             .await?;
 
         Ok(updated_meta)
+    }
+
+    async fn verify_uploaded_record(
+        context: &PipelineContext,
+        expected_record: &CloudRecord,
+    ) -> Result<(), SyncError> {
+        let downloaded = context
+            .storage
+            .download_record(&expected_record.id)
+            .await?
+            .ok_or_else(|| SyncError::RecordNotFound {
+                record_id: expected_record.id.clone(),
+            })?;
+
+        downloaded.validate()?;
+
+        if downloaded.id != expected_record.id {
+            return Err(SyncError::AadInconsistent {
+                field: "record_id".to_string(),
+                expected: expected_record.id.clone(),
+                actual: downloaded.id,
+            });
+        }
+
+        if downloaded.version != expected_record.version {
+            return Err(SyncError::MetadataVersionConflict {
+                local: expected_record.version,
+                remote: downloaded.version,
+            });
+        }
+
+        let expected_checksum = expected_record.compute_checksum()?;
+        let actual_checksum = downloaded.compute_checksum()?;
+        if actual_checksum != expected_checksum {
+            return Err(SyncError::ChecksumMismatch {
+                expected: expected_checksum,
+                actual: actual_checksum,
+                record_id: expected_record.id.clone(),
+            });
+        }
+
+        let expected_private_checksum = expected_record.compute_private_metadata_checksum()?;
+        let actual_private_checksum = downloaded.compute_private_metadata_checksum()?;
+        if actual_private_checksum != expected_private_checksum {
+            return Err(SyncError::ChecksumMismatch {
+                expected: expected_private_checksum.unwrap_or_else(|| "missing".to_string()),
+                actual: actual_private_checksum.unwrap_or_else(|| "missing".to_string()),
+                record_id: expected_record.id.clone(),
+            });
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod push_stage_tests {
+    use super::*;
+    use crate::cloud::record::{AadFields, RecordMetadata};
+    use tempfile::TempDir;
+
+    fn test_storage() -> (CloudStorage, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let op = opendal::Operator::new(
+            opendal::services::Fs::default().root(temp_dir.path().to_str().unwrap()),
+        )
+        .unwrap()
+        .finish();
+        (CloudStorage::new(op, "fs".to_string()), temp_dir)
+    }
+
+    fn cloud_record(id: &str, version: u64, encrypted_data: &str) -> CloudRecord {
+        CloudRecord {
+            id: id.to_string(),
+            version,
+            encrypted_data: encrypted_data.to_string(),
+            nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
+            dek_version: 1,
+            aad: AadFields {
+                record_id: id.to_string(),
+                dek_version: 1,
+            },
+            metadata: RecordMetadata {
+                name: "encrypted".to_string(),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                ..Default::default()
+            },
+            deleted: None,
+            deleted_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn push_updated_metadata_rejects_when_uploaded_record_reads_back_stale() {
+        let (storage, _temp_dir) = test_storage();
+        let record_id = "550e8400-e29b-41d4-a716-446655440120";
+        let stale_remote = cloud_record(record_id, 2, "b2xkLXJlbW90ZQ==");
+        let intended_upload = cloud_record(record_id, 2, "bmV3LWxvY2Fs");
+        storage
+            .upload_record(record_id, &stale_remote)
+            .await
+            .unwrap();
+
+        let mut remote_metadata = CloudMetadata::new("test-token".to_string());
+        remote_metadata.metadata_version = 1;
+        remote_metadata.upsert_record(
+            record_id.to_string(),
+            crate::cloud::RecordVersionInfo {
+                version: 1,
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                updated_by: "remote-device".to_string(),
+                checksum: stale_remote.compute_checksum().unwrap(),
+                private_metadata_checksum: None,
+                deleted: false,
+            },
+        );
+        storage.upload_metadata(&remote_metadata).await.unwrap();
+
+        let mut context = PipelineContext::new(
+            storage.clone(),
+            ConflictManager::new(),
+            SyncCheckpoint::new(std::env::temp_dir()),
+            1,
+            "test-token".to_string(),
+        );
+        context.remote_metadata = Some(remote_metadata);
+        context.set_uploads(vec![intended_upload.clone()]);
+        context.uploaded_ids.push(record_id.to_string());
+
+        let err = PushStage::push_updated_metadata(&mut context)
+            .await
+            .expect_err("metadata must not advance when the cloud record is stale");
+
+        assert!(matches!(
+            err,
+            SyncError::ChecksumMismatch {
+                ref record_id,
+                ..
+            } if record_id == "550e8400-e29b-41d4-a716-446655440120"
+        ));
+
+        let metadata = storage
+            .download_metadata()
+            .await
+            .unwrap()
+            .expect("metadata should remain present");
+        let info = metadata.records.get(record_id).unwrap();
+        assert_eq!(info.version, 1);
+        assert_eq!(info.checksum, stale_remote.compute_checksum().unwrap());
     }
 }
 

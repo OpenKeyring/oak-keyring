@@ -16,7 +16,7 @@ use crate::tui::theme;
 
 // ── Colour constants ──────────────────────────────────────────
 
-const OVERLAY_BG: Color = Color::Rgb(31, 35, 53); // #1f2335
+const OVERLAY_BG: Color = Color::Rgb(20, 24, 39); // #141827
 
 // ── Data model ────────────────────────────────────────────────
 
@@ -53,8 +53,12 @@ fn all_groups() -> Vec<ShortcutGroup> {
                     desc: t!("tui.help.nav_down").to_string(),
                 },
                 Shortcut {
-                    key: "Tab".to_string(),
-                    desc: t!("tui.help.nav_tab").to_string(),
+                    key: "←/→".to_string(),
+                    desc: t!("tui.help.nav_panel").to_string(),
+                },
+                Shortcut {
+                    key: "1-5".to_string(),
+                    desc: t!("tui.help.nav_category").to_string(),
                 },
                 Shortcut {
                     key: "Enter".to_string(),
@@ -91,12 +95,16 @@ fn all_groups() -> Vec<ShortcutGroup> {
                     desc: t!("tui.help.action_favorite").to_string(),
                 },
                 Shortcut {
-                    key: "s".to_string(),
+                    key: "s/S".to_string(),
                     desc: t!("tui.help.action_sort").to_string(),
                 },
                 Shortcut {
                     key: "v".to_string(),
                     desc: t!("tui.help.action_multiselect").to_string(),
+                },
+                Shortcut {
+                    key: "p/Ctrl+G".to_string(),
+                    desc: t!("tui.help.action_generator").to_string(),
                 },
                 Shortcut {
                     key: "g".to_string(),
@@ -200,7 +208,7 @@ fn all_groups() -> Vec<ShortcutGroup> {
                 },
                 Shortcut {
                     key: "s".to_string(),
-                    desc: t!("tui.help.tag_save").to_string(),
+                    desc: t!("tui.help.tag_sort").to_string(),
                 },
             ],
         },
@@ -228,7 +236,7 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
     // Footer hint line.
     lines.push(Line::from(Span::styled(
         format!(" {} ", t!("tui.help.close_hint")),
-        Style::default().fg(theme::TEXT_SECONDARY),
+        Style::default().fg(theme::NL_TEXT_MUTED),
     )));
 
     let title = format!(" {} ", t!("tui.help.title"));
@@ -236,16 +244,17 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         .title(Span::styled(
             title,
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::NL_TEXT)
                 .add_modifier(Modifier::BOLD),
         ))
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
+        .border_style(Style::default().fg(theme::NL_FOCUS))
         .style(Style::default().bg(OVERLAY_BG));
 
     let paragraph = Paragraph::new(lines)
         .block(block)
+        .style(theme::Styles::newlook_surface())
         .wrap(Wrap { trim: false });
 
     // Clear behind the overlay first.
@@ -263,12 +272,12 @@ fn layout_for(area: Rect) -> (Rect, Vec<usize>) {
     if area.width >= 120 {
         // Two-column, full width.
         let w: u16 = 64;
-        let h: u16 = 30;
+        let h: u16 = 34;
         (centered_rect(area, w, h), all_indices)
     } else if area.width >= 100 {
         // Two-column, narrower.
         let w: u16 = 56;
-        let h: u16 = 30;
+        let h: u16 = 34;
         (centered_rect(area, w, h), all_indices)
     } else {
         // Single column — hide Trash and Tag Management.
@@ -317,7 +326,7 @@ fn render_groups(
                 None => vec![Span::raw(" ")],
             };
 
-            let sep = Span::styled("│", Style::default().fg(theme::BORDER));
+            let sep = Span::styled("│", Style::default().fg(theme::NL_LINE));
 
             let right_span: Vec<Span<'static>> = match r {
                 Some(line) => line.spans.clone(),
@@ -361,7 +370,7 @@ fn append_group_lines(lines: &mut Vec<Line<'static>>, group: &ShortcutGroup) {
     lines.push(Line::from(Span::styled(
         format!(" {} ", group.label),
         Style::default()
-            .fg(theme::TEXT_SECONDARY)
+            .fg(theme::NL_TEXT_MUTED)
             .add_modifier(Modifier::BOLD),
     )));
 
@@ -380,8 +389,8 @@ fn format_line_spans(key: &str, desc: &str) -> Line<'static> {
     let key_padded = format!("{key:width$}", width = key_col_width);
     Line::from(vec![
         Span::raw("  "),
-        Span::styled(key_padded, Style::default().fg(theme::PRIMARY)),
-        Span::styled(desc.to_string(), Style::default().fg(theme::TEXT)),
+        Span::styled(key_padded, Style::default().fg(theme::NL_CYAN)),
+        Span::styled(desc.to_string(), Style::default().fg(theme::NL_TEXT)),
     ])
 }
 

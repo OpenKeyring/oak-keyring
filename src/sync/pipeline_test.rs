@@ -208,6 +208,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn detect_classifies_pending_local_newer_than_remote_as_upload() {
+        let (storage, _temp_dir) = create_test_storage();
+        let checkpoint = create_test_checkpoint();
+        let mut context = PipelineContext::new(
+            storage,
+            ConflictManager::new(),
+            checkpoint,
+            1,
+            "test_token".to_string(),
+        );
+
+        let record_id = "550e8400-e29b-41d4-a716-446655440010";
+        let metadata = create_test_metadata_with_records("test_token", 1, vec![(record_id, 1)]);
+        context.remote_metadata = Some(metadata);
+
+        context.set_local_records(vec![LocalRecordInfo {
+            record_id: record_id.to_string(),
+            sync_status: SyncStatus::Pending,
+            version: 2,
+        }]);
+
+        let stage = DetectStage::new();
+        let outcome = stage.execute(&mut context).await;
+
+        assert!(matches!(outcome, StageOutcome::Continue));
+        assert_eq!(context.to_upload, vec![record_id.to_string()]);
+    }
+
+    #[tokio::test]
     async fn detect_classifies_download() {
         let (storage, _temp_dir) = create_test_storage();
         let checkpoint = create_test_checkpoint();
@@ -263,10 +292,8 @@ mod tests {
         let stage = DetectStage::new();
         let outcome = stage.execute(&mut context).await;
 
-        assert!(matches!(
-            outcome,
-            StageOutcome::ConflictDetected { conflict_ids } if conflict_ids.contains(&"record-1".to_string())
-        ));
+        assert!(matches!(outcome, StageOutcome::Continue));
+        assert_eq!(context.conflicts, vec!["record-1".to_string()]);
     }
 
     #[tokio::test]
@@ -312,8 +339,9 @@ mod tests {
             "test_token".to_string(),
         );
 
-        let record = create_test_cloud_record("record-1", 1);
-        context.to_upload.push("record-1".to_string());
+        let record_id = "550e8400-e29b-41d4-a716-446655440121";
+        let record = create_test_cloud_record(record_id, 1);
+        context.to_upload.push(record_id.to_string());
         context.set_uploads(vec![record.clone()]);
 
         let stage = PushStage::new();
@@ -322,9 +350,9 @@ mod tests {
         assert!(matches!(outcome, StageOutcome::Continue));
         assert!(context.failed_ids.is_empty());
 
-        let downloaded = storage.download_record("record-1").await.unwrap();
+        let downloaded = storage.download_record(record_id).await.unwrap();
         assert!(downloaded.is_some());
-        assert_eq!(downloaded.unwrap().id, "record-1");
+        assert_eq!(downloaded.unwrap().id, record_id);
     }
 
     #[tokio::test]
@@ -370,6 +398,78 @@ mod tests {
 
         assert!(matches!(outcome, StageOutcome::Continue));
         assert!(context.downloads.contains_key(record_id));
+    }
+
+    #[tokio::test]
+    async fn pipeline_uploads_pending_local_update_over_older_remote_version() {
+        let (storage, _temp_dir) = create_test_storage();
+
+        let record_id = "550e8400-e29b-41d4-a716-446655440011";
+        let remote_record = create_test_cloud_record(record_id, 1);
+        storage
+            .upload_record(record_id, &remote_record)
+            .await
+            .unwrap();
+
+        let mut remote_metadata =
+            create_test_metadata_with_records("test_token", 1, vec![(record_id, 1)]);
+        remote_metadata.upsert_record(
+            record_id.to_string(),
+            RecordVersionInfo {
+                version: 1,
+                updated_at: Utc::now().to_rfc3339(),
+                updated_by: "device-1".to_string(),
+                checksum: remote_record.compute_checksum().unwrap(),
+                private_metadata_checksum: None,
+                deleted: false,
+            },
+        );
+        storage.upload_metadata(&remote_metadata).await.unwrap();
+
+        let local_record = create_test_cloud_record(record_id, 2);
+        let mut context = PipelineContext::new(
+            storage.clone(),
+            ConflictManager::new(),
+            create_test_checkpoint(),
+            1,
+            "test_token".to_string(),
+        );
+        context.set_local_records(vec![LocalRecordInfo {
+            record_id: record_id.to_string(),
+            sync_status: SyncStatus::Pending,
+            version: 2,
+        }]);
+        context.set_uploads(vec![local_record.clone()]);
+
+        let pipeline = SyncPipeline::new();
+        let result = pipeline.execute(&mut context).await;
+
+        assert!(matches!(result, PipelineResult::Completed));
+        assert_eq!(context.uploaded_ids, vec![record_id.to_string()]);
+
+        let uploaded_record = storage
+            .download_record(record_id)
+            .await
+            .unwrap()
+            .expect("updated cloud record should exist");
+        assert_eq!(uploaded_record.version, 2);
+        assert_eq!(uploaded_record.encrypted_data, local_record.encrypted_data);
+
+        let uploaded_metadata = storage
+            .download_metadata()
+            .await
+            .unwrap()
+            .expect("updated cloud metadata should exist");
+        let record_info = uploaded_metadata
+            .records
+            .get(record_id)
+            .expect("updated metadata should include record");
+        assert_eq!(record_info.version, 2);
+        assert_eq!(
+            record_info.checksum,
+            local_record.compute_checksum().unwrap()
+        );
+        assert!(uploaded_metadata.metadata_version > remote_metadata.metadata_version);
     }
 
     #[tokio::test]
@@ -435,9 +535,10 @@ mod tests {
             "test_token".to_string(),
         );
 
-        let record1 = create_test_cloud_record("record-1", 1);
+        let record_id = "550e8400-e29b-41d4-a716-446655440122";
+        let record1 = create_test_cloud_record(record_id, 1);
         context.uploads.push(record1);
-        context.to_upload.push("record-1".to_string());
+        context.to_upload.push(record_id.to_string());
 
         let stage = PushStage::new();
         let outcome = stage.execute(&mut context).await;
@@ -519,6 +620,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn full_pipeline_conflict_downloads_remote_conflict_data() {
+        let (storage, _temp_dir) = create_test_storage();
+
+        let record_id = "550e8400-e29b-41d4-a716-446655440012";
+        let remote_record = create_test_cloud_record(record_id, 2);
+        storage
+            .upload_record(record_id, &remote_record)
+            .await
+            .unwrap();
+
+        let mut metadata = create_test_metadata_with_records("test_token", 2, vec![(record_id, 2)]);
+        metadata.upsert_record(
+            record_id.to_string(),
+            RecordVersionInfo {
+                version: 2,
+                updated_at: Utc::now().to_rfc3339(),
+                updated_by: "device-1".to_string(),
+                checksum: remote_record.compute_checksum().unwrap(),
+                private_metadata_checksum: None,
+                deleted: false,
+            },
+        );
+        storage.upload_metadata(&metadata).await.unwrap();
+
+        let mut context = PipelineContext::new(
+            storage,
+            ConflictManager::new(),
+            create_test_checkpoint(),
+            1,
+            "test_token".to_string(),
+        );
+        context.set_local_records(vec![LocalRecordInfo {
+            record_id: record_id.to_string(),
+            sync_status: SyncStatus::Pending,
+            version: 1,
+        }]);
+        context.set_uploads(vec![create_test_cloud_record(record_id, 1)]);
+
+        let pipeline = SyncPipeline::new();
+        let result = pipeline.execute(&mut context).await;
+
+        assert!(matches!(
+            result,
+            PipelineResult::ConflictsDetected { conflict_ids } if conflict_ids == vec![record_id.to_string()]
+        ));
+        assert!(
+            context.conflict_data_map.contains_key(record_id),
+            "conflict detection must carry downloadable remote conflict data for resolution"
+        );
+    }
+
+    #[tokio::test]
     async fn full_pipeline_happy_path() {
         let (storage, _temp_dir) = create_test_storage();
         let checkpoint = create_test_checkpoint();
@@ -534,12 +687,12 @@ mod tests {
 
         // First sync - no remote metadata
         context.set_local_records(vec![LocalRecordInfo {
-            record_id: "record-1".to_string(),
+            record_id: "550e8400-e29b-41d4-a716-446655440123".to_string(),
             sync_status: SyncStatus::Pending,
             version: 1,
         }]);
 
-        let record = create_test_cloud_record("record-1", 1);
+        let record = create_test_cloud_record("550e8400-e29b-41d4-a716-446655440123", 1);
         context.set_uploads(vec![record]);
 
         let pipeline = SyncPipeline::new();

@@ -1,0 +1,28 @@
+---
+source: tests/snapshot_tests/screens/create_record_test.rs
+expression: backend
+---
+"┌──────────────────────────────────────────────────────────────────────────────┐"
+"│  Create Password                                                 Esc Cancel  │"
+"│──────────────────────────────────────────────────────────────────────────────│"
+"│                                                                              │"
+"│  Type       [ Login ▼ ]                                                      │"
+"│                                                                              │"
+"│  Name       ┌──────────────────────────────────────────────────┐ ← Required  │"
+"│             │  Unsaved Changes                                 │             │"
+"│  URL        │──────────────────────────────────────────────────│ ← Optional  │"
+"│             │                                                  │             │"
+"│  Username   │  You have unsaved changes. Discard them?         │ ← Required  │"
+"│             │                                                  │             │"
+"│  Password   │  Esc Cancel and stay    Enter Discard and exit   │] [ Copy ]   │"
+"│             │                                                  │             │"
+"│  Strength:  │──────────────────────────────────────────────────│             │"
+"│             │                                                  │             │"
+"│  Expiry     │         Continue Editing        Discard          │             │"
+"│             └──────────────────────────────────────────────────┘             │"
+"│  Tags       [                    ]  Enter Add  ←/→ Select  Del Delete        │"
+"│                                                                              │"
+"│  Notes       ← Optional                                                      │"
+"│                                                                              │"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"

@@ -7,48 +7,107 @@ use ratatui::{
 
 use crate::t;
 use crate::tui::state::form_state::TagAutocompleteState;
-use crate::tui::theme;
+use crate::tui::{components::text_input, theme};
+use unicode_width::UnicodeWidthStr;
+
+fn truncate_to_width(value: &str, width: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in value.chars() {
+        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + ch_width > width {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
+    out
+}
 
 /// Render the tag input area.
 pub fn render_tag_input(
     input_text: &str,
     tags: &[String],
-    _focused: bool,
+    focused: bool,
+    focused_tag: Option<usize>,
     autocomplete: Option<&TagAutocompleteState>,
     _existing_tags: &[String],
-    _width: u16,
+    width: u16,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
 
     // Input row
-    lines.push(Line::from(vec![
-        Span::styled(
-            t!("tui.component_labels.tag").to_string(),
-            Style::default().fg(theme::TEXT_SECONDARY),
-        ),
-        Span::styled(
-            format!(
-                "[{:<20}]",
-                if input_text.is_empty() {
-                    " "
-                } else {
-                    input_text
-                }
-            ),
-            Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE),
-        ),
-    ]));
+    let label_style = if focused {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
+    };
+    let input_style = Style::default().fg(theme::TEXT).bg(theme::BG_SURFACE);
+    let label = t!("tui.component_labels.tag").to_string();
+    let content_width = width.saturating_sub(2) as usize;
+    let input_width = content_width
+        .saturating_sub(text_input::FORM_LABEL_WIDTH)
+        .saturating_sub(2)
+        .clamp(1, 20);
+    let input_text = if input_text.is_empty() {
+        " "
+    } else {
+        input_text
+    };
+    let input_text = truncate_to_width(input_text, input_width);
+
+    let mut input_spans = vec![Span::styled(
+        text_input::padded_form_label(&label),
+        label_style,
+    )];
+    input_spans.extend(text_input::render_input_box_spans(
+        &input_text,
+        input_width,
+        focused && focused_tag.is_none(),
+        input_style,
+    ));
+    input_spans.push(Span::raw("  "));
+    input_spans.push(Span::styled(
+        t!("tui.form.tag_input_hint").to_string(),
+        Style::default().fg(theme::TEXT_MUTED),
+    ));
+    lines.push(Line::from(input_spans));
 
     // Tag blocks
     if !tags.is_empty() {
-        let mut tag_spans: Vec<Span> = vec![Span::raw("       ")];
-        for tag in tags {
-            tag_spans.push(Span::styled(
-                format!("[ {} ", tag),
-                Style::default().fg(theme::BRAND),
-            ));
-            tag_spans.push(Span::styled("×", Style::default().fg(theme::ERROR)));
-            tag_spans.push(Span::styled("] ", Style::default().fg(theme::BRAND)));
+        let indent = " ".repeat(text_input::FORM_LABEL_WIDTH);
+        let max_row_width = content_width
+            .saturating_sub(text_input::FORM_LABEL_WIDTH)
+            .max(1);
+        let mut tag_spans: Vec<Span> = vec![Span::raw(indent.clone())];
+        let mut row_width = 0usize;
+        for (idx, tag) in tags.iter().enumerate() {
+            let style = if focused && focused_tag == Some(idx) {
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default().fg(theme::BRAND)
+            };
+            let delete_style = if focused && focused_tag == Some(idx) {
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default().fg(theme::ERROR)
+            };
+            let chip_width = UnicodeWidthStr::width(format!("[ {} ×] ", tag).as_str());
+            if row_width > 0 && row_width + chip_width > max_row_width {
+                lines.push(Line::from(tag_spans));
+                tag_spans = vec![Span::raw(indent.clone())];
+                row_width = 0;
+            }
+            tag_spans.push(Span::styled(format!("[ {} ", tag), style));
+            tag_spans.push(Span::styled("×", delete_style));
+            tag_spans.push(Span::styled("] ", style));
+            row_width = row_width.saturating_add(chip_width);
         }
         lines.push(Line::from(tag_spans));
     }
@@ -63,7 +122,7 @@ pub fn render_tag_input(
                     Style::default().fg(theme::TEXT)
                 };
                 lines.push(Line::from(vec![
-                    Span::raw("       "),
+                    Span::raw(" ".repeat(text_input::FORM_LABEL_WIDTH)),
                     Span::styled(format!("  {} ", tag), style),
                 ]));
             }
@@ -92,15 +151,30 @@ mod tests {
 
     #[test]
     fn render_tag_input_empty() {
-        let lines = render_tag_input("", &[], false, None, &[], 60);
+        let lines = render_tag_input("", &[], false, None, None, &[], 60);
         assert_eq!(lines.len(), 1);
     }
 
     #[test]
     fn render_tag_input_with_tags() {
         let tags = vec!["工作".into(), "GitHub".into()];
-        let lines = render_tag_input("", &tags, false, None, &[], 60);
+        let lines = render_tag_input("", &tags, false, None, None, &[], 60);
         assert!(lines.len() >= 2);
+    }
+
+    #[test]
+    fn render_tag_input_wraps_tags_to_available_width() {
+        let tags = vec![
+            "alpha".into(),
+            "beta".into(),
+            "gamma".into(),
+            "delta".into(),
+        ];
+        let lines = render_tag_input("", &tags, false, None, None, &[], 32);
+        assert!(
+            lines.len() > 2,
+            "tag chips should wrap instead of overflowing one row"
+        );
     }
 
     #[test]

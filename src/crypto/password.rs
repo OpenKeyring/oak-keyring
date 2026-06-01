@@ -75,6 +75,54 @@ pub fn generate_random_password_with_policy(
     Ok(SecureStr::new(password))
 }
 
+pub fn generate_random_password_with_char_types(
+    length: usize,
+    uppercase: bool,
+    lowercase: bool,
+    digits: bool,
+    symbols: bool,
+) -> Result<SecureStr, String> {
+    if !(4..=128).contains(&length) {
+        return Err("Password length must be between 4 and 128".into());
+    }
+
+    let mut required = Vec::new();
+    let mut charset = Vec::new();
+    if lowercase {
+        required.push(random_from_slice(LOWERCASE));
+        charset.extend_from_slice(LOWERCASE);
+    }
+    if uppercase {
+        required.push(random_from_slice(UPPERCASE));
+        charset.extend_from_slice(UPPERCASE);
+    }
+    if digits {
+        required.push(random_from_slice(DIGITS));
+        charset.extend_from_slice(DIGITS);
+    }
+    if symbols {
+        required.push(random_from_slice(SPECIAL));
+        charset.extend_from_slice(SPECIAL);
+    }
+
+    if charset.is_empty() {
+        return Err("At least one character type must be enabled".into());
+    }
+    if required.len() > length {
+        return Err("Policy requirements exceed password length".into());
+    }
+
+    let mut password = Vec::with_capacity(length);
+    password.extend(required);
+    for _ in password.len()..length {
+        password.push(random_from_slice(&charset));
+    }
+
+    password.shuffle(&mut OsRng);
+    let password = String::from_utf8(password).map_err(|e| e.to_string())?;
+    Ok(SecureStr::new(password))
+}
+
 const WORDS: &[&str] = &[
     "apple", "brave", "cloud", "dream", "eagle", "flame", "grape", "heart", "ivory", "jewel",
     "kite", "lemon", "maple", "noble", "ocean", "pearl", "quest", "river", "stone", "tiger",

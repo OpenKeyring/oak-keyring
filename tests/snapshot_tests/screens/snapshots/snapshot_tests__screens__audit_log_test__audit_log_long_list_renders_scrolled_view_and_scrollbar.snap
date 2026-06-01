@@ -1,0 +1,15 @@
+---
+source: tests/snapshot_tests/screens/audit_log_test.rs
+assertion_line: 119
+expression: backend
+---
+" Audit Log                                              20 records              "
+"┌ Operation ─┐┌ Time Range ┐┌ Search ──────────────────────────────────────────┐"
+"│  All       ││  All Time  ││  Enter keywords...                               │"
+"└────────────┘└────────────┘└──────────────────────────────────────────────────┘"
+" 05-20 09:06 [Added ] Record 06                                                │"
+" 05-20 09:07 [Added ] Record 07                                                █"
+" 05-20 09:08 [Added ] Record 08                                                 "
+" 05-20 09:09 [Added ] Record 09                                                 "
+" 05-20 09:10 [Added ] Record 10                                                 "
+" ↑↓/j/k Select  │  Tab Switch Area  │  Enter View Record  │  Esc Back           "

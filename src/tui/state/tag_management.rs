@@ -73,6 +73,11 @@ impl InlineEditState {
 
     /// Insert a character at the cursor position and advance the cursor.
     pub fn insert_char(&mut self, ch: char) {
+        if crate::types::record_limits::char_count(&self.text)
+            >= crate::types::record_limits::MAX_TAG_CHARS
+        {
+            return;
+        }
         self.text.insert(self.cursor, ch);
         self.cursor += ch.len_utf8();
         self.conflict = false;
@@ -218,6 +223,17 @@ mod tests {
         let mut edit = InlineEditState::new("工");
         edit.insert_char('作');
         assert_eq!(edit.text, "工作");
+    }
+
+    #[test]
+    fn inline_edit_insert_stops_at_tag_limit() {
+        let mut edit =
+            InlineEditState::new(&"a".repeat(crate::types::record_limits::MAX_TAG_CHARS));
+        edit.insert_char('b');
+        assert_eq!(
+            edit.text.chars().count(),
+            crate::types::record_limits::MAX_TAG_CHARS
+        );
     }
 
     #[test]

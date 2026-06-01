@@ -362,6 +362,11 @@ fn export_decrypt_path_for_all_credential_types() {
                 );
                 assert_eq!(passphrase.unwrap().expose(), "export-passphrase");
             }
+            DecryptedRecord::SecureNote { name, notes, .. } => {
+                // No SecureNote in this test, but handle for completeness
+                let _ = name;
+                let _ = notes;
+            }
         }
     }
 }

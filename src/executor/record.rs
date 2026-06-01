@@ -2,7 +2,10 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::commands::types::{FieldSelector, RecordFilter, RecordSort};
+use crate::commands::types::{
+    FieldSelector, HealthReport, RecordCategoryCounts, RecordFilter, RecordSort,
+    DEFAULT_RECORD_LIST_PAGE_SIZE,
+};
 use crate::commands::{CommandResult, InternalCommand};
 use crate::crypto::password::{
     generate_memorable_password, generate_pin, generate_random_password,
@@ -177,65 +180,61 @@ pub fn handle_load_record_list(
     filter: RecordFilter,
     sort: RecordSort,
 ) -> CommandResult {
-    match executor
-        .vault_mut()
-        .and_then(|v| v.list_records(&filter, &sort))
-    {
-        Ok(mut records) => {
-            // Spec Compliance: Populate health fields from cached health_report.
-            // When no health report exists, is_expired stays false (set by vault
-            // service) — we do NOT fall back to expires_at < now. Per spec §11.2,
-            // "已过期" depends solely on persisted health state.
-            if let Some(report) = &executor.health_report {
-                for record in &mut records {
-                    record.has_weak_password = report.weak_passwords.contains(&record.id);
-                    record.is_compromised = report.compromised.contains(&record.id);
-                    record.duplicate_group_size = report
-                        .duplicate_passwords
-                        .iter()
-                        .find(|group| group.contains(&record.id))
-                        .map(|group| group.len());
-                    record.is_expired = report.expired.contains(&record.id);
-                }
-            }
+    handle_load_record_list_page(executor, filter, sort, DEFAULT_RECORD_LIST_PAGE_SIZE, 0)
+}
 
-            // Expired filter: use report.expired instead of expires_at < now.
-            // When no health report is available, no records appear in the
-            // expired category — per spec §11.2.
-            if matches!(filter, RecordFilter::Expired) {
-                if let Some(report) = &executor.health_report {
-                    let expired_set: std::collections::HashSet<Uuid> =
-                        report.expired.iter().copied().collect();
-                    records.retain(|r| expired_set.contains(&r.id));
-                } else {
-                    // No health report — no expired records to show.
-                    records.clear();
-                }
-            }
-
-            // HealthIssues filter: the vault service returns all active records;
-            // we filter here where the health_report is available.
-            if matches!(filter, RecordFilter::HealthIssues) {
-                if let Some(report) = &executor.health_report {
-                    records.retain(|r| {
-                        report.weak_passwords.contains(&r.id)
-                            || report
-                                .duplicate_passwords
-                                .iter()
-                                .any(|group| group.contains(&r.id))
-                            || report.compromised.contains(&r.id)
-                            || report.expired.contains(&r.id)
-                    });
-                } else {
-                    // No health report available — no health issues to show
-                    records.clear();
-                }
-            }
-
-            let total = records.len();
-            CommandResult::RecordListLoaded { records, total }
-        }
+#[tracing::instrument(skip_all)]
+pub fn handle_load_record_list_page(
+    executor: &mut CommandExecutor,
+    filter: RecordFilter,
+    sort: RecordSort,
+    limit: usize,
+    offset: usize,
+) -> CommandResult {
+    match load_record_list_page_with_counts(executor, filter, sort, limit, offset) {
+        Ok((records, total, category_counts)) => CommandResult::RecordListLoaded {
+            records,
+            total,
+            category_counts,
+        },
         Err(e) => vault_error(e, "Failed to load record list"),
+    }
+}
+
+fn load_record_list_page_with_counts(
+    executor: &mut CommandExecutor,
+    filter: RecordFilter,
+    sort: RecordSort,
+    limit: usize,
+    offset: usize,
+) -> Result<
+    (Vec<crate::types::TuiRecord>, usize, RecordCategoryCounts),
+    crate::errors::mapping::vault::VaultError,
+> {
+    let health_report = executor.health_report.clone();
+    let (mut records, total) = executor
+        .vault_mut()
+        .and_then(|v| v.list_records_page(&filter, &sort, limit, offset))?;
+    populate_health_fields(&mut records, health_report.as_ref());
+    let category_counts = executor
+        .vault_mut()
+        .and_then(|v| v.record_category_counts())?;
+
+    Ok((records, total, category_counts))
+}
+
+fn populate_health_fields(records: &mut [crate::types::TuiRecord], report: Option<&HealthReport>) {
+    if let Some(report) = report {
+        for record in records {
+            record.has_weak_password = report.weak_passwords.contains(&record.id);
+            record.is_compromised = report.compromised.contains(&record.id);
+            record.duplicate_group_size = report
+                .duplicate_passwords
+                .iter()
+                .find(|group| group.contains(&record.id))
+                .map(|group| group.len());
+            record.is_expired = report.expired.contains(&record.id);
+        }
     }
 }
 
@@ -277,6 +276,7 @@ pub fn handle_load_record_detail(executor: &mut CommandExecutor, id: Uuid) -> Co
 /// - Login: evaluates the `password` field
 /// - API: evaluates the `secret_key` field
 /// - SSH: returns `None` (SSH key material is not a password)
+/// - SecureNote: returns `None` (no password field)
 fn compute_password_strength(
     record: &DecryptedRecord,
 ) -> Option<crate::crypto::strength::PasswordStrength> {
@@ -288,6 +288,7 @@ fn compute_password_strength(
             crate::crypto::strength::evaluate_strength(secret_key.expose()),
         ),
         DecryptedRecord::Ssh { .. } => None,
+        DecryptedRecord::SecureNote { .. } => None,
     }
 }
 
@@ -957,7 +958,7 @@ mod tests {
     }
 
     #[test]
-    fn soft_deleted_record_not_in_active_sync_uploads() {
+    fn soft_deleted_record_uploads_tombstone_for_sync() {
         let mut executor = make_unlocked_executor();
         let id = create_login_record(&mut executor, "sync-del", "P@ssw0rd!");
 
@@ -971,15 +972,13 @@ mod tests {
         assert!(data.is_some());
         let data = data.unwrap();
 
-        // Soft-deleted records are excluded from list_all_stored_records
-        // and thus not in sync uploads — they are synced as deletions during
-        // the detect phase of the sync pipeline.
-        let found = data.uploads.iter().any(|r| r.id == id.to_string());
+        let tombstone = data.uploads.iter().find(|r| r.id == id.to_string());
         assert!(
-            !found,
-            "soft-deleted record should NOT appear in active sync uploads (id={})",
+            tombstone.is_some(),
+            "soft-deleted record should appear in sync uploads as tombstone (id={})",
             id
         );
+        assert_eq!(tombstone.and_then(|r| r.deleted), Some(true));
     }
 
     #[test]

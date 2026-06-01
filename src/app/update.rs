@@ -18,6 +18,7 @@ use crate::app::App;
 use crate::commands::types::{AppPhase, Screen};
 use crate::commands::{CommandResult, Message};
 use crate::tui::screens::set_password::{RestoreNext, SetPasswordContext, SetPasswordScreen};
+use crate::tui::state::main_state::SyncIndicator;
 use crate::tui::traits::screen::{Screen as ScreenTrait, ScreenContext, ScreenResult};
 
 /// Tick rate: how often we check for terminal events. Also drives timers/animations.
@@ -32,6 +33,51 @@ fn start_transition_kind(
     kind: crate::tui::state::animation::EffectKind,
 ) {
     crate::tui::animation::transitions::start_transition(&mut state.shared.animation, kind);
+}
+
+fn apply_runtime_config(app: &mut App, config: crate::config::AppConfig) {
+    if config.general.language != app.config.general.language {
+        crate::tui::i18n::switch_locale(&config.general.language);
+    }
+
+    let level = crate::tui::animation::level_for_mode(config.general.animation);
+    app.state.shared.animation.level = level;
+    if level == crate::tui::animation::AnimationLevel::None {
+        app.state.shared.animation.clear();
+    }
+    app.state.screens.main.status_bar.sync_status = sync_indicator_from_config(&config);
+    app.config = config;
+}
+
+fn sync_indicator_from_config(config: &crate::config::AppConfig) -> SyncIndicator {
+    if config.sync.is_runtime_configured() {
+        SyncIndicator::Configured
+    } else {
+        SyncIndicator::NotConfigured
+    }
+}
+
+fn apply_google_drive_authorization_to_config(
+    config: &mut crate::config::AppConfig,
+    access_token: &str,
+    refresh_token: Option<&str>,
+) {
+    config.sync.provider = crate::config::SyncProvider::GoogleDrive;
+
+    let mut drive_config = match config.sync.provider_config.take() {
+        Some(crate::config::ProviderConfig::GoogleDrive(cfg)) => cfg,
+        _ => crate::config::GoogleDriveConfig::default(),
+    };
+
+    if let Some(refresh_token) = refresh_token {
+        drive_config.refresh_token = refresh_token.to_string();
+        drive_config.access_token.clear();
+    } else {
+        drive_config.access_token = access_token.to_string();
+        drive_config.refresh_token.clear();
+    }
+
+    config.sync.provider_config = Some(crate::config::ProviderConfig::GoogleDrive(drive_config));
 }
 
 fn start_initial_transition(
@@ -123,6 +169,7 @@ fn handle_screen_result_navigation(app: &mut App, screen: Screen) {
         return;
     }
 
+    let database_recovery_origin = database_recovery_origin_before_unmount(&app.state, screen);
     let fallback_transition = onboarding_navigation_fallback_transition(&app.state, screen);
     let transition = take_pending_onboarding_motion(&mut app.state).unwrap_or(fallback_transition);
 
@@ -133,7 +180,45 @@ fn handle_screen_result_navigation(app: &mut App, screen: Screen) {
         config: &app.config,
     };
     route_on_mount_from_state(&mut app.state, &mut ctx);
+    if let Some(origin) = database_recovery_origin {
+        app.state.screens.database_recovery =
+            crate::tui::screens::database_recovery::DatabaseRecoveryScreen::new(origin);
+        app.state.screens.database_recovery.on_mount(&mut ctx);
+    }
     start_transition_kind(&mut app.state, transition);
+}
+
+fn database_recovery_origin_before_unmount(
+    state: &crate::tui::state::AppState,
+    target: Screen,
+) -> Option<crate::tui::screens::database_recovery::DatabaseRecoveryOrigin> {
+    if target != Screen::DatabaseRecovery {
+        return None;
+    }
+
+    let origin = match state.current_screen {
+        Screen::SetNewMasterPassword => match state.screens.set_new_master_password.context {
+            SetPasswordContext::RestoreExistingVault {
+                next: RestoreNext::RestoreDatabase,
+                ..
+            }
+            | SetPasswordContext::OnboardingRestore => {
+                crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore
+            }
+            _ => crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly,
+        },
+        Screen::KeyRecovery
+            if matches!(
+                state.screens.key_recovery.origin,
+                crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore
+            ) =>
+        {
+            crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore
+        }
+        _ => crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly,
+    };
+
+    Some(origin)
 }
 
 fn build_set_password_context_before_unmount(
@@ -207,11 +292,58 @@ fn should_suppress_onboarding_vault_locked(
 ) -> bool {
     matches!(
         result,
+        CommandResult::VaultLocked
+            | CommandResult::Error {
+                code: crate::errors::ErrorCode::ExecutorVaultLocked,
+                ..
+            }
+    ) && is_onboarding_flow_screen(state)
+}
+
+fn is_vault_locked_result(result: &CommandResult) -> bool {
+    matches!(
+        result,
+        CommandResult::VaultLocked
+            | CommandResult::Error {
+                code: crate::errors::ErrorCode::ExecutorVaultLocked,
+                ..
+            }
+    )
+}
+
+fn vault_locked_status_text(result: &CommandResult) -> String {
+    match result {
         CommandResult::Error {
+            fallback,
             code: crate::errors::ErrorCode::ExecutorVaultLocked,
             ..
-        }
-    ) && is_onboarding_flow_screen(state)
+        } => fallback.clone(),
+        _ => "Vault locked. Please unlock first.".to_string(),
+    }
+}
+
+fn lock_app_to_unlock_screen(app: &mut App, result: &CommandResult) {
+    use crate::tui::state::notification::StatusMessage;
+
+    route_on_unmount_from_state(&mut app.state);
+    app.state.screens = Default::default();
+    app.state.screen_history.clear();
+    app.state.current_screen = Screen::Unlock;
+    app.state.shared.focus = Default::default();
+    app.state.shared.loading = Default::default();
+    app.state.shared.notification.clear();
+    app.state
+        .shared
+        .notification
+        .enqueue(StatusMessage::warning(vault_locked_status_text(result)));
+
+    let command_tx = app.command_tx.clone();
+    let mut ctx = ScreenContext {
+        command_tx: &command_tx,
+        config: &app.config,
+    };
+    route_on_mount_from_state(&mut app.state, &mut ctx);
+    start_screen_in_transition(&mut app.state);
 }
 
 fn should_suppress_screen_local_error(
@@ -256,6 +388,9 @@ pub fn run(
         if has_event {
             match event::read()? {
                 CrosstermEvent::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                    if let Some(ref activity) = app.activity {
+                        activity.touch();
+                    }
                     // Ctrl+X: dismiss active notification.
                     if key_event.modifiers.contains(KeyModifiers::CONTROL)
                         && key_event.code == KeyCode::Char('x')
@@ -273,11 +408,13 @@ pub fn run(
                 {
                     return Ok(());
                 }
-                CrosstermEvent::Mouse(mouse_event)
-                    if handle_message(app, Message::MouseEvent(mouse_event))?
-                        == LoopControl::Exit =>
-                {
-                    return Ok(());
+                CrosstermEvent::Mouse(mouse_event) => {
+                    if let Some(ref activity) = app.activity {
+                        activity.touch();
+                    }
+                    if handle_message(app, Message::MouseEvent(mouse_event))? == LoopControl::Exit {
+                        return Ok(());
+                    }
                 }
                 _ => {}
             }
@@ -358,6 +495,13 @@ fn handle_message(
             // Tick notification state for auto-dismiss.
             app.state.shared.notification.tick();
             app.state.shared.animation.clear_finished();
+
+            let command_tx = app.command_tx.clone();
+            let mut ctx = ScreenContext {
+                command_tx: &command_tx,
+                config: &app.config,
+            };
+            let _ = route_to_screen(&mut app.state, Message::Tick, &mut ctx);
         }
 
         // -- Resize (direct) ----------------
@@ -375,11 +519,16 @@ fn handle_message(
                 tracing::debug!("Suppressed vault-locked result during onboarding flow");
                 return Ok(LoopControl::Continue);
             }
+            if is_vault_locked_result(result) {
+                lock_app_to_unlock_screen(app, result);
+                return Ok(LoopControl::Continue);
+            }
             let suppress_screen_local_error =
                 should_suppress_screen_local_error(&app.state, result);
 
             match result {
-                CommandResult::ConfigSaved { warnings } => {
+                CommandResult::ConfigSaved { config, warnings } => {
+                    apply_runtime_config(app, config.clone());
                     app.state
                         .shared
                         .notification
@@ -392,29 +541,31 @@ fn handle_message(
                     }
                 }
                 CommandResult::ConfigLoaded { config } => {
-                    // Language change
-                    if config.general.language != app.config.general.language {
-                        crate::tui::i18n::switch_locale(&config.general.language);
+                    apply_runtime_config(app, config.clone());
+                }
+                CommandResult::OAuth2Authorized {
+                    provider,
+                    access_token,
+                    refresh_token,
+                } =>
+                {
+                    #[allow(clippy::collapsible_match)]
+                    if provider == "google_drive" {
+                        let mut config = app.config.clone();
+                        apply_google_drive_authorization_to_config(
+                            &mut config,
+                            access_token,
+                            refresh_token.as_deref(),
+                        );
+                        apply_runtime_config(app, config);
                     }
-                    // Animation mode change
-                    app.state.shared.animation.level = match config.general.animation {
-                        crate::config::general::AnimationMode::On => {
-                            crate::tui::animation::AnimationLevel::Full
-                        }
-                        crate::config::general::AnimationMode::Off => {
-                            crate::tui::animation::AnimationLevel::None
-                        }
-                        crate::config::general::AnimationMode::Auto => {
-                            crate::tui::animation::detect_animation_level()
-                        }
-                    };
-                    app.config = config.clone();
                 }
                 CommandResult::SyncConnectionTested { success, message } => {
+                    let message = crate::security::redaction::redact_sensitive_values(message);
                     let msg = if *success {
-                        StatusMessage::success(message.clone())
+                        StatusMessage::success(message)
                     } else {
-                        StatusMessage::error(message.clone())
+                        StatusMessage::error(message)
                     };
                     app.state.shared.notification.enqueue(msg);
                 }
@@ -432,23 +583,26 @@ fn handle_message(
                         app.state.screens.main.status_bar.sync_status =
                             crate::tui::state::main_state::SyncIndicator::Failed;
                     }
+                    let fallback = crate::security::redaction::redact_sensitive_values(fallback);
                     app.state
                         .shared
                         .notification
-                        .enqueue(StatusMessage::error(fallback.clone()));
+                        .enqueue(StatusMessage::error(fallback));
                 }
                 CommandResult::Error { fallback, .. } if !suppress_screen_local_error => {
+                    let fallback = crate::security::redaction::redact_sensitive_values(fallback);
                     app.state
                         .shared
                         .notification
-                        .enqueue(StatusMessage::error(fallback.clone()));
+                        .enqueue(StatusMessage::error(fallback));
                 }
                 CommandResult::Error { .. } => {}
                 CommandResult::FatalError { fallback, .. } => {
+                    let fallback = crate::security::redaction::redact_sensitive_values(fallback);
                     app.state
                         .shared
                         .notification
-                        .enqueue(StatusMessage::error(fallback.clone()));
+                        .enqueue(StatusMessage::error(fallback));
                 }
                 CommandResult::ExportCompleted { record_count, .. } => {
                     app.state
@@ -600,10 +754,11 @@ fn route_to_screen(
 ) -> ScreenResult {
     match state.current_screen {
         Screen::Main => {
-            state
-                .screens
-                .main
-                .sync_from_app(state.shared.focus.focused_panel, state.unicode_capable);
+            state.screens.main.sync_from_app(
+                state.shared.focus.focused_panel,
+                state.unicode_capable,
+                state.terminal_size,
+            );
             let result = state.screens.main.update(msg, ctx);
             // Back-sync focus changes from MainScreen to AppState
             if state.shared.focus.focused_panel != state.screens.main.focused_panel {
@@ -641,10 +796,11 @@ fn route_to_screen(
 fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut ScreenContext<'_>) {
     match state.current_screen {
         Screen::Main => {
-            state
-                .screens
-                .main
-                .sync_from_app(state.shared.focus.focused_panel, state.unicode_capable);
+            state.screens.main.sync_from_app(
+                state.shared.focus.focused_panel,
+                state.unicode_capable,
+                state.terminal_size,
+            );
             state.screens.main.on_mount(ctx)
         }
         Screen::Unlock => state.screens.unlock.on_mount(ctx),
@@ -666,15 +822,25 @@ fn route_on_mount_from_state(state: &mut crate::tui::state::AppState, ctx: &mut 
             state.screens.key_recovery.on_mount(ctx)
         }
         Screen::DatabaseRecovery => {
-            let origin = state
+            let came_from_onboarding_recovery_key = state
                 .screen_history
                 .last()
-                .map(|s| s.screen)
-                .and_then(|s| match s {
-                    Screen::KeyRecovery => Some(crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore),
-                    _ => None,
-                })
-                .unwrap_or(crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly);
+                .is_some_and(|snapshot| snapshot.screen == Screen::KeyRecovery);
+            let came_from_onboarding_recovery_password = state
+                .screen_history
+                .last()
+                .is_some_and(|snapshot| snapshot.screen == Screen::SetNewMasterPassword)
+                && matches!(
+                    state.screens.key_recovery.origin,
+                    crate::tui::screens::key_recovery::KeyRecoveryOrigin::OnboardingRestore
+                );
+            let origin = if came_from_onboarding_recovery_key
+                || came_from_onboarding_recovery_password
+            {
+                crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::OnboardingRestore
+            } else {
+                crate::tui::screens::database_recovery::DatabaseRecoveryOrigin::StartupKeyOnly
+            };
             state.screens.database_recovery =
                 crate::tui::screens::database_recovery::DatabaseRecoveryScreen::new(origin);
             state.screens.database_recovery.on_mount(ctx)
@@ -757,7 +923,65 @@ mod tests {
     use crate::tui::screens::import_export::ImportEntryPoint;
     use crate::tui::screens::key_recovery::KeyRecoveryOrigin;
     use crate::tui::screens::set_password::{RestoreNext, SetPasswordContext};
+    use crate::tui::state::audit_state::AuditFocus;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+
+    #[test]
+    fn sync_indicator_from_google_drive_token_config_is_configured() {
+        let mut config = crate::config::AppConfig::default();
+        config.sync.provider = crate::config::SyncProvider::GoogleDrive;
+        config.sync.provider_config = Some(crate::config::ProviderConfig::GoogleDrive(
+            crate::config::GoogleDriveConfig {
+                refresh_token: "synthetic-refresh-token".to_string(),
+                ..crate::config::GoogleDriveConfig::default()
+            },
+        ));
+
+        assert_eq!(
+            sync_indicator_from_config(&config),
+            SyncIndicator::Configured
+        );
+    }
+
+    #[test]
+    fn sync_indicator_from_disabled_sync_config_is_not_configured() {
+        assert_eq!(
+            sync_indicator_from_config(&crate::config::AppConfig::default()),
+            SyncIndicator::NotConfigured
+        );
+    }
+
+    #[test]
+    fn oauth2_authorized_marks_google_drive_sync_configured_in_runtime_config() {
+        let mut app = test_app();
+
+        let result = handle_message(
+            &mut app,
+            Message::CommandCompleted(crate::commands::result::CommandResult::OAuth2Authorized {
+                provider: "google_drive".to_string(),
+                access_token: "runtime-access-token".to_string(),
+                refresh_token: Some("runtime-refresh-token".to_string()),
+            }),
+        )
+        .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(
+            app.config.sync.provider,
+            crate::config::SyncProvider::GoogleDrive
+        );
+        match &app.config.sync.provider_config {
+            Some(crate::config::ProviderConfig::GoogleDrive(cfg)) => {
+                assert_eq!(cfg.refresh_token, "runtime-refresh-token");
+                assert!(cfg.access_token.is_empty());
+            }
+            other => panic!("expected Google Drive config, got {other:?}"),
+        }
+        assert_eq!(
+            app.state.screens.main.status_bar.sync_status,
+            SyncIndicator::Configured
+        );
+    }
 
     fn test_app() -> App {
         let vault_dir = tempfile::tempdir().unwrap();
@@ -819,6 +1043,31 @@ mod tests {
         })
     }
 
+    fn vault_locked_result_message() -> Message {
+        Message::CommandCompleted(crate::commands::result::CommandResult::VaultLocked)
+    }
+
+    fn test_record(name: &str) -> crate::types::record::TuiRecord {
+        crate::types::record::TuiRecord {
+            id: uuid::Uuid::new_v4(),
+            credential_type: crate::types::credential::CredentialType::Login,
+            name: name.to_string(),
+            subtitle: "user".to_string(),
+            is_favorite: false,
+            is_expired: false,
+            expires_at: None,
+            has_weak_password: false,
+            is_compromised: false,
+            duplicate_group_size: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+            sync_status: None,
+        }
+    }
+
     fn recovery_words() -> crate::types::RecoveryWords {
         crate::types::RecoveryWords::new((0..24).map(|i| format!("word{i}")).collect()).unwrap()
     }
@@ -856,6 +1105,166 @@ mod tests {
         app.state.shared.animation.clear();
         start_initial_transition(&mut app.state, &app.config);
         assert!(!app.state.shared.animation.is_active());
+    }
+
+    #[test]
+    fn config_saved_applies_animation_mode_without_restart() {
+        let mut app = test_app();
+        app.state.shared.animation.level = crate::tui::animation::AnimationLevel::Full;
+        start_screen_in_transition(&mut app.state);
+        assert!(app.state.shared.animation.is_active());
+
+        let mut config = app.config.clone();
+        config.general.animation = crate::config::AnimationMode::Off;
+
+        let result = handle_message(
+            &mut app,
+            Message::CommandCompleted(crate::commands::result::CommandResult::ConfigSaved {
+                config,
+                warnings: vec![],
+            }),
+        )
+        .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(
+            app.config.general.animation,
+            crate::config::AnimationMode::Off
+        );
+        assert_eq!(
+            app.state.shared.animation.level,
+            crate::tui::animation::AnimationLevel::None
+        );
+        assert!(!app.state.shared.animation.is_active());
+    }
+
+    #[test]
+    fn tick_drives_audit_log_search_debounce() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::AuditLog;
+        app.state.screens.audit_log.state.focused_area = AuditFocus::SearchInput;
+
+        let result = handle_message(&mut app, Message::KeyEvent(key(KeyCode::Char('g'))))
+            .expect("key handled");
+        assert_eq!(result, LoopControl::Continue);
+
+        for _ in 0..3 {
+            let result = handle_message(&mut app, Message::Tick).expect("tick handled");
+            assert_eq!(result, LoopControl::Continue);
+        }
+
+        let command = app
+            .command_rx
+            .as_mut()
+            .expect("command receiver")
+            .try_recv()
+            .expect("debounced audit reload command");
+        match command {
+            crate::commands::Command::LoadAuditLog { filter } => {
+                assert_eq!(filter.search.as_deref(), Some("g"));
+            }
+            other => panic!("expected LoadAuditLog, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn main_mouse_click_uses_current_terminal_size_and_rendered_list_rows() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::Main;
+        app.state.update_size(140, 30);
+        app.state.shared.focus.focused_panel = PanelId::Sidebar;
+
+        let first = test_record("First");
+        let first_id = first.id;
+        app.state.screens.main.list =
+            crate::tui::state::list_state::ListPanelState::with_records(vec![
+                first,
+                test_record("Second"),
+            ]);
+        app.state.screens.main.list.selected_index = None;
+
+        let layout = crate::tui::screens::main::layout::calculate_layout(
+            ratatui::layout::Rect::new(0, 0, 140, 30),
+            140,
+        );
+        let list_area = ratatui::layout::Rect::new(
+            layout.list.x,
+            layout.list.y + 1,
+            layout.list.width,
+            layout.list.height.saturating_sub(1),
+        );
+        let first_item_row = list_area.y + 2;
+        let event = crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: list_area.x + 2,
+            row: first_item_row,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        };
+
+        let result = handle_message(&mut app, Message::MouseEvent(event)).expect("mouse handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.screens.main.focused_panel, PanelId::List);
+        assert_eq!(app.state.screens.main.list.selected_index, Some(0));
+        let command = app
+            .command_rx
+            .as_mut()
+            .expect("command receiver")
+            .try_recv()
+            .expect("click should request selected record detail");
+        match command {
+            crate::commands::Command::LoadRecordDetail { id } => assert_eq!(id, first_id),
+            other => panic!("expected LoadRecordDetail, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn main_mouse_scroll_uses_current_terminal_size_and_moves_list_selection() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::Main;
+        app.state.update_size(140, 30);
+        app.state.shared.focus.focused_panel = PanelId::Sidebar;
+
+        let records: Vec<_> = (0..6)
+            .map(|idx| test_record(&format!("Record {idx}")))
+            .collect();
+        let expected_id = records[3].id;
+        app.state.screens.main.list =
+            crate::tui::state::list_state::ListPanelState::with_records(records);
+        app.state.screens.main.list.selected_index = Some(0);
+
+        let layout = crate::tui::screens::main::layout::calculate_layout(
+            ratatui::layout::Rect::new(0, 0, 140, 30),
+            140,
+        );
+        let list_area = ratatui::layout::Rect::new(
+            layout.list.x,
+            layout.list.y + 1,
+            layout.list.width,
+            layout.list.height.saturating_sub(1),
+        );
+        let event = crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::ScrollDown,
+            column: list_area.x + 2,
+            row: list_area.y + 2,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        };
+
+        let result = handle_message(&mut app, Message::MouseEvent(event)).expect("mouse handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.screens.main.focused_panel, PanelId::List);
+        assert_eq!(app.state.screens.main.list.selected_index, Some(3));
+        let command = app
+            .command_rx
+            .as_mut()
+            .expect("command receiver")
+            .try_recv()
+            .expect("scroll should request selected record detail");
+        match command {
+            crate::commands::Command::LoadRecordDetail { id } => assert_eq!(id, expected_id),
+            other => panic!("expected LoadRecordDetail, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1128,6 +1537,73 @@ mod tests {
     }
 
     #[test]
+    fn onboarding_screen_suppresses_direct_vault_locked_result() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::Onboarding;
+
+        let result =
+            handle_message(&mut app, vault_locked_result_message()).expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Onboarding);
+        assert!(app.state.shared.notification.current_message.is_none());
+        assert!(app.state.screens.onboarding.error.is_none());
+    }
+
+    #[test]
+    fn vault_locked_result_navigates_protected_screens_to_unlock() {
+        for screen in [
+            Screen::CreateRecord,
+            Screen::Main,
+            Screen::Config,
+            Screen::ChangeMasterPassword,
+            Screen::ImportExport,
+            Screen::AuditLog,
+            Screen::SyncConflict,
+            Screen::PasswordGenerator,
+            Screen::EditRecord {
+                id: uuid::Uuid::nil(),
+            },
+        ] {
+            let mut app = test_app();
+            app.state.current_screen = screen;
+
+            let result =
+                handle_message(&mut app, vault_locked_result_message()).expect("message handled");
+
+            assert_eq!(result, LoopControl::Continue, "screen: {screen:?}");
+            assert_eq!(
+                app.state.current_screen,
+                Screen::Unlock,
+                "screen: {screen:?}"
+            );
+            assert!(
+                app.state.screen_history.is_empty(),
+                "locked screen must not remain in back history: {screen:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn executor_vault_locked_error_navigates_protected_screen_to_unlock() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::CreateRecord;
+
+        let result = handle_message(&mut app, vault_locked_message()).expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::Unlock);
+        assert!(app.state.screen_history.is_empty());
+        assert!(app
+            .state
+            .shared
+            .notification
+            .current_message
+            .as_ref()
+            .is_some_and(|message| message.text == "Vault is locked. Please unlock first."));
+    }
+
+    #[test]
     fn onboarding_set_password_suppresses_vault_locked_result() {
         let mut app = test_app();
         app.state.current_screen = Screen::SetNewMasterPassword;
@@ -1163,6 +1639,54 @@ mod tests {
         assert_eq!(result, LoopControl::Continue);
         assert!(app.state.shared.notification.current_message.is_none());
         assert!(app.state.screens.database_recovery.error.is_none());
+    }
+
+    #[test]
+    fn database_recovery_after_onboarding_set_password_keeps_onboarding_origin() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let config = crate::config::AppConfig::default();
+        let mut ctx = ScreenContext {
+            command_tx: &tx,
+            config: &config,
+        };
+        let mut state = crate::tui::state::AppState {
+            current_screen: Screen::KeyRecovery,
+            ..Default::default()
+        };
+        state.screens.key_recovery.origin = KeyRecoveryOrigin::OnboardingRestore;
+
+        state.navigate_to(Screen::SetNewMasterPassword);
+        state.navigate_to(Screen::DatabaseRecovery);
+        route_on_mount_from_state(&mut state, &mut ctx);
+
+        assert_eq!(
+            state.screens.database_recovery.origin,
+            DatabaseRecoveryOrigin::OnboardingRestore
+        );
+    }
+
+    #[test]
+    fn keyfile_rebuilt_from_restore_database_enters_onboarding_database_recovery() {
+        let mut app = test_app();
+        app.state.current_screen = Screen::SetNewMasterPassword;
+        app.state.screens.set_new_master_password =
+            SetPasswordScreen::new(SetPasswordContext::RestoreExistingVault {
+                recovery_words: recovery_words(),
+                next: RestoreNext::RestoreDatabase,
+            });
+
+        let result = handle_message(
+            &mut app,
+            Message::CommandCompleted(CommandResult::KeyFileRebuilt),
+        )
+        .expect("message handled");
+
+        assert_eq!(result, LoopControl::Continue);
+        assert_eq!(app.state.current_screen, Screen::DatabaseRecovery);
+        assert_eq!(
+            app.state.screens.database_recovery.origin,
+            DatabaseRecoveryOrigin::OnboardingRestore
+        );
     }
 
     #[test]

@@ -4,9 +4,15 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::commands::types::{SortDirection, SortField};
-use crate::tui::i18n::LocaleGuard;
 use crate::types::credential::CredentialType;
 use crate::types::record::TuiRecord;
+
+fn assert_one_of(actual: &str, expected: &[&str]) {
+    assert!(
+        expected.contains(&actual),
+        "expected one of {expected:?}, got {actual:?}"
+    );
+}
 
 /// Helper to build a TuiRecord with minimal fields for testing.
 fn make_record(id: Uuid, name: &str, subtitle: &str) -> TuiRecord {
@@ -145,7 +151,7 @@ fn search_mode_enter_exit() {
     assert!(state.is_searching());
     assert!(!state.is_visual());
 
-    state.exit_search();
+    state.commit_search();
     assert!(!state.is_searching());
 }
 
@@ -260,6 +266,7 @@ fn format_type_prefix_variants() {
     assert_eq!(format_type_prefix(&CredentialType::Login), "");
     assert_eq!(format_type_prefix(&CredentialType::Api), "[API] ");
     assert_eq!(format_type_prefix(&CredentialType::Ssh), "[SSH] ");
+    assert_eq!(format_type_prefix(&CredentialType::SecureNote), "[N] ");
 }
 
 #[test]
@@ -277,26 +284,23 @@ fn format_relative_time_today() {
 
 #[test]
 fn format_relative_time_yesterday() {
-    let _guard = LocaleGuard::zh_cn();
     let yesterday = Utc::now() - chrono::Duration::try_days(1).unwrap();
     let result = format_relative_time(&yesterday);
-    assert_eq!(result, "昨天");
+    assert_one_of(&result, &["yesterday", "昨天"]);
 }
 
 #[test]
 fn format_relative_time_days_ago() {
-    let _guard = LocaleGuard::zh_cn();
     let dt = Utc::now() - chrono::Duration::try_days(3).unwrap();
     let result = format_relative_time(&dt);
-    assert!(result.contains("天前"));
+    assert_one_of(&result, &["3 days ago", "3天前"]);
 }
 
 #[test]
 fn format_relative_time_weeks_ago() {
-    let _guard = LocaleGuard::zh_cn();
     let dt = Utc::now() - chrono::Duration::try_days(14).unwrap();
     let result = format_relative_time(&dt);
-    assert!(result.contains("周前"));
+    assert_one_of(&result, &["2 weeks ago", "2周前"]);
 }
 
 #[test]
@@ -337,53 +341,46 @@ fn adjust_scroll_keeps_selected_visible() {
 
 #[test]
 fn format_days_since_deletion_today() {
-    let _guard = LocaleGuard::zh_cn();
     let now = Utc::now();
     let result = format_days_since_deletion(&now);
-    assert_eq!(result, "0 天前删除");
+    assert_one_of(&result, &["Deleted 0 days ago", "0 天前删除"]);
 }
 
 #[test]
 fn format_days_since_deletion_yesterday() {
-    let _guard = LocaleGuard::zh_cn();
     let yesterday = Utc::now() - chrono::Duration::try_days(1).unwrap();
     let result = format_days_since_deletion(&yesterday);
-    assert_eq!(result, "1 天前删除");
+    assert_one_of(&result, &["Deleted 1 days ago", "1 天前删除"]);
 }
 
 #[test]
 fn format_days_since_deletion_week() {
-    let _guard = LocaleGuard::zh_cn();
     let dt = Utc::now() - chrono::Duration::try_days(7).unwrap();
     let result = format_days_since_deletion(&dt);
-    assert_eq!(result, "7 天前删除");
+    assert_one_of(&result, &["Deleted 7 days ago", "7 天前删除"]);
 }
 
 #[test]
 fn format_remaining_days_normal() {
-    let _guard = LocaleGuard::zh_cn();
     let deleted_at = Utc::now() - chrono::Duration::try_days(10).unwrap();
     let retention_days = 30;
     let result = format_remaining_days(&deleted_at, retention_days);
-    assert!(result.contains("剩余"));
-    assert!(result.contains("天"));
+    assert_one_of(&result, &["20 days remaining", "剩余 20 天"]);
 }
 
 #[test]
 fn format_remaining_days_never_delete() {
-    let _guard = LocaleGuard::zh_cn();
     let deleted_at = Utc::now() - chrono::Duration::try_days(10).unwrap();
     let result = format_remaining_days(&deleted_at, 0);
-    assert_eq!(result, "不会自动删除");
+    assert_one_of(&result, &["Will not auto-delete", "不会自动删除"]);
 }
 
 #[test]
 fn format_remaining_days_expired() {
-    let _guard = LocaleGuard::zh_cn();
     let deleted_at = Utc::now() - chrono::Duration::try_days(31).unwrap();
     let retention_days = 30;
     let result = format_remaining_days(&deleted_at, retention_days);
-    assert!(result.contains("剩余"));
+    assert_one_of(&result, &["0 days remaining", "剩余 0 天"]);
 }
 
 #[test]

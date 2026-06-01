@@ -467,6 +467,31 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             app_id: None,
             secret_key: None,
         },
+        DecryptedRecord::SecureNote {
+            id,
+            is_favorite,
+            expires_at,
+            tags,
+            name,
+            notes,
+            ..
+        } => ExportRecord {
+            id: id.to_string(),
+            credential_type: CredentialType::SecureNote.to_db_str().to_string(),
+            name: name.clone(),
+            username: None,
+            password: None,
+            url: None,
+            notes: notes.clone(),
+            tags: Some(tags.clone()),
+            is_favorite: Some(*is_favorite),
+            expires_at: expires_at.map(|t| t.to_rfc3339()),
+            public_key: None,
+            private_key: None,
+            passphrase: None,
+            app_id: None,
+            secret_key: None,
+        },
     }
 }
 
@@ -498,6 +523,10 @@ fn fields_to_payload(
             public_key: fields.get("public_key").cloned().unwrap_or_default(),
             private_key: fields.get("private_key").cloned().map(SecureStr::new),
             passphrase: fields.get("passphrase").cloned().map(SecureStr::new),
+            notes: fields.get("notes").cloned(),
+        },
+        CredentialType::SecureNote => EncryptedPayload::SecureNote {
+            name: fields.get("name").cloned().unwrap_or_default(),
             notes: fields.get("notes").cloned(),
         },
     }

@@ -68,11 +68,12 @@ impl AuditLogScreen {
             .border_style(op_border)
             .title(t!("tui.audit.filter_type").to_string());
         let op_text = Paragraph::new(format!(" {}", op_name)).style(Style::default().fg(TEXT));
+        let op_inner = op_block.inner(columns[0]);
         frame.render_widget(op_block, columns[0]);
         let inner = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(1)])
-            .split(columns[0]);
+            .split(op_inner);
         let padded = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(1), Constraint::Fill(1)])
@@ -92,11 +93,12 @@ impl AuditLogScreen {
             .border_style(time_border)
             .title(t!("tui.audit.filter_time").to_string());
         let time_text = Paragraph::new(format!(" {}", time_name)).style(Style::default().fg(TEXT));
+        let time_inner = time_block.inner(columns[1]);
         frame.render_widget(time_block, columns[1]);
         let inner = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(1)])
-            .split(columns[1]);
+            .split(time_inner);
         let padded = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(1), Constraint::Fill(1)])
@@ -113,6 +115,7 @@ impl AuditLogScreen {
             .borders(Borders::ALL)
             .border_style(search_border)
             .title(t!("tui.audit.filter_search").to_string());
+        let search_inner = search_block.inner(columns[2]);
         let search_display = if self.state.filter.search.is_empty() {
             Paragraph::new(t!("tui.audit.search_placeholder").to_string())
                 .style(Style::default().fg(theme::TEXT_PLACEHOLDER))
@@ -129,7 +132,7 @@ impl AuditLogScreen {
         let inner = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(1)])
-            .split(columns[2]);
+            .split(search_inner);
         let padded = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(1), Constraint::Fill(1)])
@@ -139,6 +142,8 @@ impl AuditLogScreen {
 
     pub(super) fn render_log_list(&self, frame: &mut Frame, area: Rect) {
         let filtered = self.filtered_entries();
+        let visible_rows = area.height.max(1) as usize;
+        self.visible_log_rows.set(visible_rows);
 
         if filtered.is_empty() {
             self.render_empty_state(frame, area);
@@ -147,10 +152,25 @@ impl AuditLogScreen {
 
         // Clamp selected_index to valid range of filtered entries
         let selected = self.state.selected_index.min(filtered.len() - 1);
+        let max_offset = filtered.len().saturating_sub(visible_rows);
+        let offset = self.state.scroll_offset.min(max_offset);
+        let scrollbar_total = self.state.total_count.max(filtered.len());
+        let needs_scrollbar = scrollbar_total > visible_rows;
+        let (list_area, scrollbar_area) = if needs_scrollbar && area.width > 1 {
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Fill(1), Constraint::Length(1)])
+                .split(area);
+            (chunks[0], chunks[1])
+        } else {
+            (area, Rect::default())
+        };
 
         let items: Vec<ListItem> = filtered
             .iter()
             .enumerate()
+            .skip(offset)
+            .take(visible_rows)
             .map(|(i, entry)| {
                 let is_selected = i == selected;
                 let op_name = operation_display_name(&entry.operation);
@@ -204,9 +224,55 @@ impl AuditLogScreen {
 
         // Use ListState for scrolling
         let mut list_state = ListState::default();
-        list_state.select(Some(selected));
+        let selected_in_view = selected
+            .checked_sub(offset)
+            .filter(|idx| *idx < visible_rows);
+        list_state.select(selected_in_view);
 
-        frame.render_stateful_widget(list, area, &mut list_state);
+        frame.render_stateful_widget(list, list_area, &mut list_state);
+        self.render_log_scrollbar(frame, scrollbar_area, offset, visible_rows, scrollbar_total);
+    }
+
+    fn render_log_scrollbar(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        offset: usize,
+        visible_rows: usize,
+        total_rows: usize,
+    ) {
+        if area.width == 0 || area.height == 0 || total_rows <= visible_rows {
+            return;
+        }
+
+        let max_offset = total_rows.saturating_sub(visible_rows);
+        if max_offset == 0 {
+            return;
+        }
+
+        let thumb_ratio = visible_rows as f32 / total_rows as f32;
+        let thumb_height = ((area.height as f32 * thumb_ratio).max(1.0)).ceil() as u16;
+        let scroll_ratio = offset.min(max_offset) as f32 / max_offset as f32;
+        let max_thumb_y = area.height.saturating_sub(thumb_height);
+        let thumb_y = (scroll_ratio * max_thumb_y as f32) as u16;
+
+        frame.render_widget(
+            Paragraph::new("\u{2502}".repeat(area.height as usize))
+                .style(Style::default().fg(theme::NL_LINE).bg(theme::BG)),
+            area,
+        );
+
+        let thumb_area = Rect {
+            x: area.x,
+            y: area.y + thumb_y,
+            width: area.width,
+            height: thumb_height.max(1),
+        };
+        frame.render_widget(
+            Paragraph::new("\u{2588}".repeat(thumb_area.height as usize))
+                .style(Style::default().fg(theme::NL_CYAN).bg(theme::BG)),
+            thumb_area,
+        );
     }
 
     fn render_empty_state(&self, frame: &mut Frame, area: Rect) {

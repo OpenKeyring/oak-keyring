@@ -70,6 +70,21 @@ fn sample_entries() -> Vec<AuditEntry> {
     ]
 }
 
+fn many_entries(count: i64) -> Vec<AuditEntry> {
+    (0..count)
+        .map(|id| AuditEntry {
+            id,
+            operation: AuditOperation::RecordCreate,
+            record_id: Some(Uuid::nil()),
+            record_name: Some(format!("Record {id:02}")),
+            detail: None,
+            occurred_at: chrono::Utc
+                .with_ymd_and_hms(2026, 5, 20, 9, id as u32, 0)
+                .unwrap(),
+        })
+        .collect()
+}
+
 #[test]
 fn audit_log_empty() {
     let _locale = snapshot_locale();
@@ -88,6 +103,38 @@ fn audit_log_populated_list_focused() {
     screen.state.selected_index = 1; // Gmail Login creation
     let backend = render_screen(&screen, 80, 24);
     insta::assert_snapshot!("audit_log_populated_list_focused", backend);
+}
+
+#[test]
+fn audit_log_long_list_renders_scrolled_view_and_scrollbar() {
+    let _locale = snapshot_locale();
+    let mut screen = AuditLogScreen::new();
+    screen.state.entries = many_entries(20);
+    screen.state.total_count = 20;
+    screen.state.focused_area = AuditFocus::LogList;
+    screen.state.selected_index = 8;
+    screen.state.scroll_offset = 6;
+
+    let backend = render_screen(&screen, 80, 10);
+    insta::assert_snapshot!(
+        "audit_log_long_list_renders_scrolled_view_and_scrollbar",
+        backend
+    );
+}
+
+#[test]
+fn audit_log_filter_bar_shows_labels_and_values() {
+    let _locale = snapshot_locale();
+    let screen = AuditLogScreen::new();
+    let backend = render_screen(&screen, 80, 24);
+    let rendered = format!("{backend:?}");
+
+    assert!(rendered.contains("Operation"));
+    assert!(rendered.contains("Time Range"));
+    assert!(rendered.contains("Search"));
+    assert!(rendered.contains("All"));
+    assert!(rendered.contains("All Time"));
+    assert!(rendered.contains("Enter keywords"));
 }
 
 #[test]

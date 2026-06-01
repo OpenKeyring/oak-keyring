@@ -4,7 +4,7 @@ use crate::crypto::bip39::{MnemonicLanguage, Passkey};
 #[cfg(not(feature = "sqlcipher"))]
 use crate::errors::service_error::ServiceError;
 use crate::errors::{ErrorCode, ErrorContext};
-use crate::types::{RecoveryWords, SecureStr};
+use crate::types::{AuditOperation, RecoveryWords, SecureStr};
 
 use super::CommandExecutor;
 
@@ -55,6 +55,23 @@ fn cleanup_failed_new_vault_initialization(
             if !existed_before {
                 remove_initialized_artifact(&path, label);
             }
+        }
+    }
+}
+
+fn write_system_audit(
+    executor: &mut CommandExecutor,
+    operation: AuditOperation,
+    detail: Option<&str>,
+) {
+    if let Ok(vault) = executor.vault_mut() {
+        if let Err(e) = vault.write_audit_entry(
+            operation,
+            None,
+            None,
+            detail.map(std::string::ToString::to_string),
+        ) {
+            tracing::warn!(?operation, error = %e, "failed to write system audit entry");
         }
     }
 }
@@ -220,6 +237,7 @@ pub async fn handle_unlock(
             crate::services::vault::VaultServiceImpl::new_unlocked(conn, crypto),
         ));
         executor.vault_db_file_backed = true;
+        write_system_audit(executor, AuditOperation::VaultUnlock, None);
         schedule_health_check_after_unlock(executor);
         return CommandResult::VaultUnlocked;
     }
@@ -242,6 +260,7 @@ pub async fn handle_unlock(
         };
         match unlock_result {
             Ok(()) => {
+                write_system_audit(executor, AuditOperation::VaultUnlock, None);
                 schedule_health_check_after_unlock(executor);
                 CommandResult::VaultUnlocked
             }
@@ -362,6 +381,7 @@ pub async fn handle_unlock_with_recovery_key(
             crate::services::vault::VaultServiceImpl::new_unlocked(conn, crypto),
         ));
         executor.vault_db_file_backed = true;
+        write_system_audit(executor, AuditOperation::VaultUnlock, Some("recovery_key"));
 
         // Post-recovery rotation and health check.
         tracing::info!("Post-recovery: checking for interrupted rotation");
@@ -397,6 +417,7 @@ pub async fn handle_unlock_with_recovery_key(
         };
         match unlock_result {
             Ok(()) => {
+                write_system_audit(executor, AuditOperation::VaultUnlock, Some("recovery_key"));
                 // Post-recovery: resume interrupted rotation or trigger new one.
                 tracing::info!("Post-recovery: checking for interrupted rotation");
                 let rotation_result = super::rotation::handle_resume_rotation(executor).await;
@@ -422,6 +443,7 @@ pub async fn handle_unlock_with_recovery_key(
 
 #[tracing::instrument(skip(executor))]
 pub fn handle_lock(executor: &mut CommandExecutor) -> CommandResult {
+    write_system_audit(executor, AuditOperation::VaultLock, None);
     if let Ok(vault) = executor.vault_mut() {
         vault.lock();
     }
@@ -486,6 +508,7 @@ pub fn handle_change_master_password(
         &new_password,
     ) {
         Ok(()) => {
+            write_system_audit(executor, AuditOperation::MasterPasswordChange, None);
             // Re-unlock with new password if currently unlocked
             if let Ok(vault) = executor.vault() {
                 if vault.is_unlocked() {

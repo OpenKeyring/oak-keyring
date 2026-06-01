@@ -352,7 +352,10 @@ fn main_composition_batch_tag_overlay() {
         &mut state,
         Overlay::BatchTagPanel(BatchTagPanelState {
             record_ids: vec![Uuid::nil(), Uuid::from_u128(2)],
+            selected_record_names: vec!["GitHub Account".to_string(), "Personal Email".to_string()],
             current_tag: "work".to_string(),
+            current_tags: vec!["work".to_string()],
+            available_tags: vec!["personal".to_string()],
         }),
     );
     let backend = render_screen(&state, PanelId::List, 100, 24);

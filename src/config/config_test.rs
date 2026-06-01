@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::config::{
-        AnimationMode, AppConfig, ConfigError, HealthCheckFrequency, ProviderConfig, SyncMode,
-        SyncProvider,
+        AnimationMode, AppConfig, ConfigError, HealthCheckFrequency, PasswordGenerationStyle,
+        ProviderConfig, SyncMode, SyncProvider,
     };
     use crate::errors::service_error::ServiceError;
 
@@ -25,9 +25,18 @@ mod tests {
         assert!(config.security.audit_enabled);
         assert_eq!(config.security.audit_retention_days, 365);
         assert_eq!(config.password.length, 16);
+        assert!(matches!(
+            config.password.style,
+            PasswordGenerationStyle::Random
+        ));
+        assert!(config.password.include_lowercase);
         assert!(config.password.include_digits);
         assert!(config.password.include_uppercase);
         assert!(config.password.include_special);
+        assert_eq!(config.password.memorable_word_count, 4);
+        assert!(config.password.memorable_capitalize);
+        assert_eq!(config.password.memorable_separator, "-");
+        assert_eq!(config.password.pin_length, 6);
     }
 
     #[test]
@@ -51,7 +60,10 @@ mod tests {
         config.general.auto_lock_seconds = 900;
         config.sync.provider = SyncProvider::WebDav;
         config.sync.sync_mode = SyncMode::Manual;
+        config.password.style = PasswordGenerationStyle::Memorable;
         config.password.length = 24;
+        config.password.memorable_word_count = 6;
+        config.password.pin_length = 10;
 
         config.save(&config_dir).expect("save failed");
         let loaded = AppConfig::load(&config_dir).expect("load failed");
@@ -59,7 +71,13 @@ mod tests {
         assert_eq!(loaded.general.auto_lock_seconds, 900);
         assert!(matches!(loaded.sync.provider, SyncProvider::WebDav));
         assert!(matches!(loaded.sync.sync_mode, SyncMode::Manual));
+        assert!(matches!(
+            loaded.password.style,
+            PasswordGenerationStyle::Memorable
+        ));
         assert_eq!(loaded.password.length, 24);
+        assert_eq!(loaded.password.memorable_word_count, 6);
+        assert_eq!(loaded.password.pin_length, 10);
         // tmp is dropped here, cleaning up the directory
     }
 
@@ -79,7 +97,8 @@ mod tests {
         assert_eq!(config.general.auto_lock_seconds, 60);
         assert_eq!(config.general.clipboard_clear_seconds, 30); // default
         assert_eq!(config.password.length, 16); // default
-                                                // cleanup happens when tmp is dropped at end of scope
+        assert_eq!(config.password.memorable_word_count, 4); // default
+                                                             // cleanup happens when tmp is dropped at end of scope
     }
 
     #[test]

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub const DEFAULT_RECORD_LIST_PAGE_SIZE: usize = 500;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecordFilter {
     All,
@@ -39,6 +41,15 @@ impl Default for RecordSort {
             direction: SortDirection::Asc,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RecordCategoryCounts {
+    pub all: usize,
+    pub favorites: usize,
+    pub expired: usize,
+    pub health_issues: usize,
+    pub trash: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,11 +173,13 @@ pub struct CsvColumnMapping {
 }
 
 /// Audit log filter criteria
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AuditFilter {
     pub operation: Option<crate::types::AuditOperation>,
     pub time_range: Option<AuditTimeRange>,
     pub search: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: usize,
 }
 
 /// Health check result report
@@ -258,6 +271,7 @@ pub enum ConfirmVariant {
         record_id: Uuid,
         record_name: String,
     },
+    QuitApp,
 }
 
 /// Confirm dialog state
@@ -271,7 +285,10 @@ pub struct ConfirmDialogState {
 #[derive(Debug, Clone)]
 pub struct BatchTagPanelState {
     pub record_ids: Vec<Uuid>,
+    pub selected_record_names: Vec<String>,
     pub current_tag: String,
+    pub current_tags: Vec<String>,
+    pub available_tags: Vec<String>,
 }
 
 /// Error dialog state

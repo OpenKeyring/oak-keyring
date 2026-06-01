@@ -13,8 +13,10 @@ use ratatui::Frame;
 
 use crate::commands::types::PanelId;
 use crate::t;
+use crate::tui::state::detail_state::DetailViewData;
 use crate::tui::state::main_state::{StatusBarState, StatusMessage, SyncIndicator};
 use crate::tui::theme;
+use crate::types::credential::CredentialType;
 
 /// Application version displayed in the status bar center.
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
@@ -29,6 +31,25 @@ const VISUAL_INDICATOR_ASCII: &str = "[VISUAL]";
 /// Panel responsible for rendering the status bar.
 pub struct StatusBarPanel;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailShortcutContext {
+    Login,
+    Api,
+    Ssh,
+    SecureNote,
+}
+
+impl DetailShortcutContext {
+    pub fn from_record(record: Option<&DetailViewData>) -> Self {
+        match record.map(|record| record.credential_type) {
+            Some(CredentialType::Api) => Self::Api,
+            Some(CredentialType::Ssh) => Self::Ssh,
+            Some(CredentialType::SecureNote) => Self::SecureNote,
+            Some(CredentialType::Login) | None => Self::Login,
+        }
+    }
+}
+
 impl StatusBarPanel {
     /// Render the status bar into the given frame area.
     ///
@@ -41,6 +62,7 @@ impl StatusBarPanel {
     /// * `state` - The current status bar state.
     /// * `focused_panel` - Which panel currently has keyboard focus (affects shortcut display).
     /// * `unicode` - Whether to use unicode characters (vs ASCII fallbacks).
+    #[allow(clippy::too_many_arguments)]
     pub fn view(
         frame: &mut Frame,
         area: Rect,
@@ -49,29 +71,30 @@ impl StatusBarPanel {
         unicode: bool,
         is_trash: bool,
         visual_mode: bool,
+        detail_context: DetailShortcutContext,
     ) {
         if area.width == 0 || area.height == 0 {
             return;
         }
 
-        let bar_bg = theme::BG_BAR;
-        let sep_style = Style::default().fg(theme::BORDER).bg(bar_bg);
-        let shortcut_style = Style::default().fg(theme::TEXT_SECONDARY).bg(bar_bg);
-        let version_style = Style::default().fg(theme::TEXT_MUTED).bg(bar_bg);
+        let bar_bg = theme::NL_SURFACE_2;
+        let sep_style = Style::default().fg(theme::NL_LINE).bg(bar_bg);
+        let shortcut_style = Style::default().fg(theme::NL_TEXT_MUTED).bg(bar_bg);
+        let version_style = Style::default().fg(theme::NL_TEXT_MUTED).bg(bar_bg);
         let sync_style = Style::default()
             .fg(sync_color(&state.sync_status))
             .bg(bar_bg);
-        let msg_style = Style::default().fg(theme::TEXT_SECONDARY).bg(bar_bg);
+        let msg_style = Style::default().fg(theme::NL_TEXT_MUTED).bg(bar_bg);
 
         let shortcuts = if visual_mode && matches!(focused_panel, PanelId::List | PanelId::Detail) {
             visual_shortcuts_text(unicode, is_trash)
         } else {
-            shortcuts_text(focused_panel, unicode, is_trash)
+            shortcuts_text(focused_panel, unicode, is_trash, detail_context)
         };
         let sync_text = sync_indicator_text(&state.sync_status, unicode);
         let status_msg = status_message_text(&state.status_message);
 
-        let mut all_spans = vec![
+        let mut left_spans = vec![
             Span::styled("  ", shortcut_style),
             Span::styled(shortcuts, shortcut_style),
         ];
@@ -83,18 +106,17 @@ impl StatusBarPanel {
             } else {
                 VISUAL_INDICATOR_ASCII
             };
-            all_spans.push(Span::styled(SEPARATOR, sep_style));
-            all_spans.push(Span::styled(
+            left_spans.push(Span::styled(SEPARATOR, sep_style));
+            left_spans.push(Span::styled(
                 format!(" {} ", indicator),
                 Style::default()
-                    .fg(theme::TEXT)
+                    .fg(theme::NL_TEXT)
                     .add_modifier(Modifier::BOLD)
-                    .bg(theme::BG_BAR),
+                    .bg(theme::NL_SELECTED),
             ));
         }
 
-        all_spans.push(Span::styled(SEPARATOR, sep_style));
-        all_spans.push(Span::styled(VERSION, version_style));
+        let mut right_spans = vec![Span::styled(VERSION, version_style)];
 
         // Health Check status — show phase-appropriate message
         use crate::tui::state::main_state::HealthCheckPhase;
@@ -102,10 +124,10 @@ impl StatusBarPanel {
             HealthCheckPhase::Checking => {
                 let icon = if unicode { theme::ICON_SEARCH } else { "[?]" };
                 let text = t!("tui.health.checking");
-                all_spans.push(Span::styled(SEPARATOR, sep_style));
-                all_spans.push(Span::styled(
+                right_spans.push(Span::styled(SEPARATOR, sep_style));
+                right_spans.push(Span::styled(
                     format!("{} {}", icon, text),
-                    Style::default().fg(theme::PRIMARY).bg(bar_bg),
+                    Style::default().fg(theme::NL_CYAN).bg(bar_bg),
                 ));
             }
             HealthCheckPhase::NeedsAttention {
@@ -120,10 +142,10 @@ impl StatusBarPanel {
                     compromised = compromised,
                     duplicate = duplicate_groups
                 );
-                all_spans.push(Span::styled(SEPARATOR, sep_style));
-                all_spans.push(Span::styled(
+                right_spans.push(Span::styled(SEPARATOR, sep_style));
+                right_spans.push(Span::styled(
                     format!("{} {}", icon, text),
-                    Style::default().fg(theme::WARNING).bg(bar_bg),
+                    Style::default().fg(theme::NL_HOT).bg(bar_bg),
                 ));
             }
             HealthCheckPhase::AllSecure => {
@@ -132,10 +154,10 @@ impl StatusBarPanel {
                 } else {
                     format!("+ {}", t!("tui.health.all_secure"))
                 };
-                all_spans.push(Span::styled(SEPARATOR, sep_style));
-                all_spans.push(Span::styled(
+                right_spans.push(Span::styled(SEPARATOR, sep_style));
+                right_spans.push(Span::styled(
                     text,
-                    Style::default().fg(theme::SUCCESS).bg(bar_bg),
+                    Style::default().fg(theme::NL_SUCCESS).bg(bar_bg),
                 ));
             }
             HealthCheckPhase::Skipped => {
@@ -148,10 +170,10 @@ impl StatusBarPanel {
                 } else {
                     format!("- {}", t!("tui.health.skipped_short"))
                 };
-                all_spans.push(Span::styled(SEPARATOR, sep_style));
-                all_spans.push(Span::styled(
+                right_spans.push(Span::styled(SEPARATOR, sep_style));
+                right_spans.push(Span::styled(
                     text,
-                    Style::default().fg(theme::TEXT_MUTED).bg(bar_bg),
+                    Style::default().fg(theme::NL_TEXT_MUTED).bg(bar_bg),
                 ));
             }
             HealthCheckPhase::Inactive => {
@@ -159,14 +181,25 @@ impl StatusBarPanel {
             }
         }
 
-        all_spans.push(Span::styled(SEPARATOR, sep_style));
-        all_spans.push(Span::styled(sync_text, sync_style));
+        right_spans.push(Span::styled(SEPARATOR, sep_style));
+        right_spans.push(Span::styled(sync_text, sync_style));
 
         // Add status message if present
         if let Some(msg) = status_msg {
-            all_spans.push(Span::styled(SEPARATOR, sep_style));
-            all_spans.push(Span::styled(msg, msg_style));
+            right_spans.push(Span::styled(SEPARATOR, sep_style));
+            right_spans.push(Span::styled(msg, msg_style));
         }
+
+        right_spans.push(Span::styled("  ", shortcut_style));
+        let left_width = Line::from(left_spans.clone()).width();
+        let right_width = Line::from(right_spans.clone()).width();
+        let spacer = area
+            .width
+            .saturating_sub(left_width as u16)
+            .saturating_sub(right_width as u16) as usize;
+        let mut all_spans = left_spans;
+        all_spans.push(Span::styled(" ".repeat(spacer), shortcut_style));
+        all_spans.extend(right_spans);
 
         let paragraph = Paragraph::new(Line::from(all_spans)).style(Style::default().bg(bar_bg));
 
@@ -175,7 +208,12 @@ impl StatusBarPanel {
 }
 
 /// Return the shortcut hint string based on the focused panel and trash state.
-fn shortcuts_text(focused_panel: PanelId, unicode: bool, is_trash: bool) -> String {
+fn shortcuts_text(
+    focused_panel: PanelId,
+    unicode: bool,
+    is_trash: bool,
+    detail_context: DetailShortcutContext,
+) -> String {
     match (focused_panel, is_trash) {
         (PanelId::Sidebar, _) | (PanelId::List, false) => {
             if unicode {
@@ -191,21 +229,49 @@ fn shortcuts_text(focused_panel: PanelId, unicode: bool, is_trash: bool) -> Stri
                 t!("tui.status_bar.shortcuts_trash_list_ascii").to_string()
             }
         }
-        (PanelId::Detail, false) => {
-            if unicode {
-                t!("tui.status_bar.shortcuts_detail").to_string()
-            } else {
-                t!("tui.status_bar.shortcuts_detail_ascii").to_string()
-            }
-        }
-        (PanelId::Detail, true) => {
-            if unicode {
-                t!("tui.status_bar.shortcuts_trash_detail").to_string()
-            } else {
-                t!("tui.status_bar.shortcuts_trash_detail_ascii").to_string()
-            }
-        }
+        (PanelId::Detail, false) => detail_shortcuts_text(unicode, detail_context, false),
+        (PanelId::Detail, true) => detail_shortcuts_text(unicode, detail_context, true),
     }
+}
+
+fn detail_shortcuts_text(
+    unicode: bool,
+    detail_context: DetailShortcutContext,
+    is_trash: bool,
+) -> String {
+    let key = match (detail_context, is_trash, unicode) {
+        (DetailShortcutContext::Login, false, true) => "tui.status_bar.shortcuts_detail",
+        (DetailShortcutContext::Login, false, false) => "tui.status_bar.shortcuts_detail_ascii",
+        (DetailShortcutContext::Login, true, true) => "tui.status_bar.shortcuts_trash_detail",
+        (DetailShortcutContext::Login, true, false) => {
+            "tui.status_bar.shortcuts_trash_detail_ascii"
+        }
+        (DetailShortcutContext::Api, false, true) => "tui.status_bar.shortcuts_detail_api",
+        (DetailShortcutContext::Api, false, false) => "tui.status_bar.shortcuts_detail_api_ascii",
+        (DetailShortcutContext::Api, true, true) => "tui.status_bar.shortcuts_trash_detail_api",
+        (DetailShortcutContext::Api, true, false) => {
+            "tui.status_bar.shortcuts_trash_detail_api_ascii"
+        }
+        (DetailShortcutContext::Ssh, false, true) => "tui.status_bar.shortcuts_detail_ssh",
+        (DetailShortcutContext::Ssh, false, false) => "tui.status_bar.shortcuts_detail_ssh_ascii",
+        (DetailShortcutContext::Ssh, true, true) => "tui.status_bar.shortcuts_trash_detail_ssh",
+        (DetailShortcutContext::Ssh, true, false) => {
+            "tui.status_bar.shortcuts_trash_detail_ssh_ascii"
+        }
+        (DetailShortcutContext::SecureNote, false, true) => {
+            "tui.status_bar.shortcuts_detail_secure_note"
+        }
+        (DetailShortcutContext::SecureNote, false, false) => {
+            "tui.status_bar.shortcuts_detail_secure_note_ascii"
+        }
+        (DetailShortcutContext::SecureNote, true, true) => {
+            "tui.status_bar.shortcuts_trash_detail_secure_note"
+        }
+        (DetailShortcutContext::SecureNote, true, false) => {
+            "tui.status_bar.shortcuts_trash_detail_secure_note_ascii"
+        }
+    };
+    t!(key).to_string()
 }
 
 /// Return the visual mode shortcut text.
@@ -226,6 +292,14 @@ fn visual_shortcuts_text(unicode: bool, is_trash: bool) -> String {
 /// Return the sync indicator display string.
 fn sync_indicator_text(sync: &SyncIndicator, unicode: bool) -> String {
     match sync {
+        SyncIndicator::Configured => {
+            let text = t!("tui.status_bar.sync_configured");
+            if unicode {
+                format!("{} {}", theme::ICON_SUCCESS, text)
+            } else {
+                format!("+ {}", text)
+            }
+        }
         SyncIndicator::Synced => {
             let text = t!("tui.status_bar.sync_synced");
             if unicode {
@@ -272,11 +346,12 @@ fn sync_indicator_text(sync: &SyncIndicator, unicode: bool) -> String {
 /// Return the color for a sync indicator state.
 fn sync_color(sync: &SyncIndicator) -> Color {
     match sync {
-        SyncIndicator::Synced => theme::SUCCESS,
-        SyncIndicator::Syncing => theme::PRIMARY,
-        SyncIndicator::Failed => theme::ERROR,
-        SyncIndicator::Offline => theme::WARNING,
-        SyncIndicator::NotConfigured => theme::TEXT_MUTED,
+        SyncIndicator::Configured => theme::NL_SUCCESS,
+        SyncIndicator::Synced => theme::NL_SUCCESS,
+        SyncIndicator::Syncing => theme::NL_CYAN,
+        SyncIndicator::Failed => theme::NL_DANGER,
+        SyncIndicator::Offline => theme::NL_HOT,
+        SyncIndicator::NotConfigured => theme::NL_TEXT_MUTED,
     }
 }
 
@@ -307,40 +382,81 @@ mod tests {
 
     #[test]
     fn shortcuts_sidebar_unicode() {
-        let text = shortcuts_text(PanelId::Sidebar, true, false);
-        assert!(text.contains('\u{2318}')); // ⌘
+        let text = shortcuts_text(PanelId::Sidebar, true, false, DetailShortcutContext::Login);
+        assert!(text.contains("Ctrl+K"));
     }
 
     #[test]
     fn shortcuts_list_same_as_sidebar() {
         assert_eq!(
-            shortcuts_text(PanelId::Sidebar, true, false),
-            shortcuts_text(PanelId::List, true, false)
+            shortcuts_text(PanelId::Sidebar, true, false, DetailShortcutContext::Login),
+            shortcuts_text(PanelId::List, true, false, DetailShortcutContext::Login)
         );
     }
 
     #[test]
     fn shortcuts_detail_unicode() {
-        let text = shortcuts_text(PanelId::Detail, true, false);
+        let text = shortcuts_text(PanelId::Detail, true, false, DetailShortcutContext::Login);
         assert!(text.contains('c'));
     }
 
     #[test]
     fn shortcuts_sidebar_ascii() {
-        let text = shortcuts_text(PanelId::Sidebar, false, false);
+        let text = shortcuts_text(PanelId::Sidebar, false, false, DetailShortcutContext::Login);
         assert!(text.contains("Search"));
     }
 
     #[test]
     fn shortcuts_detail_ascii() {
-        let text = shortcuts_text(PanelId::Detail, false, false);
-        assert!(text.contains("CopyPwd"));
+        let text = shortcuts_text(PanelId::Detail, false, false, DetailShortcutContext::Login);
+        assert!(text.contains("CopyPwd") || text.contains("复制密码"));
+    }
+
+    #[test]
+    fn secure_note_detail_shortcuts_omit_copy_and_toggle_actions() {
+        let text = shortcuts_text(
+            PanelId::Detail,
+            true,
+            false,
+            DetailShortcutContext::SecureNote,
+        );
+        assert!(!text.contains('\u{590D}'), "should not mention copy");
+        assert!(
+            !text.contains("\u{663E}\u{793A}"),
+            "should not mention show/hide"
+        );
+        assert!(text.contains('e'));
+        assert!(text.contains('d'));
+    }
+
+    #[test]
+    fn api_detail_shortcuts_use_api_field_names() {
+        let text = shortcuts_text(PanelId::Detail, true, false, DetailShortcutContext::Api);
+        assert!(text.contains("Secret Key"));
+        assert!(text.contains("App ID"));
+        assert!(!text.contains("\u{7528}\u{6237}\u{540D}"));
+        assert!(!text.contains("\u{5BC6}\u{7801}"));
+    }
+
+    #[test]
+    fn ssh_detail_shortcuts_use_ssh_field_names() {
+        let text = shortcuts_text(PanelId::Detail, true, false, DetailShortcutContext::Ssh);
+        assert!(text.contains("\u{79C1}\u{94A5}") || text.contains("Private Key"));
+        assert!(text.contains("\u{516C}\u{94A5}") || text.contains("Public Key"));
+        assert!(!text.contains("\u{7528}\u{6237}\u{540D}"));
+        assert!(!text.contains("\u{5BC6}\u{7801}"));
     }
 
     #[test]
     fn sync_indicator_synced_unicode() {
         let text = sync_indicator_text(&SyncIndicator::Synced, true);
         assert!(text.starts_with('\u{2713}')); // ✓
+    }
+
+    #[test]
+    fn sync_indicator_configured_unicode() {
+        let text = sync_indicator_text(&SyncIndicator::Configured, true);
+        assert!(text.contains(t!("tui.status_bar.sync_configured").as_ref()));
     }
 
     #[test]
@@ -374,6 +490,10 @@ mod tests {
             "+ Synced"
         );
         assert_eq!(
+            sync_indicator_text(&SyncIndicator::Configured, false),
+            "+ Configured"
+        );
+        assert_eq!(
             sync_indicator_text(&SyncIndicator::Syncing, false),
             "~ Syncing"
         );
@@ -393,11 +513,15 @@ mod tests {
 
     #[test]
     fn sync_colors() {
-        assert_eq!(sync_color(&SyncIndicator::Synced), theme::SUCCESS);
-        assert_eq!(sync_color(&SyncIndicator::Syncing), theme::PRIMARY);
-        assert_eq!(sync_color(&SyncIndicator::Failed), theme::ERROR);
-        assert_eq!(sync_color(&SyncIndicator::Offline), theme::WARNING);
-        assert_eq!(sync_color(&SyncIndicator::NotConfigured), theme::TEXT_MUTED);
+        assert_eq!(sync_color(&SyncIndicator::Configured), theme::NL_SUCCESS);
+        assert_eq!(sync_color(&SyncIndicator::Synced), theme::NL_SUCCESS);
+        assert_eq!(sync_color(&SyncIndicator::Syncing), theme::NL_CYAN);
+        assert_eq!(sync_color(&SyncIndicator::Failed), theme::NL_DANGER);
+        assert_eq!(sync_color(&SyncIndicator::Offline), theme::NL_HOT);
+        assert_eq!(
+            sync_color(&SyncIndicator::NotConfigured),
+            theme::NL_TEXT_MUTED
+        );
     }
 
     #[test]
@@ -451,7 +575,7 @@ mod tests {
 
     #[test]
     fn trash_list_shortcuts_unicode() {
-        let text = shortcuts_text(PanelId::List, true, true);
+        let text = shortcuts_text(PanelId::List, true, true, DetailShortcutContext::Login);
         assert!(
             text.contains('r'),
             "trash list shortcuts should contain 'r' for restore"
@@ -468,7 +592,7 @@ mod tests {
 
     #[test]
     fn trash_detail_shortcuts_unicode() {
-        let text = shortcuts_text(PanelId::Detail, true, true);
+        let text = shortcuts_text(PanelId::Detail, true, true, DetailShortcutContext::Login);
         assert!(
             text.contains('c'),
             "trash detail shortcuts should contain 'c' for copy"
@@ -485,7 +609,7 @@ mod tests {
 
     #[test]
     fn normal_list_shortcuts_no_trash() {
-        let text = shortcuts_text(PanelId::List, true, false);
+        let text = shortcuts_text(PanelId::List, true, false, DetailShortcutContext::Login);
         assert!(
             !text.contains("\u{6E05}\u{7A7A}\u{56DE}\u{6536}\u{7AD9}"),
             "normal list should not contain '清空回收站'"
@@ -494,7 +618,7 @@ mod tests {
 
     #[test]
     fn normal_detail_shortcuts_no_trash() {
-        let text = shortcuts_text(PanelId::Detail, true, false);
+        let text = shortcuts_text(PanelId::Detail, true, false, DetailShortcutContext::Login);
         assert!(
             !text.contains("\u{6062}\u{590D}"),
             "normal detail should not contain '恢复'"
@@ -521,7 +645,7 @@ mod tests {
 
     #[test]
     fn normal_shortcuts_shown_when_not_visual() {
-        let text = shortcuts_text(PanelId::List, true, false);
+        let text = shortcuts_text(PanelId::List, true, false, DetailShortcutContext::Login);
         assert!(
             text.is_empty() || !text.contains("Space\u{9009}\u{62E9}"),
             "non-visual should not show Space shortcut"

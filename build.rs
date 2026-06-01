@@ -9,6 +9,8 @@ use std::path::Path;
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=locales/");
     println!("cargo:rerun-if-changed=.env");
+    println!("cargo:rerun-if-env-changed=OAK_GOOGLE_CLIENT_ID");
+    println!("cargo:rerun-if-env-changed=OAK_GOOGLE_CLIENT_SECRET");
 
     // Priority 1: OS environment variables
     let mut client_id = env::var("OAK_GOOGLE_CLIENT_ID").unwrap_or_default();

@@ -11,6 +11,17 @@ fn main() {
         return;
     }
 
+    // Ensure all required directories exist
+    if oak_keyring::paths::ensure_dirs().is_none() {
+        eprintln!("Fatal: failed to create directories - HOME must be set");
+        std::process::exit(1);
+    }
+
+    // Initialize file logging (data_dir/oak-keyring.YYYY-MM-DD.log, daily rotation)
+    let data_dir =
+        oak_keyring::paths::data_dir().unwrap_or_else(oak_keyring::paths::data_dir_fallback);
+    let _log_guard = oak_keyring::logging::init(&data_dir);
+
     // Apply process-level protections BEFORE any secrets are loaded
     let process_protections = security::apply_process_protections();
     tracing::info!("Process protections: {process_protections}");
@@ -25,17 +36,9 @@ fn main() {
         std::process::exit(1);
     });
 
-    // Ensure all required directories exist
-    if oak_keyring::paths::ensure_dirs().is_none() {
-        eprintln!("Fatal: failed to create directories - HOME must be set");
-        std::process::exit(1);
-    }
-
-    // Get config and data directories
+    // Get config directory
     let config_dir =
         oak_keyring::paths::config_dir().unwrap_or_else(oak_keyring::paths::config_dir_fallback);
-    let data_dir =
-        oak_keyring::paths::data_dir().unwrap_or_else(oak_keyring::paths::data_dir_fallback);
 
     // Load config (auto-generate if vault exists but config doesn't)
     let config = match AppConfig::load_or_auto_generate(&config_dir, &data_dir) {

@@ -28,12 +28,24 @@ impl CloudStorage {
         }
     }
 
+    fn prefers_direct_overwrite(&self) -> bool {
+        matches!(self.provider_name.as_str(), "google_drive" | "gdrive")
+    }
+
     /// Uploads metadata with atomic write (temp + rename).
     pub async fn upload_metadata(&self, metadata: &CloudMetadata) -> Result<(), SyncError> {
         let json = serialize_metadata(metadata).map_err(|e| SyncError::SerializationFailed {
             message: e.to_string(),
         })?;
         let bytes: Vec<u8> = json.into_bytes();
+
+        if self.prefers_direct_overwrite() {
+            self.operator
+                .write(METADATA_FILENAME, bytes)
+                .await
+                .map_err(|e| map_opendal_error(e, &self.provider_name, METADATA_FILENAME))?;
+            return Ok(());
+        }
 
         // Atomic write: temp file + rename
         let temp_path = format!("{}.tmp.{}", METADATA_FILENAME, Uuid::new_v4());
@@ -150,8 +162,17 @@ impl CloudStorage {
         })?;
         let bytes: Vec<u8> = json.into_bytes();
 
-        let temp_path = format!("{}/{}.json.tmp.{}", RECORDS_DIR, record_id, Uuid::new_v4());
         let final_path = format!("{}/{}.json", RECORDS_DIR, record_id);
+
+        if self.prefers_direct_overwrite() {
+            self.operator
+                .write(&final_path, bytes)
+                .await
+                .map_err(|e| map_opendal_error(e, &self.provider_name, &final_path))?;
+            return Ok(());
+        }
+
+        let temp_path = format!("{}/{}.json.tmp.{}", RECORDS_DIR, record_id, Uuid::new_v4());
 
         self.operator
             .write(&temp_path, bytes)
@@ -371,7 +392,10 @@ fn map_opendal_error(err: opendal::Error, provider: &str, context: &str) -> Sync
         },
         _ => SyncError::ProviderError {
             provider: provider.to_string(),
-            message: format!("{}: {}", context, err),
+            message: crate::security::redaction::redact_sensitive_values(&format!(
+                "{}: {}",
+                context, err
+            )),
         },
     }
 }
@@ -420,6 +444,14 @@ mod tests {
                 .unwrap()
                 .finish();
         CloudStorage::new(op, "fs".to_string())
+    }
+
+    fn test_storage_google_drive_path_mode(temp_dir: &TempDir) -> CloudStorage {
+        let op =
+            Operator::new(opendal::services::Fs::default().root(temp_dir.path().to_str().unwrap()))
+                .unwrap()
+                .finish();
+        CloudStorage::new(op, "google_drive".to_string())
     }
 
     fn create_test_metadata() -> CloudMetadata {
@@ -533,6 +565,34 @@ mod tests {
         assert_eq!(downloaded.version, record.version);
         assert_eq!(downloaded.encrypted_data, record.encrypted_data);
         assert_eq!(downloaded.dek_version, record.dek_version);
+    }
+
+    #[tokio::test]
+    async fn google_drive_upload_record_directly_overwrites_existing_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = test_storage_google_drive_path_mode(&temp_dir);
+        let record_id = "550e8400-e29b-41d4-a716-446655440099";
+        let mut record = create_test_record(record_id);
+
+        storage.upload_record(record_id, &record).await.unwrap();
+        record.version = 2;
+        record.encrypted_data = "bmV3IGNsb3VkIGRhdGE=".to_string();
+        storage.upload_record(record_id, &record).await.unwrap();
+
+        let downloaded = storage
+            .download_record(record_id)
+            .await
+            .unwrap()
+            .expect("record should exist");
+        assert_eq!(downloaded.version, 2);
+        assert_eq!(downloaded.encrypted_data, "bmV3IGNsb3VkIGRhdGE=");
+
+        let temp_entries = std::fs::read_dir(temp_dir.path().join(RECORDS_DIR))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp."))
+            .count();
+        assert_eq!(temp_entries, 0);
     }
 
     #[tokio::test]

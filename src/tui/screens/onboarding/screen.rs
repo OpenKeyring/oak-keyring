@@ -67,7 +67,7 @@ pub struct OnboardingScreen {
     /// Whether the "Learn more" section is expanded.
     pub learn_more_expanded: bool,
     /// Rendered areas of the 5 RecoveryDisplay interactive elements (for mouse hit-testing).
-    /// [0] Copy button, [1] Regenerate button, [2] Learn more toggle, [3] Checkbox, [4] Next step button.
+    /// \[0\] Copy button, \[1\] Regenerate button, \[2\] Learn more toggle, \[3\] Checkbox, \[4\] Next step button.
     pub recovery_action_areas: [std::cell::Cell<ratatui::layout::Rect>; 5],
     /// Rendered areas of the 4 verify input boxes (for mouse hit-testing).
     /// Uses `Cell` for interior mutability since `view()` takes `&self`.

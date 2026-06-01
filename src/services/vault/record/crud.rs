@@ -15,6 +15,7 @@ use crate::types::audit::AuditOperation;
 use crate::types::credential::{CredentialType, EncryptedPayload};
 use crate::types::health::RecordHealthState;
 use crate::types::record::{CreateRecordParams, DecryptedRecord, StoredRecord, UpdateRecordParams};
+use crate::types::record_limits::{validate_payload, validate_tags};
 
 use super::helpers::{
     db_error_to_vault, decrypt_record_name, expires_at_changed, password_changed,
@@ -123,6 +124,9 @@ impl VaultServiceImpl {
             return Err(VaultError::NotUnlocked);
         }
 
+        validate_payload(&params.payload)?;
+        validate_tags(&params.tags)?;
+
         let id = Uuid::new_v4();
         let aad = format!("record:{}", id);
         let (encrypted_data, nonce) =
@@ -149,7 +153,10 @@ impl VaultServiceImpl {
         };
 
         // Insert record (transaction includes record + tags)
+        self.mark_record_list_index_dirty()?;
         queries::insert_record(&self.conn, &record).map_err(db_error_to_vault)?;
+        self.upsert_record_list_index_for_payload(&id, &params.payload)?;
+        self.mark_record_list_index_clean()?;
 
         // Audit log entry
         let record_name = params.payload.name().to_string();
@@ -272,6 +279,21 @@ impl VaultServiceImpl {
                 passphrase,
                 notes,
             },
+            (CredentialType::SecureNote, EncryptedPayload::SecureNote { name, notes }) => {
+                DecryptedRecord::SecureNote {
+                    id: stored.id,
+                    is_favorite: stored.is_favorite,
+                    expires_at: stored.expires_at,
+                    created_at: stored.created_at,
+                    updated_at: stored.updated_at,
+                    version: stored.version,
+                    deleted: stored.deleted,
+                    deleted_at: stored.deleted_at,
+                    tags: stored.tags,
+                    name,
+                    notes,
+                }
+            }
             _ => {
                 return Err(VaultError::CryptoError(
                     "credential type / payload mismatch".into(),
@@ -314,6 +336,9 @@ impl VaultServiceImpl {
                 actual: stored.version,
             });
         }
+
+        validate_payload(&params.payload)?;
+        validate_tags(&params.tags)?;
 
         // 3. Decrypt old payload to detect changes
         let old_payload = payload::decrypt_payload(
@@ -367,6 +392,7 @@ impl VaultServiceImpl {
         };
 
         // 7. Update record in DB (with optimistic locking via WHERE version = ?)
+        self.mark_record_list_index_dirty()?;
         let updated = queries::update_record(&self.conn, &updated_record, params.expected_version)
             .map_err(db_error_to_vault)?;
         if !updated {
@@ -383,6 +409,8 @@ impl VaultServiceImpl {
                 queries::get_or_create_tag(&self.conn, tag_name).map_err(db_error_to_vault)?;
             queries::attach_tag(&self.conn, &params.id, tag.id).map_err(db_error_to_vault)?;
         }
+        self.upsert_record_list_index_for_payload(&params.id, &params.payload)?;
+        self.mark_record_list_index_clean()?;
 
         // 9. Health state management (spec section 7 lifecycle rules)
         if pw_changed || exp_changed {
@@ -403,6 +431,7 @@ impl VaultServiceImpl {
             None,
         )
         .map_err(db_error_to_vault)?;
+        self.mark_records_pending_sync(&[params.id])?;
 
         Ok(())
     }
@@ -443,6 +472,7 @@ impl VaultServiceImpl {
             None,
         )
         .map_err(db_error_to_vault)?;
+        self.mark_records_pending_sync(&[id])?;
 
         Ok(())
     }
@@ -477,6 +507,7 @@ impl VaultServiceImpl {
             None,
         )
         .map_err(db_error_to_vault)?;
+        self.mark_records_pending_sync(&[id])?;
 
         Ok(())
     }
@@ -537,6 +568,7 @@ impl VaultServiceImpl {
                 rusqlite::params![is_favorite as i64, id.to_string()],
             )
             .map_err(VaultError::DatabaseError)?;
+        self.mark_records_pending_sync(&[id])?;
 
         Ok(())
     }
@@ -636,6 +668,20 @@ impl VaultServiceImpl {
             .as_ref()
             .map(|m| m.tags.clone())
             .unwrap_or_else(|| cloud_record.metadata.tags.clone());
+        validate_tags(&tags)?;
+
+        if !deleted {
+            let downloaded_payload = payload::decrypt_payload(
+                &self.crypto,
+                &encrypted_data,
+                &nonce,
+                &aad,
+                credential_type,
+                cloud_record.dek_version,
+            )
+            .map_err(VaultError::CryptoError)?;
+            validate_payload(&downloaded_payload)?;
+        }
 
         let stored = crate::types::record::StoredRecord {
             id,
@@ -656,15 +702,32 @@ impl VaultServiceImpl {
         };
 
         if is_new {
+            self.mark_record_list_index_dirty()?;
             crate::db::queries::insert_record(&self.conn, &stored).map_err(db_error_to_vault)?;
         } else {
+            self.mark_record_list_index_dirty()?;
             let local_version = existing.as_ref().map_or(0, |r| r.version);
             crate::db::queries::update_record(&self.conn, &stored, local_version)
                 .map_err(db_error_to_vault)?;
+            crate::db::queries::update_record_deleted_state(
+                &self.conn,
+                &id,
+                stored.deleted,
+                stored.deleted_at,
+            )
+            .map_err(db_error_to_vault)?;
+            crate::db::queries::detach_all_tags_for_record(&self.conn, &id)
+                .map_err(db_error_to_vault)?;
+            for tag_name in &stored.tags {
+                let tag = crate::db::queries::get_or_create_tag(&self.conn, tag_name)
+                    .map_err(db_error_to_vault)?;
+                crate::db::queries::attach_tag(&self.conn, &id, tag.id)
+                    .map_err(db_error_to_vault)?;
+            }
         }
 
-        if let Some(private_metadata) = private_metadata {
-            if let Some(health) = private_metadata.health {
+        if let Some(private_metadata) = private_metadata.as_ref() {
+            if let Some(health) = private_metadata.health.as_ref() {
                 let health_state = health.to_state(id, cloud_record.version);
                 crate::db::queries::upsert_record_health_state(&self.conn, &health_state)
                     .map_err(db_error_to_vault)?;
@@ -673,6 +736,19 @@ impl VaultServiceImpl {
                     .map_err(db_error_to_vault)?;
             }
         }
+        if let Err(err) = self.upsert_record_list_index_for_stored(&stored) {
+            if !matches!(err, VaultError::CryptoError(_)) {
+                return Err(err);
+            }
+            let fallback_name = private_metadata
+                .as_ref()
+                .map(|metadata| metadata.name.as_str())
+                .filter(|name| !name.is_empty())
+                .unwrap_or(&cloud_record.metadata.name);
+            crate::db::queries::upsert_record_list_index(&self.conn, &id, fallback_name, "")
+                .map_err(db_error_to_vault)?;
+        }
+        self.mark_record_list_index_clean()?;
 
         Ok(is_new)
     }

@@ -50,6 +50,7 @@ impl CommandExecutor {
                 | Command::UnlockWithRecoveryKey { .. }
                 | Command::InitializeVault { .. }
                 | Command::LoadConfig
+                | Command::SaveConfig { .. }
                 | Command::ValidateRecoveryWords { .. }
                 | Command::RebuildKeyFileFromRecovery { .. }
                 | Command::RestoreDatabaseFromOkb { .. }
@@ -87,7 +88,8 @@ impl CommandExecutor {
     /// Records command execution failures as warnings in the structured log.
     pub(super) fn post_hook(&mut self, result: &CommandResult) {
         if let CommandResult::Error { code, fallback, .. } = result {
-            tracing::warn!(error_code = ?code, message = %fallback, "Command execution failed");
+            let message = crate::security::redaction::redact_sensitive_values(fallback);
+            tracing::warn!(error_code = ?code, message = %message, "Command execution failed");
         }
 
         // Spec S5: Update cached health report on completion
@@ -175,9 +177,12 @@ impl CommandExecutor {
             }
 
             // ── Record Query ──────────────────────────────
-            Command::LoadRecordList { filter, sort } => {
-                record::handle_load_record_list(self, filter, sort)
-            }
+            Command::LoadRecordList {
+                filter,
+                sort,
+                limit,
+                offset,
+            } => record::handle_load_record_list_page(self, filter, sort, limit, offset),
             Command::LoadRecordDetail { id } => record::handle_load_record_detail(self, id),
             Command::LoadRecordForEdit { id } => record::handle_load_record_for_edit(self, id),
             Command::DecryptField { id, field } => record::handle_decrypt_field(self, id, field),

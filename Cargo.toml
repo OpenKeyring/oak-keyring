@@ -1,6 +1,6 @@
 [package]
 name = "oak-keyring"
-version = "0.7.3"
+version = "0.8.0-preview.1"
 edition = "2021"
 description = "A terminal TUI password manager with TEA architecture and end-to-end encryption"
 license = "MIT"
@@ -43,6 +43,7 @@ tokio = { version = "1", features = ["full", "signal"] }
 ratatui = "0.30"
 crossterm = "0.29"
 tachyonfx = "0.22.0"
+unicode-width = "0.2"
 
 # Serialization & Config
 serde = { version = "1", features = ["derive"] }
@@ -77,6 +78,7 @@ arboard = "3"
 
 # Logging
 tracing = "0.1"
+tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # UUID
@@ -100,6 +102,7 @@ obfstr = "0.4"
 
 # XDG Base Directory specification
 home = "0.5"
+tui-textarea-2 = "0.11"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

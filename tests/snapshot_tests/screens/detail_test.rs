@@ -16,7 +16,7 @@ fn detail_panel_empty() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, false, true, &[]);
+            panel.view(frame, frame.area(), &state, false, true, &[], 0);
         })
         .unwrap();
 
@@ -86,7 +86,7 @@ fn detail_login_record() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true, &[]);
+            panel.view(frame, frame.area(), &state, true, true, &[], 0);
         })
         .unwrap();
 
@@ -142,7 +142,7 @@ fn detail_api_record() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true, &[]);
+            panel.view(frame, frame.area(), &state, true, true, &[], 0);
         })
         .unwrap();
 
@@ -205,7 +205,7 @@ fn detail_ssh_record() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true, &[]);
+            panel.view(frame, frame.area(), &state, true, true, &[], 0);
         })
         .unwrap();
 
@@ -263,7 +263,7 @@ fn detail_with_health_compromised() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true, &[]);
+            panel.view(frame, frame.area(), &state, true, true, &[], 0);
         })
         .unwrap();
 
@@ -321,7 +321,7 @@ fn detail_with_health_duplicate() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true, &[]);
+            panel.view(frame, frame.area(), &state, true, true, &[], 0);
         })
         .unwrap();
 
@@ -391,7 +391,7 @@ fn detail_wide_screen() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true, &[]);
+            panel.view(frame, frame.area(), &state, true, true, &[], 0);
         })
         .unwrap();
 
@@ -461,7 +461,7 @@ fn detail_narrow_width() {
 
     terminal
         .draw(|frame| {
-            panel.view(frame, frame.area(), &state, true, true, &[]);
+            panel.view(frame, frame.area(), &state, true, true, &[], 0);
         })
         .unwrap();
 

@@ -1,7 +1,8 @@
 //! Password generator UI state for U6.
 
+use crate::config::{PasswordDefaultsConfig, PasswordGenerationStyle};
 use crate::crypto::password;
-use crate::crypto::strength::{evaluate_strength, PasswordStrength};
+use crate::crypto::strength::{PasswordStrength, StrengthLevel};
 use crate::types::sensitive::SensitiveInput;
 use crate::types::SecureStr;
 
@@ -112,33 +113,39 @@ impl GeneratorState {
         state
     }
 
-    /// Create a new state from D3 GeneratorConfig defaults.
-    /// Falls back to hardcoded defaults if config fields are None.
-    pub fn from_config(
-        default_length: Option<usize>,
-        default_uppercase: Option<bool>,
-        default_digits: Option<bool>,
-        default_symbols: Option<bool>,
-    ) -> Self {
-        let mut random_config = RandomConfig::default();
-        if let Some(len) = default_length {
-            random_config.length = len.clamp(8, 128);
-        }
-        if let Some(upper) = default_uppercase {
-            random_config.uppercase = upper;
-        }
-        if let Some(digits) = default_digits {
-            random_config.digits = digits;
-        }
-        if let Some(symbols) = default_symbols {
-            random_config.symbols = symbols;
-        }
+    /// Create a new state from configured password-generator defaults.
+    pub fn from_config(config: &PasswordDefaultsConfig) -> Self {
+        let random_config = RandomConfig {
+            length: config.length.clamp(8, 36),
+            uppercase: config.include_uppercase,
+            lowercase: config.include_lowercase,
+            digits: config.include_digits,
+            symbols: config.include_special,
+        };
+
+        let memorable_config = MemorableConfig {
+            word_count: config.memorable_word_count.clamp(3, 12),
+            capitalize: config.memorable_capitalize,
+            separator: if config.memorable_separator.is_empty() {
+                "-".to_string()
+            } else {
+                config.memorable_separator.clone()
+            },
+        };
+
+        let pin_config = PinConfig {
+            length: config.pin_length.clamp(4, 16),
+        };
 
         let mut state = Self {
-            style: GenerationStyle::Random,
+            style: match config.style {
+                PasswordGenerationStyle::Random => GenerationStyle::Random,
+                PasswordGenerationStyle::Memorable => GenerationStyle::Memorable,
+                PasswordGenerationStyle::Pin => GenerationStyle::Pin,
+            },
             random_config,
-            memorable_config: MemorableConfig::default(),
-            pin_config: PinConfig::default(),
+            memorable_config,
+            pin_config,
             preview: SensitiveInput::new(),
             strength: None,
             focus: GeneratorFocus::StyleSelector,
@@ -152,12 +159,12 @@ impl GeneratorState {
         let result = match self.style {
             GenerationStyle::Random => {
                 let cfg = &self.random_config;
-                password::generate_random_password_with_policy(
+                password::generate_random_password_with_char_types(
                     cfg.length,
-                    if cfg.digits { 1 } else { 0 },
-                    if cfg.symbols { 1 } else { 0 },
-                    if cfg.lowercase { 1 } else { 0 },
-                    if cfg.uppercase { 1 } else { 0 },
+                    cfg.uppercase,
+                    cfg.lowercase,
+                    cfg.digits,
+                    cfg.symbols,
                 )
             }
             GenerationStyle::Memorable => password::generate_memorable_password_with_options(
@@ -170,7 +177,15 @@ impl GeneratorState {
 
         match result {
             Ok(pw) => {
-                self.strength = Some(evaluate_strength(pw.expose()));
+                self.strength = Some(if self.style == GenerationStyle::Random {
+                    estimate_random_strength(&self.random_config)
+                } else {
+                    PasswordStrength {
+                        level: StrengthLevel::Strong,
+                        char_types: 0,
+                        bar_fill: 12,
+                    }
+                });
                 self.preview = SensitiveInput::from(pw);
             }
             Err(_) => {
@@ -199,7 +214,7 @@ impl GeneratorState {
     /// Get min/max for current style's length slider.
     pub fn length_range(&self) -> (usize, usize) {
         match self.style {
-            GenerationStyle::Random => (8, 128),
+            GenerationStyle::Random => (8, 36),
             GenerationStyle::Memorable => (3, 12),
             GenerationStyle::Pin => (4, 16),
         }
@@ -245,30 +260,43 @@ impl GeneratorState {
         if self.style != GenerationStyle::Random {
             return;
         }
+        let enabled_count = [
+            self.random_config.uppercase,
+            self.random_config.lowercase,
+            self.random_config.digits,
+            self.random_config.symbols,
+        ]
+        .into_iter()
+        .filter(|enabled| *enabled)
+        .count();
         match index {
+            0 if self.random_config.uppercase && enabled_count == 1 => {}
             0 => self.random_config.uppercase = !self.random_config.uppercase,
-            1 => { /* lowercase always on, no-op */ }
+            1 if self.random_config.lowercase && enabled_count == 1 => {}
+            1 => self.random_config.lowercase = !self.random_config.lowercase,
+            2 if self.random_config.digits && enabled_count == 1 => {}
             2 => self.random_config.digits = !self.random_config.digits,
+            3 if self.random_config.symbols && enabled_count == 1 => {}
             3 => self.random_config.symbols = !self.random_config.symbols,
             _ => {}
         }
         self.regenerate();
     }
 
-    /// Whether a character type toggle is enabled (lowercase is always on).
+    /// Whether a character type toggle is enabled.
     pub fn is_toggle_enabled(&self, index: usize) -> bool {
         match index {
             0 => self.random_config.uppercase,
-            1 => true,
+            1 => self.random_config.lowercase,
             2 => self.random_config.digits,
             3 => self.random_config.symbols,
             _ => false,
         }
     }
 
-    /// Whether a toggle is interactive (lowercase is not).
+    /// Whether a toggle is interactive.
     pub fn is_toggle_interactive(&self, index: usize) -> bool {
-        index != 1
+        index <= 3
     }
 
     /// Get tab focus order for current style.
@@ -278,6 +306,7 @@ impl GeneratorState {
                 GeneratorFocus::StyleSelector,
                 GeneratorFocus::LengthSlider,
                 GeneratorFocus::Toggle(0),
+                GeneratorFocus::Toggle(1),
                 GeneratorFocus::Toggle(2),
                 GeneratorFocus::Toggle(3),
                 GeneratorFocus::RegenerateButton,
@@ -317,6 +346,82 @@ impl GeneratorState {
         }
     }
 
+    pub fn focus_next_toggle(&mut self) {
+        let toggles = self.option_focus_order();
+        if toggles.is_empty() {
+            return;
+        }
+        if let Some(idx) = toggles.iter().position(|focus| *focus == self.focus) {
+            self.focus = toggles[(idx + 1) % toggles.len()];
+        }
+    }
+
+    pub fn focus_prev_toggle(&mut self) {
+        let toggles = self.option_focus_order();
+        if toggles.is_empty() {
+            return;
+        }
+        if let Some(idx) = toggles.iter().position(|focus| *focus == self.focus) {
+            let len = toggles.len();
+            self.focus = toggles[(idx + len - 1) % len];
+        }
+    }
+
+    fn option_focus_order(&self) -> Vec<GeneratorFocus> {
+        match self.style {
+            GenerationStyle::Random => vec![
+                GeneratorFocus::Toggle(0),
+                GeneratorFocus::Toggle(1),
+                GeneratorFocus::Toggle(2),
+                GeneratorFocus::Toggle(3),
+            ],
+            GenerationStyle::Memorable => {
+                vec![GeneratorFocus::Toggle(0), GeneratorFocus::SeparatorInput]
+            }
+            GenerationStyle::Pin => Vec::new(),
+        }
+    }
+
+    /// Move focus to the next section (down arrow).
+    /// Sections: StyleSelector → LengthSlider → Options → Buttons → wrap.
+    pub fn focus_section_down(&mut self) {
+        use GeneratorFocus::*;
+        self.focus = match self.focus {
+            StyleSelector => LengthSlider,
+            LengthSlider => self.first_option_focus(),
+            Toggle(_) | SeparatorInput => RegenerateButton,
+            RegenerateButton | ActionButton => StyleSelector,
+        };
+    }
+
+    /// Move focus to the previous section (up arrow).
+    pub fn focus_section_up(&mut self) {
+        use GeneratorFocus::*;
+        self.focus = match self.focus {
+            StyleSelector => ActionButton,
+            LengthSlider => StyleSelector,
+            Toggle(_) | SeparatorInput => LengthSlider,
+            RegenerateButton | ActionButton => self.last_option_focus(),
+        };
+    }
+
+    /// First focusable element in the options section.
+    fn first_option_focus(&self) -> GeneratorFocus {
+        match self.style {
+            GenerationStyle::Random | GenerationStyle::Memorable => GeneratorFocus::Toggle(0),
+            GenerationStyle::Pin => GeneratorFocus::RegenerateButton,
+        }
+    }
+
+    /// Last focusable element in the options section (for up-arrow into options).
+    fn last_option_focus(&self) -> GeneratorFocus {
+        match self.style {
+            GenerationStyle::Random => GeneratorFocus::Toggle(3),
+            GenerationStyle::Memorable => GeneratorFocus::SeparatorInput,
+            GenerationStyle::Pin => GeneratorFocus::LengthSlider,
+        }
+    }
+
     /// Clear preview from memory.
     pub fn clear_preview(&mut self) {
         self.preview.clear();
@@ -333,6 +438,51 @@ impl GeneratorState {
 
     pub fn take_preview(&mut self) -> SecureStr {
         self.preview.take_secure()
+    }
+}
+
+fn estimate_random_strength(config: &RandomConfig) -> PasswordStrength {
+    let charset_size = [
+        (config.uppercase, 24usize),
+        (config.lowercase, 24usize),
+        (config.digits, 8usize),
+        (config.symbols, 12usize),
+    ]
+    .into_iter()
+    .filter_map(|(enabled, size)| enabled.then_some(size))
+    .sum::<usize>();
+
+    if charset_size == 0 {
+        return PasswordStrength {
+            level: StrengthLevel::VeryWeak,
+            char_types: 0,
+            bar_fill: 3,
+        };
+    }
+
+    let bits = config.length as f64 * (charset_size as f64).log2();
+    let (level, bar_fill) = if bits >= 120.0 {
+        (StrengthLevel::VeryStrong, 16)
+    } else if bits >= 80.0 {
+        (StrengthLevel::Strong, 12)
+    } else if bits >= 50.0 {
+        (StrengthLevel::Fair, 9)
+    } else {
+        (StrengthLevel::Weak, 6)
+    };
+
+    PasswordStrength {
+        level,
+        char_types: [
+            config.uppercase,
+            config.lowercase,
+            config.digits,
+            config.symbols,
+        ]
+        .into_iter()
+        .filter(|enabled| *enabled)
+        .count() as u8,
+        bar_fill,
     }
 }
 
@@ -361,6 +511,13 @@ impl EmbeddedGeneratorState {
     pub fn expand(&mut self) {
         self.expanded = true;
         self.generator = GeneratorState::new();
+        self.generator.focus = GeneratorFocus::LengthSlider;
+    }
+
+    /// Expand the panel using configured generator defaults.
+    pub fn expand_from_config(&mut self, config: &PasswordDefaultsConfig) {
+        self.expanded = true;
+        self.generator = GeneratorState::from_config(config);
         self.generator.focus = GeneratorFocus::LengthSlider;
     }
 
@@ -430,14 +587,18 @@ mod tests {
         state.set_style(GenerationStyle::Pin);
         assert_eq!(state.style, GenerationStyle::Pin);
         assert!(state.preview_expose(|s| s.chars().all(|c| c.is_ascii_digit())));
+        assert_eq!(
+            state.strength.as_ref().unwrap().level,
+            StrengthLevel::Strong
+        );
     }
 
     #[test]
     fn increment_length_clamps_to_max() {
         let mut state = GeneratorState::new();
-        state.random_config.length = 128;
+        state.random_config.length = 36;
         state.increment_length();
-        assert_eq!(state.random_config.length, 128);
+        assert_eq!(state.random_config.length, 36);
     }
 
     #[test]
@@ -457,16 +618,72 @@ mod tests {
     }
 
     #[test]
-    fn lowercase_always_on() {
-        let state = GeneratorState::new();
+    fn lowercase_toggle_is_interactive() {
+        let mut state = GeneratorState::new();
         assert!(state.is_toggle_enabled(1));
-        assert!(!state.is_toggle_interactive(1));
+        assert!(state.is_toggle_interactive(1));
+        state.toggle_char_type(1);
+        assert!(!state.random_config.lowercase);
     }
 
     #[test]
-    fn focus_order_random_has_7_items() {
+    fn random_generation_respects_disabled_character_types() {
+        let mut state = GeneratorState::new();
+        state.random_config.length = 32;
+        state.random_config.uppercase = false;
+        state.random_config.lowercase = false;
+        state.random_config.symbols = false;
+        state.random_config.digits = true;
+        state.regenerate();
+
+        assert!(state.preview_expose(|s| s.chars().all(|c| c.is_ascii_digit())));
+    }
+
+    #[test]
+    fn random_strength_uses_entropy_when_character_types_are_disabled() {
+        let mut state = GeneratorState::new();
+        state.random_config.length = 24;
+        state.random_config.uppercase = true;
+        state.random_config.lowercase = true;
+        state.random_config.digits = true;
+        state.random_config.symbols = false;
+        state.regenerate();
+
+        assert_eq!(
+            state.strength.as_ref().unwrap().level,
+            StrengthLevel::VeryStrong
+        );
+    }
+
+    #[test]
+    fn random_generation_keeps_last_character_type_enabled() {
+        let mut state = GeneratorState::new();
+        state.random_config.uppercase = false;
+        state.random_config.lowercase = true;
+        state.random_config.digits = false;
+        state.random_config.symbols = false;
+        state.toggle_char_type(1);
+
+        assert!(state.random_config.lowercase);
+    }
+
+    #[test]
+    fn focus_order_random_has_8_items() {
         let state = GeneratorState::new();
-        assert_eq!(state.focus_order().len(), 7);
+        assert_eq!(state.focus_order().len(), 8);
+    }
+
+    #[test]
+    fn memorable_option_focus_moves_between_capitalize_and_separator() {
+        let mut state = GeneratorState::new();
+        state.set_style(GenerationStyle::Memorable);
+        state.focus = GeneratorFocus::Toggle(0);
+
+        state.focus_next_toggle();
+        assert_eq!(state.focus, GeneratorFocus::SeparatorInput);
+
+        state.focus_prev_toggle();
+        assert_eq!(state.focus, GeneratorFocus::Toggle(0));
     }
 
     #[test]
@@ -513,20 +730,57 @@ mod tests {
 
     #[test]
     fn from_config_applies_custom_length() {
-        let state = GeneratorState::from_config(Some(20), None, None, None);
+        let state = GeneratorState::from_config(&crate::config::PasswordDefaultsConfig {
+            length: 20,
+            ..Default::default()
+        });
         assert_eq!(state.random_config.length, 20);
     }
 
     #[test]
     fn from_config_clamps_invalid_length() {
-        let state = GeneratorState::from_config(Some(200), None, None, None);
-        assert_eq!(state.random_config.length, 128);
+        let state = GeneratorState::from_config(&crate::config::PasswordDefaultsConfig {
+            length: 200,
+            ..Default::default()
+        });
+        assert_eq!(state.random_config.length, 36);
     }
 
     #[test]
     fn from_config_disables_symbols() {
-        let state = GeneratorState::from_config(None, None, None, Some(false));
+        let state = GeneratorState::from_config(&crate::config::PasswordDefaultsConfig {
+            include_special: false,
+            ..Default::default()
+        });
         assert!(!state.random_config.symbols);
+    }
+
+    #[test]
+    fn from_config_applies_memorable_defaults() {
+        let state = GeneratorState::from_config(&crate::config::PasswordDefaultsConfig {
+            style: crate::config::PasswordGenerationStyle::Memorable,
+            memorable_word_count: 6,
+            memorable_capitalize: false,
+            memorable_separator: "_".to_string(),
+            ..Default::default()
+        });
+
+        assert_eq!(state.style, GenerationStyle::Memorable);
+        assert_eq!(state.memorable_config.word_count, 6);
+        assert!(!state.memorable_config.capitalize);
+        assert_eq!(state.memorable_config.separator, "_");
+    }
+
+    #[test]
+    fn from_config_applies_pin_defaults() {
+        let state = GeneratorState::from_config(&crate::config::PasswordDefaultsConfig {
+            style: crate::config::PasswordGenerationStyle::Pin,
+            pin_length: 10,
+            ..Default::default()
+        });
+
+        assert_eq!(state.style, GenerationStyle::Pin);
+        assert_eq!(state.pin_config.length, 10);
     }
 
     #[test]

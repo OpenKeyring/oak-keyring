@@ -5,8 +5,16 @@ use uuid::Uuid;
 
 use crate::crypto::strength::{evaluate_strength, PasswordStrength};
 use crate::t;
+use crate::tui::components::textarea;
 use crate::types::credential::{CredentialType, EncryptedPayload};
+use crate::types::record_limits::{
+    char_count, MAX_API_APP_ID_CHARS, MAX_API_SECRET_CHARS, MAX_LOGIN_PASSWORD_CHARS,
+    MAX_LOGIN_USERNAME_CHARS, MAX_NOTES_CHARS, MAX_RECORD_NAME_CHARS, MAX_SECURE_NOTE_CHARS,
+    MAX_SSH_PASSPHRASE_CHARS, MAX_SSH_PRIVATE_KEY_CHARS, MAX_SSH_PUBLIC_KEY_CHARS,
+    MAX_TAGS_PER_RECORD, MAX_TAG_CHARS, MAX_URL_CHARS,
+};
 use crate::types::sensitive::{SecureStr, SensitiveInput};
+use tui_textarea::TextArea;
 
 /// Form mode: create new record or edit existing.
 #[derive(Debug, Clone)]
@@ -24,6 +32,13 @@ pub enum PasswordFieldFocus {
     Copy,
     Generate,
     Paste,
+}
+
+/// Focusable footer action buttons in the create/edit form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormFooterButton {
+    Save,
+    Cancel,
 }
 
 /// Expiry options for the dropdown.
@@ -112,7 +127,8 @@ pub struct FormFields {
     pub custom_date: Option<String>,
     pub tags: Vec<String>,
     pub tag_input: String,
-    pub notes: String,
+    pub tag_focus: Option<usize>,
+    pub notes: TextArea<'static>,
 }
 
 impl FormFields {
@@ -136,7 +152,8 @@ impl FormFields {
             custom_date: None,
             tags: Vec::new(),
             tag_input: String::new(),
-            notes: String::new(),
+            tag_focus: None,
+            notes: textarea::create_textarea(),
         };
         fields.init_for_type(credential_type);
         fields
@@ -161,6 +178,10 @@ impl FormFields {
                 self.passphrase = Some(SensitiveInput::new());
                 self.passphrase_visible = false;
             }
+            CredentialType::SecureNote => {
+                // SecureNote has no special fields to init
+                // Only uses common fields: name + notes
+            }
         }
     }
 
@@ -173,6 +194,102 @@ impl FormFields {
                 pw.expose(|s| self.strength = Some(evaluate_strength(s)));
             }
         }
+    }
+
+    /// Commit the current tag input as one trimmed tag.
+    ///
+    /// Returns true when a new tag was added. Empty and duplicate tags are
+    /// cleared from the transient input but do not mutate the saved tag list.
+    pub fn commit_tag_input(&mut self) -> bool {
+        let tag = self.tag_input.trim().to_string();
+        self.tag_input.clear();
+        if tag.is_empty()
+            || self.tags.len() >= MAX_TAGS_PER_RECORD
+            || char_count(&tag) > MAX_TAG_CHARS
+            || self.fields_contains_tag(&tag)
+        {
+            return false;
+        }
+        self.tags.push(tag);
+        self.tag_focus = None;
+        true
+    }
+
+    fn fields_contains_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|existing| existing == tag)
+    }
+
+    pub fn focus_tag(&mut self, index: usize) -> bool {
+        if self.tags.is_empty() {
+            self.tag_focus = None;
+            return false;
+        }
+        self.tag_input.clear();
+        self.tag_focus = Some(index.min(self.tags.len() - 1));
+        true
+    }
+
+    pub fn focus_prev_tag(&mut self) -> bool {
+        if self.tags.is_empty() || !self.tag_input.is_empty() {
+            self.tag_focus = None;
+            return false;
+        }
+        let next = self
+            .tag_focus
+            .map(|idx| idx.saturating_sub(1))
+            .unwrap_or_else(|| self.tags.len() - 1);
+        self.tag_focus = Some(next);
+        true
+    }
+
+    pub fn focus_next_tag(&mut self) -> bool {
+        if self.tags.is_empty() || !self.tag_input.is_empty() {
+            self.tag_focus = None;
+            return false;
+        }
+        let next = self
+            .tag_focus
+            .map(|idx| (idx + 1).min(self.tags.len() - 1))
+            .unwrap_or(0);
+        self.tag_focus = Some(next);
+        true
+    }
+
+    pub fn remove_focused_tag(&mut self) -> bool {
+        let Some(index) = self.tag_focus else {
+            return false;
+        };
+        if index >= self.tags.len() {
+            self.tag_focus = None;
+            return false;
+        }
+        self.tags.remove(index);
+        self.tag_focus = if self.tags.is_empty() {
+            None
+        } else {
+            Some(index.min(self.tags.len() - 1))
+        };
+        true
+    }
+
+    /// Get the notes field text content as a String.
+    pub fn notes_text(&self) -> String {
+        textarea::textarea_text(&self.notes)
+    }
+
+    /// Set the notes field text content.
+    pub fn set_notes_text(&mut self, text: &str) {
+        textarea::set_textarea_text(&mut self.notes, text);
+    }
+
+    /// Check if a field is the notes textarea field for the given credential type.
+    pub fn is_textarea_field(&self, field_idx: usize, ct: CredentialType) -> bool {
+        let notes_idx = match ct {
+            CredentialType::Login | CredentialType::Api => 7,
+            CredentialType::Ssh => 8,
+            CredentialType::SecureNote => 2,
+        };
+        field_idx == notes_idx
     }
 }
 
@@ -193,9 +310,17 @@ pub struct FormState {
     /// Focus index within the weak password dialog: 0 = "Go Back", 1 = "Save Anyway".
     pub weak_dialog_focus: usize,
     pub show_unsaved_dialog: bool,
+    /// Focus index within the unsaved dialog: 0 = "Continue Editing", 1 = "Discard".
+    pub unsaved_dialog_focus: usize,
     /// Sub-focus within the currently focused password/sensitive field.
     /// Only meaningful when `focused_field` points to a field with inline buttons.
     pub password_sub_focus: PasswordFieldFocus,
+    /// Mouse/keyboard focus for footer action buttons. `None` means a form field is focused.
+    pub footer_focus: Option<FormFooterButton>,
+    /// True after a create/update command has been accepted by the executor queue.
+    pub saving: bool,
+    /// Animation tick for the indeterminate saving indicator.
+    pub saving_tick: usize,
 }
 
 /// Tag autocomplete dropdown state.
@@ -217,11 +342,15 @@ impl FormState {
     }
 
     fn new(mode: FormMode, credential_type: CredentialType) -> Self {
+        let focused_field = match mode {
+            FormMode::Create => 0,
+            FormMode::Edit { .. } => 1,
+        };
         Self {
             mode,
             credential_type,
             fields: FormFields::new(credential_type),
-            focused_field: 0,
+            focused_field,
             generator_expanded: false,
             has_changes: false,
             validation_errors: Vec::new(),
@@ -231,7 +360,39 @@ impl FormState {
             show_weak_password_dialog: false,
             weak_dialog_focus: 0,
             show_unsaved_dialog: false,
+            unsaved_dialog_focus: 0,
             password_sub_focus: PasswordFieldFocus::Input,
+            footer_focus: None,
+            saving: false,
+            saving_tick: 0,
+        }
+    }
+
+    fn first_focusable_field(&self) -> usize {
+        match self.mode {
+            FormMode::Create => 0,
+            FormMode::Edit { .. } => 1,
+        }
+    }
+
+    pub fn start_saving(&mut self) {
+        self.saving = true;
+        self.saving_tick = 0;
+        self.footer_focus = None;
+        self.credential_dropdown.expanded = false;
+        self.expiry_dropdown.expanded = false;
+        self.show_weak_password_dialog = false;
+        self.show_unsaved_dialog = false;
+    }
+
+    pub fn finish_saving(&mut self) {
+        self.saving = false;
+        self.saving_tick = 0;
+    }
+
+    pub fn tick_saving(&mut self) {
+        if self.saving {
+            self.saving_tick = self.saving_tick.wrapping_add(1);
         }
     }
 
@@ -243,7 +404,7 @@ impl FormState {
             let url = std::mem::take(&mut self.fields.url);
             let expires_at = self.fields.expires_at;
             let tags = std::mem::take(&mut self.fields.tags);
-            let notes = std::mem::take(&mut self.fields.notes);
+            let notes_text = self.fields.notes_text();
 
             self.credential_type = ct;
             self.fields = FormFields::new(ct);
@@ -251,8 +412,9 @@ impl FormState {
             self.fields.url = url;
             self.fields.expires_at = expires_at;
             self.fields.tags = tags;
-            self.fields.notes = notes;
+            self.fields.set_notes_text(&notes_text);
             self.focused_field = 0;
+            self.footer_focus = None;
             self.has_changes = true;
         }
     }
@@ -260,6 +422,10 @@ impl FormState {
     /// Get the ordered list of inline buttons for the currently focused field.
     /// Returns `None` if the focused field does not have inline buttons.
     pub fn inline_buttons(&self) -> Option<Vec<PasswordFieldFocus>> {
+        if self.footer_focus.is_some() {
+            return None;
+        }
+
         let focused = self.focused_field;
         let ct = self.credential_type;
         match ct {
@@ -285,6 +451,7 @@ impl FormState {
                 ]),
                 _ => None,
             },
+            CredentialType::SecureNote => None, // No sensitive fields with buttons
             _ => None,
         }
     }
@@ -339,6 +506,7 @@ impl FormState {
                 5 => self.fields.passphrase_visible,
                 _ => false,
             },
+            CredentialType::SecureNote => false, // No sensitive fields
             _ => false,
         }
     }
@@ -359,6 +527,7 @@ impl FormState {
                 5 => self.fields.passphrase_visible = !self.fields.passphrase_visible,
                 _ => {}
             },
+            CredentialType::SecureNote => {} // No sensitive fields to toggle
             _ => {}
         }
     }
@@ -399,6 +568,7 @@ impl FormState {
                     .map(|p| p.expose(|s| SecureStr::new(s.to_string()))),
                 _ => None,
             },
+            CredentialType::SecureNote => None, // No sensitive fields
             _ => None,
         }
     }
@@ -409,24 +579,243 @@ impl FormState {
             CredentialType::Login => 8, // type + name + url + username + password + expiry + tags + notes
             CredentialType::Api => 8, // type + name + url + app_id + secret_key + expiry + tags + notes
             CredentialType::Ssh => 9, // type + name + url + public_key + private_key + passphrase + expiry + tags + notes
+            CredentialType::SecureNote => 5, // type + name + notes + expiry + tags
         }
     }
 
     /// Move focus to next field.
     pub fn focus_next(&mut self) {
+        if let Some(button) = self.footer_focus {
+            self.footer_focus = match button {
+                FormFooterButton::Save => Some(FormFooterButton::Cancel),
+                FormFooterButton::Cancel => Some(FormFooterButton::Cancel),
+            };
+            self.password_sub_focus = PasswordFieldFocus::Input;
+            self.fields.tag_focus = None;
+            self.sync_textarea_block();
+            return;
+        }
+
         let count = self.field_count();
         if self.focused_field < count - 1 {
             self.focused_field += 1;
             self.password_sub_focus = PasswordFieldFocus::Input;
+            self.fields.tag_focus = None;
+        } else {
+            self.footer_focus = Some(FormFooterButton::Save);
+            self.password_sub_focus = PasswordFieldFocus::Input;
+            self.fields.tag_focus = None;
         }
+        self.sync_textarea_block();
     }
 
     /// Move focus to previous field.
     pub fn focus_prev(&mut self) {
-        if self.focused_field > 0 {
+        if let Some(button) = self.footer_focus {
+            match button {
+                FormFooterButton::Cancel => {
+                    self.footer_focus = Some(FormFooterButton::Save);
+                }
+                FormFooterButton::Save => {
+                    self.footer_focus = None;
+                    self.focused_field = self.field_count().saturating_sub(1);
+                }
+            }
+            self.password_sub_focus = PasswordFieldFocus::Input;
+            self.fields.tag_focus = None;
+            self.sync_textarea_block();
+            return;
+        }
+
+        let first = self.first_focusable_field();
+        if self.focused_field > first {
             self.focused_field -= 1;
             self.password_sub_focus = PasswordFieldFocus::Input;
+            self.fields.tag_focus = None;
         }
+        self.sync_textarea_block();
+    }
+
+    /// Set field focus directly, clearing footer and inline-button focus.
+    pub fn focus_field(&mut self, field_index: usize) {
+        self.focused_field = field_index
+            .max(self.first_focusable_field())
+            .min(self.field_count().saturating_sub(1));
+        self.footer_focus = None;
+        self.password_sub_focus = PasswordFieldFocus::Input;
+        if self.focused_field != self.tags_field_index() {
+            self.fields.tag_focus = None;
+        }
+        self.sync_textarea_block();
+    }
+
+    /// Update textarea border style to reflect current focus state.
+    fn sync_textarea_block(&mut self) {
+        let focused = self
+            .fields
+            .is_textarea_field(self.focused_field, self.credential_type);
+        crate::tui::components::textarea::update_block(&mut self.fields.notes, focused);
+    }
+
+    pub fn tags_field_index(&self) -> usize {
+        match self.credential_type {
+            CredentialType::Login | CredentialType::Api => 6,
+            CredentialType::Ssh => 7,
+            CredentialType::SecureNote => 4, // type(0) + name(1) + notes(2) + expiry(3) + tags(4)
+        }
+    }
+
+    pub fn current_field_char_limit(&self) -> Option<(&'static str, usize)> {
+        if self.footer_focus.is_some() {
+            return None;
+        }
+
+        let focused = self.focused_field;
+        let ct = self.credential_type;
+        match focused {
+            1 => Some(("name", MAX_RECORD_NAME_CHARS)),
+            2 => match ct {
+                CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                    Some(("url", MAX_URL_CHARS))
+                }
+                CredentialType::SecureNote => Some(("notes", MAX_SECURE_NOTE_CHARS)),
+            },
+            3 => match ct {
+                CredentialType::Login => Some(("username", MAX_LOGIN_USERNAME_CHARS)),
+                CredentialType::Api => Some(("app_id", MAX_API_APP_ID_CHARS)),
+                CredentialType::Ssh => Some(("public_key", MAX_SSH_PUBLIC_KEY_CHARS)),
+                CredentialType::SecureNote => None,
+            },
+            4 => match ct {
+                CredentialType::Login => Some(("password", MAX_LOGIN_PASSWORD_CHARS)),
+                CredentialType::Api => Some(("secret_key", MAX_API_SECRET_CHARS)),
+                CredentialType::Ssh => Some(("private_key", MAX_SSH_PRIVATE_KEY_CHARS)),
+                CredentialType::SecureNote => Some(("tag", MAX_TAG_CHARS)),
+            },
+            5 if ct == CredentialType::Ssh => Some(("passphrase", MAX_SSH_PASSPHRASE_CHARS)),
+            _ if focused == self.tags_field_index() => Some(("tag", MAX_TAG_CHARS)),
+            _ if self.fields.is_textarea_field(focused, ct) => Some(("notes", MAX_NOTES_CHARS)),
+            _ => None,
+        }
+    }
+
+    pub fn current_field_char_count(&self) -> usize {
+        let focused = self.focused_field;
+        let ct = self.credential_type;
+        match focused {
+            1 => char_count(&self.fields.name),
+            2 => match ct {
+                CredentialType::Login | CredentialType::Api | CredentialType::Ssh => {
+                    char_count(&self.fields.url)
+                }
+                CredentialType::SecureNote => char_count(&self.fields.notes_text()),
+            },
+            3 => match ct {
+                CredentialType::Login => self
+                    .fields
+                    .username
+                    .as_deref()
+                    .map(char_count)
+                    .unwrap_or_default(),
+                CredentialType::Api => self
+                    .fields
+                    .app_id
+                    .as_deref()
+                    .map(char_count)
+                    .unwrap_or_default(),
+                CredentialType::Ssh => self
+                    .fields
+                    .public_key
+                    .as_deref()
+                    .map(char_count)
+                    .unwrap_or_default(),
+                CredentialType::SecureNote => 0,
+            },
+            4 => match ct {
+                CredentialType::Login => {
+                    self.fields.password.as_ref().map(|s| s.len()).unwrap_or(0)
+                }
+                CredentialType::Api => self
+                    .fields
+                    .secret_key
+                    .as_ref()
+                    .map(|s| s.len())
+                    .unwrap_or(0),
+                CredentialType::Ssh => self
+                    .fields
+                    .private_key
+                    .as_ref()
+                    .map(|s| s.len())
+                    .unwrap_or(0),
+                CredentialType::SecureNote => char_count(&self.fields.tag_input),
+            },
+            5 if ct == CredentialType::Ssh => self
+                .fields
+                .passphrase
+                .as_ref()
+                .map(|s| s.len())
+                .unwrap_or(0),
+            _ if focused == self.tags_field_index() => char_count(&self.fields.tag_input),
+            _ if self.fields.is_textarea_field(focused, ct) => {
+                char_count(&self.fields.notes_text())
+            }
+            _ => 0,
+        }
+    }
+
+    pub fn can_insert_char_into_current_field(&self, ch: char) -> bool {
+        if self.focused_field == self.tags_field_index() && matches!(ch, ',' | '，') {
+            return true;
+        }
+        if self.focused_field == self.tags_field_index()
+            && self.fields.tag_input.is_empty()
+            && self.fields.tags.len() >= MAX_TAGS_PER_RECORD
+            && !matches!(ch, ',' | '，')
+        {
+            return false;
+        }
+        let Some((_field, max)) = self.current_field_char_limit() else {
+            return true;
+        };
+        self.current_field_char_count() < max
+    }
+
+    pub fn set_current_limit_error(&mut self) {
+        let field_index = self.focused_field;
+        self.validation_errors
+            .retain(|error| error.field_index != field_index);
+
+        let message = if field_index == self.tags_field_index()
+            && self.fields.tag_input.is_empty()
+            && self.fields.tags.len() >= MAX_TAGS_PER_RECORD
+        {
+            t!(
+                "tui.form.validation_too_many_tags",
+                max = MAX_TAGS_PER_RECORD,
+                actual = self.fields.tags.len()
+            )
+            .to_string()
+        } else if let Some((_field, max)) = self.current_field_char_limit() {
+            t!(
+                "tui.form.validation_too_long",
+                max = max,
+                actual = self.current_field_char_count()
+            )
+            .to_string()
+        } else {
+            return;
+        };
+
+        self.validation_errors.push(ValidationError {
+            field_index,
+            message,
+        });
+    }
+
+    pub fn clear_current_limit_error(&mut self) {
+        let field_index = self.focused_field;
+        self.validation_errors
+            .retain(|error| error.field_index != field_index);
     }
 
     /// Whether the credential type dropdown is interactive.
@@ -465,6 +854,9 @@ impl FormState {
     /// are **moved** out of `FormFields` into `SecureStr`, leaving `None` behind.
     /// This ensures the plaintext `String` does not persist in form state.
     pub fn build_payload(&mut self) -> EncryptedPayload {
+        // Extract notes text before consuming fields
+        let notes_text = self.fields.notes_text();
+
         match self.credential_type {
             CredentialType::Login => EncryptedPayload::Login {
                 name: std::mem::take(&mut self.fields.name),
@@ -476,7 +868,11 @@ impl FormState {
                     .map(SensitiveInput::take_secure)
                     .unwrap_or_else(|| SecureStr::new(String::new())),
                 url: Some(std::mem::take(&mut self.fields.url)),
-                notes: Some(std::mem::take(&mut self.fields.notes)),
+                notes: if notes_text.is_empty() {
+                    None
+                } else {
+                    Some(notes_text)
+                },
             },
             CredentialType::Api => EncryptedPayload::Api {
                 name: std::mem::take(&mut self.fields.name),
@@ -488,7 +884,11 @@ impl FormState {
                     .map(SensitiveInput::take_secure)
                     .unwrap_or_else(|| SecureStr::new(String::new())),
                 url: Some(std::mem::take(&mut self.fields.url)),
-                notes: Some(std::mem::take(&mut self.fields.notes)),
+                notes: if notes_text.is_empty() {
+                    None
+                } else {
+                    Some(notes_text)
+                },
             },
             CredentialType::Ssh => EncryptedPayload::Ssh {
                 name: std::mem::take(&mut self.fields.name),
@@ -503,7 +903,71 @@ impl FormState {
                     .passphrase
                     .as_mut()
                     .map(SensitiveInput::take_secure),
-                notes: Some(std::mem::take(&mut self.fields.notes)),
+                notes: if notes_text.is_empty() {
+                    None
+                } else {
+                    Some(notes_text)
+                },
+            },
+            CredentialType::SecureNote => EncryptedPayload::SecureNote {
+                name: std::mem::take(&mut self.fields.name),
+                notes: if notes_text.is_empty() {
+                    None
+                } else {
+                    Some(notes_text)
+                },
+            },
+        }
+    }
+
+    /// Build `EncryptedPayload` without consuming the visible form fields.
+    ///
+    /// Create/Edit screens use this while a queued save may be delayed by a
+    /// long-running executor command, so the user still sees the submitted
+    /// values and an error can return them to editing.
+    pub fn build_payload_snapshot(&self) -> EncryptedPayload {
+        let notes_text = self.fields.notes_text();
+        let optional_notes = || {
+            if notes_text.is_empty() {
+                None
+            } else {
+                Some(notes_text.clone())
+            }
+        };
+        let clone_secret = |value: Option<&SensitiveInput>| {
+            value
+                .map(|input| input.expose(|s| SecureStr::new(s.to_string())))
+                .unwrap_or_else(|| SecureStr::new(String::new()))
+        };
+        let clone_optional_secret = |value: Option<&SensitiveInput>| {
+            value.map(|input| input.expose(|s| SecureStr::new(s.to_string())))
+        };
+
+        match self.credential_type {
+            CredentialType::Login => EncryptedPayload::Login {
+                name: self.fields.name.clone(),
+                username: self.fields.username.clone().unwrap_or_default(),
+                password: clone_secret(self.fields.password.as_ref()),
+                url: Some(self.fields.url.clone()),
+                notes: optional_notes(),
+            },
+            CredentialType::Api => EncryptedPayload::Api {
+                name: self.fields.name.clone(),
+                app_id: self.fields.app_id.clone().unwrap_or_default(),
+                secret_key: clone_secret(self.fields.secret_key.as_ref()),
+                url: Some(self.fields.url.clone()),
+                notes: optional_notes(),
+            },
+            CredentialType::Ssh => EncryptedPayload::Ssh {
+                name: self.fields.name.clone(),
+                public_key: self.fields.public_key.clone().unwrap_or_default(),
+                private_key: clone_optional_secret(self.fields.private_key.as_ref()),
+                passphrase: clone_optional_secret(self.fields.passphrase.as_ref()),
+                notes: optional_notes(),
+            },
+            CredentialType::SecureNote => EncryptedPayload::SecureNote {
+                name: self.fields.name.clone(),
+                notes: optional_notes(),
             },
         }
     }
@@ -516,6 +980,19 @@ impl FormState {
         self.fields.private_key = None;
         self.fields.passphrase = None;
         self.fields.strength = None;
+    }
+
+    /// Check if the notes textarea currently captures vertical navigation.
+    /// Returns true when notes textarea is focused (not footer, not dropdown).
+    pub fn textarea_captures_vertical(&self) -> bool {
+        if self.footer_focus.is_some() {
+            return false;
+        }
+        if self.expiry_dropdown.expanded || self.credential_dropdown.expanded {
+            return false;
+        }
+        self.fields
+            .is_textarea_field(self.focused_field, self.credential_type)
     }
 }
 
@@ -538,6 +1015,22 @@ mod tests {
         let state = FormState::new_edit(Uuid::new_v4(), CredentialType::Ssh);
         assert!(!state.is_credential_type_editable());
         assert!(state.fields.public_key.is_some());
+    }
+
+    #[test]
+    fn new_edit_focuses_name_not_locked_type() {
+        let state = FormState::new_edit(Uuid::new_v4(), CredentialType::Login);
+        assert_eq!(state.focused_field, 1);
+    }
+
+    #[test]
+    fn edit_focus_prev_from_name_stays_on_name() {
+        let mut state = FormState::new_edit(Uuid::new_v4(), CredentialType::Login);
+        state.focused_field = 1;
+
+        state.focus_prev();
+
+        assert_eq!(state.focused_field, 1);
     }
 
     #[test]
@@ -625,7 +1118,7 @@ mod tests {
         for c in "secret".chars() {
             state.fields.password.as_mut().unwrap().push_char(c);
         }
-        state.fields.notes = "notes".into();
+        state.fields.set_notes_text("notes");
 
         let payload = state.build_payload();
 

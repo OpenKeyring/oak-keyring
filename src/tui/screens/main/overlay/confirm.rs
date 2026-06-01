@@ -24,7 +24,7 @@ use crate::tui::theme;
 
 // ── Colour / layout constants ────────────────────────────────────
 
-const OVERLAY_BG: Color = Color::Rgb(26, 27, 38); // #1a1b26
+const OVERLAY_BG: Color = Color::Rgb(20, 24, 39); // #141827
 const DIALOG_WIDTH: u16 = 48;
 
 // ── Public API ───────────────────────────────────────────────────
@@ -44,11 +44,11 @@ pub fn render_confirm(
 
     let title_style = if is_danger {
         Style::default()
-            .fg(theme::WARNING)
+            .fg(theme::NL_HOT)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(theme::PRIMARY)
+            .fg(theme::NL_CYAN)
             .add_modifier(Modifier::BOLD)
     };
 
@@ -56,7 +56,7 @@ pub fn render_confirm(
         .title(Span::styled(title, title_style))
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
+        .border_style(Style::default().fg(theme::NL_FOCUS))
         .style(Style::default().bg(OVERLAY_BG));
 
     // body + separator + button line
@@ -70,6 +70,7 @@ pub fn render_confirm(
 
     let paragraph = Paragraph::new(all_lines)
         .block(block)
+        .style(theme::Styles::newlook_surface())
         .wrap(Wrap { trim: false })
         .alignment(Alignment::Left);
 
@@ -133,6 +134,7 @@ fn confirm_label_for(variant: &ConfirmVariant) -> String {
         }
         ConfirmVariant::TagDelete { .. } => t!("tui.tag.confirm_delete_tag").to_string(),
         ConfirmVariant::Restore { .. } => t!("tui.trash.restore_button").to_string(),
+        ConfirmVariant::QuitApp => t!("tui.overlay.quit_button").to_string(),
     }
 }
 
@@ -156,7 +158,7 @@ fn build_dialog_parts(
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
                     format!("  {}", t!("tui.trash.auto_delete_notice", days = days)),
-                    Style::default().fg(theme::TEXT_SECONDARY),
+                    Style::default().fg(theme::NL_TEXT_MUTED),
                 )));
             }
             (
@@ -167,13 +169,19 @@ fn build_dialog_parts(
         }
 
         ConfirmVariant::HardDelete { record_name, .. } => {
-            let lines = vec![line_with_name(
-                &t!(
-                    "tui.trash.permanent_delete_body",
-                    name = record_name.as_str()
-                )
-                .into_owned(),
-            )];
+            let lines = vec![
+                line_with_name(
+                    &t!(
+                        "tui.trash.permanent_delete_body",
+                        name = record_name.as_str()
+                    )
+                    .into_owned(),
+                ),
+                Line::from(Span::styled(
+                    t!("tui.trash.permanent_delete_warn").to_string(),
+                    Style::default().fg(theme::WARNING),
+                )),
+            ];
             (
                 format!(" {} ", t!("tui.overlay.warning_title")),
                 lines,
@@ -184,7 +192,7 @@ fn build_dialog_parts(
         ConfirmVariant::EmptyTrash { count } => {
             let lines = vec![Line::from(Span::styled(
                 t!("tui.trash.empty_trash_body", count = count),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::NL_TEXT),
             ))];
             (
                 format!(" {} ", t!("tui.overlay.warning_title")),
@@ -197,13 +205,13 @@ fn build_dialog_parts(
             let count = record_names.len();
             let mut lines = vec![Line::from(Span::styled(
                 t!("tui.batch.batch_delete_body", count = count),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::NL_TEXT),
             ))];
             lines.push(Line::from(""));
             for name in record_names.iter().take(5) {
                 lines.push(Line::from(Span::styled(
                     format!("  - {}", name),
-                    Style::default().fg(theme::TEXT_SECONDARY),
+                    Style::default().fg(theme::NL_TEXT_MUTED),
                 )));
             }
             if record_names.len() > 5 {
@@ -212,7 +220,7 @@ fn build_dialog_parts(
                         "  {}",
                         t!("tui.batch.more_items", count = record_names.len())
                     ),
-                    Style::default().fg(theme::TEXT_MUTED),
+                    Style::default().fg(theme::NL_LINE),
                 )));
             }
             (
@@ -226,13 +234,13 @@ fn build_dialog_parts(
             let count = record_names.len();
             let mut lines = vec![Line::from(Span::styled(
                 t!("tui.batch.batch_restore_body", count = count),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::NL_TEXT),
             ))];
             lines.push(Line::from(""));
             for name in record_names.iter().take(5) {
                 lines.push(Line::from(Span::styled(
                     format!("  - {}", name),
-                    Style::default().fg(theme::TEXT_SECONDARY),
+                    Style::default().fg(theme::NL_TEXT_MUTED),
                 )));
             }
             if record_names.len() > 5 {
@@ -241,7 +249,7 @@ fn build_dialog_parts(
                         "  {}",
                         t!("tui.batch.more_items", count = record_names.len())
                     ),
-                    Style::default().fg(theme::TEXT_MUTED),
+                    Style::default().fg(theme::NL_LINE),
                 )));
             }
             (
@@ -255,7 +263,7 @@ fn build_dialog_parts(
             let count = record_names.len();
             let mut lines = vec![Line::from(Span::styled(
                 t!("tui.batch.batch_hard_delete_body", count = count),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::NL_TEXT),
             ))];
             lines.push(Line::from(Span::styled(
                 t!("tui.trash.permanent_delete_warn").to_string(),
@@ -265,7 +273,7 @@ fn build_dialog_parts(
             for name in record_names.iter().take(5) {
                 lines.push(Line::from(Span::styled(
                     format!("  - {}", name),
-                    Style::default().fg(theme::TEXT_SECONDARY),
+                    Style::default().fg(theme::NL_TEXT_MUTED),
                 )));
             }
             if record_names.len() > 5 {
@@ -274,7 +282,7 @@ fn build_dialog_parts(
                         "  {}",
                         t!("tui.batch.more_items", count = record_names.len())
                     ),
-                    Style::default().fg(theme::TEXT_MUTED),
+                    Style::default().fg(theme::NL_LINE),
                 )));
             }
             (
@@ -294,7 +302,7 @@ fn build_dialog_parts(
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 format!("  {}", t!("tui.tag.used_by_count", count = affected_count)),
-                Style::default().fg(theme::TEXT_SECONDARY),
+                Style::default().fg(theme::NL_TEXT_MUTED),
             )));
             (
                 format!(" {} ", t!("tui.overlay.confirm_button")),
@@ -306,10 +314,22 @@ fn build_dialog_parts(
         ConfirmVariant::Restore { record_name, .. } => {
             let lines = vec![Line::from(Span::styled(
                 t!("tui.trash.restore_body", name = record_name.as_str()).to_string(),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::NL_TEXT),
             ))];
             (
                 format!(" {} ", t!("tui.trash.restore_title")),
+                lines,
+                confirm_label_for(variant),
+            )
+        }
+
+        ConfirmVariant::QuitApp => {
+            let lines = vec![Line::from(Span::styled(
+                t!("tui.overlay.quit_body").to_string(),
+                Style::default().fg(theme::NL_TEXT),
+            ))];
+            (
+                format!(" {} ", t!("tui.overlay.quit_title")),
                 lines,
                 confirm_label_for(variant),
             )
@@ -326,16 +346,16 @@ fn render_buttons(focused: ConfirmButton, confirm_label: &str, is_danger: bool) 
 
     let cancel_style = if matches!(focused, ConfirmButton::Cancel) {
         Style::default()
-            .fg(theme::TEXT_SECONDARY)
+            .fg(theme::NL_TEXT_MUTED)
             .add_modifier(Modifier::REVERSED)
     } else {
-        Style::default().fg(theme::TEXT_SECONDARY)
+        Style::default().fg(theme::NL_TEXT_MUTED)
     };
 
     let confirm_fg = if is_danger {
         theme::ERROR
     } else {
-        theme::PRIMARY
+        theme::NL_CYAN
     };
 
     let confirm_style = if matches!(focused, ConfirmButton::Confirm) {
@@ -357,7 +377,7 @@ fn render_buttons(focused: ConfirmButton, confirm_label: &str, is_danger: bool) 
 fn line_with_name(text: &str) -> Line<'static> {
     Line::from(Span::styled(
         text.to_string(),
-        Style::default().fg(theme::TEXT),
+        Style::default().fg(theme::NL_TEXT),
     ))
 }
 
@@ -365,7 +385,7 @@ fn line_with_name(text: &str) -> Line<'static> {
 fn separator_line(content_width: u16) -> Line<'static> {
     let dash_count = content_width as usize;
     let sep = "-".repeat(dash_count);
-    Line::from(Span::styled(sep, Style::default().fg(theme::BORDER)))
+    Line::from(Span::styled(sep, Style::default().fg(theme::NL_LINE)))
 }
 
 /// Return a `Rect` of size `width x height` centred inside `area`.
@@ -543,6 +563,25 @@ mod tests {
         let (_, lines, _) = build_dialog_parts(&variant, 46);
         // Only the message line, no extra hint
         assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn build_dialog_hard_delete_includes_irreversible_warning() {
+        let variant = ConfirmVariant::HardDelete {
+            record_id: Uuid::new_v4(),
+            record_name: "GitHub".to_string(),
+        };
+        let (_, lines, _) = build_dialog_parts(&variant, 46);
+        let body = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(
+            body.contains(t!("tui.trash.permanent_delete_warn").as_ref()),
+            "hard-delete confirmation should show the irreversible warning text"
+        );
     }
 
     #[test]

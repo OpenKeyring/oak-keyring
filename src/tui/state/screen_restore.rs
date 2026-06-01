@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use crate::commands::types::{PanelId, RecordFilter, RecordSort, Screen};
 use crate::tui::screens::import_export::{
-    ExportFocus, ExportScopeOption, ExportStep, ImportEntryPoint, ImportExportMode, ImportFocus,
-    ImportStep,
+    ExportFocus, ExportStep, ImportEntryPoint, ImportExportMode, ImportFocus, ImportStep,
 };
 use crate::tui::state::audit_state::{AuditFilter, AuditFocus};
 use crate::tui::state::config_state::ConfigTab;
@@ -68,7 +67,6 @@ pub struct ImportExportRestoreState {
     pub import_focus: ImportFocus,
     pub export_step: ExportStep,
     pub export_focus: ExportFocus,
-    pub export_scope_option: ExportScopeOption,
 }
 
 // ── AppState Navigation Methods ─────────────────────────────────────────────

@@ -7,8 +7,10 @@ use ratatui::{
 
 use crate::tui::theme;
 
+pub const SLIDER_BAR_WIDTH: usize = 20;
+
 /// Render a length slider row.
-/// Label | [ value ] | [-] bar [+]
+/// Label | \[ value \] | \[-\] bar \[+\]
 pub fn render_length_slider(
     label: &str,
     value: usize,
@@ -17,8 +19,12 @@ pub fn render_length_slider(
     focused: bool,
 ) -> Line<'static> {
     let fill_ratio = (value - min) as f64 / (max - min) as f64;
-    let fill_chars = (fill_ratio * 12.0).round() as usize;
-    let empty_chars = 12 - fill_chars;
+    let mut fill_chars = (fill_ratio * SLIDER_BAR_WIDTH as f64).ceil() as usize;
+    if value == min {
+        fill_chars = 0;
+    }
+    let fill_chars = fill_chars.min(SLIDER_BAR_WIDTH);
+    let empty_chars = SLIDER_BAR_WIDTH - fill_chars;
 
     let minus_style = if value > min {
         Style::default().fg(theme::PRIMARY)

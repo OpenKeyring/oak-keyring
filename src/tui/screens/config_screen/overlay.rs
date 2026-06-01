@@ -62,20 +62,25 @@ impl ConfigScreen {
             Some(ConfigOverlay::UnsavedChanges {
                 ref mut focused_button,
             }) => match key.code {
-                KeyCode::Tab | KeyCode::Left | KeyCode::Right => {
-                    *focused_button = focused_button.toggle();
+                KeyCode::Tab | KeyCode::Right => {
+                    *focused_button = focused_button.next();
+                    ScreenResult::Continue
+                }
+                KeyCode::Left => {
+                    *focused_button = focused_button.prev();
                     ScreenResult::Continue
                 }
                 KeyCode::Enter => {
                     let button = *focused_button;
                     self.state.overlay = None;
                     match button {
-                        ConfirmButton::Cancel => ScreenResult::Continue,
-                        ConfirmButton::Confirm => {
+                        ConfirmButton::Stay => ScreenResult::Continue,
+                        ConfirmButton::SaveExit => {
                             let config = self.state.to_app_config();
                             ctx.send_system_command(Command::SaveConfig { config });
                             ScreenResult::NavigateTo(ScreenEnum::Main)
                         }
+                        ConfirmButton::DiscardExit => ScreenResult::NavigateTo(ScreenEnum::Main),
                     }
                 }
                 KeyCode::Esc => {
@@ -97,9 +102,6 @@ pub(super) fn render_dropdown_overlay(
     field: &DropdownField,
     selected: usize,
 ) {
-    // Clear the area first
-    frame.render_widget(Clear, area);
-
     // Get translated display labels
     let labels = field.display_labels();
 
@@ -116,11 +118,13 @@ pub(super) fn render_dropdown_overlay(
     let popup_y = area.y + (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
 
-    let border_style = Style::default().fg(theme::PRIMARY);
+    frame.render_widget(Clear, popup_area);
+    let border_style = theme::Styles::newlook_focused_border();
     let block = Block::default()
         .borders(Borders::ALL)
         .title(format!(" {} ", field.label()))
-        .border_style(border_style);
+        .border_style(border_style)
+        .style(theme::Styles::newlook_surface());
 
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
@@ -139,12 +143,13 @@ pub(super) fn render_dropdown_overlay(
         let is_selected = i == selected;
         let style = if is_selected {
             Style::default()
-                .fg(theme::TEXT)
-                .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                .fg(theme::NL_TEXT)
+                .bg(theme::NL_SELECTED)
+                .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            theme::Styles::newlook_surface()
         };
-        let prefix = if is_selected { " > " } else { "   " };
+        let prefix = if is_selected { "  ▌ " } else { "    " };
         let text = format!("{}{}", prefix, labels[i]);
         frame.render_widget(Paragraph::new(text).style(style), *row_area);
     }
@@ -155,22 +160,21 @@ pub(super) fn render_unsaved_changes_dialog(
     area: Rect,
     focused_button: ConfirmButton,
 ) {
-    // Clear the area first
-    frame.render_widget(Clear, area);
-
     let popup_height = 5u16;
-    let popup_width = 40u16.min(area.width);
+    let popup_width = 60u16.min(area.width);
 
     // Center the popup
     let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = area.y + (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
 
-    let border_style = Style::default().fg(theme::WARNING);
+    frame.render_widget(Clear, popup_area);
+    let border_style = Style::default().fg(theme::NL_HOT).bg(theme::NL_SURFACE);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(format!(" {} ", t!("tui.config.unsaved_dialog_title")))
-        .border_style(border_style);
+        .border_style(border_style)
+        .style(theme::Styles::newlook_surface());
 
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
@@ -185,31 +189,48 @@ pub(super) fn render_unsaved_changes_dialog(
 
     // Warning message
     let msg = Paragraph::new(format!(" {}", t!("tui.config.unsaved_dialog_message")))
-        .style(Style::default().fg(theme::WARNING));
+        .style(Style::default().fg(theme::NL_HOT).bg(theme::NL_SURFACE));
     frame.render_widget(msg, chunks[0]);
 
     // Buttons
-    let cancel_style = if focused_button == ConfirmButton::Cancel {
+    let stay_style = if focused_button == ConfirmButton::Stay {
         Style::default()
-            .fg(theme::TEXT)
-            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+            .fg(theme::NL_TEXT)
+            .bg(theme::NL_SELECTED)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::TEXT_SECONDARY)
+        Style::default()
+            .fg(theme::NL_TEXT_MUTED)
+            .bg(theme::NL_SURFACE)
     };
-    let confirm_style = if focused_button == ConfirmButton::Confirm {
+    let save_style = if focused_button == ConfirmButton::SaveExit {
         Style::default()
-            .fg(theme::TEXT)
-            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+            .fg(theme::NL_HOT)
+            .bg(theme::NL_SURFACE_2)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::PRIMARY)
+        Style::default().fg(theme::NL_CYAN).bg(theme::NL_SURFACE)
+    };
+    let discard_style = if focused_button == ConfirmButton::DiscardExit {
+        Style::default()
+            .fg(theme::NL_DANGER)
+            .bg(theme::NL_SURFACE_2)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::NL_DANGER).bg(theme::NL_SURFACE)
     };
 
     let buttons = Line::from(vec![
-        Span::styled(format!(" <{}> ", t!("tui.config.cancel_btn")), cancel_style),
-        Span::styled("   ", Style::default()),
+        Span::styled(format!(" <{}> ", t!("tui.config.stay_btn")), stay_style),
+        Span::styled("   ", Style::default().bg(theme::NL_SURFACE)),
         Span::styled(
             format!(" <{}> ", t!("tui.config.save_exit_btn")),
-            confirm_style,
+            save_style,
+        ),
+        Span::styled("   ", Style::default().bg(theme::NL_SURFACE)),
+        Span::styled(
+            format!(" <{}> ", t!("tui.config.discard_exit_btn")),
+            discard_style,
         ),
     ]);
     frame.render_widget(Paragraph::new(buttons), chunks[1]);

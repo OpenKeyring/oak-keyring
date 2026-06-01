@@ -2,4 +2,4 @@
 source: tests/snapshot_tests/screens/status_bar_test.rs
 expression: backend
 ---
-"  ⌘K Search  N New  E Edit  D Delete  F1 Help │ v0.7.3 │ ✓ All passwords secure │ ⟳ Syncing │ ✓ 30s until cleared       "
+"  Ctrl+K Search  Ctrl+G Gen  Ctrl+P Cfg  Q Quitv0.8.0-preview.1 │ ✓ All passwords secure │ ⟳ Syncing │ ✓ 30s until clear"

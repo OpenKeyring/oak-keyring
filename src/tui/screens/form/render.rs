@@ -10,10 +10,14 @@ use ratatui::{
 
 use crate::t;
 use crate::tui::components::text_input::PasswordButton;
-use crate::tui::components::{dropdown, strength_bar, tag_input, text_input};
-use crate::tui::state::form_state::{ExpiryOption, FormState, PasswordFieldFocus};
+use crate::tui::components::{dropdown, strength_bar, tag_input, text_input, textarea};
+use crate::tui::state::form_state::{
+    ExpiryOption, FormFooterButton, FormState, PasswordFieldFocus,
+};
+use crate::tui::state::generator_state::GeneratorState;
 use crate::tui::theme;
 use crate::types::credential::CredentialType;
+use unicode_width::UnicodeWidthStr;
 
 /// Render the full-screen form.
 pub fn render_form(
@@ -30,20 +34,11 @@ pub fn render_form(
     };
 
     let mut lines = vec![
-        // Title bar
-        Line::from(vec![
-            Span::styled(
-                format!("  {}", title),
-                Style::default()
-                    .fg(theme::TEXT)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("                                        "),
-            Span::styled(
-                format!(" {}", t!("tui.form.cancel_hint")),
-                Style::default().fg(theme::TEXT_SECONDARY),
-            ),
-        ]),
+        title_line(
+            area.width,
+            title.as_ref(),
+            t!("tui.form.cancel_hint").as_ref(),
+        ),
         separator_line(area.width),
         Line::raw(""),
     ];
@@ -51,16 +46,27 @@ pub fn render_form(
     let ct = state.credential_type;
     let focused = state.focused_field;
 
+    // Track where the notes textarea starts in the line buffer so we can
+    // overlay the actual TextArea widget after the Paragraph is rendered.
+    // None means no textarea is rendered (should not happen currently).
+    let mut notes_line_offset: Option<(usize, u16)> = None;
+    let notes_content_width = area
+        .width
+        .saturating_sub(crate::tui::components::text_input::FORM_LABEL_WIDTH as u16 + 3)
+        .max(1);
+
     // Field 0: Credential Type dropdown
     let ct_options = [
         t!("tui.form.type_login"),
         t!("tui.form.type_api"),
         t!("tui.form.type_ssh"),
+        t!("tui.form.type_secure_note"),
     ];
     let ct_selected = match ct {
         CredentialType::Login => t!("tui.form.type_login"),
         CredentialType::Api => t!("tui.form.type_api"),
         CredentialType::Ssh => t!("tui.form.type_ssh"),
+        CredentialType::SecureNote => t!("tui.form.type_secure_note"),
     };
     if state.credential_dropdown.expanded {
         let expanded = dropdown::render_dropdown_expanded(
@@ -94,25 +100,46 @@ pub fn render_form(
         area.width,
     ));
     if let Some(err) = name_error {
-        lines.push(error_line(&err.message));
+        if should_render_error_line(&err.message) {
+            lines.push(error_line(&err.message));
+        }
     }
     lines.push(Line::raw(""));
 
-    // Field 2: URL
-    let url_label = match ct {
-        CredentialType::Ssh => t!("tui.form.hostname_label"),
-        _ => t!("tui.form.url_label"),
-    };
-    lines.extend(text_input::render_text_input(
-        url_label.as_ref(),
-        &state.fields.url,
-        focused == 2,
-        false,
-        false,
-        false,
-        area.width,
-    ));
-    lines.push(Line::raw(""));
+    // Credential-type-specific fields
+    match ct {
+        CredentialType::SecureNote => {
+            // Field 2: Notes textarea — record offset for overlay rendering
+            let notes_rows =
+                textarea::visible_rows_for_width(&state.fields.notes, notes_content_width);
+            notes_line_offset = Some((lines.len(), notes_rows));
+            lines.extend(textarea::render_textarea_label(
+                t!("tui.form.notes_label").as_ref(),
+                focused == 2,
+                false,
+                area.width,
+                notes_rows,
+            ));
+            lines.push(Line::raw(""));
+        }
+        _ => {
+            // Field 2: URL (for Login, Api, Ssh)
+            let url_label = match ct {
+                CredentialType::Ssh => t!("tui.form.hostname_label"),
+                _ => t!("tui.form.url_label"),
+            };
+            lines.extend(text_input::render_text_input(
+                url_label.as_ref(),
+                &state.fields.url,
+                focused == 2,
+                false,
+                false,
+                false,
+                area.width,
+            ));
+            lines.push(Line::raw(""));
+        }
+    }
 
     // Credential-type-specific fields (3-4 for Login/API, 3-5 for SSH)
     match ct {
@@ -129,7 +156,9 @@ pub fn render_form(
                 area.width,
             ));
             if let Some(err) = user_error {
-                lines.push(error_line(&err.message));
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
+                }
             }
             lines.push(Line::raw(""));
 
@@ -179,28 +208,17 @@ pub fn render_form(
             );
             lines.extend(password_row);
             if let Some(err) = pw_error {
-                lines.push(error_line(&err.message));
-            }
-
-            // Strength bar on next line
-            if let Some(ref strength) = state.fields.strength {
-                lines.push(strength_bar::render_strength_bar(strength, _unicode));
-            } else {
-                lines.push(strength_bar::render_empty_strength_bar());
-            }
-
-            // Embedded generator panel (if expanded)
-            if let Some(gen) = generator_state {
-                if gen.expanded {
-                    lines.push(Line::raw(""));
-                    let panel = crate::tui::components::generator_panel::render_generator_panel(
-                        &gen.generator,
-                        true,
-                        area.width,
-                        _unicode,
-                    );
-                    lines.extend(panel);
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
                 }
+            }
+
+            // Strength bar with breathing room after the password input row.
+            lines.push(Line::raw(""));
+            if let Some(ref strength) = state.fields.strength {
+                lines.push(strength_bar::render_form_strength_bar(strength, _unicode));
+            } else {
+                lines.push(strength_bar::render_form_empty_strength_bar());
             }
         }
         CredentialType::Api => {
@@ -216,7 +234,9 @@ pub fn render_form(
                 area.width,
             ));
             if let Some(err) = appid_error {
-                lines.push(error_line(&err.message));
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
+                }
             }
             lines.push(Line::raw(""));
 
@@ -289,7 +309,9 @@ pub fn render_form(
                 area.width,
             ));
             if let Some(err) = pubkey_error {
-                lines.push(error_line(&err.message));
+                if should_render_error_line(&err.message) {
+                    lines.push(error_line(&err.message));
+                }
             }
             lines.push(Line::raw(""));
 
@@ -390,6 +412,9 @@ pub fn render_form(
                 Style::default().fg(theme::TEXT_MUTED),
             )));
         }
+        CredentialType::SecureNote => {
+            // No additional fields for SecureNote - notes already rendered above
+        }
     }
     lines.push(Line::raw(""));
 
@@ -397,6 +422,7 @@ pub fn render_form(
     let expiry_idx = match ct {
         CredentialType::Login | CredentialType::Api => 5,
         CredentialType::Ssh => 6,
+        CredentialType::SecureNote => 3,
     };
     if state.expiry_dropdown.expanded {
         let options = ExpiryOption::all_options();
@@ -439,50 +465,64 @@ pub fn render_form(
     let tags_idx = match ct {
         CredentialType::Login | CredentialType::Api => 6,
         CredentialType::Ssh => 7,
+        CredentialType::SecureNote => 4,
     };
     lines.extend(tag_input::render_tag_input(
         &state.fields.tag_input,
         &state.fields.tags,
         focused == tags_idx,
+        state.fields.tag_focus,
         state.tag_autocomplete.as_ref(),
         all_tags,
         area.width,
     ));
     lines.push(Line::raw(""));
 
-    // Notes field
+    // Notes field (only for Login, Api, Ssh - SecureNote already rendered above)
     let notes_idx = match ct {
         CredentialType::Login | CredentialType::Api => 7,
         CredentialType::Ssh => 8,
+        CredentialType::SecureNote => 2, // Already rendered
     };
-    lines.extend(text_input::render_text_input(
-        t!("tui.form.notes_label").as_ref(),
-        &state.fields.notes,
-        focused == notes_idx,
-        false,
-        false,
-        false,
-        area.width,
-    ));
-    lines.push(Line::raw(""));
+    if ct != CredentialType::SecureNote {
+        let notes_rows = textarea::visible_rows_for_width(&state.fields.notes, notes_content_width);
+        notes_line_offset = Some((lines.len(), notes_rows));
+        lines.extend(textarea::render_textarea_label(
+            t!("tui.form.notes_label").as_ref(),
+            focused == notes_idx,
+            false,
+            area.width,
+            notes_rows,
+        ));
+        lines.push(Line::raw(""));
+    }
 
-    // Bottom buttons
+    let inner_height = area.height.saturating_sub(2) as usize;
+    let footer_rows = 3usize;
+    while lines.len().saturating_add(footer_rows) < inner_height {
+        lines.push(Line::raw(""));
+    }
+
+    // Bottom buttons / saving indicator
     lines.push(separator_line(area.width));
-    lines.push(Line::raw(""));
-    lines.push(Line::from(vec![
-        Span::raw("                     "),
-        Span::styled(
-            format!(" {} ", t!("tui.form.save_button")),
-            Style::default()
-                .fg(theme::PRIMARY)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw("  "),
-        Span::styled(
-            format!(" {} ", t!("tui.form.cancel_button")),
-            Style::default().fg(theme::TEXT_SECONDARY),
-        ),
-    ]));
+    if state.saving {
+        lines.push(saving_line(area.width, state.saving_tick, _unicode));
+        lines.push(Line::raw(""));
+    } else {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                format!("[ {} ]", t!("tui.form.save_button")),
+                footer_button_style(state.footer_focus, FormFooterButton::Save, true),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                format!("[ {} ]", t!("tui.form.cancel_button")),
+                footer_button_style(state.footer_focus, FormFooterButton::Cancel, false),
+            ),
+        ]));
+        lines.push(shortcut_line());
+    }
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -496,18 +536,224 @@ pub fn render_form(
     frame.render_widget(Clear, area);
     frame.render_widget(paragraph, area);
 
+    // Overlay the actual TextArea widget on top of the placeholder rows.
+    // No block border on the textarea — content lines only.
+    if let Some((offset, notes_rows)) = notes_line_offset {
+        let label_width = crate::tui::components::text_input::FORM_LABEL_WIDTH;
+        let notes_area = Rect {
+            x: area.x + 1 + label_width as u16,
+            y: area.y + 1 + offset as u16 + 1, // outer block border + label line
+            width: area.width.saturating_sub(label_width as u16 + 3),
+            height: notes_rows,
+        };
+        if state
+            .fields
+            .is_textarea_field(state.focused_field, state.credential_type)
+            && state.footer_focus.is_none()
+        {
+            frame.render_widget(&state.fields.notes, notes_area);
+        } else {
+            let mut notes = state.fields.notes.clone();
+            textarea::hide_cursor(&mut notes);
+            frame.render_widget(&notes, notes_area);
+        }
+    }
+
+    if let Some(gen) = generator_state {
+        if gen.expanded {
+            render_generator_dialog(frame, area, &gen.generator, _unicode);
+        }
+    }
+
     // Weak password dialog overlay
     if state.show_weak_password_dialog {
-        render_weak_password_dialog(frame, area, state.weak_dialog_focus);
+        render_weak_password_dialog(frame, area, state.weak_dialog_focus, _unicode);
     }
 
     // Unsaved changes dialog overlay
     if state.show_unsaved_dialog {
-        render_unsaved_dialog(frame, area);
+        render_unsaved_dialog(frame, area, state.unsaved_dialog_focus);
     }
 }
 
-fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
+pub(crate) fn generator_dialog_area(area: Rect, state: &GeneratorState, unicode: bool) -> Rect {
+    let width = if area.width > 68 {
+        64
+    } else {
+        area.width.saturating_sub(4).max(24)
+    };
+    let panel_len = crate::tui::components::generator_panel::render_generator_panel(
+        state,
+        true,
+        width.saturating_sub(2),
+        unicode,
+    )
+    .len() as u16;
+    let height = panel_len
+        .saturating_add(5)
+        .min(area.height.saturating_sub(2));
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    Rect::new(x, y, width, height)
+}
+
+fn render_generator_dialog(frame: &mut Frame, area: Rect, state: &GeneratorState, unicode: bool) {
+    let dialog_area = generator_dialog_area(area, state, unicode);
+    let inner_width = dialog_area.width.saturating_sub(2);
+    let title = t!("tui.generator_overlay.title").to_string();
+    let close_hint = t!("tui.form.cancel_hint").to_string();
+    let title_width = UnicodeWidthStr::width(title.as_str());
+    let hint_width = UnicodeWidthStr::width(close_hint.as_str());
+    let gap = inner_width
+        .saturating_sub(title_width as u16)
+        .saturating_sub(hint_width as u16)
+        .max(1) as usize;
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(
+                title,
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" ".repeat(gap)),
+            Span::styled(close_hint, Style::default().fg(theme::TEXT_SECONDARY)),
+        ]),
+        separator_line(dialog_area.width),
+        Line::raw(""),
+    ];
+    lines.extend(
+        crate::tui::components::generator_panel::render_generator_panel(
+            state,
+            true,
+            inner_width,
+            unicode,
+        ),
+    );
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::BORDER))
+        .style(Style::default().bg(theme::BG));
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(Clear, dialog_area);
+    frame.render_widget(paragraph, dialog_area);
+}
+
+fn title_line(width: u16, title: &str, hint: &str) -> Line<'static> {
+    let left = format!("  {title}");
+    let right = format!("{hint}  ");
+    let content_width = width.saturating_sub(2) as usize;
+    let left_width = UnicodeWidthStr::width(left.as_str());
+    let right_width = UnicodeWidthStr::width(right.as_str());
+    let gap = content_width
+        .saturating_sub(left_width + right_width)
+        .max(1);
+
+    Line::from(vec![
+        Span::styled(
+            left,
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" ".repeat(gap)),
+        Span::styled(right, Style::default().fg(theme::TEXT_SECONDARY)),
+    ])
+}
+
+fn footer_button_style(
+    focus: Option<FormFooterButton>,
+    button: FormFooterButton,
+    primary: bool,
+) -> Style {
+    let base = if primary {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT_SECONDARY)
+    };
+
+    if focus == Some(button) {
+        base.add_modifier(Modifier::REVERSED)
+    } else {
+        base
+    }
+}
+
+fn shortcut_line() -> Line<'static> {
+    Line::from(vec![
+        Span::raw("  "),
+        Span::styled("Ctrl+G", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_generate")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Ctrl+V", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_toggle_visibility")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Ctrl+C", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_copy")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Ctrl+S", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}  ", t!("tui.form.shortcut_save")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+        Span::styled("Esc", Style::default().fg(theme::PRIMARY)),
+        Span::styled(
+            format!(" {}", t!("tui.form.shortcut_cancel")),
+            Style::default().fg(theme::TEXT_SECONDARY),
+        ),
+    ])
+}
+
+fn saving_line(width: u16, tick: usize, unicode: bool) -> Line<'static> {
+    let label = t!("tui.form.saving_status").to_string();
+    let bar_width = 18usize.min(width.saturating_sub(24) as usize).max(8);
+    let fill = if unicode {
+        theme::ICON_PROGRESS_FILL
+    } else {
+        theme::ascii::ICON_PROGRESS_FILL
+    };
+    let empty = if unicode {
+        theme::ICON_PROGRESS_EMPTY
+    } else {
+        theme::ascii::ICON_PROGRESS_EMPTY
+    };
+    let segment = 5usize.min(bar_width);
+    let start = (tick / 2) % bar_width.max(1);
+    let mut spans = vec![
+        Span::raw("  "),
+        Span::styled(label, Style::default().fg(theme::NL_CYAN)),
+        Span::raw("  "),
+        Span::styled("[", Style::default().fg(theme::NL_TEXT_MUTED)),
+    ];
+    for i in 0..bar_width {
+        let active = (0..segment).any(|offset| (start + offset) % bar_width == i);
+        spans.push(Span::styled(
+            if active { fill } else { empty },
+            Style::default().fg(if active {
+                theme::NL_CYAN
+            } else {
+                theme::NL_LINE
+            }),
+        ));
+    }
+    spans.push(Span::styled("]", Style::default().fg(theme::NL_TEXT_MUTED)));
+    Line::from(spans)
+}
+
+fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize, unicode: bool) {
     let go_back_style = if focus == 0 {
         Style::default()
             .fg(theme::PRIMARY)
@@ -523,11 +769,16 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
         Style::default().fg(theme::TEXT_SECONDARY)
     };
 
+    let warning_icon = if unicode {
+        theme::NF_WARNING_TRIANGLE
+    } else {
+        theme::ascii::NF_WARNING_TRIANGLE
+    };
     let lines = vec![
         Line::from(Span::styled(
             format!(
                 "  {} {}",
-                theme::ICON_WARNING,
+                warning_icon,
                 t!("tui.overlay.weak_password_title")
             ),
             Style::default()
@@ -560,7 +811,7 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
     ];
     // Render centered
     let w = 48.min(area.width);
-    let h = 10.min(area.height);
+    let h = (lines.len() as u16).saturating_add(2).min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     let dialog_area = Rect::new(x, y, w, h);
@@ -574,7 +825,26 @@ fn render_weak_password_dialog(frame: &mut Frame, area: Rect, focus: usize) {
     frame.render_widget(p, dialog_area);
 }
 
-fn render_unsaved_dialog(frame: &mut Frame, area: Rect) {
+fn render_unsaved_dialog(frame: &mut Frame, area: Rect, focus: usize) {
+    let key_style = Style::default()
+        .fg(theme::PRIMARY)
+        .add_modifier(Modifier::BOLD);
+    let continue_style = if focus == 0 {
+        Style::default()
+            .fg(theme::BG)
+            .bg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::PRIMARY)
+    };
+    let discard_style = if focus == 1 {
+        Style::default()
+            .fg(theme::BG)
+            .bg(theme::ERROR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::ERROR)
+    };
     let lines = vec![
         Line::from(Span::styled(
             format!("  {}", t!("tui.overlay.unsaved_title")),
@@ -582,27 +852,35 @@ fn render_unsaved_dialog(frame: &mut Frame, area: Rect) {
                 .fg(theme::TEXT)
                 .add_modifier(Modifier::BOLD),
         )),
-        separator_line(40),
+        separator_line(52),
         Line::raw(""),
         Line::from(Span::raw(format!("  {}", t!("tui.overlay.unsaved_body")))),
         Line::raw(""),
-        separator_line(40),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Esc", key_style),
+            Span::raw(format!(" {}    ", t!("tui.form.unsaved_cancel_shortcut"))),
+            Span::styled("Enter", key_style),
+            Span::raw(format!(" {}", t!("tui.form.unsaved_discard_shortcut"))),
+        ]),
+        Line::raw(""),
+        separator_line(52),
         Line::raw(""),
         Line::from(vec![
-            Span::raw("      "),
+            Span::raw("        "),
             Span::styled(
                 format!(" {} ", t!("tui.form.continue_editing")),
-                Style::default().fg(theme::PRIMARY),
+                continue_style,
             ),
-            Span::raw("    "),
+            Span::raw("      "),
             Span::styled(
                 format!(" {} ", t!("tui.form.discard_changes")),
-                Style::default().fg(theme::ERROR),
+                discard_style,
             ),
         ]),
     ];
-    let w = 40.min(area.width);
-    let h = 9.min(area.height);
+    let w = 52.min(area.width);
+    let h = 12.min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     let dialog_area = Rect::new(x, y, w, h);
@@ -628,4 +906,73 @@ fn error_line(msg: &str) -> Line<'static> {
         format!("  {}", msg),
         Style::default().fg(theme::ERROR),
     ))
+}
+
+fn should_render_error_line(msg: &str) -> bool {
+    msg != t!("tui.form.validation_required").as_ref()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    fn find_text(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<(u16, u16)> {
+        let needle_chars: Vec<char> = needle.chars().collect();
+        for y in buffer.area.y..buffer.area.y + buffer.area.height {
+            let row: Vec<String> = (buffer.area.x..buffer.area.x + buffer.area.width)
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .map(ToOwned::to_owned)
+                .collect();
+            for start in 0..row.len() {
+                if needle_chars.iter().enumerate().all(|(offset, ch)| {
+                    row.get(start + offset)
+                        .is_some_and(|cell| cell == &ch.to_string())
+                }) {
+                    return Some((buffer.area.x + start as u16, y));
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn weak_password_dialog_renders_actions_and_newlook_warning_icon() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_weak_password_dialog(frame, frame.area(), 1, true);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+
+        assert!(find_text(&buffer, "[ Cancel ]").is_some());
+        assert!(find_text(&buffer, "[ Save ]").is_some());
+        assert!(find_text(&buffer, "\u{f071}").is_some());
+        assert!(find_text(&buffer, "\u{26A0}").is_none());
+    }
+
+    #[test]
+    fn unfocused_notes_textarea_does_not_render_cursor_style() {
+        let mut state = FormState::new_edit(uuid::Uuid::nil(), CredentialType::Login);
+        state.fields.name = "Example".into();
+        state.fields.set_notes_text("internal notes");
+        state.focused_field = 1;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_form(frame, frame.area(), &state, None, &[], true);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let (notes_x, notes_y) = find_text(&buffer, "internal notes").expect("notes text");
+        let cursor_cell = buffer
+            .cell((notes_x + "internal notes".len() as u16, notes_y))
+            .expect("cell after notes text");
+
+        assert_ne!(cursor_cell.style().bg, Some(theme::PRIMARY));
+    }
 }

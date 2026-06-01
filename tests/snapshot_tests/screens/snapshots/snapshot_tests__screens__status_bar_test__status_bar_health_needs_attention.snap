@@ -2,4 +2,4 @@
 source: tests/snapshot_tests/screens/status_bar_test.rs
 expression: backend
 ---
-"  ⌘K Search  N New  E Edit  D Delete  F1 Help │ v0.7.3 │ ⚠ Needs attention W3 C1 D2 │ ✓ Synced                          "
+"  Ctrl+K Search  Ctrl+G Gen  Ctrl+P Cfg  Q Quit               v0.8.0-preview.1 │ ⚠ Needs attention W3 C1 D2 │ ✓ Synced  "

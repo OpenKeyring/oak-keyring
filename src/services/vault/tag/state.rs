@@ -88,6 +88,8 @@ impl VaultServiceImpl {
     /// Returns `VaultError::TagAlreadyExists` if the new name is already taken,
     /// or `VaultError::TagNotFound` if the old name does not exist.
     pub fn rename_tag(&mut self, old_name: &str, new_name: &str) -> Result<(), VaultError> {
+        let affected_record_ids = record_ids_for_tag(&self.conn, old_name)?;
+
         // Check if the target name already exists
         if queries::get_tag_by_name(&self.conn, new_name)
             .map_err(db_error_to_vault)?
@@ -101,6 +103,9 @@ impl VaultServiceImpl {
         if !updated {
             return Err(VaultError::TagNotFound(old_name.to_string()));
         }
+        if !affected_record_ids.is_empty() {
+            self.mark_records_pending_sync(&affected_record_ids)?;
+        }
 
         Ok(())
     }
@@ -109,9 +114,14 @@ impl VaultServiceImpl {
     ///
     /// Returns `VaultError::TagNotFound` if no tag with the given name exists.
     pub fn delete_tag(&mut self, name: &str) -> Result<(), VaultError> {
+        let affected_record_ids = record_ids_for_tag(&self.conn, name)?;
+
         let deleted = queries::delete_tag_by_name(&self.conn, name).map_err(db_error_to_vault)?;
         if !deleted {
             return Err(VaultError::TagNotFound(name.to_string()));
+        }
+        if !affected_record_ids.is_empty() {
+            self.mark_records_pending_sync(&affected_record_ids)?;
         }
 
         Ok(())
@@ -144,6 +154,9 @@ impl VaultServiceImpl {
         }
 
         tx.commit()?;
+        if added > 0 {
+            self.mark_records_pending_sync(record_ids)?;
+        }
         Ok(added)
     }
 
@@ -186,8 +199,34 @@ impl VaultServiceImpl {
         }
 
         tx.commit()?;
+        if removed > 0 {
+            self.mark_records_pending_sync(record_ids)?;
+        }
         Ok(removed)
     }
+}
+
+fn record_ids_for_tag(conn: &Connection, tag_name: &str) -> Result<Vec<Uuid>, VaultError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT rt.record_id
+             FROM record_tags rt
+             INNER JOIN tags t ON t.id = rt.tag_id
+             WHERE t.name = ?1",
+        )
+        .map_err(VaultError::DatabaseError)?;
+    let rows = stmt
+        .query_map(rusqlite::params![tag_name], |row| row.get::<_, String>(0))
+        .map_err(VaultError::DatabaseError)?;
+
+    let mut record_ids = Vec::new();
+    for row in rows {
+        let raw = row.map_err(VaultError::DatabaseError)?;
+        let id = Uuid::parse_str(&raw)
+            .map_err(|e| VaultError::CryptoError(format!("invalid record id in tag map: {e}")))?;
+        record_ids.push(id);
+    }
+    Ok(record_ids)
 }
 
 /// Count the number of tag associations for a given record.

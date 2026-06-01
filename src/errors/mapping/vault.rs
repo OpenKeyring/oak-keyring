@@ -3,7 +3,7 @@ use uuid::Uuid;
 use crate::commands::types::FieldSelector;
 use crate::errors::service_error::ServiceError;
 use crate::errors::{ErrorCode, ErrorContext};
-use crate::types::credential::CredentialType;
+use crate::types::credential::{CredentialType, DataError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum VaultError {
@@ -27,6 +27,9 @@ pub enum VaultError {
 
     #[error("crypto error: {0}")]
     CryptoError(String),
+
+    #[error("data validation error: {0}")]
+    DataError(#[from] DataError),
 
     #[error("invalid field {field:?} for credential type {record_type:?}")]
     InvalidField {
@@ -63,6 +66,20 @@ impl ServiceError for VaultError {
                 }
             }
             VaultError::CryptoError(_) => ErrorCode::CryptoDecryptionFailed,
+            VaultError::DataError(DataError::InvalidCredentialType(_)) => {
+                ErrorCode::DataInvalidCredentialType
+            }
+            VaultError::DataError(DataError::InvalidAuditOperation(_)) => {
+                ErrorCode::DataInvalidAuditOperation
+            }
+            VaultError::DataError(DataError::InvalidUuid(_)) => ErrorCode::DataInvalidUuid,
+            VaultError::DataError(DataError::MissingField(_)) => ErrorCode::DataMissingField,
+            VaultError::DataError(DataError::FieldTooLong { .. }) => ErrorCode::DataFieldTooLong,
+            VaultError::DataError(DataError::EmptyField(_)) => ErrorCode::DataEmptyField,
+            VaultError::DataError(DataError::InvalidSyncStatus(_))
+            | VaultError::DataError(DataError::InvalidTimestamp(_)) => {
+                ErrorCode::DataInvalidCredentialType
+            }
             VaultError::InvalidField { .. } => ErrorCode::VaultInvalidField,
         }
     }
@@ -78,6 +95,14 @@ impl ServiceError for VaultError {
             VaultError::NotUnlocked => ErrorContext::new(),
             VaultError::DatabaseError(_) => ErrorContext::new(),
             VaultError::CryptoError(_) => ErrorContext::new(),
+            VaultError::DataError(DataError::FieldTooLong { field, .. }) => {
+                ErrorContext::new().field_name((*field).to_string())
+            }
+            VaultError::DataError(DataError::MissingField(field))
+            | VaultError::DataError(DataError::EmptyField(field)) => {
+                ErrorContext::new().field_name((*field).to_string())
+            }
+            VaultError::DataError(_) => ErrorContext::new(),
             VaultError::InvalidField {
                 record_type: _,
                 field,
@@ -101,6 +126,7 @@ impl ServiceError for VaultError {
             }
             VaultError::DatabaseError(e) => format!("Database error: {}", e),
             VaultError::CryptoError(msg) => format!("Cryptographic operation failed: {}", msg),
+            VaultError::DataError(err) => format!("Invalid record data: {}", err),
             VaultError::InvalidField { record_type, field } => {
                 format!(
                     "Field '{:?}' is not valid for credential type '{:?}'",

@@ -10,16 +10,17 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+use std::collections::BTreeSet;
 
 use crate::commands::types::{
     BatchTagPanelState, ConfirmButton, ConfirmDialogState, ConfirmVariant, FieldSelector, Overlay,
-    PanelId, RecordFilter,
+    PanelId, RecordFilter, DEFAULT_RECORD_LIST_PAGE_SIZE,
 };
 use crate::commands::{Command, Message};
 use crate::t;
 use crate::tui::screens::main::layout::{calculate_layout, HORIZONTAL_SEPARATOR, PANEL_SEPARATOR};
 use crate::tui::screens::main::sidebar::SidebarPanel;
-use crate::tui::screens::main::status_bar::StatusBarPanel;
+use crate::tui::screens::main::status_bar::{DetailShortcutContext, StatusBarPanel};
 use crate::tui::state::main_state::{MainScreenState, SidebarCategory, SidebarItem};
 use crate::tui::theme;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -71,6 +72,10 @@ impl MainScreen {
     ) {
         let terminal_width = frame.area().width;
         let areas = calculate_layout(area, terminal_width);
+        let list_area = top_padded(areas.list, 1);
+        let detail_area = top_padded(areas.detail, 1);
+
+        frame.render_widget(Paragraph::new("").style(theme::Styles::newlook_bg()), area);
 
         // 1. Sidebar
         let sidebar_focused = focused_panel == PanelId::Sidebar;
@@ -86,7 +91,7 @@ impl MainScreen {
         let list_focused = focused_panel == PanelId::List;
         list::ListPanel::view(
             frame,
-            areas.list,
+            list_area,
             &state.list,
             list_focused,
             unicode,
@@ -96,6 +101,11 @@ impl MainScreen {
 
         // 3. Detail panel
         let detail_focused = focused_panel == PanelId::Detail;
+        let visual_selected_count = if state.list.is_visual() {
+            state.list.visual_selected_ids().len()
+        } else {
+            0
+        };
         let visual_selected_names: Vec<String> = if state.list.is_visual() {
             let selected_ids = state.list.visual_selected_ids();
             state
@@ -110,11 +120,12 @@ impl MainScreen {
         };
         self.detail.view(
             frame,
-            areas.detail,
+            detail_area,
             &state.detail,
             detail_focused,
             unicode,
             &visual_selected_names,
+            visual_selected_count,
         );
 
         // 4. Horizontal separator between content and status bar
@@ -128,15 +139,24 @@ impl MainScreen {
         // Determine if we are viewing trash
         let is_trash = matches!(state.current_filter, RecordFilter::Trash);
 
-        // 6. Status bar
+        // 6. Status bar — extend area to the bottom of the frame so any extra
+        //    rows below the status bar text are covered with BG_BAR.
+        let status_bar_height = area.bottom().saturating_sub(areas.status_bar.y).max(1);
+        let status_bar_area = Rect::new(
+            areas.status_bar.x,
+            areas.status_bar.y,
+            areas.status_bar.width,
+            status_bar_height,
+        );
         StatusBarPanel::view(
             frame,
-            areas.status_bar,
+            status_bar_area,
             &state.status_bar,
             focused_panel,
             unicode,
             is_trash,
             state.list.is_visual(),
+            DetailShortcutContext::from_record(state.detail.record.as_ref()),
         );
 
         // 7. Overlay (rendered on top of all panels)
@@ -172,7 +192,16 @@ impl MainScreen {
     ) -> MainKeyResult {
         let mut messages = Vec::new();
         let mut overlay = None;
-        let result_command: Option<Box<Command>> = None;
+        let mut result_command: Option<Box<Command>> = None;
+
+        if key.code == KeyCode::F(1) {
+            return MainKeyResult {
+                messages,
+                overlay: Some(Overlay::Help),
+                command: None,
+                focused_panel: None,
+            };
+        }
 
         // If inline rename is active, route all keys to it first
         if state.sidebar.is_tag_management() && state.sidebar.tag_management.is_renaming() {
@@ -218,6 +247,10 @@ impl MainScreen {
                         };
                         let old_name = edit_state.original_name.clone();
                         let new_name = edit_state.confirm();
+                        result_command = Some(Box::new(Command::RenameTag {
+                            old_name: old_name.clone(),
+                            new_name: new_name.clone(),
+                        }));
                         messages.push(Message::RenameTagConfirm { old_name, new_name });
                     }
                 }
@@ -230,7 +263,7 @@ impl MainScreen {
             return MainKeyResult {
                 messages,
                 overlay,
-                command: None,
+                command: result_command,
                 focused_panel: None,
             };
         }
@@ -254,13 +287,20 @@ impl MainScreen {
                     };
                 }
 
-                // Esc — exit visual mode or search (all views)
+                // Esc — exit visual mode, cancel search, or restore pre-search list
                 if key.code == KeyCode::Esc {
                     if state.list.is_visual() {
                         state.list.exit_visual();
                         messages.push(Message::ExitVisualMode);
                     } else if state.list.is_searching() {
-                        state.list.exit_search();
+                        state.list.cancel_search_restore();
+                    } else if let Some(id) = state.list.restore_committed_search() {
+                        return MainKeyResult {
+                            messages,
+                            overlay: None,
+                            command: Some(Box::new(Command::LoadRecordDetail { id })),
+                            focused_panel: None,
+                        };
                     }
                     return MainKeyResult {
                         messages,
@@ -339,18 +379,12 @@ impl MainScreen {
                     KeyCode::Char('t') if state.list.is_visual() => {
                         let ids = state.list.visual_selected_ids();
                         if !ids.is_empty() {
-                            let current_tag = match &state.current_filter {
-                                RecordFilter::Tag(name) => name.clone(),
-                                _ => String::new(),
-                            };
-                            overlay = Some(Overlay::BatchTagPanel(BatchTagPanelState {
-                                record_ids: ids,
-                                current_tag,
-                            }));
+                            overlay =
+                                Some(Overlay::BatchTagPanel(batch_tag_panel_state(state, ids)));
                         }
                     }
                     KeyCode::Char('k')
-                        if key.modifiers.contains(KeyModifiers::CONTROL)
+                        if is_search_shortcut(key)
                             && !state.list.is_searching()
                             && !state.list.is_visual() =>
                     {
@@ -411,9 +445,12 @@ impl MainScreen {
                     KeyCode::Char('s') if !state.list.is_visual() && !state.list.is_searching() => {
                         state.list.toggle_sort_direction();
                         state.current_sort.direction = state.list.sort.direction;
+                        state.list.pending_load_offset = Some(0);
                         let cmd = Box::new(Command::LoadRecordList {
                             filter: state.current_filter.clone(),
                             sort: state.current_sort.clone(),
+                            limit: DEFAULT_RECORD_LIST_PAGE_SIZE,
+                            offset: 0,
                         });
                         return MainKeyResult {
                             messages,
@@ -425,9 +462,12 @@ impl MainScreen {
                     KeyCode::Char('S') if !state.list.is_visual() && !state.list.is_searching() => {
                         state.list.cycle_sort_field();
                         state.current_sort.field = state.list.sort.field;
+                        state.list.pending_load_offset = Some(0);
                         let cmd = Box::new(Command::LoadRecordList {
                             filter: state.current_filter.clone(),
                             sort: state.current_sort.clone(),
+                            limit: DEFAULT_RECORD_LIST_PAGE_SIZE,
+                            offset: 0,
                         });
                         return MainKeyResult {
                             messages,
@@ -507,6 +547,18 @@ impl MainScreen {
                 KeyCode::Esc if state.list.is_visual() => {
                     state.list.exit_visual();
                     messages.push(Message::ExitVisualMode);
+                    state.focused_panel = PanelId::List;
+                    return MainKeyResult {
+                        messages,
+                        overlay,
+                        command: None,
+                        focused_panel: Some(PanelId::List),
+                    };
+                }
+                KeyCode::Char('r') | KeyCode::Char('D') | KeyCode::Char('a')
+                    if matches!(state.current_filter, RecordFilter::Trash) =>
+                {
+                    return Self::handle_trash_keys(key, state);
                 }
                 _ => {}
             },
@@ -726,6 +778,63 @@ fn sort_sidebar_tags(sidebar: &mut crate::tui::state::main_state::SidebarState) 
     sidebar.sort_tags_by_current_order();
 }
 
+fn batch_tag_panel_state(
+    state: &MainScreenState,
+    record_ids: Vec<uuid::Uuid>,
+) -> BatchTagPanelState {
+    let selected_records: Vec<_> = state
+        .list
+        .records
+        .iter()
+        .filter(|record| record_ids.contains(&record.id))
+        .collect();
+
+    let selected_record_names = selected_records
+        .iter()
+        .map(|record| record.name.clone())
+        .collect();
+
+    let mut current_tags: Vec<String> = selected_records
+        .iter()
+        .flat_map(|record| record.tags.iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    current_tags.sort();
+
+    let current_tag_set: BTreeSet<_> = current_tags.iter().cloned().collect();
+    let mut available_tags: Vec<String> = state
+        .sidebar
+        .tags
+        .iter()
+        .map(|tag| tag.name.clone())
+        .filter(|tag| !current_tag_set.contains(tag))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    available_tags.sort();
+
+    let current_tag = match &state.current_filter {
+        RecordFilter::Tag(name) => name.clone(),
+        _ => String::new(),
+    };
+
+    BatchTagPanelState {
+        record_ids,
+        selected_record_names,
+        current_tag,
+        current_tags,
+        available_tags,
+    }
+}
+
+fn is_search_shortcut(key: KeyEvent) -> bool {
+    key.code == KeyCode::Char('k')
+        && key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META)
+}
+
 /// Render the horizontal separator line between content panels and the status bar.
 fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
     if area.width == 0 || area.height == 0 {
@@ -738,7 +847,7 @@ fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
 
     let paragraph = Paragraph::new(Line::from(Span::styled(
         line,
-        Style::default().fg(theme::BORDER),
+        Style::default().fg(theme::NL_LINE).bg(theme::NL_BG),
     )));
     frame.render_widget(paragraph, area);
 }
@@ -747,40 +856,36 @@ fn render_horizontal_separator(frame: &mut Frame, area: Rect, unicode: bool) {
 ///
 /// Draws separator lines at the boundaries between sidebar|list and list|detail.
 fn render_vertical_separators(frame: &mut Frame, areas: &layout::MainLayoutAreas) {
-    let sep_style = Style::default().fg(theme::BORDER);
-    let sep_char = PANEL_SEPARATOR.chars().next().unwrap_or('|');
+    let sep_style = Style::default().fg(theme::NL_LINE).bg(theme::NL_BG);
+    let sep_char = PANEL_SEPARATOR.to_string();
 
-    // Separator between sidebar and list
-    if areas.sidebar.width > 0 && areas.list.width > 0 {
-        let x = areas.sidebar.x + areas.sidebar.width;
-        // Only render if there is no overlap (the separator column was not
-        // allocated to any panel — it visually sits on the border).
-        // We render into a 1-column-wide strip at the panel boundary.
-        let sep_rect = Rect::new(
-            x.saturating_sub(1),
-            areas.sidebar.y,
-            1,
-            areas.sidebar.height,
-        );
-        let line: String = std::iter::repeat_n(sep_char, sep_rect.height as usize).collect();
-        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
-        frame.render_widget(paragraph, sep_rect);
+    for sep_rect in [areas.sidebar_list_separator, areas.list_detail_separator] {
+        if sep_rect.width == 0 || sep_rect.height == 0 {
+            continue;
+        }
+        for y in sep_rect.y..sep_rect.y.saturating_add(sep_rect.height) {
+            frame
+                .buffer_mut()
+                .set_string(sep_rect.x, y, &sep_char, sep_style);
+        }
     }
+}
 
-    // Separator between list and detail
-    if areas.list.width > 0 && areas.detail.width > 0 {
-        let x = areas.list.x + areas.list.width;
-        let sep_rect = Rect::new(x.saturating_sub(1), areas.list.y, 1, areas.list.height);
-        let line: String = std::iter::repeat_n(sep_char, sep_rect.height as usize).collect();
-        let paragraph = Paragraph::new(Line::from(Span::styled(line, sep_style)));
-        frame.render_widget(paragraph, sep_rect);
-    }
+fn top_padded(area: Rect, padding: u16) -> Rect {
+    let applied = padding.min(area.height);
+    Rect::new(
+        area.x,
+        area.y + applied,
+        area.width,
+        area.height.saturating_sub(applied),
+    )
 }
 
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
+    use crate::tui::i18n::LocaleGuard;
     use crate::tui::state::tag_management::TagSortOrder;
 
     #[test]
@@ -789,6 +894,81 @@ mod tests {
         assert_eq!(screen.cycle_focus(PanelId::Sidebar), PanelId::List);
         assert_eq!(screen.cycle_focus(PanelId::List), PanelId::Detail);
         assert_eq!(screen.cycle_focus(PanelId::Detail), PanelId::Sidebar);
+    }
+
+    #[test]
+    fn vertical_separators_are_drawn_on_every_content_row() {
+        let backend = ratatui::backend::TestBackend::new(80, 12);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let areas = layout::calculate_layout(frame.area(), 80);
+                render_vertical_separators(frame, &areas);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let areas = layout::calculate_layout(Rect::new(0, 0, 80, 12), 80);
+        for y in 0..areas.sidebar.height {
+            assert_eq!(
+                buffer
+                    .cell((areas.sidebar_list_separator.x, y))
+                    .expect("sidebar separator cell")
+                    .symbol(),
+                PANEL_SEPARATOR
+            );
+            assert_eq!(
+                buffer
+                    .cell((areas.list_detail_separator.x, y))
+                    .expect("detail separator cell")
+                    .symbol(),
+                PANEL_SEPARATOR
+            );
+        }
+    }
+
+    fn find_text(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<(u16, u16)> {
+        let needle_chars: Vec<char> = needle.chars().collect();
+        for y in buffer.area.y..buffer.area.y + buffer.area.height {
+            let row: Vec<String> = (buffer.area.x..buffer.area.x + buffer.area.width)
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .map(ToOwned::to_owned)
+                .collect();
+            for start in 0..row.len() {
+                if needle_chars.iter().enumerate().all(|(offset, ch)| {
+                    row.get(start + offset)
+                        .is_some_and(|cell| cell == &ch.to_string())
+                }) {
+                    return Some((buffer.area.x + start as u16, y));
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn list_and_detail_start_on_the_logo_row() {
+        let _locale = LocaleGuard::en();
+        let screen = MainScreen::new();
+        let state = MainScreenState::default();
+        let backend = ratatui::backend::TestBackend::new(120, 30);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                screen.view(frame, frame.area(), &state, PanelId::List, true);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let (_, logo_y) = find_text(buffer, "OpenKeyring").expect("logo should render");
+        let (_, sort_y) = find_text(buffer, "Sort").expect("sort bar should render");
+
+        assert_eq!(
+            sort_y, logo_y,
+            "list sort bar should align vertically with the sidebar logo"
+        );
     }
 
     #[test]
@@ -873,6 +1053,19 @@ mod tests {
     }
 
     #[test]
+    fn esc_from_detail_exits_visual_and_returns_focus_to_list() {
+        let mut state = MainScreenState::default();
+        state.focused_panel = PanelId::Detail;
+        state.list.enter_visual();
+        let screen = MainScreen::new();
+
+        let result = screen.handle_key_event(make_key(KeyCode::Esc), &mut state, PanelId::Detail);
+
+        assert!(!state.list.is_visual());
+        assert_eq!(result.focused_panel, Some(PanelId::List));
+    }
+
+    #[test]
     fn space_toggles_selection_in_visual() {
         let record = make_test_record("Test");
         let mut state = MainScreenState::default();
@@ -899,6 +1092,48 @@ mod tests {
     }
 
     #[test]
+    fn batch_tag_overlay_uses_selected_records_and_available_sidebar_tags() {
+        let mut work_record = make_test_record("Work");
+        work_record.tags = vec!["work".into()];
+        let mut personal_record = make_test_record("Personal");
+        personal_record.tags = vec!["personal".into()];
+        let selected_ids = [work_record.id, personal_record.id];
+
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(vec![work_record, personal_record]);
+        state.list.enter_visual();
+        state.list.select_all();
+        state.sidebar.tags = vec![
+            Tag {
+                id: 1,
+                name: "work".into(),
+            },
+            Tag {
+                id: 2,
+                name: "personal".into(),
+            },
+            Tag {
+                id: 3,
+                name: "finance".into(),
+            },
+        ];
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('t')), &mut state, PanelId::List);
+
+        match result.overlay {
+            Some(Overlay::BatchTagPanel(panel)) => {
+                assert_eq!(panel.record_ids.len(), selected_ids.len());
+                assert_eq!(panel.selected_record_names, vec!["Work", "Personal"]);
+                assert_eq!(panel.current_tags, vec!["personal", "work"]);
+                assert_eq!(panel.available_tags, vec!["finance"]);
+            }
+            other => panic!("Expected batch tag panel, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn m_enters_tag_management_on_tag() {
         let mut state = MainScreenState::default();
         state.sidebar.tags_expanded = true;
@@ -918,6 +1153,74 @@ mod tests {
         let screen = MainScreen::new();
         screen.handle_key_event(make_key(KeyCode::Char('m')), &mut state, PanelId::Sidebar);
         assert!(state.sidebar.is_tag_management());
+    }
+
+    #[test]
+    fn m_on_tag_header_then_r_starts_renaming_first_tag() {
+        let mut state = MainScreenState::default();
+        state.sidebar.tags_expanded = true;
+        state.sidebar.tags = vec![Tag {
+            id: 1,
+            name: "work".into(),
+        }];
+        state.sidebar.rebuild();
+        state.sidebar.selected_index = state
+            .sidebar
+            .items
+            .iter()
+            .position(|i| matches!(i, SidebarItem::TagHeader))
+            .unwrap();
+
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Char('m')), &mut state, PanelId::Sidebar);
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('r')), &mut state, PanelId::Sidebar);
+
+        assert!(state.sidebar.is_tag_management());
+        assert!(state.sidebar.tag_management.is_renaming());
+        assert_eq!(
+            state
+                .sidebar
+                .tag_management
+                .inline_edit
+                .as_ref()
+                .map(|edit| edit.original_name.as_str()),
+            Some("work")
+        );
+        assert!(result
+            .messages
+            .iter()
+            .any(|message| matches!(message, Message::RenameTagStart)));
+    }
+
+    #[test]
+    fn inline_tag_rename_enter_dispatches_rename_command() {
+        let mut state = MainScreenState::default();
+        state.sidebar.tags_expanded = true;
+        state.sidebar.tags = vec![Tag {
+            id: 1,
+            name: "work".into(),
+        }];
+        state.sidebar.rebuild();
+        state.sidebar.selected_index = state
+            .sidebar
+            .items
+            .iter()
+            .position(|i| matches!(i, SidebarItem::Tag(_, _)))
+            .unwrap();
+
+        let screen = MainScreen::new();
+        screen.handle_key_event(make_key(KeyCode::Char('m')), &mut state, PanelId::Sidebar);
+        screen.handle_key_event(make_key(KeyCode::Char('r')), &mut state, PanelId::Sidebar);
+        screen.handle_key_event(make_key(KeyCode::Char('2')), &mut state, PanelId::Sidebar);
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Enter), &mut state, PanelId::Sidebar);
+
+        assert!(matches!(
+            result.command.as_deref(),
+            Some(Command::RenameTag { old_name, new_name })
+                if old_name == "work" && new_name == "work2"
+        ));
     }
 
     #[test]
@@ -985,6 +1288,26 @@ mod tests {
         let key = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL);
         screen.handle_key_event(key, &mut state, PanelId::List);
         assert!(state.list.is_searching());
+    }
+
+    #[test]
+    fn super_k_enters_search_mode_when_terminal_sends_it() {
+        let mut state = MainScreenState::default();
+        let screen = MainScreen::new();
+        let key = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER);
+        screen.handle_key_event(key, &mut state, PanelId::List);
+        assert!(state.list.is_searching());
+    }
+
+    #[test]
+    fn f1_opens_help_overlay_from_list() {
+        let mut state = MainScreenState::default();
+        let screen = MainScreen::new();
+        let key = KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE);
+
+        let result = screen.handle_key_event(key, &mut state, PanelId::List);
+
+        assert!(matches!(result.overlay, Some(Overlay::Help)));
     }
 
     #[test]
@@ -1095,6 +1418,26 @@ mod tests {
         let screen = MainScreen::new();
         let result =
             screen.handle_key_event(make_key(KeyCode::Char('D')), &mut state, PanelId::List);
+        assert!(result.overlay.is_some());
+        match result.overlay {
+            Some(Overlay::ConfirmDialog(ref dlg)) => {
+                assert!(matches!(dlg.variant, ConfirmVariant::HardDelete { .. }));
+            }
+            _ => panic!("Expected hard delete confirm dialog"),
+        }
+    }
+
+    #[test]
+    fn trash_detail_shift_d_opens_hard_delete_confirm() {
+        let records = vec![make_test_record("Deleted")];
+        let mut state = MainScreenState::default();
+        state.list = ListPanelState::with_records(records);
+        state.current_filter = RecordFilter::Trash;
+        state.focused_panel = PanelId::Detail;
+
+        let screen = MainScreen::new();
+        let result =
+            screen.handle_key_event(make_key(KeyCode::Char('D')), &mut state, PanelId::Detail);
         assert!(result.overlay.is_some());
         match result.overlay {
             Some(Overlay::ConfirmDialog(ref dlg)) => {

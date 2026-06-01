@@ -51,6 +51,20 @@ pub enum DetailFieldKind {
     Notes,
 }
 
+/// Action buttons rendered inside the detail panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailActionKind {
+    Copy,
+    ToggleSecret,
+}
+
+/// Keyboard/mouse focus target for a detail-panel action button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DetailActionFocus {
+    pub field_index: usize,
+    pub kind: DetailActionKind,
+}
+
 impl DetailField {
     /// Whether this field is interactive (navigable with up/down).
     pub fn is_interactive(&self) -> bool {
@@ -168,6 +182,8 @@ pub struct DetailViewData {
 pub struct DetailPanelState {
     pub record: Option<DetailViewData>,
     pub focused_field: usize,
+    /// Focused action button inside the current field row, if any.
+    pub focused_action: Option<DetailActionFocus>,
     pub password_visible: bool,
     pub health_issue: Option<HealthIssue>,
     /// Whether the current record is in the trash (deleted).
@@ -181,6 +197,7 @@ impl Default for DetailPanelState {
         Self {
             record: None,
             focused_field: 0,
+            focused_action: None,
             password_visible: false,
             health_issue: None,
             is_trash: false,
@@ -194,6 +211,7 @@ impl DetailPanelState {
         Self {
             record: Some(record),
             focused_field: 0,
+            focused_action: None,
             password_visible: false,
             health_issue: None,
             is_trash: false,
@@ -204,6 +222,7 @@ impl DetailPanelState {
     pub fn clear(&mut self) {
         self.record = None;
         self.focused_field = 0;
+        self.focused_action = None;
         self.password_visible = false;
         self.health_issue = None;
         self.is_trash = false;
@@ -235,6 +254,145 @@ impl DetailPanelState {
             .and_then(|r| r.fields.get(self.focused_field))
     }
 
+    pub fn available_actions(&self) -> Vec<DetailActionFocus> {
+        self.record
+            .as_ref()
+            .map(|record| {
+                record
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(field_index, field)| {
+                        let mut actions = Vec::new();
+                        if field.toggleable {
+                            actions.push(DetailActionFocus {
+                                field_index,
+                                kind: DetailActionKind::ToggleSecret,
+                            });
+                        }
+                        if field.copyable {
+                            actions.push(DetailActionFocus {
+                                field_index,
+                                kind: DetailActionKind::Copy,
+                            });
+                        }
+                        actions
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn actions_for_field(&self, field_index: usize) -> Vec<DetailActionFocus> {
+        self.record
+            .as_ref()
+            .and_then(|record| record.fields.get(field_index))
+            .map(|field| {
+                let mut actions = Vec::new();
+                if field.toggleable {
+                    actions.push(DetailActionFocus {
+                        field_index,
+                        kind: DetailActionKind::ToggleSecret,
+                    });
+                }
+                if field.copyable {
+                    actions.push(DetailActionFocus {
+                        field_index,
+                        kind: DetailActionKind::Copy,
+                    });
+                }
+                actions
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn focus_first_action(&mut self) -> bool {
+        match self.available_actions().into_iter().next() {
+            Some(action) => {
+                self.focused_field = action.field_index;
+                self.focused_action = Some(action);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn clear_action_focus(&mut self) {
+        self.focused_action = None;
+    }
+
+    pub fn move_action_down(&mut self) -> bool {
+        self.move_action_vertical(1)
+    }
+
+    pub fn move_action_up(&mut self) -> bool {
+        self.move_action_vertical(-1)
+    }
+
+    fn move_action_vertical(&mut self, delta: isize) -> bool {
+        let Some(current) = self.focused_action else {
+            return self.focus_first_action();
+        };
+        let Some(record) = self.record.as_ref() else {
+            return false;
+        };
+        let mut next_index = current.field_index as isize + delta;
+        while next_index >= 0 && (next_index as usize) < record.fields.len() {
+            let actions = self.actions_for_field(next_index as usize);
+            if !actions.is_empty() {
+                let action = actions
+                    .iter()
+                    .copied()
+                    .find(|action| action.kind == current.kind)
+                    .unwrap_or(actions[0]);
+                self.focused_field = action.field_index;
+                self.focused_action = Some(action);
+                return true;
+            }
+            next_index += delta;
+        }
+        false
+    }
+
+    pub fn move_action_right(&mut self) -> bool {
+        self.move_action_horizontal(1)
+    }
+
+    pub fn move_action_left(&mut self) -> bool {
+        self.move_action_horizontal(-1)
+    }
+
+    fn move_action_horizontal(&mut self, delta: isize) -> bool {
+        let Some(current) = self.focused_action else {
+            return self.focus_first_action();
+        };
+        let actions = self.actions_for_field(current.field_index);
+        let Some(current_index) = actions.iter().position(|action| *action == current) else {
+            return false;
+        };
+        let next_index = current_index as isize + delta;
+        if next_index < 0 {
+            self.clear_action_focus();
+            return true;
+        }
+        let Some(action) = actions.get(next_index as usize).copied() else {
+            return false;
+        };
+        self.focused_field = action.field_index;
+        self.focused_action = Some(action);
+        true
+    }
+
+    pub fn set_action_focus(&mut self, action: DetailActionFocus) -> bool {
+        if self.available_actions().contains(&action) {
+            self.focused_field = action.field_index;
+            self.focused_action = Some(action);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn move_field_down(&mut self) -> bool {
         let record = match &self.record {
             Some(r) => r,
@@ -245,6 +403,7 @@ impl DetailPanelState {
         for (i, field) in fields.iter().enumerate().skip(start) {
             if field.is_interactive() {
                 self.focused_field = i;
+                self.focused_action = None;
                 return true;
             }
         }
@@ -263,6 +422,7 @@ impl DetailPanelState {
         for i in (0..self.focused_field).rev() {
             if fields[i].is_interactive() {
                 self.focused_field = i;
+                self.focused_action = None;
                 return true;
             }
         }
@@ -300,7 +460,7 @@ impl DetailPanelState {
 
     /// Returns the currently focused field if it is toggleable (supports
     /// show/hide), otherwise falls back to the first primary password-like
-    /// field found by [`password_field`].
+    /// field found by [`Self::password_field`].
     ///
     /// This is used by the `p` key handler so that pressing `p` on a focused
     /// passphrase field decrypts the passphrase rather than jumping to the
@@ -360,14 +520,14 @@ impl DetailPanelState {
                 let subtitle = url.clone().unwrap_or_default();
                 let fields = vec![
                     DetailField {
-                        label: t!("tui.entry.username_label").to_string(),
+                        label: t!("tui.password_detail.username_label").to_string(),
                         value: FieldValue::Plain(username.clone()),
                         copyable: true,
                         toggleable: false,
                         kind: DetailFieldKind::Username,
                     },
                     DetailField {
-                        label: t!("tui.entry.password_label").to_string(),
+                        label: t!("tui.password_detail.password_label").to_string(),
                         value: FieldValue::Masked,
                         copyable: true,
                         toggleable: true,
@@ -377,7 +537,7 @@ impl DetailPanelState {
                 let mut all_fields = fields;
                 if let Some(ref u) = url {
                     all_fields.push(DetailField {
-                        label: t!("tui.entry.url_label").to_string(),
+                        label: t!("tui.password_detail.url_label").to_string(),
                         value: FieldValue::Plain(u.clone()),
                         copyable: true,
                         toggleable: false,
@@ -386,7 +546,7 @@ impl DetailPanelState {
                 }
                 if let Some(ref n) = notes {
                     all_fields.push(DetailField {
-                        label: t!("tui.entry.notes_label").to_string(),
+                        label: t!("tui.password_detail.notes_label").to_string(),
                         value: FieldValue::Plain(n.clone()),
                         copyable: true,
                         toggleable: false,
@@ -428,14 +588,14 @@ impl DetailPanelState {
                 let subtitle = url.clone().unwrap_or_default();
                 let mut fields = vec![
                     DetailField {
-                        label: t!("tui.entry.app_id_label").to_string(),
+                        label: t!("tui.password_detail.app_id_label").to_string(),
                         value: FieldValue::Plain(app_id.clone()),
                         copyable: true,
                         toggleable: false,
                         kind: DetailFieldKind::AppId,
                     },
                     DetailField {
-                        label: t!("tui.entry.secret_key_label").to_string(),
+                        label: t!("tui.password_detail.secret_key_label").to_string(),
                         value: FieldValue::Masked,
                         copyable: true,
                         toggleable: true,
@@ -444,7 +604,7 @@ impl DetailPanelState {
                 ];
                 if let Some(ref u) = url {
                     fields.push(DetailField {
-                        label: t!("tui.entry.url_label").to_string(),
+                        label: t!("tui.password_detail.url_label").to_string(),
                         value: FieldValue::Plain(u.clone()),
                         copyable: true,
                         toggleable: false,
@@ -453,9 +613,9 @@ impl DetailPanelState {
                 }
                 if let Some(ref n) = notes {
                     fields.push(DetailField {
-                        label: t!("tui.entry.notes_label").to_string(),
+                        label: t!("tui.password_detail.notes_label").to_string(),
                         value: FieldValue::Plain(n.clone()),
-                        copyable: true,
+                        copyable: false,
                         toggleable: false,
                         kind: DetailFieldKind::Notes,
                     });
@@ -494,14 +654,14 @@ impl DetailPanelState {
                 let expiry_status = ExpiryStatus::from_date(*expires_at);
                 let mut fields = vec![
                     DetailField {
-                        label: t!("tui.entry.public_key_label").to_string(),
+                        label: t!("tui.password_detail.public_key_label").to_string(),
                         value: FieldValue::Plain(public_key.clone()),
                         copyable: true,
                         toggleable: false,
                         kind: DetailFieldKind::PublicKey,
                     },
                     DetailField {
-                        label: t!("tui.entry.private_key_label").to_string(),
+                        label: t!("tui.password_detail.private_key_label").to_string(),
                         value: FieldValue::Masked,
                         copyable: true,
                         toggleable: true,
@@ -517,7 +677,7 @@ impl DetailPanelState {
                 });
                 if let Some(ref n) = notes {
                     fields.push(DetailField {
-                        label: t!("tui.entry.notes_label").to_string(),
+                        label: t!("tui.password_detail.notes_label").to_string(),
                         value: FieldValue::Plain(n.clone()),
                         copyable: true,
                         toggleable: false,
@@ -538,6 +698,45 @@ impl DetailPanelState {
                     updated_at: *updated_at,
                     fields,
                     password_strength: mapped_strength,
+                    deleted_at: None,
+                }
+            }
+            crate::types::record::DecryptedRecord::SecureNote {
+                id,
+                name,
+                notes,
+                is_favorite,
+                expires_at,
+                created_at,
+                updated_at,
+                tags,
+                ..
+            } => {
+                let expiry_status = ExpiryStatus::from_date(*expires_at);
+                let mut fields = Vec::new();
+                if let Some(ref n) = notes {
+                    fields.push(DetailField {
+                        label: t!("tui.password_detail.notes_label").to_string(),
+                        value: FieldValue::Plain(n.clone()),
+                        copyable: true,
+                        toggleable: false,
+                        kind: DetailFieldKind::Notes,
+                    });
+                }
+                DetailViewData {
+                    id: *id,
+                    name: name.clone(),
+                    subtitle: String::new(),
+                    credential_type: CrateCredentialType::SecureNote,
+                    is_favorite: *is_favorite,
+                    expires_at: *expires_at,
+                    expiry_status,
+                    tags: tags.clone(),
+                    notes: notes.clone(),
+                    created_at: *created_at,
+                    updated_at: *updated_at,
+                    fields,
+                    password_strength: None, // No password for SecureNote
                     deleted_at: None,
                 }
             }

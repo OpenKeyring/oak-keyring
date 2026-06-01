@@ -3,10 +3,23 @@ use super::filter::{
 };
 use super::screen::AuditLogScreen;
 use crate::commands::types::AuditTimeRange;
+use crate::commands::{Command, Message};
 use crate::config::AppConfig;
-use crate::tui::state::audit_state::{AuditFilter, AuditFocus};
+use crate::tui::state::audit_state::{AuditFilter, AuditFocus, AuditOperationFilter};
 use crate::tui::state::AuditLogRestoreState;
 use crate::tui::traits::screen::{Screen, ScreenContext};
+use crossterm::event::{KeyCode, KeyModifiers, MouseEvent, MouseEventKind};
+
+fn audit_entry(id: i64) -> crate::types::AuditEntry {
+    crate::types::AuditEntry {
+        id,
+        operation: crate::types::AuditOperation::RecordCreate,
+        record_id: None,
+        record_name: Some(format!("record-{id}")),
+        detail: None,
+        occurred_at: chrono::Utc::now(),
+    }
+}
 
 #[test]
 fn new_screen_has_sensible_defaults() {
@@ -204,6 +217,371 @@ fn filtered_entries_with_copy_filter() {
     let filtered = screen.filtered_entries();
     assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0].id, 2);
+}
+
+#[test]
+fn filtered_entries_with_search_filter_matches_record_name_and_detail() {
+    let mut screen = AuditLogScreen::new();
+    use crate::types::{AuditEntry, AuditOperation};
+    use chrono::Utc;
+
+    screen.state.entries = vec![
+        AuditEntry {
+            id: 1,
+            operation: AuditOperation::RecordCreate,
+            record_id: None,
+            record_name: Some("GitHub".to_string()),
+            detail: Some("Created credential".to_string()),
+            occurred_at: Utc::now(),
+        },
+        AuditEntry {
+            id: 2,
+            operation: AuditOperation::RecordCreate,
+            record_id: None,
+            record_name: Some("Notion".to_string()),
+            detail: Some("workspace login".to_string()),
+            occurred_at: Utc::now(),
+        },
+    ];
+    screen.state.filter.search = "git".to_string();
+
+    let filtered = screen.filtered_entries();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].id, 1);
+
+    screen.state.filter.search = "workspace".to_string();
+    let filtered = screen.filtered_entries();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].id, 2);
+}
+
+#[test]
+fn filtered_entries_with_time_filter_uses_selected_time_range() {
+    let mut screen = AuditLogScreen::new();
+    use crate::types::{AuditEntry, AuditOperation};
+    use chrono::{Duration, Utc};
+
+    screen.state.entries = vec![
+        AuditEntry {
+            id: 1,
+            operation: AuditOperation::RecordCreate,
+            record_id: None,
+            record_name: Some("recent".to_string()),
+            detail: None,
+            occurred_at: Utc::now() - Duration::days(2),
+        },
+        AuditEntry {
+            id: 2,
+            operation: AuditOperation::RecordCreate,
+            record_id: None,
+            record_name: Some("old".to_string()),
+            detail: None,
+            occurred_at: Utc::now() - Duration::days(20),
+        },
+    ];
+    screen.time_filter_idx = time_range_index(Some(&AuditTimeRange::LastWeek));
+
+    let filtered = screen.filtered_entries();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].id, 1);
+}
+
+#[test]
+fn keyboard_down_uses_current_viewport_height_for_scroll_offset() {
+    let mut screen = AuditLogScreen::new();
+    use crate::types::{AuditEntry, AuditOperation};
+    use chrono::Utc;
+
+    screen.visible_log_rows.set(3);
+    screen.state.entries = (0..8)
+        .map(|id| AuditEntry {
+            id,
+            operation: AuditOperation::RecordCreate,
+            record_id: None,
+            record_name: Some(format!("record-{id}")),
+            detail: None,
+            occurred_at: Utc::now(),
+        })
+        .collect();
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(4);
+    let config = AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    for _ in 0..4 {
+        screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Down,
+                KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+    }
+
+    assert_eq!(screen.state.selected_index, 4);
+    assert_eq!(screen.state.scroll_offset, 2);
+}
+
+#[test]
+fn mouse_scroll_down_moves_list_selection_and_viewport() {
+    let mut screen = AuditLogScreen::new();
+    use crate::types::{AuditEntry, AuditOperation};
+    use chrono::Utc;
+
+    screen.visible_log_rows.set(3);
+    screen.state.entries = (0..8)
+        .map(|id| AuditEntry {
+            id,
+            operation: AuditOperation::RecordCreate,
+            record_id: None,
+            record_name: Some(format!("record-{id}")),
+            detail: None,
+            occurred_at: Utc::now(),
+        })
+        .collect();
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(4);
+    let config = AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    screen.update(
+        Message::MouseEvent(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 10,
+            row: 8,
+            modifiers: KeyModifiers::NONE,
+        }),
+        &mut ctx,
+    );
+
+    assert_eq!(screen.state.focused_area, AuditFocus::LogList);
+    assert_eq!(screen.state.selected_index, 3);
+    assert_eq!(screen.state.scroll_offset, 1);
+}
+
+#[test]
+fn keyboard_scroll_near_loaded_bottom_requests_next_audit_page() {
+    let mut screen = AuditLogScreen::new();
+    screen.visible_log_rows.set(3);
+    screen.state.entries = (0..50).map(audit_entry).collect();
+    screen.state.total_count = 75;
+    screen.state.selected_index = 48;
+    screen.state.scroll_offset = 46;
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let config = AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    screen.update(
+        Message::KeyEvent(crossterm::event::KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        )),
+        &mut ctx,
+    );
+
+    match rx.try_recv().expect("next page command") {
+        Command::LoadAuditLog { filter } => {
+            assert_eq!(filter.limit, Some(50));
+            assert_eq!(filter.offset, 50);
+        }
+        other => panic!("expected LoadAuditLog, got {other:?}"),
+    }
+}
+
+#[test]
+fn next_audit_page_appends_without_replacing_existing_entries() {
+    let mut screen = AuditLogScreen::new();
+    screen.visible_log_rows.set(3);
+    screen.state.entries = (0..50).map(audit_entry).collect();
+    screen.state.total_count = 75;
+    screen.state.selected_index = 48;
+    screen.state.scroll_offset = 46;
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(4);
+    let config = AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    screen.update(
+        Message::KeyEvent(crossterm::event::KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        )),
+        &mut ctx,
+    );
+    screen.update(
+        Message::AuditLogLoaded {
+            entries: (50..60).map(audit_entry).collect(),
+            total: 75,
+        },
+        &mut ctx,
+    );
+
+    assert_eq!(screen.state.entries.len(), 60);
+    assert_eq!(screen.state.entries[0].id, 0);
+    assert_eq!(screen.state.entries[59].id, 59);
+    assert_eq!(screen.state.total_count, 75);
+}
+
+#[test]
+fn mouse_scroll_up_clamps_at_top() {
+    let mut screen = AuditLogScreen::new();
+    use crate::types::{AuditEntry, AuditOperation};
+    use chrono::Utc;
+
+    screen.visible_log_rows.set(3);
+    screen.state.entries = (0..8)
+        .map(|id| AuditEntry {
+            id,
+            operation: AuditOperation::RecordCreate,
+            record_id: None,
+            record_name: Some(format!("record-{id}")),
+            detail: None,
+            occurred_at: Utc::now(),
+        })
+        .collect();
+    screen.state.selected_index = 1;
+    screen.state.scroll_offset = 1;
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(4);
+    let config = AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    screen.update(
+        Message::MouseEvent(MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: 10,
+            row: 8,
+            modifiers: KeyModifiers::NONE,
+        }),
+        &mut ctx,
+    );
+
+    assert_eq!(screen.state.selected_index, 0);
+    assert_eq!(screen.state.scroll_offset, 0);
+}
+
+#[test]
+fn operation_filter_down_wraps_through_all_categories() {
+    let mut screen = AuditLogScreen::new();
+    screen.state.focused_area = AuditFocus::OperationFilter;
+    let (tx, _rx) = tokio::sync::mpsc::channel(4);
+    let config = AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    for _ in 0..AuditOperationFilter::all_variants().len() {
+        screen.update(
+            Message::KeyEvent(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Down,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            &mut ctx,
+        );
+    }
+
+    assert_eq!(screen.operation_filter_idx, 0);
+}
+
+#[test]
+fn operation_filter_enter_applies_and_returns_to_list() {
+    let mut screen = AuditLogScreen::new();
+    use crate::types::{AuditEntry, AuditOperation};
+    use chrono::Utc;
+
+    screen.state.entries = vec![
+        AuditEntry {
+            id: 1,
+            operation: AuditOperation::RecordCreate,
+            record_id: None,
+            record_name: Some("added".to_string()),
+            detail: None,
+            occurred_at: Utc::now(),
+        },
+        AuditEntry {
+            id: 2,
+            operation: AuditOperation::RecordDelete,
+            record_id: None,
+            record_name: Some("deleted".to_string()),
+            detail: None,
+            occurred_at: Utc::now(),
+        },
+    ];
+    screen.state.focused_area = AuditFocus::OperationFilter;
+    screen.operation_filter_idx = 2; // Add
+    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let config = AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    screen.update(
+        Message::KeyEvent(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        )),
+        &mut ctx,
+    );
+
+    assert_eq!(screen.state.focused_area, AuditFocus::LogList);
+    let filtered = screen.filtered_entries();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].id, 1);
+    assert!(matches!(
+        rx.try_recv().expect("reload command"),
+        Command::LoadAuditLog { .. }
+    ));
+}
+
+#[test]
+fn time_filter_enter_applies_and_returns_to_list() {
+    let mut screen = AuditLogScreen::new();
+    screen.state.focused_area = AuditFocus::TimeFilter;
+    screen.time_filter_idx = time_range_index(Some(&AuditTimeRange::LastWeek));
+    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let config = AppConfig::default();
+    let mut ctx = ScreenContext {
+        command_tx: &tx,
+        config: &config,
+    };
+
+    screen.update(
+        Message::KeyEvent(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        )),
+        &mut ctx,
+    );
+
+    assert_eq!(screen.state.focused_area, AuditFocus::LogList);
+    assert_eq!(
+        screen.state.filter.time_range,
+        Some(AuditTimeRange::LastWeek)
+    );
+    match rx.try_recv().expect("reload command") {
+        Command::LoadAuditLog { filter } => {
+            assert_eq!(filter.time_range, Some(AuditTimeRange::LastWeek));
+        }
+        other => panic!("expected LoadAuditLog, got {other:?}"),
+    }
 }
 
 #[test]

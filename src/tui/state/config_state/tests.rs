@@ -1,7 +1,7 @@
 #![allow(clippy::field_reassign_with_default)]
 use super::*;
-use crate::config::sync::SyncProvider;
-use crate::config::{AnimationMode, AppConfig, HealthCheckFrequency};
+use crate::config::sync::{GoogleDriveConfig, ProviderConfig, SyncProvider};
+use crate::config::{AnimationMode, AppConfig, HealthCheckFrequency, PasswordGenerationStyle};
 
 #[test]
 fn default_state_starts_on_general_tab() {
@@ -210,7 +210,7 @@ fn config_tab_item_count() {
     assert_eq!(ConfigTab::General.item_count(), 7);
     assert_eq!(ConfigTab::Sync.item_count(), 5);
     assert_eq!(ConfigTab::Security.item_count(), 5);
-    assert_eq!(ConfigTab::Password.item_count(), 4);
+    assert_eq!(ConfigTab::Password.item_count(), 10);
     assert_eq!(ConfigTab::About.item_count(), 0);
 }
 
@@ -249,6 +249,22 @@ fn load_from_config_enabled_sync_status() {
 }
 
 #[test]
+fn load_from_config_google_drive_with_token_sets_authorized_connected_status() {
+    let mut config = AppConfig::default();
+    config.sync.provider = SyncProvider::GoogleDrive;
+    config.sync.provider_config = Some(ProviderConfig::GoogleDrive(GoogleDriveConfig {
+        refresh_token: "synthetic-refresh-token".to_string(),
+        ..GoogleDriveConfig::default()
+    }));
+
+    let mut state = ConfigScreenState::default();
+    state.load_from_config(&config);
+
+    assert_eq!(state.sync_status, SyncConnectionStatus::Connected);
+    assert_eq!(state.gdrive_auth_status, GDriveAuthStatus::Authorized);
+}
+
+#[test]
 fn about_info_default_version() {
     let about = AboutInfo::default();
     // Version should be a non-empty static string from CARGO_PKG_VERSION
@@ -277,10 +293,16 @@ fn security_form_default_values() {
 #[test]
 fn password_form_default_values() {
     let form = PasswordDefaultsForm::default();
+    assert_eq!(form.style, PasswordGenerationStyle::Random);
     assert_eq!(form.length, 16);
+    assert!(form.include_lowercase);
     assert!(form.include_digits);
     assert!(form.include_uppercase);
     assert!(form.include_special);
+    assert_eq!(form.memorable_word_count, 4);
+    assert!(form.memorable_capitalize);
+    assert_eq!(form.memorable_separator, "-");
+    assert_eq!(form.pin_length, 6);
 }
 
 #[test]

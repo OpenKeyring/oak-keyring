@@ -6,6 +6,7 @@
 use oak_keyring::app::{App, VaultInitState};
 use oak_keyring::commands::types::Screen;
 use oak_keyring::config::AppConfig;
+use oak_keyring::executor::ActivityTracker;
 use oak_keyring::instance_lock::InstanceLock;
 use oak_keyring::tui::screens::onboarding::{OnboardingPath, OnboardingScreen};
 use oak_keyring::tui::screens::recovery_key::WordGridState;
@@ -369,6 +370,7 @@ fn key_only_startup_does_not_create_empty_database() {
         data_dir.clone(),
         config_dir,
         oak_keyring::executor::DbStartupMode::DeferredInMemory,
+        ActivityTracker::new(),
     )
     .expect("executor");
 
