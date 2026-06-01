@@ -246,16 +246,16 @@ jobs:
           npm pack ./npm/ok --dry-run
 
       - name: Publish @openkeyring/ok-darwin-arm64
-        run: npm publish npm/ok-darwin-arm64
+        run: npm publish ./npm/ok-darwin-arm64
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @openkeyring/ok-darwin-x64
-        run: npm publish npm/ok-darwin-x64
+        run: npm publish ./npm/ok-darwin-x64
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @openkeyring/ok
-        run: npm publish npm/ok
+        run: npm publish ./npm/ok
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
