@@ -443,9 +443,9 @@ pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
 /// Return a display prefix for a credential type in the list view.
 ///
 /// - Login -> ""
-/// - Api -> "[API] "
-/// - Ssh -> "[SSH] "
-/// - SecureNote -> "[N] "
+/// - Api -> "\[API\] "
+/// - Ssh -> "\[SSH\] "
+/// - SecureNote -> "\[N\] "
 pub fn format_type_prefix(cred_type: &CredentialType) -> String {
     match cred_type {
         CredentialType::Login => String::new(),

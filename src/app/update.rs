@@ -547,7 +547,9 @@ fn handle_message(
                     provider,
                     access_token,
                     refresh_token,
-                } => {
+                } =>
+                {
+                    #[allow(clippy::collapsible_match)]
                     if provider == "google_drive" {
                         let mut config = app.config.clone();
                         apply_google_drive_authorization_to_config(

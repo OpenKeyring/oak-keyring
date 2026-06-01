@@ -10,7 +10,7 @@ use crate::tui::theme;
 pub const SLIDER_BAR_WIDTH: usize = 20;
 
 /// Render a length slider row.
-/// Label | [ value ] | [-] bar [+]
+/// Label | \[ value \] | \[-\] bar \[+\]
 pub fn render_length_slider(
     label: &str,
     value: usize,

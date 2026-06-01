@@ -9,8 +9,8 @@ use crate::config::AppConfig;
 
 /// Shared activity tracker for auto-lock idle detection.
 ///
-/// The TUI layer calls [`touch`] on every user input event; the executor
-/// reads [`idle_seconds`] before triggering auto-lock to decide whether the
+/// The TUI layer calls [`ActivityTracker::touch`] on every user input event; the executor
+/// reads [`ActivityTracker::idle_seconds`] before triggering auto-lock to decide whether the
 /// user is still active.
 #[derive(Clone)]
 pub struct ActivityTracker {
@@ -29,7 +29,7 @@ impl ActivityTracker {
         self.last_active.store(now_secs(), Ordering::Relaxed);
     }
 
-    /// Seconds elapsed since the last [`touch`].
+    /// Seconds elapsed since the last [`ActivityTracker::touch`].
     pub fn idle_seconds(&self) -> i64 {
         now_secs() - self.last_active.load(Ordering::Relaxed)
     }

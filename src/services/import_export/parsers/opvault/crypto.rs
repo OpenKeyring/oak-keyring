@@ -41,7 +41,7 @@ pub fn composite_key_from_material(material: &[u8]) -> KeyPair {
 
 /// Decrypt opdata01 binary data.
 ///
-/// opdata01 format: [8B "opdata01"][8B plaintext_len LE][16B IV][ciphertext][32B HMAC-SHA256]
+/// opdata01 format: \[8B "opdata01"\]\[8B plaintext_len LE\]\[16B IV\]\[ciphertext\]\[32B HMAC-SHA256\]
 /// OpVault uses front random padding: after decryption, take the last `plaintext_len` bytes.
 pub fn decrypt_opdata01(
     data: &[u8],

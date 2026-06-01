@@ -460,7 +460,7 @@ impl DetailPanelState {
 
     /// Returns the currently focused field if it is toggleable (supports
     /// show/hide), otherwise falls back to the first primary password-like
-    /// field found by [`password_field`].
+    /// field found by [`Self::password_field`].
     ///
     /// This is used by the `p` key handler so that pressing `p` on a focused
     /// passphrase field decrypts the passphrase rather than jumping to the
