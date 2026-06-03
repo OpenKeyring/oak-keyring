@@ -1,0 +1,6 @@
+#!/bin/bash
+# Demo recording helper — run from oak-keyring root
+pkill -x ok 2>/dev/null
+sleep 0.5
+export OAK_KEYRING_DEMO_SEED=1
+exec ./target/debug/ok "$@"

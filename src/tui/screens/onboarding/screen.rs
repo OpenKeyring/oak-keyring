@@ -176,21 +176,25 @@ impl OnboardingScreen {
 
     /// Generate 4 random positions for recovery verification.
     pub(crate) fn generate_verify_positions(&mut self) {
-        use std::collections::HashSet;
-        let mut positions = [0usize; 4];
-        let mut used = HashSet::new();
-        let mut rng = rand::rng();
-        for slot in &mut positions {
-            loop {
-                let idx = rand::Rng::random_range(&mut rng, 0..24);
-                if used.insert(idx) {
-                    *slot = idx;
-                    break;
+        if std::env::var("OAK_KEYRING_DEMO_SEED").is_ok() {
+            self.verify_positions = [2, 7, 14, 21];
+        } else {
+            use std::collections::HashSet;
+            let mut positions = [0usize; 4];
+            let mut used = HashSet::new();
+            let mut rng = rand::rng();
+            for slot in &mut positions {
+                loop {
+                    let idx = rand::Rng::random_range(&mut rng, 0..24);
+                    if used.insert(idx) {
+                        *slot = idx;
+                        break;
+                    }
                 }
             }
+            positions.sort();
+            self.verify_positions = positions;
         }
-        positions.sort();
-        self.verify_positions = positions;
         self.verify_inputs = std::array::from_fn(|_| SensitiveInput::new());
         self.verify_errors = [false; 4];
         self.verify_focus_index = 0;

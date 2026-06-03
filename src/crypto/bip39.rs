@@ -66,8 +66,16 @@ impl Passkey {
         if word_count != 24 {
             return Err("Only 24-word mnemonics are supported".into());
         }
-        let mnemonic = Mnemonic::generate_in(language.to_bip39_language(), word_count)
-            .map_err(|e| e.to_string())?;
+        let mnemonic = if std::env::var("OAK_KEYRING_DEMO_SEED").is_ok() {
+            Mnemonic::parse_normalized(
+                "void fee tenant badge lake kind burger coin veteran wasp rebuild impact any \
+                 pottery asthma knee member raise absent push summer miss cage box",
+            )
+            .map_err(|e| e.to_string())?
+        } else {
+            Mnemonic::generate_in(language.to_bip39_language(), word_count)
+                .map_err(|e| e.to_string())?
+        };
         Ok(Self { mnemonic })
     }
 
