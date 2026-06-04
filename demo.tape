@@ -5,8 +5,8 @@ Require vhs
 Set FontFamily "FiraCode Nerd Font Mono"
 Set FontSize 15
 Set Padding 20
-Set Width 1280
-Set Height 800
+Set Width 1920
+Set Height 1248
 Set TypingSpeed 50ms
 
 # Launch oak-keyring (clean short command via wrapper script)
@@ -14,7 +14,7 @@ Type "./demo-run"
 Enter
 
 # Wait for app to start
-Sleep 3s
+Sleep 5s
 
 # ============================================================
 # Welcome Screen — switch to English, then select "Create New"
@@ -30,7 +30,7 @@ Sleep 1s
 # ============================================================
 
 # Pause for viewer to read the words
-Sleep 3s
+Sleep 2s
 
 # Navigate to checkbox: Copy → Regenerate → LearnMore → Checkbox
 Tab
