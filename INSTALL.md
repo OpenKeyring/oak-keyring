@@ -5,7 +5,7 @@ oak-keyring is a privacy-first, local-first preview password manager for the Ope
 ## Preview Support Boundary
 
 - Supported operating systems: macOS on Apple Silicon and Intel.
-- Linux and Windows are not supported in this first preview.
+- Linux and Windows are not yet supported.
 - Preview builds are unsigned and not notarized. macOS Gatekeeper may warn before first launch.
 - The local vault and sync data formats may change before a stable release. Preview data does not carry a compatibility guarantee.
 - Community support is best effort through GitHub Issues and Discussions. There is no formal SLA.
@@ -14,7 +14,7 @@ Back up any vault data before upgrading between preview builds.
 
 ## GitHub Release Builds
 
-For the first preview, GitHub Release assets are the primary user installation path. Assets are expected to be unsigned macOS builds for Apple Silicon and Intel.
+GitHub Release assets are the primary user installation path. Assets are unsigned macOS builds for Apple Silicon and Intel.
 
 1. Open the latest release at `https://github.com/OpenKeyring/oak-keyring/releases`.
 2. Download the asset that matches your Mac architecture.
@@ -27,9 +27,16 @@ ok --version
 
 If macOS blocks the unsigned preview binary, use Finder or System Settings to allow the app after confirming that you downloaded it from the official GitHub release page.
 
+## Homebrew
+
+```bash
+brew tap openkeyring/oak-keyring
+brew install ok
+```
+
 ## npm Bundled Binary Package
 
-If an npm package is published for the preview, it should install a bundled `ok` binary for macOS:
+The npm package installs a bundled `ok` binary for macOS:
 
 ```bash
 npm install -g @openkeyring/ok
@@ -59,6 +66,9 @@ cargo build --release
 ```
 
 For development-only local checks where Google Drive sync is not being exercised, placeholder OAuth values are enough to satisfy the build script. For sync testing, use real OAuth2 values.
+
+> [!TIP]
+> Recommended: use a Nerd Font in your terminal so icons display correctly.
 
 ## Updating
 
