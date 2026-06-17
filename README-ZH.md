@@ -102,3 +102,7 @@ oak-keyring 是 local-first：vault 属于用户，默认保存在本机。正�
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 如何贡献
 - [CHANGELOG.md](CHANGELOG.md) — 发布历史
 - [LICENSE](LICENSE) — MIT license
+
+## 鸣谢
+
+感谢 [linux.do](https://linux.do) 社区提供讨论、反馈和支持。

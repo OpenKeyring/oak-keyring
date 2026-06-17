@@ -92,16 +92,16 @@ are lost, maintainers cannot recover your vault.
 
 ## Community and Support
 
-  Welcome to the OpenKeyring community. If you need help, have questions, or
-  want to discuss the project, use the official channels below.
+Welcome to the OpenKeyring community. If you need help, have questions, or
+want to discuss the project, use the official channels below.
 
-  - **Discord Server** — [Join OpenKeyring Discord](https://discord.gg/3xnuu2bQz)
-    for text chat, quick questions, and community discussion.
-  - **GitHub Issues** — use
-    [GitHub Issues](https://github.com/OpenKeyring/oak-keyring/issues) for bug
-    reports, installation problems, and feature requests.
+- **Discord Server** — [Join OpenKeyring Discord](https://discord.gg/3xnuu2bQz)
+  for text chat, quick questions, and community discussion.
+- **GitHub Issues** — use
+  [GitHub Issues](https://github.com/OpenKeyring/oak-keyring/issues) for bug
+  reports, installation problems, and feature requests.
 
-  Support is community-style and best effort. There is no formal SLA.
+Support is community-style and best effort. There is no formal SLA.
 
 ## Preview Status
 
@@ -134,3 +134,7 @@ binary. Report security issues through [SECURITY.md](SECURITY.md).
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute
 - [CHANGELOG.md](CHANGELOG.md) — release history
 - [LICENSE](LICENSE) — MIT license
+
+## Acknowledgements
+
+Thanks to the [linux.do](https://linux.do) community for the discussion, feedback, and support.
