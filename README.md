@@ -135,6 +135,3 @@ binary. Report security issues through [SECURITY.md](SECURITY.md).
 - [CHANGELOG.md](CHANGELOG.md) — release history
 - [LICENSE](LICENSE) — MIT license
 
-## Acknowledgements
-
-Thanks to the [linux.do](https://linux.do) community for the discussion, feedback, and support.
