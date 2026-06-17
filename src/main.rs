@@ -41,28 +41,25 @@ fn main() {
         oak_keyring::paths::config_dir().unwrap_or_else(oak_keyring::paths::config_dir_fallback);
 
     // Load config (auto-generate if vault exists but config doesn't)
-    let config = match AppConfig::load_or_auto_generate(&config_dir, &data_dir) {
-        Ok(c) => c,
-        Err(e) => {
-            use oak_keyring::config::ConfigError;
-            match &e {
-                ConfigError::Io(_) => {
-                    eprintln!("Warning: config file not found or unreadable, using defaults: {e}");
-                    AppConfig::default_config()
-                }
-                ConfigError::Parse(_) => {
-                    eprintln!("Fatal: config file has invalid format: {e}");
-                    eprintln!("Please fix or remove the config file and try again.");
-                    std::process::exit(1);
-                }
-                ConfigError::Validation(_) => {
-                    eprintln!("Fatal: config validation failed: {e}");
-                    eprintln!("Please correct the config values and try again.");
-                    std::process::exit(1);
-                }
+    let config = AppConfig::load_or_auto_generate(&config_dir, &data_dir).unwrap_or_else(|e| {
+        use oak_keyring::config::ConfigError;
+        match &e {
+            ConfigError::Io(_) => {
+                eprintln!("Warning: config file not found or unreadable, using defaults: {e}");
+                AppConfig::default_config()
+            }
+            ConfigError::Parse(_) => {
+                eprintln!("Fatal: config file has invalid format: {e}");
+                eprintln!("Please fix or remove the config file and try again.");
+                std::process::exit(1);
+            }
+            ConfigError::Validation(_) => {
+                eprintln!("Fatal: config validation failed: {e}");
+                eprintln!("Please correct the config values and try again.");
+                std::process::exit(1);
             }
         }
-    };
+    });
 
     // Initialize i18n based on config (auto-detect or explicit locale)
     i18n::init(&config.general.language);

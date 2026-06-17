@@ -81,11 +81,28 @@ Publish order:
 
 Publishing platform packages first prevents the main wrapper package from depending on package versions that are not available yet.
 
-## Homebrew Status
+## Homebrew
 
-Do not publish a Homebrew source-build formula for the first preview. The
-current build embeds Google OAuth2 configuration for sync, so a normal user
-source build through Homebrew would not carry the release OAuth2 configuration.
+Update the Homebrew tap formula after the GitHub Release is published:
+
+```bash
+cd homebrew-oak-keyring
+# Update the formula with the new version, URL, and SHA256
+# Push to the tap repository
+```
+
+Tap: `openkeyring/oak-keyring`
+
+Install command:
+
+```bash
+brew tap openkeyring/oak-keyring
+brew install ok
+```
+
+Do not publish a Homebrew source-build formula. The current build embeds
+Google OAuth2 configuration for sync, so a normal user source build through
+Homebrew would not carry the release OAuth2 configuration.
 
 ## Website Check
 
@@ -93,5 +110,5 @@ After artifacts and install channels are finalized, check the website install pa
 
 - Artifact names and versions match the GitHub release.
 - npm package names and install commands match the published packages.
-- Website install instructions do not advertise Homebrew for the first preview.
+- Homebrew install instructions match the published tap formula.
 - The preview signing/notarization caveat is visible where macOS users will see it.
