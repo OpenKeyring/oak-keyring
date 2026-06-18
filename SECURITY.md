@@ -66,3 +66,5 @@ During the pre-1.0 preview phase, investigation and fix timing is best effort an
 ## Disclosure
 
 Please allow a reasonable amount of time for investigation and remediation before public disclosure. Coordinated disclosure is appreciated, especially for issues that may affect vault confidentiality, vault integrity, recovery flows, sync behavior, clipboard handling, or credential exposure.
+
+For security assumptions, non-goals, and product boundaries, see [THREAT_MODEL.md](THREAT_MODEL.md).

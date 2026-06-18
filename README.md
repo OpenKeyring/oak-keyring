@@ -120,11 +120,11 @@ For the current website documentation, see
 Welcome to the OpenKeyring community. If you need help, have questions, or
 want to discuss the project, use the official channels below.
 
-- **Discord Server** — [Join OpenKeyring Discord](https://discord.gg/3xnuu2bQz)
-  for text chat, quick questions, and community discussion.
 - **GitHub Issues** — use
   [GitHub Issues](https://github.com/OpenKeyring/oak-keyring/issues) for bug
   reports, installation problems, and feature requests.
+- **Discord Server** — [Join OpenKeyring Discord](https://discord.gg/3xnuu2bQz)
+  for text chat, quick questions, and community discussion.
 
 Support is community-style and best effort. There is no formal SLA.
 
@@ -151,13 +151,15 @@ features should be treated within the currently implemented product scope, not
 as a hosted custody model.
 
 If you download release assets directly, verify checksums before running the
-binary. Report security issues through [SECURITY.md](SECURITY.md).
+binary. Report security issues through [SECURITY.md](SECURITY.md) and [PRIVACY.md](PRIVACY.md).
 
 ## Links
 
 - [Website Docs](https://openkeyring.com/en/docs/) — install, usage,
   shortcuts, security, and preview status
 - [SECURITY.md](SECURITY.md) — vulnerability reporting and security boundaries
+- [THREAT_MODEL.md](THREAT_MODEL.md) — security assumptions, non-goals, and threat boundaries
+- [PRIVACY.md](PRIVACY.md) — local data handling, optional sync, telemetry, and privacy boundaries
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute
 - [CHANGELOG.md](CHANGELOG.md) — release history
 - [LICENSE](LICENSE) — MIT license
