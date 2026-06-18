@@ -90,6 +90,31 @@ On first run, create a vault, choose a strong master password, and save the
 recovery words somewhere safe. If both the master password and recovery words
 are lost, maintainers cannot recover your vault.
 
+## Basic Usage
+
+oak-keyring opens into a full-screen terminal interface. The main workflow is:
+
+1. **Create or unlock a vault** — start `ok`, then create a local vault on
+   first run or unlock an existing vault with your master password.
+2. **Browse and search records** — use the sidebar and record list to move
+   through credentials, secure notes, tags, and trash. Use `Ctrl+K` to enter
+   search mode, then `Enter` to keep the filtered result or `Esc` to cancel.
+3. **View and copy secrets** — select a record to inspect its details. In the
+   detail panel, use `c` to copy the password field, `u` to copy the username
+   field, and `p` to reveal or hide password fields when available.
+4. **Create and edit records** — use `n` to create a new record and `e` to edit
+   the selected record outside trash.
+5. **Generate passwords** — open the password generator from the main screen
+   with `Ctrl+G`, or use the generator when it appears inside record forms.
+6. **Configure sync** — open Config with `Ctrl+P`. Google Drive sync is
+   optional and still part of the preview boundary; after it is configured,
+   `Ctrl+R` triggers sync from the main screen.
+7. **Import and export** — use the TUI import/export flows when moving data
+   into or out of the vault. Treat exported files as sensitive data.
+
+For the current website documentation, see
+[openkeyring.com/en/docs/](https://openkeyring.com/en/docs/).
+
 ## Community and Support
 
 Welcome to the OpenKeyring community. If you need help, have questions, or
@@ -130,8 +155,9 @@ binary. Report security issues through [SECURITY.md](SECURITY.md).
 
 ## Links
 
+- [Website Docs](https://openkeyring.com/en/docs/) — install, usage,
+  shortcuts, security, and preview status
 - [SECURITY.md](SECURITY.md) — vulnerability reporting and security boundaries
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute
 - [CHANGELOG.md](CHANGELOG.md) — release history
 - [LICENSE](LICENSE) — MIT license
-
