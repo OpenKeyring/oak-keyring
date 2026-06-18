@@ -938,6 +938,7 @@ mod tests {
 
     #[test]
     fn weak_password_dialog_renders_actions_and_newlook_warning_icon() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
@@ -955,6 +956,7 @@ mod tests {
 
     #[test]
     fn unfocused_notes_textarea_does_not_render_cursor_style() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let mut state = FormState::new_edit(uuid::Uuid::nil(), CredentialType::Login);
         state.fields.name = "Example".into();
         state.fields.set_notes_text("internal notes");

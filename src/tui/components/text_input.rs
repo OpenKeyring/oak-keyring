@@ -284,6 +284,7 @@ mod tests {
 
     #[test]
     fn render_text_input_shows_label() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let lines = render_text_input("name", "GitHub", false, false, true, false, 60);
         assert_eq!(lines.len(), 1);
     }
@@ -298,6 +299,7 @@ mod tests {
 
     #[test]
     fn render_masked_input_shows_dots() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let lines = render_text_input("pass", "secret", false, false, true, true, 60);
         let text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"));
@@ -305,6 +307,7 @@ mod tests {
 
     #[test]
     fn render_password_input_visible_shows_plaintext() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let buttons = [
             PasswordButton {
                 label: "显示".to_string(),
@@ -324,6 +327,7 @@ mod tests {
 
     #[test]
     fn render_password_input_masked_shows_bullets() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let buttons = [PasswordButton {
             label: "显示".to_string(),
             focus_variant: PasswordFieldFocus::Show,

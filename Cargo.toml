@@ -117,6 +117,7 @@ mach2 = "0.6.0"
 [dev-dependencies]
 insta = "1"
 mockall = "0.13"
+parking_lot = "0.12"
 tempfile = "3"
 anyhow = "1"
 

@@ -461,6 +461,7 @@ mod tests {
 
     #[test]
     fn confirm_with_incomplete_words_sets_inline_error() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let mut screen = KeyRecoveryScreen::new(KeyRecoveryOrigin::OnboardingRestore);
         screen.focus = KeyRecoveryFocus::Confirm;
         let result = screen.handle_key_for_test(key(KeyCode::Enter));

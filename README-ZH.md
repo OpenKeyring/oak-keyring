@@ -78,6 +78,21 @@ ok
 
 首次运行时创建 vault，设置强主密码，并把恢复词保存在安全位置。如果主密码和恢复词都丢失，维护者无法帮你恢复密码库。
 
+## 基本使用
+
+oak-keyring 会打开一个全屏终端界面。主要使用流程是：
+
+1. **创建或解锁 vault** — 运行 `ok`，首次使用时创建本地 vault，之后用主密码解锁已有 vault。
+2. **浏览和搜索记录** — 通过侧边栏和记录列表浏览凭证、安全笔记、标签和回收站。使用 `Ctrl+K` 进入搜索模式，`Enter` 保留过滤结果，`Esc` 取消搜索。
+3. **查看和复制秘密** — 选择记录后在详情面板查看字段。详情面板中，`c` 复制密码字段，`u` 复制用户名字段，`p` 在可用时显示或隐藏密码字段。
+4. **创建和编辑记录** — 在非回收站状态下，`n` 创建新记录，`e` 编辑当前选中记录。
+5. **生成密码** — 在主界面用 `Ctrl+G` 打开密码生成器；在记录表单中出现生成器时也可以直接使用。
+6. **配置同步** — 用 `Ctrl+P` 打开 Config。Google Drive 同步是可选功能，并且仍属于预览版边界；配置完成后，可在主界面用 `Ctrl+R` 触发同步。
+7. **导入和导出** — 使用 TUI 中的导入/导出流程迁移数据。导出的文件应按敏感数据处理。
+
+当前网站文档见
+[openkeyring.com/zh/docs/](https://openkeyring.com/zh/docs/)。
+
 ## 预览版状态
 
 oak-keyring 仍处于 pre-1.0 预览阶段（v0.8.0-preview.1）。
@@ -98,11 +113,8 @@ oak-keyring 是 local-first：vault 属于用户，默认保存在本机。正�
 
 ## 链接
 
+- [网站文档](https://openkeyring.com/zh/docs/) — 安装、使用、快捷键、安全和预览版状态
 - [SECURITY.md](SECURITY.md) — 漏洞报告和安全边界
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 如何贡献
 - [CHANGELOG.md](CHANGELOG.md) — 发布历史
 - [LICENSE](LICENSE) — MIT license
-
-## 鸣谢
-
-感谢 [linux.do](https://linux.do) 社区提供讨论、反馈和支持。

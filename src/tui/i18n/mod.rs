@@ -71,20 +71,22 @@ pub fn switch_locale(locale: &str) {
 }
 
 #[cfg(test)]
-static LOCALE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static LOCALE_LOCK: parking_lot::ReentrantMutex<()> = parking_lot::const_reentrant_mutex(());
 
 /// RAII guard that serializes locale-dependent tests and restores locale on drop.
-/// Uses a process-wide mutex so no two locale-sensitive tests run concurrently.
+/// Uses a process-wide reentrant mutex so no two locale-sensitive tests run
+/// concurrently, while still allowing a single test to nest guards (e.g. an
+/// outer manual guard plus an inner render-helper guard) without deadlocking.
 #[cfg(test)]
 pub struct LocaleGuard {
     original: String,
-    _lock: std::sync::MutexGuard<'static, ()>,
+    _lock: parking_lot::ReentrantMutexGuard<'static, ()>,
 }
 
 #[cfg(test)]
 impl LocaleGuard {
     pub fn new(locale: &str) -> Self {
-        let lock = LOCALE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let lock = LOCALE_LOCK.lock();
         let original = rust_i18n::locale().to_string();
         init(locale);
         Self {
