@@ -115,6 +115,8 @@ oak-keyring 是 local-first：vault 属于用户，默认保存在本机。正�
 
 - [网站文档](https://openkeyring.com/zh/docs/) — 安装、使用、快捷键、安全和预览版状态
 - [SECURITY.md](SECURITY.md) — 漏洞报告和安全边界
+- [THREAT_MODEL.md](THREAT_MODEL.md) — 安全假设、非目标以及威胁边界
+- [PRIVACY.md](PRIVACY.md) — 本地数据处理、可选同步、遥测以及隐私界限
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 如何贡献
 - [CHANGELOG.md](CHANGELOG.md) — 发布历史
 - [LICENSE](LICENSE) — MIT license
