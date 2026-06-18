@@ -382,12 +382,14 @@ mod tests {
 
     #[test]
     fn shortcuts_sidebar_unicode() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::Sidebar, true, false, DetailShortcutContext::Login);
         assert!(text.contains("Ctrl+K"));
     }
 
     #[test]
     fn shortcuts_list_same_as_sidebar() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         assert_eq!(
             shortcuts_text(PanelId::Sidebar, true, false, DetailShortcutContext::Login),
             shortcuts_text(PanelId::List, true, false, DetailShortcutContext::Login)
@@ -396,24 +398,28 @@ mod tests {
 
     #[test]
     fn shortcuts_detail_unicode() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::Detail, true, false, DetailShortcutContext::Login);
         assert!(text.contains('c'));
     }
 
     #[test]
     fn shortcuts_sidebar_ascii() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::Sidebar, false, false, DetailShortcutContext::Login);
         assert!(text.contains("Search"));
     }
 
     #[test]
     fn shortcuts_detail_ascii() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::Detail, false, false, DetailShortcutContext::Login);
         assert!(text.contains("CopyPwd") || text.contains("复制密码"));
     }
 
     #[test]
     fn secure_note_detail_shortcuts_omit_copy_and_toggle_actions() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(
             PanelId::Detail,
             true,
@@ -431,6 +437,7 @@ mod tests {
 
     #[test]
     fn api_detail_shortcuts_use_api_field_names() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::Detail, true, false, DetailShortcutContext::Api);
         assert!(text.contains("Secret Key"));
         assert!(text.contains("App ID"));
@@ -440,6 +447,7 @@ mod tests {
 
     #[test]
     fn ssh_detail_shortcuts_use_ssh_field_names() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::Detail, true, false, DetailShortcutContext::Ssh);
         assert!(text.contains("\u{79C1}\u{94A5}") || text.contains("Private Key"));
         assert!(text.contains("\u{516C}\u{94A5}") || text.contains("Public Key"));
@@ -449,42 +457,49 @@ mod tests {
 
     #[test]
     fn sync_indicator_synced_unicode() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = sync_indicator_text(&SyncIndicator::Synced, true);
         assert!(text.starts_with('\u{2713}')); // ✓
     }
 
     #[test]
     fn sync_indicator_configured_unicode() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = sync_indicator_text(&SyncIndicator::Configured, true);
         assert!(text.contains(t!("tui.status_bar.sync_configured").as_ref()));
     }
 
     #[test]
     fn sync_indicator_syncing_unicode() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = sync_indicator_text(&SyncIndicator::Syncing, true);
         assert!(text.starts_with('\u{27F3}')); // ⟳
     }
 
     #[test]
     fn sync_indicator_failed_unicode() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = sync_indicator_text(&SyncIndicator::Failed, true);
         assert!(text.starts_with('\u{2717}')); // ✗
     }
 
     #[test]
     fn sync_indicator_offline_unicode() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = sync_indicator_text(&SyncIndicator::Offline, true);
         assert!(text.starts_with('\u{25D0}')); // ◐
     }
 
     #[test]
     fn sync_indicator_not_configured_unicode() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = sync_indicator_text(&SyncIndicator::NotConfigured, true);
         assert!(text.starts_with('\u{2014}')); // —
     }
 
     #[test]
     fn sync_indicator_ascii_fallbacks() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         assert_eq!(
             sync_indicator_text(&SyncIndicator::Synced, false),
             "+ Synced"
@@ -575,6 +590,7 @@ mod tests {
 
     #[test]
     fn trash_list_shortcuts_unicode() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::List, true, true, DetailShortcutContext::Login);
         assert!(
             text.contains('r'),
@@ -592,6 +608,7 @@ mod tests {
 
     #[test]
     fn trash_detail_shortcuts_unicode() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::Detail, true, true, DetailShortcutContext::Login);
         assert!(
             text.contains('c'),
@@ -609,6 +626,7 @@ mod tests {
 
     #[test]
     fn normal_list_shortcuts_no_trash() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::List, true, false, DetailShortcutContext::Login);
         assert!(
             !text.contains("\u{6E05}\u{7A7A}\u{56DE}\u{6536}\u{7AD9}"),
@@ -618,6 +636,7 @@ mod tests {
 
     #[test]
     fn normal_detail_shortcuts_no_trash() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::Detail, true, false, DetailShortcutContext::Login);
         assert!(
             !text.contains("\u{6062}\u{590D}"),
@@ -627,6 +646,7 @@ mod tests {
 
     #[test]
     fn visual_mode_shortcuts_shown_when_visual_active() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = visual_shortcuts_text(true, false);
         assert!(
             text.contains("Space") || text.contains("Space\u{9009}\u{62E9}"),
@@ -636,6 +656,7 @@ mod tests {
 
     #[test]
     fn trash_visual_shortcuts_show_restore_and_hard_delete() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = visual_shortcuts_text(true, true);
         assert!(
             !text.contains("BatchDel") && !text.contains("BatchTag"),
@@ -645,6 +666,7 @@ mod tests {
 
     #[test]
     fn normal_shortcuts_shown_when_not_visual() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let text = shortcuts_text(PanelId::List, true, false, DetailShortcutContext::Login);
         assert!(
             text.is_empty() || !text.contains("Space\u{9009}\u{62E9}"),

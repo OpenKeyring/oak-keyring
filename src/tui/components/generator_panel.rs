@@ -297,6 +297,7 @@ mod tests {
 
     #[test]
     fn render_embedded_has_no_style_selector() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let state = GeneratorState::new();
         let lines = render_generator_panel(&state, true, 56, true);
         let style_label = t!("tui.generator.style_label").to_string();

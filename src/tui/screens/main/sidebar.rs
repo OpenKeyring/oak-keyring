@@ -1139,6 +1139,7 @@ mod tests {
 
     #[test]
     fn category_labels_ascii() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let all_label = category_label(&SidebarCategory::All, false);
         assert!(!all_label.is_empty());
 
@@ -1248,6 +1249,7 @@ mod tests {
 
     #[test]
     fn tag_management_mode_changes_header() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         use crate::types::Tag;
 
         let mut state = SidebarState {
@@ -1280,6 +1282,7 @@ mod tests {
 
     #[test]
     fn tag_management_shows_edit_icon() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         use crate::types::Tag;
 
         let mut state = SidebarState {
@@ -1446,6 +1449,7 @@ mod tests {
 
     #[test]
     fn tag_management_sort_indicator() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         use crate::tui::state::tag_management::{TagManagementState, TagSortOrder};
         use crate::types::Tag;
 
@@ -1483,6 +1487,7 @@ mod tests {
 
     #[test]
     fn inline_rename_accounts_for_scroll_offset() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         use crate::tui::state::tag_management::InlineEditState;
         use crate::types::Tag;
 

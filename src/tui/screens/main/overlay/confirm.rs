@@ -567,6 +567,7 @@ mod tests {
 
     #[test]
     fn build_dialog_hard_delete_includes_irreversible_warning() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let variant = ConfirmVariant::HardDelete {
             record_id: Uuid::new_v4(),
             record_name: "GitHub".to_string(),

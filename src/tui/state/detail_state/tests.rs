@@ -73,6 +73,7 @@ fn detail_state_clear() {
 
 #[test]
 fn field_navigation_skips_non_interactive() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let data = DetailViewData {
         fields: vec![
             DetailField {
@@ -175,6 +176,7 @@ fn password_strength_colors() {
 
 #[test]
 fn field_display_value() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let plain = DetailField {
         label: t!("tui.entry.username_label").to_string(),
         value: FieldValue::Plain("alice".into()),
@@ -220,6 +222,7 @@ fn username_field_per_type() {
 
 #[test]
 fn build_from_login_record() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     use crate::types::record::DecryptedRecord;
     use crate::types::sensitive::SecureStr;
 
@@ -289,6 +292,7 @@ fn build_from_api_record() {
 
 #[test]
 fn build_from_ssh_record() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     use crate::types::record::DecryptedRecord;
     use crate::types::sensitive::SecureStr;
 

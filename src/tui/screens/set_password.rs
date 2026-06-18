@@ -1164,6 +1164,7 @@ mod tests {
 
     #[test]
     fn enter_rejects_short_password() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         let mut ctx = dummy_ctx();
         // Type a 5-character password
@@ -1209,6 +1210,7 @@ mod tests {
 
     #[test]
     fn enter_rejects_mismatched_passwords() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let mut screen = SetPasswordScreen::new(SetPasswordContext::PostRecovery);
         let mut ctx = dummy_ctx();
         // Type password in new field
