@@ -898,6 +898,7 @@ mod tests {
 
     #[test]
     fn vertical_separators_are_drawn_on_every_content_row() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let backend = ratatui::backend::TestBackend::new(80, 12);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
 

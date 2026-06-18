@@ -563,6 +563,7 @@ mod tests {
 
     #[test]
     fn render_batch_tag_is_centered_in_available_area() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let state = test_state();
         let backend = ratatui::backend::TestBackend::new(100, 30);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();

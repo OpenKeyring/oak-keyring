@@ -149,6 +149,10 @@ fn make_record_with_expired(id: Uuid, name: &str) -> TuiRecord {
 }
 
 /// Render into a TestBackend and return the buffer as a string snapshot.
+///
+/// Uses the default `en` locale under a `LocaleGuard` so the render is isolated
+/// from concurrent locale mutation by other tests. For other locales use
+/// [`render_snapshot_locale`].
 fn render_snapshot(
     state: &ListPanelState,
     width: u16,
@@ -157,6 +161,22 @@ fn render_snapshot(
     unicode: bool,
     filter: RecordFilter,
 ) -> String {
+    render_snapshot_locale(state, width, height, focused, unicode, filter, "en")
+}
+
+/// Render into a TestBackend under a specific locale and return the buffer as
+/// a string snapshot. The locale is held under a `LocaleGuard` for the duration
+/// of the render, isolating it from concurrent locale mutation by other tests.
+fn render_snapshot_locale(
+    state: &ListPanelState,
+    width: u16,
+    height: u16,
+    focused: bool,
+    unicode: bool,
+    filter: RecordFilter,
+    locale: &str,
+) -> String {
+    let _guard = LocaleGuard::new(locale);
     let backend = TestBackend::new(width, height);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
     terminal
@@ -168,6 +188,8 @@ fn render_snapshot(
     format!("{:?}", buf)
 }
 
+/// Render into a TestBackend under the default `en` locale and return the
+/// buffer. For other locales use [`render_buffer_locale`].
 fn render_buffer(
     state: &ListPanelState,
     width: u16,
@@ -176,6 +198,20 @@ fn render_buffer(
     unicode: bool,
     filter: RecordFilter,
 ) -> ratatui::buffer::Buffer {
+    render_buffer_locale(state, width, height, focused, unicode, filter, "en")
+}
+
+/// Render into a TestBackend under a specific locale and return the buffer.
+fn render_buffer_locale(
+    state: &ListPanelState,
+    width: u16,
+    height: u16,
+    focused: bool,
+    unicode: bool,
+    filter: RecordFilter,
+    locale: &str,
+) -> ratatui::buffer::Buffer {
+    let _guard = LocaleGuard::new(locale);
     let backend = TestBackend::new(width, height);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
     terminal
@@ -434,13 +470,12 @@ fn selected_record_has_no_marker() {
 
 #[test]
 fn selected_chinese_timestamp_keeps_compact_right_margin() {
-    let _guard = LocaleGuard::zh_cn();
     let mut record = make_record(Uuid::new_v4(), "Github Page", "p1024k");
     record.updated_at = Utc::now() - chrono::Duration::try_days(3).unwrap();
     let mut state = ListPanelState::with_records(vec![record]);
     state.selected_index = Some(0);
 
-    let buffer = render_buffer(&state, 64, 8, true, true, RecordFilter::All);
+    let buffer = render_buffer_locale(&state, 64, 8, true, true, RecordFilter::All, "zh-CN");
     let title_line = (0..64)
         .map(|x| buffer.cell((x, 2)).expect("title row cell").symbol())
         .collect::<String>();
@@ -559,13 +594,12 @@ fn selected_record_uses_newlook_background() {
 
 #[test]
 fn selected_chinese_timestamp_is_not_split_by_char_width_math() {
-    let _guard = LocaleGuard::zh_cn();
     let mut record = make_record(Uuid::new_v4(), "dd1", "ddddddd");
     record.updated_at = Utc::now() - chrono::Duration::try_days(1).unwrap();
     let mut state = ListPanelState::with_records(vec![record]);
     state.selected_index = Some(0);
 
-    let buffer = render_buffer(&state, 30, 8, true, true, RecordFilter::All);
+    let buffer = render_buffer_locale(&state, 30, 8, true, true, RecordFilter::All, "zh-CN");
     let title_line = (0..30)
         .map(|x| buffer.cell((x, 2)).expect("title row cell").symbol())
         .collect::<String>();
@@ -578,6 +612,7 @@ fn selected_chinese_timestamp_is_not_split_by_char_width_math() {
 
 #[test]
 fn render_zero_area() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let state = ListPanelState::default();
     // Should not panic
     let backend = TestBackend::new(0, 0);
@@ -634,6 +669,7 @@ fn sort_direction_labels_ascii() {
 
 #[test]
 fn build_sort_bar_contains_field_name() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let line = build_sort_bar(&SortField::Name, &SortDirection::Asc, true);
     let combined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(combined.contains("Name"));
@@ -641,6 +677,7 @@ fn build_sort_bar_contains_field_name() {
 
 #[test]
 fn build_search_bar_has_cursor() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let line = build_search_bar("hello", true);
     let combined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(combined.contains("hello_"));
@@ -648,6 +685,7 @@ fn build_search_bar_has_cursor() {
 
 #[test]
 fn build_visual_bar_shows_count() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let line = build_visual_bar(3);
     let combined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(combined.contains("3"));
@@ -658,6 +696,7 @@ fn build_visual_bar_shows_count() {
 
 #[test]
 fn render_visual_mode_bar() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let line = build_visual_bar(5);
     assert_eq!(
         line.spans.len(),
@@ -727,6 +766,7 @@ fn render_visual_mode_with_selections() {
 
 #[test]
 fn render_visual_bar_zero_selections() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     // Visual mode with no selections should show "(0 selected)"
     let line = build_visual_bar(0);
     let combined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -775,6 +815,7 @@ fn exiting_visual_mode_returns_to_sort_bar() {
 
 #[test]
 fn build_record_item_login_type() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_record(Uuid::new_v4(), "MyLogin", "user@site.com");
     let item = build_record_item(&record, false, false, true, true, 50, None);
     assert!(item.height() >= 3); // title + subtitle + separator
@@ -782,6 +823,7 @@ fn build_record_item_login_type() {
 
 #[test]
 fn build_record_item_api_type() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_record_with_type(Uuid::new_v4(), "AWS", CredentialType::Api);
     let item = build_record_item(&record, false, false, true, true, 50, None);
     assert!(item.height() >= 3);
@@ -789,6 +831,7 @@ fn build_record_item_api_type() {
 
 #[test]
 fn build_record_item_ssh_type() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_record_with_type(Uuid::new_v4(), "Server", CredentialType::Ssh);
     let item = build_record_item(&record, false, false, true, true, 50, None);
     assert!(item.height() >= 3);
@@ -796,6 +839,7 @@ fn build_record_item_ssh_type() {
 
 #[test]
 fn build_record_item_selected_indicator() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_record(Uuid::new_v4(), "Test", "sub");
     // With unicode and selected=true, should have ◀
     let item = build_record_item(&record, true, false, true, true, 50, None);
@@ -808,6 +852,7 @@ fn build_record_item_selected_indicator() {
 
 #[test]
 fn build_record_item_visual_selected() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_record(Uuid::new_v4(), "Test", "sub");
     let item = build_record_item(&record, false, true, true, true, 50, None);
     assert!(item.height() >= 3);
@@ -879,6 +924,7 @@ fn highlight_match_no_match() {
 
 #[test]
 fn build_record_item_with_search_highlight() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_record(Uuid::new_v4(), "GitHub", "user@github.com");
     let item = build_record_item(&record, false, false, true, true, 50, Some("git"));
     assert!(item.height() >= 3);
@@ -923,6 +969,7 @@ fn render_empty_state_tag() {
 
 #[test]
 fn build_empty_state_variant_all() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let state = ListPanelState::default();
     let variant = build_empty_state_variant(&state, &RecordFilter::All);
     assert!(matches!(variant, EmptyStateVariant::NoPasswords));
@@ -930,6 +977,7 @@ fn build_empty_state_variant_all() {
 
 #[test]
 fn build_empty_state_variant_favorites() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let state = ListPanelState::default();
     let variant = build_empty_state_variant(&state, &RecordFilter::Favorites);
     assert!(matches!(variant, EmptyStateVariant::NoFavorites));
@@ -937,6 +985,7 @@ fn build_empty_state_variant_favorites() {
 
 #[test]
 fn build_empty_state_variant_expired() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let state = ListPanelState::default();
     let variant = build_empty_state_variant(&state, &RecordFilter::Expired);
     assert!(matches!(variant, EmptyStateVariant::NoExpired));
@@ -944,6 +993,7 @@ fn build_empty_state_variant_expired() {
 
 #[test]
 fn build_empty_state_variant_health_issues() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let state = ListPanelState::default();
     let variant = build_empty_state_variant(&state, &RecordFilter::HealthIssues);
     assert!(matches!(variant, EmptyStateVariant::NoHealthIssues));
@@ -951,6 +1001,7 @@ fn build_empty_state_variant_health_issues() {
 
 #[test]
 fn build_empty_state_variant_trash() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let state = ListPanelState::default();
     let variant = build_empty_state_variant(&state, &RecordFilter::Trash);
     assert!(matches!(variant, EmptyStateVariant::EmptyTrash));
@@ -958,6 +1009,7 @@ fn build_empty_state_variant_trash() {
 
 #[test]
 fn build_empty_state_variant_tag() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let state = ListPanelState::default();
     let variant = build_empty_state_variant(&state, &RecordFilter::Tag("personal".to_string()));
     match variant {
@@ -970,6 +1022,7 @@ fn build_empty_state_variant_tag() {
 
 #[test]
 fn build_empty_state_variant_search_filter() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let state = ListPanelState::default();
     let variant = build_empty_state_variant(&state, &RecordFilter::Search("query".to_string()));
     match variant {
@@ -982,6 +1035,7 @@ fn build_empty_state_variant_search_filter() {
 
 #[test]
 fn build_empty_state_variant_search_mode_overrides_filter() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     // When in search mode with a non-empty query, it should use NoSearchResults
     // from the list mode search state, regardless of the filter
     let state = ListPanelState {
@@ -1005,6 +1059,7 @@ fn build_empty_state_variant_search_mode_overrides_filter() {
 
 #[test]
 fn health_badge_compromised() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let span = health_badge(Some(&HealthIssue::Compromised), true).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('\u{F06BD}')); // Nerd Font leaked icon
@@ -1014,6 +1069,7 @@ fn health_badge_compromised() {
 
 #[test]
 fn health_badge_compromised_ascii() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let span = health_badge(Some(&HealthIssue::Compromised), false).unwrap();
     let text = span.content.as_ref();
     assert!(
@@ -1025,6 +1081,7 @@ fn health_badge_compromised_ascii() {
 
 #[test]
 fn health_badge_weak() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let span = health_badge(Some(&HealthIssue::Weak), true).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('\u{26A0}')); // ⚠
@@ -1034,6 +1091,7 @@ fn health_badge_weak() {
 
 #[test]
 fn health_badge_weak_ascii() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let span = health_badge(Some(&HealthIssue::Weak), false).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('!'));
@@ -1042,6 +1100,7 @@ fn health_badge_weak_ascii() {
 
 #[test]
 fn health_badge_duplicate() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let span = health_badge(Some(&HealthIssue::Duplicate { group_size: 3 }), true).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('\u{26A0}')); // ⚠
@@ -1052,6 +1111,7 @@ fn health_badge_duplicate() {
 
 #[test]
 fn health_badge_duplicate_ascii() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let span = health_badge(Some(&HealthIssue::Duplicate { group_size: 5 }), false).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('5'));
@@ -1060,6 +1120,7 @@ fn health_badge_duplicate_ascii() {
 
 #[test]
 fn health_badge_expired() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let span = health_badge(Some(&HealthIssue::Expired), true).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('\u{2717}')); // ✗
@@ -1069,6 +1130,7 @@ fn health_badge_expired() {
 
 #[test]
 fn health_badge_expired_ascii() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let span = health_badge(Some(&HealthIssue::Expired), false).unwrap();
     let text = span.content.as_ref();
     assert!(text.contains('x'));
@@ -1077,6 +1139,7 @@ fn health_badge_expired_ascii() {
 
 #[test]
 fn health_badge_none() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let result: Option<Span<'static>> = health_badge(None, true);
     assert!(result.is_none());
 }
@@ -1204,6 +1267,7 @@ fn render_visual_selected_weak_and_expired_uses_weak_color() {
 
 #[test]
 fn separator_is_blank_line() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_record(Uuid::new_v4(), "Test", "sub");
     let item = build_record_item(&record, false, false, true, true, 50, None);
     // Item has 3 lines: title, subtitle, blank separator
@@ -1236,6 +1300,7 @@ fn make_trash_record(id: Uuid, name: &str, days_ago: i64) -> TuiRecord {
 
 #[test]
 fn build_trash_item_has_three_lines() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_trash_record(Uuid::new_v4(), "DeletedSite", 5);
     let item = build_trash_item(&record, false, false, true, true, 50, 30);
     assert!(
@@ -1246,6 +1311,7 @@ fn build_trash_item_has_three_lines() {
 
 #[test]
 fn build_trash_item_selected_indicator() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_trash_record(Uuid::new_v4(), "TestTrash", 2);
     let item = build_trash_item(&record, true, false, true, true, 50, 30);
     assert!(item.height() >= 3);
@@ -1285,6 +1351,7 @@ fn trash_warning_tier_colors_applied() {
 
 #[test]
 fn trash_item_never_auto_delete_retention_zero() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_trash_record(Uuid::new_v4(), "NeverDelete", 10);
     let item = build_trash_item(&record, false, false, true, true, 50, 0);
     assert!(item.height() >= 3);
@@ -1312,6 +1379,7 @@ fn acceptance_trash_list_with_deleted_records() {
 
 #[test]
 fn acceptance_trash_item_warning_progressive() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     // Critical: deleted 28 days ago with 30-day retention = 2 days remaining
     let critical = make_trash_record(Uuid::new_v4(), "Critical", 28);
     let item = build_trash_item(&critical, false, false, true, true, 50, 30);
@@ -1330,6 +1398,7 @@ fn acceptance_trash_item_warning_progressive() {
 
 #[test]
 fn acceptance_never_auto_delete_no_remaining_line() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_trash_record(Uuid::new_v4(), "NeverDelete", 100);
     let item = build_trash_item(&record, false, false, true, true, 50, 0);
     assert!(item.height() >= 3);
@@ -1376,6 +1445,7 @@ fn acceptance_trash_ascii_mode() {
 
 #[test]
 fn record_item_3_lines_at_full_width() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_record(Uuid::new_v4(), "TestRecord", "test@example.com");
     let item = build_record_item(&record, false, false, true, true, 120, None);
     // Should have 3 lines: title, subtitle, separator
@@ -1384,6 +1454,7 @@ fn record_item_3_lines_at_full_width() {
 
 #[test]
 fn record_item_2_lines_at_minimum_width() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_record(Uuid::new_v4(), "TestRecord", "test@example.com");
     let item = build_record_item(&record, false, false, true, true, 90, None);
     // Should have 2 lines at minimum width: title, separator (no subtitle)
@@ -1392,6 +1463,7 @@ fn record_item_2_lines_at_minimum_width() {
 
 #[test]
 fn trash_item_2_lines_at_minimum_width() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_trash_record(Uuid::new_v4(), "TestRecord", 5);
     let item = build_trash_item(&record, false, false, true, true, 90, 30);
     // Should have 2 lines at minimum width: title, separator (no meta)
@@ -1400,6 +1472,7 @@ fn trash_item_2_lines_at_minimum_width() {
 
 #[test]
 fn trash_item_3_lines_at_full_width() {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let record = make_trash_record(Uuid::new_v4(), "TestRecord", 5);
     let item = build_trash_item(&record, false, false, true, true, 120, 30);
     // Should have 3 lines at full width: title, metadata, separator
@@ -1523,4 +1596,74 @@ fn render_trash_at_minimum_width() {
     let state = ListPanelState::with_records(vec![r1]);
     let result = render_snapshot(&state, 80, 24, true, true, RecordFilter::Trash);
     assert!(!result.is_empty());
+}
+
+#[test]
+fn list_render_isolates_en_locale_from_concurrent_zh_cn_guards() {
+    // Reproduces the flake root cause: en list renders (no guard) race with
+    // concurrent zh-CN guard holders that mutate the process-global locale.
+    // Before the fix, `render_snapshot` had no guard, so victims could read
+    // zh-CN and render "已过期" instead of "Expired".
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::thread;
+
+    let errors = Arc::new(AtomicUsize::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut polluters = Vec::new();
+    let mut victims = Vec::new();
+
+    // Polluters continuously hold a zh-CN guard and render.
+    for _ in 0..4 {
+        let stop = stop.clone();
+        polluters.push(thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let _guard = LocaleGuard::zh_cn();
+                let record = make_record_with_expired(Uuid::new_v4(), "Z");
+                let state = ListPanelState::with_records(vec![record]);
+                let _ = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+            }
+        }));
+    }
+
+    // Victims render in en and must always contain "Expired".
+    for _ in 0..4 {
+        let errors = errors.clone();
+        victims.push(thread::spawn(move || {
+            let record = make_record_with_expired(Uuid::new_v4(), "E");
+            let state = ListPanelState::with_records(vec![record]);
+            for _ in 0..50 {
+                let result = render_snapshot(&state, 50, 10, true, true, RecordFilter::All);
+                if !result.contains("Expired") {
+                    errors.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }));
+    }
+
+    for handle in victims {
+        let _ = handle.join();
+    }
+    stop.store(true, Ordering::Relaxed);
+    for handle in polluters {
+        let _ = handle.join();
+    }
+
+    assert_eq!(
+        errors.load(Ordering::Relaxed),
+        0,
+        "en list render must be isolated from concurrent zh-CN locale mutation"
+    );
+}
+
+#[test]
+fn render_snapshot_locale_renders_localized_health_badge() {
+    let record = make_record_with_expired(Uuid::new_v4(), "OldSite");
+    let state = ListPanelState::with_records(vec![record]);
+
+    let en = render_snapshot_locale(&state, 50, 10, true, true, RecordFilter::All, "en");
+    let zh = render_snapshot_locale(&state, 50, 10, true, true, RecordFilter::All, "zh-CN");
+
+    assert!(en.contains("Expired"), "en health badge: {en:?}");
+    assert!(zh.contains("已过期"), "zh-CN health badge: {zh:?}");
 }

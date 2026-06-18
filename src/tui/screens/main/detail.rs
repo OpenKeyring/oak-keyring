@@ -1974,6 +1974,7 @@ mod tests {
 
     #[test]
     fn render_trash_detail_empty() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let mut state = DetailPanelState::default();
         state.set_trash_context(true, 30);
         let result = render_detail_snapshot(&state, 60, 20, true, true);

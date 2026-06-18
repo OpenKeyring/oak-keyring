@@ -1342,6 +1342,7 @@ mod tests {
 
     #[test]
     fn enter_on_okb_without_path_sets_error() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let mut screen = DatabaseRecoveryScreen::new(DatabaseRecoveryOrigin::StartupKeyOnly);
         screen.focus = DatabaseRecoveryFocus::Okb;
         screen.mode = DatabaseRecoveryMode::OkbPathInput;

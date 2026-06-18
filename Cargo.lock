@@ -2349,6 +2349,7 @@ dependencies = [
  "notify",
  "obfstr",
  "opendal",
+ "parking_lot",
  "pbkdf2",
  "rand 0.9.4",
  "ratatui",
