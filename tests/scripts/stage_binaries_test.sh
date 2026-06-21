@@ -36,6 +36,8 @@ make_archive() {
 
 make_archive "aarch64-apple-darwin" "arm64 binary"
 make_archive "x86_64-apple-darwin" "x64 binary"
+make_archive "x86_64-unknown-linux-gnu" "linux x64 binary"
+make_archive "aarch64-unknown-linux-gnu" "linux arm64 binary"
 
 mkdir -p "$TMP_DIR/fakebin"
 cat > "$TMP_DIR/fakebin/tar" <<'EOF'
@@ -63,6 +65,10 @@ if len(sys.argv) >= 4 and sys.argv[1] == "-xOzf":
         print("arm64 binary")
     elif "x86_64-apple-darwin" in archive:
         print("x64 binary")
+    elif "x86_64-unknown-linux-gnu" in archive:
+        print("linux x64 binary")
+    elif "aarch64-unknown-linux-gnu" in archive:
+        print("linux arm64 binary")
     else:
         sys.stderr.write(f"unexpected archive: {archive}\n")
         sys.exit(2)
@@ -79,5 +85,9 @@ bash "$TMP_DIR/npm/stage-binaries.sh"
 
 test -x "$TMP_DIR/npm/ok-darwin-arm64/bin/ok"
 test -x "$TMP_DIR/npm/ok-darwin-x64/bin/ok"
+test -x "$TMP_DIR/npm/ok-linux-x64/bin/ok"
+test -x "$TMP_DIR/npm/ok-linux-arm64/bin/ok"
 grep -q "arm64 binary" "$TMP_DIR/npm/ok-darwin-arm64/bin/ok"
 grep -q "x64 binary" "$TMP_DIR/npm/ok-darwin-x64/bin/ok"
+grep -q "linux x64 binary" "$TMP_DIR/npm/ok-linux-x64/bin/ok"
+grep -q "linux arm64 binary" "$TMP_DIR/npm/ok-linux-arm64/bin/ok"
