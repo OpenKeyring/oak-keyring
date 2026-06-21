@@ -66,7 +66,7 @@ jobs:
 
           tar -C dist -czf "dist/${PACKAGE_NAME}.tar.gz" "${PACKAGE_NAME}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: artifact-${{ matrix.target }}
           path: dist/*.tar.gz
@@ -89,7 +89,7 @@ jobs:
           shasum -a 256 *.tar.gz > checksums.txt
           cat checksums.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: checksums
           path: dist/checksums.txt
