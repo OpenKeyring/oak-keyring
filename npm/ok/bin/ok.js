@@ -4,16 +4,28 @@
 const { spawn } = require("node:child_process");
 
 const platformPackage = (() => {
-  if (process.platform !== "darwin") {
+  if (process.platform === "darwin") {
+    if (process.arch === "arm64") {
+      return "@openkeyring/ok-darwin-arm64/bin/ok";
+    }
+
+    if (process.arch === "x64") {
+      return "@openkeyring/ok-darwin-x64/bin/ok";
+    }
+
     return null;
   }
 
-  if (process.arch === "arm64") {
-    return "@openkeyring/ok-darwin-arm64/bin/ok";
-  }
+  if (process.platform === "linux") {
+    if (process.arch === "arm64") {
+      return "@openkeyring/ok-linux-arm64/bin/ok";
+    }
 
-  if (process.arch === "x64") {
-    return "@openkeyring/ok-darwin-x64/bin/ok";
+    if (process.arch === "x64") {
+      return "@openkeyring/ok-linux-x64/bin/ok";
+    }
+
+    return null;
   }
 
   return null;

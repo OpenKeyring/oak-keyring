@@ -203,8 +203,8 @@ Current known limitations include:
 
 * Pre-1.0 preview status
 * No external security audit yet
-* macOS-first platform support
-* Linux and Windows not supported yet
+* macOS and Linux (glibc 2.35+) platform support
+* Windows and Linux Alpine/musl not supported yet
 * Unsigned and non-notarized preview binaries
 * Optional sync is preview-stage
 * No hosted account recovery

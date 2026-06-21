@@ -7,7 +7,7 @@ Thanks for helping improve oak-keyring. The project is in a first-preview phase,
 - Reproducible bug reports with environment details.
 - Documentation fixes for install, support, or troubleshooting gaps.
 - Small code fixes with clear tests.
-- Preview packaging feedback for macOS Apple Silicon and Intel.
+- Preview packaging feedback for macOS Apple Silicon/Intel and Linux x86_64/ARM64.
 
 Avoid large roadmap proposals, broad architecture rewrites, or speculative platform work in a first contribution. Open a discussion first for anything that changes user-visible behavior or security-sensitive code.
 
@@ -33,4 +33,4 @@ Local builds need `OAK_GOOGLE_CLIENT_ID` and `OAK_GOOGLE_CLIENT_SECRET` in the e
 
 ## Preview Scope
 
-The current preview supports macOS on Apple Silicon and Intel only. Linux and Windows are not supported yet, preview builds are unsigned and not notarized, data formats may change, and support is best effort without a formal SLA.
+The current preview supports macOS on Apple Silicon/Intel and Linux x86_64/ARM64 (glibc 2.35+). Alpine (musl) and Windows are not supported yet; preview builds are unsigned and not notarized, data formats may change, and support is best effort without a formal SLA.

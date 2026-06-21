@@ -1,0 +1,22 @@
+{
+  "name": "@openkeyring/ok-linux-arm64",
+  "version": "0.7.3",
+  "description": "Open-Keyring ok binary for Linux ARM64 (glibc 2.35+)",
+  "scripts": {
+    "prepack": "node ../check-binary.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ]
+}

@@ -35,12 +35,13 @@ The command-line binary is `ok`.
 - **Auto-lock** — lock the vault after inactivity
 - **Password health** — leaked password indicators and health checks
 - **macOS** — Apple Silicon and Intel builds (preview)
+- **Linux** — x86_64 and ARM64 builds, glibc 2.35+ (preview)
 
 ## Install
 
 ### GitHub Release (recommended)
 
-1. Download the tarball matching your Mac architecture.
+1. Download the tarball matching your OS and architecture.
 2. Verify `checksums.txt`.
 3. Unpack and run `ok --version`.
 
@@ -132,8 +133,7 @@ Support is community-style and best effort. There is no formal SLA.
 
 oak-keyring is pre-1.0 preview software (v0.8.0-preview.1).
 
-- Current builds target macOS (Apple Silicon and Intel); Linux and Windows
-  are not yet available.
+- Current builds target macOS (Apple Silicon and Intel) and Linux (x86_64/ARM64, glibc 2.35+); Windows is not yet available. On Linux, `mlock` may need `RLIMIT_MEMLOCK` raised (see INSTALL.md).
 - macOS binaries are unsigned and not notarized.
 - Vault data, configuration, and packaging may change before a stable release.
 - There is no formal support SLA.

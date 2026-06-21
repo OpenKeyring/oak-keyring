@@ -50,5 +50,7 @@ stage_binary() {
 
 stage_binary "aarch64-apple-darwin" "npm/ok-darwin-arm64"
 stage_binary "x86_64-apple-darwin" "npm/ok-darwin-x64"
+stage_binary "x86_64-unknown-linux-gnu" "npm/ok-linux-x64"
+stage_binary "aarch64-unknown-linux-gnu" "npm/ok-linux-arm64"
 
 echo "Staged npm binaries for ok v$VERSION"
