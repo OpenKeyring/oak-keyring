@@ -18,14 +18,16 @@ Only the latest preview release is supported for security fixes. Older preview b
 
 ## Supported Platforms
 
-The current preview supports macOS on Apple Silicon and Intel.
+The current preview supports macOS on Apple Silicon and Intel, and Linux x86_64/ARM64 with glibc 2.35 or newer.
 
-| Platform            | Status            |
-| ------------------- | ----------------- |
-| macOS Apple Silicon | Supported         |
-| macOS Intel         | Supported         |
-| Linux               | Not supported yet |
-| Windows             | Not supported yet |
+| Platform            | Status                    |
+| ------------------- | ------------------------- |
+| macOS Apple Silicon | Supported                 |
+| macOS Intel         | Supported                 |
+| Linux x86_64        | Supported (glibc 2.35+)   |
+| Linux ARM64         | Supported (glibc 2.35+)   |
+| Linux (Alpine/musl) | Not supported yet         |
+| Windows             | Not supported yet         |
 
 Preview builds are currently unsigned and not notarized. Before running oak-keyring, verify that downloads come from the official OpenKeyring GitHub release or package channel.
 
@@ -47,7 +49,7 @@ Please include as much of the following as possible:
 * A short description of the issue and likely impact.
 * Steps to reproduce, proof-of-concept details, or affected commands.
 * The oak-keyring version from `ok --version`.
-* Your macOS version and Mac architecture.
+* Your OS, version, and architecture (for example: macOS Apple Silicon, Linux x86_64 on Ubuntu 22.04, Linux ARM64).
 * Whether the issue involves a new vault, restored vault, imported data, or synced data.
 * Any logs or screenshots with secrets removed.
 

@@ -27,12 +27,13 @@ oak-keyring 是一个 privacy-first、local-first 的密码管理器，提供键
 - **自动锁定** — 不活动后自动锁定密码库
 - **密码健康** — 泄露密码指示器和健康检查
 - **macOS** — Apple Silicon 和 Intel 构建（预览）
+- **Linux** — x86_64 和 ARM64 构建，glibc 2.35+（预览）
 
 ## 安装
 
 ### GitHub Release（推荐）
 
-1. 下载与你的 Mac 架构匹配的 tarball。
+1. 下载与你的操作系统和架构匹配的 tarball。
 2. 校验 `checksums.txt`。
 3. 解压后运行 `ok --version`。
 
@@ -97,7 +98,7 @@ oak-keyring 会打开一个全屏终端界面。主要使用流程是：
 
 oak-keyring 仍处于 pre-1.0 预览阶段（v0.8.0-preview.1）。
 
-- 当前构建仅支持 macOS（Apple Silicon 和 Intel）；暂不提供 Linux 和 Windows 构建。
+- 当前构建支持 macOS（Apple Silicon 和 Intel）和 Linux（x86_64/ARM64，glibc 2.35+）；暂不提供 Windows 构建。Linux 上可能需要调高 `mlock` 的 `RLIMIT_MEMLOCK`（见 INSTALL-ZH.md）。
 - macOS 二进制未签名，也未 notarize。
 - 密码库数据、配置和发布打包方式在后续稳定版之前可能变化。
 - 没有正式支持 SLA。

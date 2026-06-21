@@ -6,8 +6,9 @@ This project is in first-preview status. Preview releases may change local vault
 
 ## Unreleased
 
+- Added Linux x86_64/ARM64 (glibc 2.35+) release builds, distribution, and documentation support: release workflow now builds `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` targets; npm ships `@openkeyring/ok-linux-x64` and `@openkeyring/ok-linux-arm64`; Homebrew formula adds an `on_linux` block; INSTALL documents `mlock`/`RLIMIT_MEMLOCK` requirements.
 - Added first-preview installation, support, contribution, security, and issue-reporting documentation.
-- Clarified the preview boundary: macOS Apple Silicon and Intel only; Linux and Windows are not supported yet.
+- Updated the preview boundary: macOS Apple Silicon/Intel and Linux x86_64/ARM64 (glibc 2.35+) are supported; Alpine (musl) and Windows are not yet.
 - Clarified that preview builds are unsigned and not notarized, with best-effort community support and no formal SLA.
 
 ## 0.8.0-preview.1

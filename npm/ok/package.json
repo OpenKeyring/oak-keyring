@@ -11,7 +11,9 @@
   ],
   "optionalDependencies": {
     "@openkeyring/ok-darwin-arm64": "0.7.3",
-    "@openkeyring/ok-darwin-x64": "0.7.3"
+    "@openkeyring/ok-darwin-x64": "0.7.3",
+    "@openkeyring/ok-linux-x64": "0.7.3",
+    "@openkeyring/ok-linux-arm64": "0.7.3"
   },
   "engines": {
     "node": ">=18"
@@ -21,6 +23,7 @@
   },
   "license": "MIT",
   "os": [
-    "darwin"
+    "darwin",
+    "linux"
   ]
 }

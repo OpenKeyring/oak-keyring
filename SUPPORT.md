@@ -12,8 +12,8 @@ oak-keyring is in first-preview status. Support is community-style and best effo
 
 For bugs or install problems, include:
 
-- macOS version and Mac architecture: Apple Silicon or Intel.
-- Install method: GitHub Release build, npm bundled binary package, or developer source build.
+- OS, version, and architecture (for example: macOS Apple Silicon, Linux x86_64 on Ubuntu 22.04).
+- Install method: GitHub Release build, npm bundled binary package, Homebrew, or developer source build.
 - oak-keyring version from `ok --version`.
 - What you expected to happen.
 - What actually happened.
@@ -22,7 +22,7 @@ For bugs or install problems, include:
 
 ## Preview Limitations
 
-- Only macOS Apple Silicon and Intel are supported in the first preview.
-- Linux and Windows are not supported yet.
+- macOS Apple Silicon/Intel and Linux x86_64/ARM64 (glibc 2.35+) are supported.
+- Alpine (musl) and Windows are not supported yet.
 - Preview builds are unsigned and not notarized.
 - Preview data formats may change before stable releases.

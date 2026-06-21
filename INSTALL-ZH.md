@@ -4,8 +4,8 @@ oak-keyring 是 OpenKeyring 项目的 privacy-first、local-first 预览版密�
 
 ## 预览版支持边界
 
-- 支持的操作系统：Apple Silicon 和 Intel 芯片的 macOS。
-- 暂不支持 Linux 和 Windows。
+- 支持的操作系统：Apple Silicon 和 Intel 芯片的 macOS，以及 glibc 2.35 及以上版本的 Linux x86_64/ARM64（Ubuntu 22.04+、Debian 12+、Fedora、RHEL/Rocky/Alma 9+、Arch、openSUSE）。暂不支持 Alpine（musl）和 Windows。
+- 在 Linux 上，内存锁定（`mlock`）可能需要调高 `RLIMIT_MEMLOCK`，详见下文「Linux 内存锁定」章节。
 - 预览版构建未签名、未公证。macOS Gatekeeper 可能会在首次运行前提示风险。
 - 本地 vault 和同步数据格式在稳定版前可能变化。预览版数据不提供兼容性保证。
 - 社区支持通过 GitHub Issues 和 Discussions 尽力提供，不提供正式 SLA。
@@ -14,10 +14,10 @@ oak-keyring 是 OpenKeyring 项目的 privacy-first、local-first 预览版密�
 
 ## GitHub Release 未签名构建
 
-GitHub Release 是主要用户安装路径。Release 提供 Apple Silicon 和 Intel macOS 的未签名构建产物。
+GitHub Release 是主要用户安装路径。Release 提供 macOS（Apple Silicon 和 Intel）与 Linux（x86_64 和 ARM64，glibc 2.35+）的未签名构建产物。
 
 1. 打开最新 release：`https://github.com/OpenKeyring/oak-keyring/releases`。
-2. 下载与你的 Mac 架构匹配的产物。
+2. 下载与你的操作系统和架构匹配的产物。
 3. 解压后，把 `ok` 移动到 `PATH` 中的目录，例如 `/usr/local/bin` 或 `~/.local/bin`。
 4. 验证安装：
 
@@ -36,7 +36,7 @@ brew install ok
 
 ## npm 内置二进制包
 
-npm 包会为 macOS 安装内置的 `ok` 二进制文件：
+npm 包会为 macOS 和 Linux 安装内置的 `ok` 二进制文件：
 
 ```bash
 npm install -g @openkeyring/ok
@@ -45,15 +45,50 @@ ok --version
 
 如果 npm 包暂时不支持你的架构，请改用 GitHub Release。
 
+## Linux 内存锁定
+
+`ok` 使用 `mlock` 把机密数据（主密钥、派生密钥等）锁定在内存中，使其不会被交换到磁盘。在 Linux 上，默认的 `RLIMIT_MEMLOCK` 通常只有 64 KiB，太小了。当 `mlock` 失败时，`ok` 会显式报错：创建或解锁 vault 会返回错误，而不是在没有内存保护的情况下静默运行。
+
+在运行 `ok` 之前调高该限制。请根据你的环境选择合适的方式：
+
+**交互式会话（临时）：**
+
+```bash
+ulimit -l unlimited
+ok
+```
+
+**通过 PAM 持久化** — 在 `/etc/security/limits.conf` 中添加，然后重新登录：
+
+```
+*  soft  memlock  unlimited
+*  hard  memlock  unlimited
+```
+
+**systemd 服务** — 在 unit 文件中添加：
+
+```
+[Service]
+LimitMEMLOCK=infinity
+```
+
+**Capability（无需调整 ulimit）** — 一次性授予，重启后仍生效：
+
+```bash
+sudo setcap cap_ipc_lock=ep "$(command -v ok)"
+```
+
+macOS 不需要对普通用户施加同样的 `mlock` 配额，因此该步骤在 macOS 上不需要。
+
 ## 开发者源码构建
 
 源码构建不是预览版的主要分发方式，因为当前构建会把用于同步的 Google OAuth2 配置编译进二进制。这个路径适合开发或源码审查。
 
 前置条件：
 
-- Apple Silicon 或 Intel 芯片的 macOS
+- Apple Silicon 或 Intel 芯片的 macOS，或 Linux x86_64/ARM64（glibc 2.35+）
 - 通过 `rustup` 安装的 Rust 工具链
-- Xcode Command Line Tools
+- macOS 上：Xcode Command Line Tools。Linux 上：C 编译器和构建工具（`build-essential`/`gcc`/`make`）
 - 本地构建需要 Google OAuth 值，可以放在环境变量或 `.env` 中
 
 ```bash

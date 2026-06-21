@@ -1,0 +1,22 @@
+{
+  "name": "@openkeyring/ok-linux-x64",
+  "version": "0.7.3",
+  "description": "Open-Keyring ok binary for Linux x86_64 (glibc 2.35+)",
+  "scripts": {
+    "prepack": "node ../check-binary.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ]
+}
