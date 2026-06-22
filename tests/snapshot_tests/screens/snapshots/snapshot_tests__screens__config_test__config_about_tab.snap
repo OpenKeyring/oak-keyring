@@ -17,7 +17,7 @@ expression: backend
 "│     Local-first: vault stays on device unless you sync.                      │"
 "│     Encrypted vault: secrets use authenticated encryption.                   │"
 "│     Explicit sync: cloud and import/export stay user-controlled.             │"
-"│     Version     0.8.0-preview.1                                              │"
+"│     Version     0.8.0-preview.2                                              │"
 "│     Authors     OpenKeyring Contributors                                     │"
 "│     License     MIT OR Apache-2.0                                            │"
 "│                                                                              │"
