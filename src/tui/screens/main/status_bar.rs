@@ -541,6 +541,7 @@ mod tests {
 
     #[test]
     fn status_message_record_count() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let msg = StatusMessage::RecordCount(42);
         let text = status_message_text(&Some(msg)).unwrap();
         assert!(text.contains("42"));
@@ -550,6 +551,7 @@ mod tests {
 
     #[test]
     fn status_message_clipboard_countdown() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let msg = StatusMessage::ClipboardCountdown {
             field: "\u{5BC6}\u{7801}".to_string(), // password
             seconds: 30,
@@ -570,6 +572,7 @@ mod tests {
 
     #[test]
     fn status_message_search() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let msg = StatusMessage::Search("test query".to_string());
         let text = status_message_text(&Some(msg)).unwrap();
         assert!(text.contains("test query"));

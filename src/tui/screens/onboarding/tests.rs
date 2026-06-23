@@ -52,6 +52,7 @@ fn render_onboarding(screen: &OnboardingScreen, width: u16, height: u16) -> Stri
 }
 
 fn render_onboarding_buffer(screen: &OnboardingScreen, width: u16, height: u16) -> Buffer {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal
@@ -67,6 +68,7 @@ fn render_onboarding_cursor_position(
     width: u16,
     height: u16,
 ) -> Position {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal

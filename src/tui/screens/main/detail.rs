@@ -1621,6 +1621,7 @@ mod tests {
         focused: bool,
         unicode: bool,
     ) -> String {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let backend = TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
@@ -1640,6 +1641,7 @@ mod tests {
         focused: bool,
         unicode: bool,
     ) -> ratatui::buffer::Buffer {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let backend = TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal

@@ -1076,6 +1076,7 @@ mod tests {
 
     #[test]
     fn expiry_option_labels() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         // Test that labels are non-empty and contain expected substrings
         let never_label = ExpiryOption::Never.label();
         let days30_label = ExpiryOption::Days30.label();

@@ -34,6 +34,7 @@ impl TestEnv {
 }
 
 fn render_buffer(screen: &CreateRecordScreen, width: u16, height: u16) -> Buffer {
+    let _guard = crate::tui::i18n::LocaleGuard::en();
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal

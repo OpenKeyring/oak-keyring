@@ -492,6 +492,7 @@ mod tests {
 
     #[test]
     fn confirm_labels_are_correct() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         // Note: These tests now check for translated strings
         let label = confirm_label_for(&soft_delete_variant());
         assert!(label.contains("Confirm") || label.contains("确认"));
@@ -539,6 +540,7 @@ mod tests {
 
     #[test]
     fn build_dialog_soft_delete_with_auto_days() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let variant = ConfirmVariant::SoftDelete {
             record_id: Uuid::new_v4(),
             record_name: "GitHub".to_string(),
@@ -620,6 +622,7 @@ mod tests {
 
     #[test]
     fn build_dialog_restore() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let variant = ConfirmVariant::Restore {
             record_id: Uuid::new_v4(),
             record_name: "GitHub".to_string(),
