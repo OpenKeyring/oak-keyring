@@ -52,8 +52,12 @@ approval.
 
 ```bash
 brew tap openkeyring/oak-keyring
+brew trust --formula openkeyring/oak-keyring/ok
 brew install ok
 ```
+
+Homebrew 6.0+ requires trusting non-official taps (macOS and Linux). See
+[INSTALL.md](INSTALL.md) for the exact error and alternatives.
 
 ### npm
 

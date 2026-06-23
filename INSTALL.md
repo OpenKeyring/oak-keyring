@@ -31,8 +31,25 @@ If macOS blocks the unsigned preview binary, use Finder or System Settings to al
 
 ```bash
 brew tap openkeyring/oak-keyring
+brew trust --formula openkeyring/oak-keyring/ok
 brew install ok
 ```
+
+Homebrew 6.0.0 and later require non-official taps to be trusted before their
+formulae can be loaded. This applies to both macOS and Linux, not just Linux.
+If you skip the `brew trust` step, the install fails with:
+
+```text
+Error: Refusing to load formula openkeyring/oak-keyring/ok from untrusted tap openkeyring/oak-keyring.
+Run `brew trust --formula openkeyring/oak-keyring/ok` or `brew trust openkeyring/oak-keyring` to trust it.
+```
+
+Alternatives:
+
+- One-liner that trusts only `ok` (no separate `brew tap`/`brew trust`):
+  `brew install openkeyring/oak-keyring/ok`
+- Trust the whole tap instead of a single formula:
+  `brew trust openkeyring/oak-keyring`
 
 ## npm Bundled Binary Package
 
