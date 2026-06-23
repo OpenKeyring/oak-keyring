@@ -516,17 +516,17 @@ pub enum StatusMessage {
 pub enum HealthCheckPhase {
     #[default]
     Inactive,
-    /// Health check is running: "检查中..."
+    /// Health check is running: "Checking..."
     Checking,
-    /// Health check found issues: "有需注意"
+    /// Health check found issues: "Needs attention"
     NeedsAttention {
         weak: usize,
         compromised: usize,
         duplicate_groups: usize,
     },
-    /// Health check passed: "全部安全"
+    /// Health check passed: "All secure"
     AllSecure,
-    /// Leak detection was skipped: "跳过泄露检测"
+    /// Leak detection was skipped: "Leak detection skipped"
     Skipped,
 }
 

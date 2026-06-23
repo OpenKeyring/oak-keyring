@@ -551,7 +551,7 @@ mod tests {
     #[test]
     fn status_message_clipboard_countdown() {
         let msg = StatusMessage::ClipboardCountdown {
-            field: "\u{5BC6}\u{7801}".to_string(), // 密码
+            field: "\u{5BC6}\u{7801}".to_string(), // password
             seconds: 30,
         };
         let text = status_message_text(&Some(msg)).unwrap();

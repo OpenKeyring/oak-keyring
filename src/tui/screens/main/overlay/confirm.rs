@@ -545,7 +545,7 @@ mod tests {
             auto_delete_days: Some(30),
         };
         let (title, lines, label) = build_dialog_parts(&variant, 46);
-        // Title should contain "Confirm" or "确认"
+        // Title should contain "Confirm" or its Chinese equivalent
         assert!(title.contains("Confirm") || title.contains("确认"));
         // Label should also contain confirmation text
         assert!(label.contains("Confirm") || label.contains("确认"));
@@ -592,7 +592,7 @@ mod tests {
             record_names: (0..8).map(|i| format!("item-{}", i)).collect(),
         };
         let (_, lines, _) = build_dialog_parts(&variant, 46);
-        // message + blank + 5 names + "...等共 8 条"
+        // message + blank + 5 names + "...and 8 in total"
         assert_eq!(lines.len(), 8);
     }
 

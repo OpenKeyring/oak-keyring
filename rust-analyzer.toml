@@ -1,3 +1,3 @@
 [rust-analyzer]
-checkOnSave = true          # 保存时自动检查
-cachePriming.enable = true  # 启动时预热缓存
+checkOnSave = true          # auto-check on save
+cachePriming.enable = true  # prime cache on startup

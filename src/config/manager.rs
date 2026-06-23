@@ -1,14 +1,14 @@
-//! ConfigManager trait — 配置管理层接口
+//! ConfigManager trait — configuration management layer interface
 //!
-//! 实现位于 Plan K (S5 Executor)。
+//! Implementation lives in Plan K (S5 Executor).
 
 use crate::config::{AppConfig, ConfigError};
 use std::path::Path;
 
-/// 配置管理器接口
+/// Configuration manager interface
 ///
-/// 定义配置加载、保存、重新加载的行为。
-/// 实现类（Plan K）持有 AppConfig 实例并响应配置变更。
+/// Defines behavior for loading, saving, and reloading configuration.
+/// Implementations (Plan K) hold an AppConfig instance and respond to configuration changes.
 pub trait ConfigManager: Send + Sync {
     /// Load configuration from the specified config directory
     fn load(&self, config_dir: &Path) -> Result<AppConfig, ConfigError>;

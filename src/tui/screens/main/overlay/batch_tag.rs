@@ -147,7 +147,7 @@ fn remove_current_tag(state: &mut BatchTagPanelFullState, tag: String) -> Option
 /// Calculate how many rows are needed to display tags within a given width.
 fn tag_display_rows(tags: &[String], max_width: u16) -> u16 {
     if tags.is_empty() {
-        return 1; // "  (无)" placeholder
+        return 1; // "  (none)" placeholder
     }
     // Each tag takes up len + 2 (spaces/padding) characters
     let mut rows: u16 = 1;

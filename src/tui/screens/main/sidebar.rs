@@ -1275,7 +1275,7 @@ mod tests {
         let result = format!("{:?}", buf);
         // Check that the header contains some content (may be localized)
         assert!(
-            result.contains("Tags") || result.contains('\u{6807}'), // Tags or 标签
+            result.contains("Tags") || result.contains('\u{6807}'), // Tags or label
             "header should contain tag label"
         );
     }
