@@ -38,6 +38,7 @@ fn build_login(id: &str, name: &str, username: &str, password: &str) -> ExportRe
         password: Some(password.to_string()),
         url: Some("https://example.com".to_string()),
         notes: Some("Login notes".to_string()),
+        totp: Some("otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=GitHub".to_string()),
         tags: Some(vec!["work".to_string(), "important".to_string()]),
         is_favorite: Some(true),
         expires_at: None,
@@ -59,6 +60,7 @@ fn build_api(id: &str, name: &str, app_id: &str, secret_key: &str) -> ExportReco
         password: None,
         url: Some("https://api.example.com".to_string()),
         notes: Some("API credentials".to_string()),
+        totp: None,
         tags: Some(vec!["dev".to_string()]),
         is_favorite: Some(false),
         expires_at: None,
@@ -86,6 +88,7 @@ fn build_ssh_with_passphrase(
         password: None,
         url: Some("ssh://example.com".to_string()),
         notes: Some("SSH key for deployment".to_string()),
+        totp: None,
         tags: Some(vec!["servers".to_string(), "production".to_string()]),
         is_favorite: Some(true),
         expires_at: None,
@@ -112,6 +115,7 @@ fn build_ssh_without_passphrase(
         password: None,
         url: Some("ssh://github.com".to_string()),
         notes: Some("GitHub SSH key".to_string()),
+        totp: None,
         tags: Some(vec!["git".to_string()]),
         is_favorite: Some(false),
         expires_at: None,
@@ -149,6 +153,7 @@ fn serde_roundtrip_via_okb<'a>(
                     password: r.password.clone(),
                     url: r.url.clone(),
                     notes: r.notes.clone(),
+                    totp: r.totp.clone(),
                     tags: r.tags.clone(),
                     is_favorite: r.is_favorite,
                     expires_at: r.expires_at.clone(),
@@ -221,6 +226,10 @@ fn serde_login_roundtrip() {
     assert_eq!(
         mapped.fields.get("notes").unwrap(),
         original_export.notes.as_ref().unwrap()
+    );
+    assert_eq!(
+        mapped.fields.get("totp").unwrap(),
+        original_export.totp.as_ref().unwrap()
     );
     assert_eq!(
         mapped.tags,

@@ -233,6 +233,7 @@ fn build_from_login_record() {
         password: SecureStr::new("secret123".into()),
         url: Some("https://github.com".into()),
         notes: Some("My account".into()),
+        totp: None,
         is_favorite: true,
         expires_at: None,
         created_at: Utc::now(),

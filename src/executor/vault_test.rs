@@ -50,6 +50,7 @@ fn create_login_record(executor: &mut CommandExecutor, name: &str) -> uuid::Uuid
                 password: SecureStr::new("password123".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,

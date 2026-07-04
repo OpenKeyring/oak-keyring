@@ -82,6 +82,7 @@ pub enum EncryptedPayload {
         password: SecureStr,
         url: Option<String>,
         notes: Option<String>,
+        totp: Option<SecureStr>,
     },
     Api {
         name: String,

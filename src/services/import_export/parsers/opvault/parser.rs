@@ -164,6 +164,7 @@ fn parse_entry(
 
     // Build notes: notesPlain + sections (custom fields, TOTP).
     let mut notes_parts = Vec::new();
+    let mut totp = None;
     if let Some(ref notes) = details.notes_plain {
         if !notes.is_empty() {
             notes_parts.push(notes.clone());
@@ -206,7 +207,9 @@ fn parse_entry(
 
                 // TOTP or custom fields → notes.
                 if n.starts_with("TOTP_") {
-                    notes_parts.push(format!("TOTP: {val_str}"));
+                    if totp.is_none() {
+                        totp = Some(val_str);
+                    }
                 } else if let Some(title) = &sf.t {
                     notes_parts.push(format!("{title}: {val_str}"));
                 }
@@ -222,6 +225,9 @@ fn parse_entry(
     }
     if !section_url.is_empty() {
         fields.insert("url".into(), section_url);
+    }
+    if let Some(totp) = totp {
+        fields.insert("totp".into(), totp);
     }
 
     let notes = notes_parts.join("\n");

@@ -141,7 +141,13 @@ pub struct MappedRecord {
 }
 
 // Sensitive field keys that must be redacted in Debug output.
-const MAPPED_SENSITIVE_KEYS: &[&str] = &["password", "private_key", "passphrase", "secret_key"];
+const MAPPED_SENSITIVE_KEYS: &[&str] = &[
+    "password",
+    "private_key",
+    "passphrase",
+    "secret_key",
+    "totp",
+];
 
 impl std::fmt::Debug for MappedRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

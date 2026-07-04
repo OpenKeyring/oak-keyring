@@ -37,6 +37,7 @@ struct BitwardenLogin {
     username: Option<String>,
     password: Option<String>,
     uris: Option<Vec<BitwardenUri>>,
+    totp: Option<String>,
 }
 
 /// A URI entry in a Bitwarden login.
@@ -156,6 +157,9 @@ fn parse_login_item(index: usize, item: &BitwardenItem) -> ParsedItem {
             "password".to_string(),
             login.password.clone().unwrap_or_default(),
         );
+        if let Some(totp) = login.totp.as_ref().filter(|value| !value.is_empty()) {
+            fields.insert("totp".to_string(), totp.clone());
+        }
 
         // Use the first URI if available.
         let url = login
@@ -527,6 +531,37 @@ mod tests {
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].fields.get("url").unwrap(), "https://primary.com");
+    }
+
+    #[test]
+    fn login_totp_is_preserved_as_structured_field() {
+        let json = r#"{
+            "encrypted": false,
+            "items": [
+                {
+                    "type": 1,
+                    "name": "GitHub",
+                    "login": {
+                        "username": "alice",
+                        "password": "secret",
+                        "totp": "otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=GitHub"
+                    }
+                }
+            ]
+        }"#;
+        let f = create_json_file(json);
+        let parser = BitwardenParser;
+
+        let items = parser
+            .parse(f.path(), None, None)
+            .expect("parse should succeed");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0].fields.get("totp").map(String::as_str),
+            Some("otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=GitHub")
+        );
+        assert!(!items[0].fields.get("notes").unwrap().contains("TOTP"));
     }
 
     // -- Test 10: validate_file with .json extension -------------------------

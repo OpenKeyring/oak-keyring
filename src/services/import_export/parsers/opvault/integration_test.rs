@@ -207,7 +207,7 @@ fn test_real_opvault_parse() {
         .expect("Strong Password item");
     assert_eq!(cp.fields.get("name").unwrap(), "Strong Password");
     assert_eq!(cp.fields.get("password").unwrap(), "Str0ng!P@ss");
-    assert!(cp.fields.get("notes").unwrap().contains("TOTP:"));
+    assert!(cp.fields.contains_key("totp"));
 
     // cat=001 Login — designation fields + TOTP
     let kp = by_id
@@ -218,7 +218,11 @@ fn test_real_opvault_parse() {
     assert_eq!(kp.fields.get("password").unwrap(), "password123");
     assert_eq!(kp.fields.get("url").unwrap(), "https://example.com");
     assert!(kp.fields.get("notes").unwrap().contains("Test account"));
-    assert!(kp.fields.get("notes").unwrap().contains("TOTP:"));
+    assert!(
+        !kp.fields.get("notes").unwrap().contains("TOTP:"),
+        "TOTP should be structured, not appended to notes"
+    );
+    assert!(kp.fields.contains_key("totp"));
 
     // cat=110 Server — section fields extracted
     let srv = by_id

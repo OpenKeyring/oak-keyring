@@ -58,6 +58,7 @@ fn create_login_record(vault: &mut VaultService, name: &str) -> Uuid {
                 password: SecureStr::new("password123".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec!["sync-health".to_string()],
             is_favorite: false,

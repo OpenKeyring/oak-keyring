@@ -9,7 +9,13 @@ use crate::errors::mapping::import_export::ImportExportError;
 use crate::types::SecureStr;
 
 // Field keys that contain secrets and must be redacted in Debug output.
-const SENSITIVE_FIELD_KEYS: &[&str] = &["password", "private_key", "passphrase", "secret_key"];
+const SENSITIVE_FIELD_KEYS: &[&str] = &[
+    "password",
+    "private_key",
+    "passphrase",
+    "secret_key",
+    "totp",
+];
 
 // ---------------------------------------------------------------------------
 // ParsedItem — universal intermediate representation

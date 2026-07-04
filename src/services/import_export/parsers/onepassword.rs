@@ -225,6 +225,7 @@ fn parse_login_item(index: usize, item: &OnePuxItem) -> ParsedItem {
         }
     }
 
+    let totp = extract_totp(details);
     let notes = build_notes(details);
 
     let mut fields = HashMap::new();
@@ -236,6 +237,9 @@ fn parse_login_item(index: usize, item: &OnePuxItem) -> ParsedItem {
     }
     if !notes.is_empty() {
         fields.insert("notes".into(), notes);
+    }
+    if let Some(totp) = totp {
+        fields.insert("totp".into(), totp);
     }
 
     ParsedItem {
@@ -308,7 +312,6 @@ fn build_notes(details: Option<&OnePuxDetails>) -> String {
                     }
                     if let Some(ref id) = sf.id {
                         if id.starts_with("TOTP_") {
-                            parts.push(format!("TOTP: {val_str}"));
                             continue;
                         }
                     }
@@ -321,6 +324,28 @@ fn build_notes(details: Option<&OnePuxDetails>) -> String {
     }
 
     parts.join("\n")
+}
+
+fn extract_totp(details: Option<&OnePuxDetails>) -> Option<String> {
+    let details = details?;
+    for section in &details.sections {
+        if let Some(ref fields) = section.fields {
+            for sf in fields {
+                let Some(ref id) = sf.id else {
+                    continue;
+                };
+                if !id.starts_with("TOTP_") {
+                    continue;
+                }
+                if let Some(value) = extract_section_value(&sf.value) {
+                    if !value.is_empty() {
+                        return Some(value);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Extract a string value from a section field's JSON value.
@@ -1009,8 +1034,12 @@ mod tests {
         let notes = login.fields.get("notes").unwrap();
         assert!(notes.contains("Note to self"), "notes: {notes}");
         assert!(
-            notes.contains("TOTP:"),
-            "notes should contain TOTP: {notes}"
+            !notes.contains("TOTP:"),
+            "TOTP should be structured, not appended to notes: {notes}"
+        );
+        assert!(
+            login.fields.contains_key("totp"),
+            "login should contain structured totp"
         );
         assert_eq!(login.tags, vec!["website"]);
 

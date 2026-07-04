@@ -26,12 +26,18 @@ pub fn validate_payload(payload: &EncryptedPayload) -> Result<(), DataError> {
             password,
             url,
             notes,
+            totp,
         } => {
             validate_len("name", name, MAX_RECORD_NAME_CHARS)?;
             validate_len("username", username, MAX_LOGIN_USERNAME_CHARS)?;
             validate_len("password", password.expose(), MAX_LOGIN_PASSWORD_CHARS)?;
             validate_optional_len("url", url.as_deref(), MAX_URL_CHARS)?;
-            validate_optional_len("notes", notes.as_deref(), MAX_NOTES_CHARS)
+            validate_optional_len("notes", notes.as_deref(), MAX_NOTES_CHARS)?;
+            validate_optional_len(
+                "totp",
+                totp.as_ref().map(|secret| secret.expose()),
+                MAX_URL_CHARS,
+            )
         }
         EncryptedPayload::Api {
             name,
@@ -143,6 +149,7 @@ mod tests {
             password: SecureStr::new("a".repeat(MAX_LOGIN_PASSWORD_CHARS + 1)),
             url: None,
             notes: None,
+            totp: None,
         };
         assert!(matches!(
             validate_payload(&payload),

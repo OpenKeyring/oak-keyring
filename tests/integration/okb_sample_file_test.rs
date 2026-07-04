@@ -373,6 +373,7 @@ fn fields_to_payload(
             password: SecureStr::new(fields.get("password").cloned().unwrap_or_default()),
             url: fields.get("url").cloned(),
             notes: fields.get("notes").cloned(),
+            totp: None,
         },
         CredentialType::Api => EncryptedPayload::Api {
             name: fields.get("name").cloned().unwrap_or_default(),

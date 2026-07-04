@@ -2913,6 +2913,7 @@ fn record_detail_loaded_populates_detail_panel_with_strength_and_health() {
         password: SecureStr::new("pass".into()),
         url: None,
         notes: None,
+        totp: None,
         is_favorite: false,
         expires_at: None,
         created_at: chrono::Utc::now(),
@@ -4447,6 +4448,7 @@ fn trash_navigation_then_restore_full_flow() {
         password: SecureStr::new("pass".to_string()),
         url: None,
         notes: None,
+        totp: None,
     };
     state.update(
         Message::CommandCompleted(CommandResult::RecordDetailLoaded {
@@ -4590,6 +4592,7 @@ fn trash_navigation_then_hard_delete_full_flow() {
         password: SecureStr::new("pass".to_string()),
         url: None,
         notes: None,
+        totp: None,
     };
     state.update(
         Message::CommandCompleted(CommandResult::RecordDetailLoaded {

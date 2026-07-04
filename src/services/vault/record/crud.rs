@@ -212,6 +212,7 @@ impl VaultServiceImpl {
                     password,
                     url,
                     notes,
+                    totp,
                 },
             ) => DecryptedRecord::Login {
                 id: stored.id,
@@ -228,6 +229,7 @@ impl VaultServiceImpl {
                 password,
                 url,
                 notes,
+                totp,
             },
             (
                 CredentialType::Api,

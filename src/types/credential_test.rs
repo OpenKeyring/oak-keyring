@@ -62,6 +62,7 @@ mod tests {
             password: SecureStr::new("pass".into()),
             url: None,
             notes: None,
+            totp: None,
         };
         assert_eq!(rec.id(), id);
     }

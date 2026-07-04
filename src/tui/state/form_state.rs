@@ -873,6 +873,7 @@ impl FormState {
                 } else {
                     Some(notes_text)
                 },
+                totp: None,
             },
             CredentialType::Api => EncryptedPayload::Api {
                 name: std::mem::take(&mut self.fields.name),
@@ -950,6 +951,7 @@ impl FormState {
                 password: clone_secret(self.fields.password.as_ref()),
                 url: Some(self.fields.url.clone()),
                 notes: optional_notes(),
+                totp: None,
             },
             CredentialType::Api => EncryptedPayload::Api {
                 name: self.fields.name.clone(),
@@ -1130,6 +1132,7 @@ mod tests {
                 password,
                 url,
                 notes,
+                totp: _,
             } => {
                 assert_eq!(name, "Example");
                 assert_eq!(username, "alice");

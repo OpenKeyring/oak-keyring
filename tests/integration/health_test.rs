@@ -181,6 +181,7 @@ fn create_record(vault: &mut VaultService, name: &str) -> uuid::Uuid {
                 password: SecureStr::new("password123".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,
@@ -261,6 +262,7 @@ fn integration_password_change_clears_health_state() {
                 password: SecureStr::new("completely_new_password!".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,
@@ -296,6 +298,7 @@ fn integration_cosmetic_update_preserves_health_state() {
                 password: SecureStr::new("password123".to_string()), // same password
                 url: None,
                 notes: Some("new notes".to_string()),
+                totp: None,
             },
             tags: vec!["new-tag".to_string()],
             is_favorite: true,

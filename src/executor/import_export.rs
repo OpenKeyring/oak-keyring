@@ -393,6 +393,7 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             password,
             url,
             notes,
+            totp,
             ..
         } => ExportRecord {
             id: id.to_string(),
@@ -402,6 +403,7 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             password: Some(password.expose().to_string()),
             url: url.clone(),
             notes: notes.clone(),
+            totp: totp.as_ref().map(|secret| secret.expose().to_string()),
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
@@ -430,6 +432,7 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             password: None,
             url: url.clone(),
             notes: notes.clone(),
+            totp: None,
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
@@ -458,6 +461,7 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             password: None,
             url: None,
             notes: notes.clone(),
+            totp: None,
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
@@ -483,6 +487,7 @@ fn decrypted_record_to_export(record: &DecryptedRecord) -> ExportRecord {
             password: None,
             url: None,
             notes: notes.clone(),
+            totp: None,
             tags: Some(tags.clone()),
             is_favorite: Some(*is_favorite),
             expires_at: expires_at.map(|t| t.to_rfc3339()),
@@ -510,6 +515,7 @@ fn fields_to_payload(
             password: SecureStr::new(fields.get("password").cloned().unwrap_or_default()),
             url: fields.get("url").cloned(),
             notes: fields.get("notes").cloned(),
+            totp: fields.get("totp").cloned().map(SecureStr::new),
         },
         CredentialType::Api => EncryptedPayload::Api {
             name: fields.get("name").cloned().unwrap_or_default(),
@@ -838,6 +844,7 @@ mod tests {
             password: SecureStr::new("s3cret!".to_string()),
             url: Some("https://github.com".to_string()),
             notes: Some("personal account".to_string()),
+            totp: None,
         };
 
         let export = decrypted_record_to_export(&record);
@@ -1178,6 +1185,34 @@ mod tests {
                 assert!(notes.is_none());
             }
             _ => panic!("expected Ssh payload"),
+        }
+    }
+
+    #[test]
+    fn fields_to_payload_preserves_login_totp() {
+        use std::collections::HashMap;
+
+        let mut fields = HashMap::new();
+        fields.insert("name".to_string(), "GitHub".to_string());
+        fields.insert("username".to_string(), "alice".to_string());
+        fields.insert("password".to_string(), "secret".to_string());
+        fields.insert(
+            "totp".to_string(),
+            "otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=GitHub".to_string(),
+        );
+
+        let payload = fields_to_payload(CredentialType::Login, &fields);
+
+        match payload {
+            EncryptedPayload::Login {
+                totp: Some(totp), ..
+            } => {
+                assert_eq!(
+                    totp.expose(),
+                    "otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=GitHub"
+                );
+            }
+            _ => panic!("expected Login payload with totp"),
         }
     }
 

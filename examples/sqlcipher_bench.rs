@@ -81,6 +81,7 @@ fn login_payload(name: &str, password: &str) -> EncryptedPayload {
         password: SecureStr::new(password.to_string()),
         url: Some(format!("https://{name}.example.test")),
         notes: Some("sqlcipher benchmark fixture".to_string()),
+        totp: None,
     }
 }
 

@@ -27,6 +27,7 @@ fn create_login_record(vault: &mut VaultService, name: &str, tags: Vec<String>) 
                 password: SecureStr::new(Uuid::new_v4().to_string()),
                 url: Some("https://example.com".to_string()),
                 notes: None,
+                totp: None,
             },
             tags,
             is_favorite: false,

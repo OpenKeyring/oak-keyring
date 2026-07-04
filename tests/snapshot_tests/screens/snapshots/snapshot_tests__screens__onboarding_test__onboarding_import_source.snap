@@ -17,7 +17,7 @@ expression: backend
 "                                                                                "
 "          ── Import Scope ── ──────────────────────────────                     "
 "           ✓ Login items (name, account, password, URL, notes)                  "
-"           ✗ TOTP / 2FA (not supported in current version, discarded d          "
+"           ✗ TOTP / 2FA secrets (preserved; code generation not yet av          "
 "           ⚠ Custom fields (formatted and stored in notes field)                "
 "           ✓ Password history records                                           "
 "           ✗ Attachments (ignored during import)                                "

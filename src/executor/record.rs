@@ -608,6 +608,7 @@ mod tests {
                     password: SecureStr::new(password.to_string()),
                     url: None,
                     notes: None,
+                    totp: None,
                 },
                 tags: vec![],
                 is_favorite: false,
@@ -843,6 +844,7 @@ mod tests {
             password: SecureStr::new("StrongP@ss1".to_string()),
             url: None,
             notes: None,
+            totp: None,
         };
 
         let strength = compute_password_strength(&record);
@@ -934,6 +936,7 @@ mod tests {
                 password: SecureStr::new("NewP@ss1!".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             vec![],
             false,

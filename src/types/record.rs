@@ -42,6 +42,7 @@ pub enum DecryptedRecord {
         password: SecureStr,
         url: Option<String>,
         notes: Option<String>,
+        totp: Option<SecureStr>,
     },
     Api {
         id: Uuid,

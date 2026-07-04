@@ -337,6 +337,7 @@ mod tests {
                 password: SecureStr::new("pass".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,

@@ -384,6 +384,7 @@ async fn sqlcipher_unlocked_vault_supports_full_query_pipeline() {
             password: SecureStr::new("test-password".to_string()),
             url: Some("https://test.example.com".to_string()),
             notes: Some("regression test".to_string()),
+            totp: None,
         },
         vec!["test-tag".to_string()],
         false,

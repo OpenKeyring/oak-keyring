@@ -55,6 +55,7 @@ struct OkbRecord {
     password: Option<String>,
     url: Option<String>,
     notes: Option<String>,
+    totp: Option<String>,
     tags: Option<Vec<String>>,
     is_favorite: Option<bool>,
     expires_at: Option<String>,
@@ -153,6 +154,7 @@ impl FormatParser for OkbParser {
                 insert_optional(&mut fields, "password", r.password);
                 insert_optional(&mut fields, "url", r.url);
                 insert_optional(&mut fields, "notes", r.notes);
+                insert_optional(&mut fields, "totp", r.totp);
                 if let Some(fav) = r.is_favorite {
                     fields.insert("is_favorite".into(), fav.to_string());
                 }

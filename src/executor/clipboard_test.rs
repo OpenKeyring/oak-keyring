@@ -49,6 +49,7 @@ fn create_login_record(executor: &mut CommandExecutor) -> uuid::Uuid {
                 password: SecureStr::new("correct horse battery staple".to_string()),
                 url: Some("https://github.com".to_string()),
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,

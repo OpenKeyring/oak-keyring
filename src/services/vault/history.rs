@@ -195,6 +195,7 @@ mod tests {
                 password: SecureStr::new(password.to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,
@@ -228,6 +229,7 @@ mod tests {
             password: SecureStr::new("newP@ssw0rd!".to_string()),
             url: None,
             notes: None,
+            totp: None,
         };
         svc.update_record(UpdateRecordParams {
             id,
@@ -259,6 +261,7 @@ mod tests {
             password: SecureStr::new("newP@ssw0rd!".to_string()),
             url: None,
             notes: None,
+            totp: None,
         };
         svc.update_record(UpdateRecordParams {
             id,
@@ -301,6 +304,7 @@ mod tests {
                 password: SecureStr::new(format!("password{}", i)),
                 url: None,
                 notes: None,
+                totp: None,
             };
             svc.update_record(UpdateRecordParams {
                 id,
@@ -343,6 +347,7 @@ mod tests {
                 password: SecureStr::new("br@ndNewP@ss!".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,

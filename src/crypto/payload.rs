@@ -12,6 +12,8 @@ enum PayloadPlaintextDto {
         password: String,
         url: Option<String>,
         notes: Option<String>,
+        #[serde(default)]
+        totp: Option<String>,
     },
     Api {
         name: String,
@@ -44,12 +46,14 @@ impl PayloadPlaintextDto {
                 password,
                 url,
                 notes,
+                totp,
             } => PayloadPlaintextDto::Login {
                 name: name.clone(),
                 username: username.clone(),
                 password: password.expose().to_string(),
                 url: url.clone(),
                 notes: notes.clone(),
+                totp: totp.as_ref().map(|secret| secret.expose().to_string()),
             },
             EncryptedPayload::Api {
                 name,
@@ -94,12 +98,14 @@ impl PayloadPlaintextDto {
                 password,
                 url,
                 notes,
+                totp,
             } => EncryptedPayload::Login {
                 name,
                 username,
                 password: SecureStr::new(password),
                 url,
                 notes,
+                totp: totp.map(SecureStr::new),
             },
             PayloadPlaintextDto::Api {
                 name,
@@ -230,6 +236,7 @@ mod tests {
             password: SecureStr::new("correct horse".to_string()),
             url: Some("https://example.test".to_string()),
             notes: None,
+            totp: None,
         };
 
         let dto = PayloadPlaintextDto::from_payload(&payload);
@@ -240,6 +247,47 @@ mod tests {
                 assert_eq!(password.expose(), "correct horse");
             }
             _ => panic!("expected login payload"),
+        }
+    }
+
+    #[test]
+    fn payload_roundtrip_preserves_login_totp_secret() {
+        let payload = EncryptedPayload::Login {
+            name: "example".to_string(),
+            username: "alice".to_string(),
+            password: SecureStr::new("correct horse".to_string()),
+            url: Some("https://example.test".to_string()),
+            notes: None,
+            totp: Some(SecureStr::new(
+                "otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP&issuer=Example".to_string(),
+            )),
+        };
+
+        let dto = PayloadPlaintextDto::from_payload(&payload);
+        let restored = dto.into_payload();
+
+        match restored {
+            EncryptedPayload::Login {
+                totp: Some(totp), ..
+            } => {
+                assert_eq!(
+                    totp.expose(),
+                    "otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP&issuer=Example"
+                );
+            }
+            _ => panic!("expected login payload with totp"),
+        }
+    }
+
+    #[test]
+    fn legacy_login_payload_without_totp_deserializes_with_none() {
+        let json = r#"{"Login":{"name":"example","username":"alice","password":"correct horse","url":null,"notes":null}}"#;
+        let dto: PayloadPlaintextDto = serde_json::from_str(json).expect("legacy login payload");
+        let restored = dto.into_payload();
+
+        match restored {
+            EncryptedPayload::Login { totp: None, .. } => {}
+            _ => panic!("expected legacy login payload without totp"),
         }
     }
 }

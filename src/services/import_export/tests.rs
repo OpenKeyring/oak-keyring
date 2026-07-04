@@ -485,6 +485,7 @@ fn sample_export_records() -> Vec<super::export::ExportRecord> {
         password: Some("s3cret".to_string()),
         url: Some("https://example.com".to_string()),
         notes: None,
+        totp: None,
         tags: Some(vec!["test".to_string()]),
         is_favorite: Some(false),
         expires_at: None,

@@ -39,6 +39,7 @@ fn sample_login_payload(name: &str) -> EncryptedPayload {
         password: SecureStr::new("s3cret!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+        totp: None,
     }
 }
 
@@ -698,6 +699,7 @@ fn update_record_saves_password_history_when_password_changes() {
         password: SecureStr::new("newP@ssw0rd!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+        totp: None,
     };
 
     let params = UpdateRecordParams {
@@ -732,6 +734,7 @@ fn update_record_skips_password_history_when_password_unchanged() {
         password: SecureStr::new("s3cret!".to_string()), // Same password
         url: Some("https://github.com".to_string()),
         notes: None,
+        totp: None,
     };
 
     let params = UpdateRecordParams {
@@ -863,6 +866,7 @@ fn update_record_payload_decrypts_correctly() {
         password: SecureStr::new("n3wP@ss".to_string()),
         url: None,
         notes: Some("updated notes".to_string()),
+        totp: None,
     };
 
     let params = UpdateRecordParams {
@@ -1197,6 +1201,7 @@ fn hard_delete_record_cascades_deletes_tags_and_password_history() {
         password: SecureStr::new("newPassword123!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+        totp: None,
     };
     svc.update_record(UpdateRecordParams {
         id,
@@ -1399,6 +1404,7 @@ fn create_named_record(svc: &mut VaultService, name: &str) -> Uuid {
             password: SecureStr::new("password123".to_string()),
             url: None,
             notes: None,
+            totp: None,
         },
         tags: vec![],
         is_favorite: false,
@@ -1553,6 +1559,7 @@ fn list_records_sorts_by_updated_at_desc() {
             password: SecureStr::new("password123".to_string()),
             url: None,
             notes: None,
+            totp: None,
         },
         tags: vec![],
         is_favorite: false,
@@ -1595,6 +1602,7 @@ fn list_records_sorts_by_updated_at_asc() {
             password: SecureStr::new("password123".to_string()),
             url: None,
             notes: None,
+            totp: None,
         },
         tags: vec![],
         is_favorite: false,
@@ -1638,6 +1646,7 @@ fn list_records_favorites_returns_only_favorites() {
                 password: SecureStr::new("fav_pass".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: true,
@@ -1676,6 +1685,7 @@ fn list_records_tag_filter_returns_matching_records() {
                 password: SecureStr::new("work_pass".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec!["work".to_string()],
             is_favorite: false,
@@ -1693,6 +1703,7 @@ fn list_records_tag_filter_returns_matching_records() {
                 password: SecureStr::new("personal_pass".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec!["personal".to_string()],
             is_favorite: false,
@@ -1746,6 +1757,7 @@ fn list_records_expired_returns_all_active_for_executor_filtering() {
                 password: SecureStr::new("expired_pass".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,
@@ -1763,6 +1775,7 @@ fn list_records_expired_returns_all_active_for_executor_filtering() {
                 password: SecureStr::new("valid_pass".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,
@@ -1884,6 +1897,7 @@ fn list_records_populates_decrypted_name_and_subtitle() {
                 password: SecureStr::new("s3cret!".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec!["dev".to_string()],
             is_favorite: true,
@@ -2126,6 +2140,7 @@ fn decrypt_field_login_url_none_returns_invalid_field() {
                 password: SecureStr::new("pass".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,
@@ -2508,6 +2523,7 @@ fn update_record_password_change_deletes_health_state() {
         password: SecureStr::new("newP@ssw0rd!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+        totp: None,
     };
 
     svc.update_record(UpdateRecordParams {
@@ -2543,6 +2559,7 @@ fn update_record_expires_at_change_deletes_health_state() {
         password: SecureStr::new("s3cret!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+        totp: None,
     };
 
     svc.update_record(UpdateRecordParams {
@@ -2577,6 +2594,7 @@ fn update_record_cosmetic_change_carries_health_state_version() {
         password: SecureStr::new("s3cret!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+        totp: None,
     };
 
     svc.update_record(UpdateRecordParams {
@@ -2621,6 +2639,7 @@ fn update_record_cosmetic_change_preserves_health_flags() {
         password: SecureStr::new("s3cret!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+        totp: None,
     };
 
     svc.update_record(UpdateRecordParams {
@@ -2659,6 +2678,7 @@ fn update_record_cosmetic_change_without_prior_health_state_is_noop() {
         password: SecureStr::new("s3cret!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+        totp: None,
     };
 
     svc.update_record(UpdateRecordParams {
@@ -2730,6 +2750,7 @@ fn update_record_expires_at_removed_deletes_health_state() {
                 password: SecureStr::new("s3cret!".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
             },
             tags: vec![],
             is_favorite: false,
@@ -2747,6 +2768,7 @@ fn update_record_expires_at_removed_deletes_health_state() {
         password: SecureStr::new("s3cret!".to_string()),
         url: None,
         notes: None,
+        totp: None,
     };
 
     svc.update_record(UpdateRecordParams {

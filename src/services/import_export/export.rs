@@ -30,6 +30,8 @@ pub struct ExportRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub totp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_favorite: Option<bool>,
@@ -64,6 +66,9 @@ impl Drop for ExportRecord {
             v.zeroize();
         }
         if let Some(ref mut v) = self.secret_key {
+            v.zeroize();
+        }
+        if let Some(ref mut v) = self.totp {
             v.zeroize();
         }
     }
@@ -331,6 +336,7 @@ mod tests {
                 password: Some("s3cret123".to_string()),
                 url: Some("https://gmail.com".to_string()),
                 notes: None,
+                totp: None,
                 tags: Some(vec!["email".to_string()]),
                 is_favorite: Some(true),
                 expires_at: None,
@@ -574,6 +580,7 @@ mod tests {
                     password: Some("s3cret".to_string()),
                     url: Some("https://gmail.com".to_string()),
                     notes: Some("My email".to_string()),
+                    totp: None,
                     tags: Some(vec!["email".to_string()]),
                     is_favorite: Some(true),
                     expires_at: None,
@@ -591,6 +598,7 @@ mod tests {
                     password: None,
                     url: None,
                     notes: None,
+                    totp: None,
                     tags: None,
                     is_favorite: None,
                     expires_at: None,
@@ -608,6 +616,7 @@ mod tests {
                     password: None,
                     url: None,
                     notes: None,
+                    totp: None,
                     tags: Some(vec!["cloud".to_string(), "aws".to_string()]),
                     is_favorite: Some(false),
                     expires_at: None,
@@ -662,6 +671,7 @@ mod tests {
                 password: Some("pass\"quotes".to_string()),
                 url: None,
                 notes: None,
+                totp: None,
                 tags: Some(vec!["tag,one".to_string(), "tag;two".to_string()]),
                 is_favorite: None,
                 expires_at: None,

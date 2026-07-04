@@ -112,6 +112,7 @@ fn sample_login_payload() -> EncryptedPayload {
         password: SecureStr::new("s3cret!".to_string()),
         url: Some("https://github.com".to_string()),
         notes: None,
+        totp: None,
     }
 }
 

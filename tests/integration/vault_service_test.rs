@@ -46,6 +46,7 @@ fn login_payload(name: &str, username: &str, password: &str) -> EncryptedPayload
         password: SecureStr::new(password.to_string()),
         url: None,
         notes: None,
+        totp: None,
     }
 }
 
