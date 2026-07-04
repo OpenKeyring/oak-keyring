@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
 use tokio::time::Duration;
 use tracing::{debug, info, warn};
+use zeroize::Zeroizing;
 
 use crate::errors::mapping::clipboard::ClipboardError;
 
@@ -329,8 +330,8 @@ impl ClipboardServiceImpl {
             }
         };
 
-        let current_content = self.backend.get_text()?;
-        let current_hash = hash_content(&current_content);
+        let current_content = Zeroizing::new(self.backend.get_text()?);
+        let current_hash = hash_content(current_content.as_str());
 
         if current_hash == expected_hash {
             self.backend.set_text("")?;
@@ -407,7 +408,8 @@ impl ClipboardServiceImpl {
             tokio::time::sleep(Duration::from_secs(timeout)).await;
             if let Some(hash) = expected_hash {
                 if let Ok(content) = backend.get_text() {
-                    if hash_content(&content) == hash {
+                    let content = Zeroizing::new(content);
+                    if hash_content(content.as_str()) == hash {
                         let _ = backend.set_text("");
                         info!("Auto-clear timer: clipboard cleared");
                     } else {
@@ -524,8 +526,8 @@ impl Clipboard for ClipboardServiceImpl {
             }
         };
 
-        let current_content = self.backend.get_text()?;
-        let current_hash = hash_content(&current_content);
+        let current_content = Zeroizing::new(self.backend.get_text()?);
+        let current_hash = hash_content(current_content.as_str());
 
         if current_hash == expected_hash {
             self.backend.set_text("")?;

@@ -108,6 +108,7 @@ fn load_oauth2_tokens_into_config(config: &mut AppConfig, config_dir: &std::path
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ShutdownReport {
+    pub clipboard_clear: ShutdownStepStatus,
     pub sync_shutdown: ShutdownStepStatus,
     pub wal_checkpoint: ShutdownStepStatus,
 }
@@ -115,6 +116,7 @@ pub(crate) struct ShutdownReport {
 impl Default for ShutdownReport {
     fn default() -> Self {
         Self {
+            clipboard_clear: ShutdownStepStatus::NotApplicable,
             sync_shutdown: ShutdownStepStatus::NotApplicable,
             wal_checkpoint: ShutdownStepStatus::NotApplicable,
         }
@@ -422,7 +424,10 @@ impl CommandExecutor {
         }
 
         let report = self.shutdown_gracefully().await;
-        if report.sync_shutdown.has_failure() || report.wal_checkpoint.has_failure() {
+        if report.clipboard_clear.has_failure()
+            || report.sync_shutdown.has_failure()
+            || report.wal_checkpoint.has_failure()
+        {
             tracing::error!(?report, "CommandExecutor stopped with shutdown failures");
         } else {
             info!("CommandExecutor stopped");
@@ -469,7 +474,13 @@ impl CommandExecutor {
     pub(crate) async fn shutdown_gracefully(&mut self) -> ShutdownReport {
         self.operation_cancel_token.cancel();
 
-        let mut report = ShutdownReport::default();
+        let mut report = ShutdownReport {
+            clipboard_clear: match self.clipboard.clear() {
+                Ok(()) => ShutdownStepStatus::Completed,
+                Err(e) => ShutdownStepStatus::Failed(e.to_string()),
+            },
+            ..ShutdownReport::default()
+        };
 
         if let Some(sync) = self.sync.take() {
             report.sync_shutdown =
@@ -703,9 +714,53 @@ fn vault_db_paths(vault_dir: &std::path::Path) -> [std::path::PathBuf; 4] {
 
 #[cfg(test)]
 mod shutdown_tests {
-    use super::{ActivityTracker, CommandExecutor, DbStartupMode, ShutdownStepStatus};
+    use super::{CommandExecutor, ShutdownStepStatus};
+    use crate::errors::mapping::clipboard::ClipboardError;
+    use crate::services::clipboard::Clipboard;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::Arc;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
+
+    struct TrackingClipboard {
+        cleared: Arc<AtomicBool>,
+        timeout: AtomicU64,
+    }
+
+    impl TrackingClipboard {
+        fn new(cleared: Arc<AtomicBool>) -> Self {
+            Self {
+                cleared,
+                timeout: AtomicU64::new(30),
+            }
+        }
+    }
+
+    impl Clipboard for TrackingClipboard {
+        fn copy(&self, _text: &str) -> Result<u64, ClipboardError> {
+            Ok(self.timeout.load(Ordering::Relaxed))
+        }
+
+        fn clear(&self) -> Result<(), ClipboardError> {
+            self.cleared.store(true, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn smart_clear(&self) -> Result<bool, ClipboardError> {
+            self.clear()?;
+            Ok(true)
+        }
+
+        fn set_clear_timeout(&self, seconds: u64) {
+            self.timeout.store(seconds, Ordering::Relaxed);
+        }
+
+        fn clear_timeout(&self) -> u64 {
+            self.timeout.load(Ordering::Relaxed)
+        }
+
+        fn cancel_timer(&self) {}
+    }
 
     #[tokio::test]
     async fn shutdown_token_cancels_operation_token() {
@@ -721,22 +776,50 @@ mod shutdown_tests {
     async fn shutdown_report_marks_sync_and_wal_not_applicable_for_in_memory_vault() {
         let shutdown = CancellationToken::new();
         let dir = tempfile::tempdir().unwrap();
-        let executor = CommandExecutor::new(
-            crate::config::AppConfig::default_config(),
-            mpsc::channel(8).0,
-            shutdown,
-            dir.path().to_path_buf(),
-            dir.path().to_path_buf(),
-            DbStartupMode::DeferredInMemory,
-            ActivityTracker::new(),
-        )
-        .expect("executor should construct with in-memory vault");
+        let cleared = Arc::new(AtomicBool::new(false));
+        let (result_tx, _) = mpsc::channel(8);
+        let conn = crate::db::schema::init_db_in_memory().expect("init db");
+        let vault = Box::new(crate::services::vault::VaultServiceImpl::new(conn));
+        let executor = CommandExecutor::builder(dir.path().to_path_buf(), dir.path().to_path_buf())
+            .vault(vault)
+            .config(crate::config::AppConfig::default_config())
+            .result_tx(result_tx)
+            .shutdown_token(shutdown)
+            .clipboard(Arc::new(TrackingClipboard::new(cleared)))
+            .build()
+            .expect("executor should construct with in-memory vault");
 
         let mut executor = executor;
         let report = executor.shutdown_gracefully().await;
 
+        assert_eq!(report.clipboard_clear, ShutdownStepStatus::Completed);
         assert_eq!(report.sync_shutdown, ShutdownStepStatus::NotApplicable);
         assert_eq!(report.wal_checkpoint, ShutdownStepStatus::NotApplicable);
+    }
+
+    #[tokio::test]
+    async fn shutdown_gracefully_clears_clipboard() {
+        let shutdown = CancellationToken::new();
+        let dir = tempfile::tempdir().unwrap();
+        let cleared = Arc::new(AtomicBool::new(false));
+        let (result_tx, _) = mpsc::channel(8);
+        let conn = crate::db::schema::init_db_in_memory().expect("init db");
+        let vault = Box::new(crate::services::vault::VaultServiceImpl::new(conn));
+        let mut executor =
+            CommandExecutor::builder(dir.path().to_path_buf(), dir.path().to_path_buf())
+                .vault(vault)
+                .config(crate::config::AppConfig::default_config())
+                .result_tx(result_tx)
+                .shutdown_token(shutdown)
+                .clipboard(Arc::new(TrackingClipboard::new(Arc::clone(&cleared))))
+                .build()
+                .expect("executor should build");
+
+        let report = executor.shutdown_gracefully().await;
+
+        assert_eq!(report.clipboard_clear, ShutdownStepStatus::Completed);
+        assert_eq!(report.sync_shutdown, ShutdownStepStatus::NotApplicable);
+        assert!(cleared.load(Ordering::Relaxed));
     }
 }
 
