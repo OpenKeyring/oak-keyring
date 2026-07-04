@@ -31,7 +31,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.93.0"
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: bash tests/scripts/stage_binaries_test.sh
@@ -40,6 +41,12 @@ jobs:
           OAK_GOOGLE_CLIENT_ID: ${{ secrets.OAK_GOOGLE_CLIENT_ID }}
           OAK_GOOGLE_CLIENT_SECRET: ${{ secrets.OAK_GOOGLE_CLIENT_SECRET }}
       - run: cargo test
+        env:
+          OAK_GOOGLE_CLIENT_ID: ${{ secrets.OAK_GOOGLE_CLIENT_ID }}
+          OAK_GOOGLE_CLIENT_SECRET: ${{ secrets.OAK_GOOGLE_CLIENT_SECRET }}
+      - run: >
+          cargo llvm-cov --all-targets --summary-only --fail-under-lines 80
+          --ignore-filename-regex '(^|/)(tests|test_data)/|(_test|tests)\.rs$'
         env:
           OAK_GOOGLE_CLIENT_ID: ${{ secrets.OAK_GOOGLE_CLIENT_ID }}
           OAK_GOOGLE_CLIENT_SECRET: ${{ secrets.OAK_GOOGLE_CLIENT_SECRET }}
