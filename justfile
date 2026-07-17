@@ -1,34 +1,34 @@
-# oak-keyring 开发任务
-# 使用: just <recipe>
+# oak-keyring development tasks
+# Usage: just <recipe>
 
-# 列出所有可用 recipe
+# List all available recipes
 default:
     @just --list
 
-# 编译 debug 版本
+# Build debug version
 build:
     cargo build
 
-# 编译 release 版本
+# Build release version
 release:
     cargo build --release
 
-# 运行全部测试
+# Run all tests
 test:
     cargo test
 
-# 仅跑集成测试
+# Run integration tests only
 test-integration:
     cargo test --test integration
 
-# lint: 格式检查 + clippy
+# lint: format check + clippy
 lint:
     cargo fmt --check
     cargo clippy -- -D warnings
 
-# 一站式 PR 前检查 (lint + test)
+# One-stop pre-PR check (lint + test)
 check: lint test
 
-# 格式化代码
+# Format code
 fmt:
     cargo fmt

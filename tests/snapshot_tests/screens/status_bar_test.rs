@@ -101,7 +101,7 @@ fn status_bar_with_clipboard_countdown() {
         health_check_phase: HealthCheckPhase::AllSecure,
         sync_status: SyncIndicator::Syncing,
         status_message: Some(StatusMessage::ClipboardCountdown {
-            field: "\u{5BC6}\u{7801}".to_string(), // 密码
+            field: "\u{5BC6}\u{7801}".to_string(), // password
             seconds: 30,
         }),
         ..Default::default()

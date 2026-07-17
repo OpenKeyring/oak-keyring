@@ -753,7 +753,7 @@ fn render_visual_mode_with_selections() {
 
     let result = render_snapshot(&state, 50, 15, true, true, RecordFilter::All);
 
-    // The buffer should contain the visual mode bar with "2 已选"
+    // The buffer should contain the visual mode bar with "2 selected"
     assert!(
         result.contains("2") || result.contains("(\u{0032}"),
         "rendered buffer should show 2 selected items"
@@ -1500,7 +1500,7 @@ fn highlight_chinese_text_does_not_panic() {
 fn highlight_mixed_ascii_cjk() {
     let terms: Vec<String> = vec!["test".to_string()];
     let spans = ListPanel::highlight_match("test密码test", &terms);
-    // Should have 3 spans: highlighted "test", normal "密码", highlighted "test"
+    // Should have 3 spans: highlighted "test", normal Chinese text, highlighted "test"
     assert!(spans.len() >= 3, "Expected at least 3 spans for mixed text");
 }
 
@@ -1603,7 +1603,7 @@ fn list_render_isolates_en_locale_from_concurrent_zh_cn_guards() {
     // Reproduces the flake root cause: en list renders (no guard) race with
     // concurrent zh-CN guard holders that mutate the process-global locale.
     // Before the fix, `render_snapshot` had no guard, so victims could read
-    // zh-CN and render "已过期" instead of "Expired".
+    // zh-CN and render the Chinese "expired" label instead of "Expired".
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::thread;

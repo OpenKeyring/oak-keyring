@@ -1476,7 +1476,7 @@ fn tag_chip_spans(tag: &str) -> Vec<Span<'static>> {
 
 /// Render the batch summary view in the detail panel when visual mode is active.
 ///
-/// Shows: "已选择 N 项" header, item names (max 5), and action hints.
+/// Shows: "N selected" header, item names (max 5), and action hints.
 fn render_batch_summary_view(
     frame: &mut Frame,
     area: Rect,
@@ -1491,7 +1491,7 @@ fn render_batch_summary_view(
     lines.push(Line::from(""));
     lines.push(Line::from(""));
 
-    // Header: 已选择 N 项
+    // Header: N selected items
     lines.push(Line::from(Span::styled(
         format!(
             "{}{}",
@@ -1621,6 +1621,7 @@ mod tests {
         focused: bool,
         unicode: bool,
     ) -> String {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let backend = TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
@@ -1640,6 +1641,7 @@ mod tests {
         focused: bool,
         unicode: bool,
     ) -> ratatui::buffer::Buffer {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let backend = TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal

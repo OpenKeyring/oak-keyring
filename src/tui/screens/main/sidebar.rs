@@ -769,6 +769,7 @@ mod tests {
         width: u16,
         height: u16,
     ) -> ratatui::buffer::Buffer {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
@@ -1275,7 +1276,7 @@ mod tests {
         let result = format!("{:?}", buf);
         // Check that the header contains some content (may be localized)
         assert!(
-            result.contains("Tags") || result.contains('\u{6807}'), // Tags or 标签
+            result.contains("Tags") || result.contains('\u{6807}'), // Tags or label
             "header should contain tag label"
         );
     }

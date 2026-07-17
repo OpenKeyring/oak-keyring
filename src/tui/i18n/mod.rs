@@ -54,6 +54,11 @@ pub fn detect_system_locale() -> Option<String> {
 ///
 /// - "auto" → detect system locale, fallback to "en"
 /// - "en" or "zh-CN" → use directly
+///
+/// Sets both the per-thread render locale (read by the `t!` macro) and the
+/// process-global `rust_i18n` locale (for any direct `rust_i18n::locale()`
+/// reader). Renders go through the `t!` wrapper, so they read the per-thread
+/// value and are race-free under the parallel test runner.
 pub fn init(configured_language: &str) {
     let locale = match configured_language {
         "auto" => detect_system_locale()
@@ -61,38 +66,72 @@ pub fn init(configured_language: &str) {
             .unwrap_or_else(|| "en".to_string()),
         locale => locale.to_string(),
     };
+    set_render_locale(&locale);
     rust_i18n::set_locale(&locale);
 }
 
 /// Switch locale at runtime (called when user changes language in config).
 pub fn switch_locale(locale: &str) {
     let normalized = normalize_locale(locale);
+    set_render_locale(&normalized);
     rust_i18n::set_locale(&normalized);
 }
 
-#[cfg(test)]
-static LOCALE_LOCK: parking_lot::ReentrantMutex<()> = parking_lot::const_reentrant_mutex(());
+// ---------------------------------------------------------------------------
+// Per-thread render locale
+//
+// `rust_i18n::t!` reads a *process-global* locale, so under the parallel test
+// runner any locale-dependent render races with concurrent locale mutations.
+// To make renders deterministic per thread (and eliminate that race without
+// any locking or per-test discipline), the active render locale is kept in a
+// thread-local and injected into every translation by the `t!` wrapper below.
+// ---------------------------------------------------------------------------
 
-/// RAII guard that serializes locale-dependent tests and restores locale on drop.
-/// Uses a process-wide reentrant mutex so no two locale-sensitive tests run
-/// concurrently, while still allowing a single test to nest guards (e.g. an
-/// outer manual guard plus an inner render-helper guard) without deadlocking.
+thread_local! {
+    /// Locale the `t!` macro translates with on the current thread (default: "en").
+    static RENDER_LOCALE: std::cell::RefCell<String> = std::cell::RefCell::new("en".to_string());
+}
+
+/// Current per-thread render locale (the value the `t!` macro translates with).
+pub fn render_locale() -> String {
+    RENDER_LOCALE.with(|l| l.borrow().clone())
+}
+
+/// Set the per-thread render locale for the current thread.
+pub fn set_render_locale(locale: &str) {
+    RENDER_LOCALE.with(|l| *l.borrow_mut() = locale.to_string());
+}
+
+/// Translate a key using the current thread's render locale.
+///
+/// Wraps [`rust_i18n::t!`], injecting `locale = render_locale()` so every
+/// translation reads the per-thread locale instead of the process-global one.
+/// That makes TUI renders deterministic per thread and removes the parallel-test
+/// locale race without locks or per-test guards.
+#[macro_export]
+macro_rules! t {
+    ($($args:tt)*) => {{
+        let __oak_render_locale: String = $crate::tui::i18n::render_locale();
+        rust_i18n::t!($($args)*, locale = __oak_render_locale.as_str())
+    }};
+}
+
+/// RAII guard that pins the per-thread render locale and restores it on drop.
+///
+/// Because the locale is thread-local, holding this guard makes the current
+/// thread's renders deterministic regardless of what other threads do — no
+/// process-wide lock is needed, so locale-dependent tests never contend or race.
 #[cfg(test)]
 pub struct LocaleGuard {
     original: String,
-    _lock: parking_lot::ReentrantMutexGuard<'static, ()>,
 }
 
 #[cfg(test)]
 impl LocaleGuard {
     pub fn new(locale: &str) -> Self {
-        let lock = LOCALE_LOCK.lock();
-        let original = rust_i18n::locale().to_string();
-        init(locale);
-        Self {
-            original,
-            _lock: lock,
-        }
+        let original = render_locale();
+        set_render_locale(locale);
+        Self { original }
     }
 
     pub fn en() -> Self {
@@ -107,7 +146,7 @@ impl LocaleGuard {
 #[cfg(test)]
 impl Drop for LocaleGuard {
     fn drop(&mut self) {
-        rust_i18n::set_locale(&self.original);
+        set_render_locale(&self.original);
     }
 }
 
@@ -192,7 +231,7 @@ mod tests {
 
         // init("auto") should resolve to a supported locale
         init("auto");
-        let current = &*rust_i18n::locale();
+        let current = render_locale();
         assert!(
             current == "en" || current == "zh-CN",
             "Expected en or zh-CN, got {current:?}"
@@ -200,20 +239,20 @@ mod tests {
 
         // init("en") should force English
         init("en");
-        assert_eq!(&*rust_i18n::locale(), "en");
+        assert_eq!(render_locale(), "en");
 
         // init("zh-CN") should force Chinese
         init("zh-CN");
-        assert_eq!(&*rust_i18n::locale(), "zh-CN");
+        assert_eq!(render_locale(), "zh-CN");
 
         // switch_locale should change runtime locale
         switch_locale("en");
-        assert_eq!(&*rust_i18n::locale(), "en");
+        assert_eq!(render_locale(), "en");
 
         switch_locale("zh-CN");
-        assert_eq!(&*rust_i18n::locale(), "zh-CN");
+        assert_eq!(render_locale(), "zh-CN");
 
         switch_locale("en");
-        assert_eq!(&*rust_i18n::locale(), "en");
+        assert_eq!(render_locale(), "en");
     }
 }

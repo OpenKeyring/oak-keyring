@@ -381,7 +381,7 @@ pub(super) fn build_record_item<'a>(
 /// Build a trash-specific list item with deletion metadata and progressive warnings.
 ///
 /// Line 1 (title): `  [Type] Name    ◀`
-/// Line 2 (metadata): `  X 天前删除  剩余 N 天` with progressive color warnings
+/// Line 2 (metadata): `  deleted X days ago  N days remaining` with progressive color warnings
 /// Line 3 (separator): `─────` or `-----`
 pub(super) fn build_trash_item<'a>(
     record: &crate::types::record::TuiRecord,

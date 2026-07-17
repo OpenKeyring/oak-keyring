@@ -43,8 +43,12 @@ oak-keyring 是一个 privacy-first、local-first 的密码管理器，提供键
 
 ```bash
 brew tap openkeyring/oak-keyring
+brew trust --formula openkeyring/oak-keyring/ok
 brew install ok
 ```
+
+Homebrew 6.0+ 要求信任非官方 tap（macOS 与 Linux 均适用）。具体报错信息和可选方式见
+[INSTALL-ZH.md](INSTALL-ZH.md)。
 
 ### npm
 

@@ -1,6 +1,6 @@
 [package]
 name = "oak-keyring"
-version = "0.8.0-preview.2"
+version = "0.8.0-preview.3"
 edition = "2021"
 description = "A terminal TUI password manager with TEA architecture and end-to-end encryption"
 license = "MIT"

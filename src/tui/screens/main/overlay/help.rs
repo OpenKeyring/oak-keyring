@@ -33,7 +33,7 @@ struct ShortcutGroup {
 }
 
 /// Indices of groups hidden in compact (single-column) layout.
-/// Group 3 = "回收站", Group 5 = "标签管理".
+/// Group 3 = "Trash", Group 5 = "Tag Management".
 const COMPACT_HIDDEN: &[usize] = &[3, 5];
 
 // ── Group definitions ─────────────────────────────────────────

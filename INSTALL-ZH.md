@@ -31,8 +31,23 @@ ok --version
 
 ```bash
 brew tap openkeyring/oak-keyring
+brew trust --formula openkeyring/oak-keyring/ok
 brew install ok
 ```
+
+Homebrew 6.0.0 及以上版本要求在加载非官方 tap 的 formula 之前先显式信任。该要求对 macOS 和 Linux 同时生效，并非只针对 Linux。如果跳过 `brew trust`，安装会报错：
+
+```text
+Error: Refusing to load formula openkeyring/oak-keyring/ok from untrusted tap openkeyring/oak-keyring.
+Run `brew trust --formula openkeyring/oak-keyring/ok` or `brew trust openkeyring/oak-keyring` to trust it.
+```
+
+其他可选方式：
+
+- 一步到位且只信任 `ok`（无需单独 `brew tap`/`brew trust`）：
+  `brew install openkeyring/oak-keyring/ok`
+- 信任整个 tap，而不是单个 formula：
+  `brew trust openkeyring/oak-keyring`
 
 ## npm 内置二进制包
 

@@ -1,3 +1,5 @@
+use std::io::Write;
+use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -5,6 +7,7 @@ use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
 use tokio::time::Duration;
 use tracing::{debug, info, warn};
+use zeroize::Zeroizing;
 
 use crate::errors::mapping::clipboard::ClipboardError;
 
@@ -27,8 +30,8 @@ const MAX_CONTENT_BYTES: usize = 1024;
 /// # Memory Safety (S4 spec §Memory Safety)
 ///
 /// `set_text()` receives `&str`. Implementations must NOT:
-/// - Clone, buffer, cache, or log the plaintext
-/// - Allocate heap memory to store a copy of the plaintext
+/// - Cache, retain, or log the plaintext
+/// - Put the plaintext in process arguments or shell command strings
 ///
 /// The caller (S5 Executor) handles zeroize via `SecureStr::drop`.
 pub trait ClipboardBackend: Send + Sync {
@@ -77,6 +80,252 @@ impl ClipboardBackend for ArboardBackend {
     fn is_available(&self) -> bool {
         self.clipboard.lock().is_ok()
     }
+}
+
+// ---------------------------------------------------------------------------
+// CommandClipboardBackend — fallback for platform clipboard commands
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CommandPlatform {
+    Macos,
+    Linux,
+    Unsupported,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ClipboardCommandSpec {
+    program: String,
+    args: Vec<String>,
+}
+
+impl ClipboardCommandSpec {
+    fn without_args(program: impl Into<String>) -> Self {
+        Self {
+            program: program.into(),
+            args: Vec::new(),
+        }
+    }
+
+    fn new(program: impl Into<String>, args: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            program: program.into(),
+            args: args.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CommandBackendPlan {
+    name: &'static str,
+    copy: ClipboardCommandSpec,
+    read: ClipboardCommandSpec,
+    clear: ClipboardCommandSpec,
+}
+
+impl CommandBackendPlan {
+    fn required_programs(&self) -> [&str; 3] {
+        [
+            self.copy.program.as_str(),
+            self.read.program.as_str(),
+            self.clear.program.as_str(),
+        ]
+    }
+}
+
+struct CommandClipboardBackend {
+    plan: CommandBackendPlan,
+}
+
+impl CommandClipboardBackend {
+    fn new() -> Result<Self, ClipboardError> {
+        let Some(path) = std::env::var_os("PATH") else {
+            return Err(ClipboardError::PlatformUnavailable(
+                "PATH is not set for clipboard command fallback".into(),
+            ));
+        };
+        command_backend_from_search_path(current_command_platform(), &path).ok_or_else(|| {
+            ClipboardError::PlatformUnavailable(
+                "No complete clipboard command backend found".into(),
+            )
+        })
+    }
+
+    fn with_plan(plan: CommandBackendPlan) -> Self {
+        Self { plan }
+    }
+
+    fn plan_name(&self) -> &'static str {
+        self.plan.name
+    }
+
+    fn run_with_stdin(spec: &ClipboardCommandSpec, input: &str) -> Result<(), ClipboardError> {
+        let mut child = ProcessCommand::new(&spec.program)
+            .args(&spec.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| command_error(spec, "spawn", e))?;
+
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| ClipboardError::Io(format!("{} stdin unavailable", spec.program)))?;
+        stdin
+            .write_all(input.as_bytes())
+            .map_err(|e| command_error(spec, "write stdin", e))?;
+        drop(stdin);
+
+        let status = child.wait().map_err(|e| command_error(spec, "wait", e))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ClipboardError::Io(format!(
+                "{} exited with status {}",
+                spec.program, status
+            )))
+        }
+    }
+
+    fn capture_stdout(spec: &ClipboardCommandSpec) -> Result<String, ClipboardError> {
+        let output = ProcessCommand::new(&spec.program)
+            .args(&spec.args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .map_err(|e| command_error(spec, "capture stdout", e))?;
+
+        if !output.status.success() {
+            return Err(ClipboardError::Io(format!(
+                "{} exited with status {}",
+                spec.program, output.status
+            )));
+        }
+
+        String::from_utf8(output.stdout).map_err(|_| {
+            ClipboardError::Io(format!(
+                "{} returned non-UTF-8 clipboard text",
+                spec.program
+            ))
+        })
+    }
+}
+
+impl ClipboardBackend for CommandClipboardBackend {
+    fn set_text(&self, text: &str) -> Result<(), ClipboardError> {
+        if text.is_empty() {
+            Self::run_with_stdin(&self.plan.clear, "")
+        } else {
+            Self::run_with_stdin(&self.plan.copy, text)
+        }
+    }
+
+    fn get_text(&self) -> Result<String, ClipboardError> {
+        Self::capture_stdout(&self.plan.read)
+    }
+
+    fn is_available(&self) -> bool {
+        true
+    }
+}
+
+fn current_command_platform() -> CommandPlatform {
+    #[cfg(target_os = "macos")]
+    {
+        return CommandPlatform::Macos;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return CommandPlatform::Linux;
+    }
+    #[allow(unreachable_code)]
+    CommandPlatform::Unsupported
+}
+
+fn command_backend_plans_for(platform: CommandPlatform) -> Vec<CommandBackendPlan> {
+    match platform {
+        CommandPlatform::Macos => vec![CommandBackendPlan {
+            name: "pbcopy",
+            copy: ClipboardCommandSpec::without_args("pbcopy"),
+            read: ClipboardCommandSpec::without_args("pbpaste"),
+            clear: ClipboardCommandSpec::without_args("pbcopy"),
+        }],
+        CommandPlatform::Linux => vec![
+            CommandBackendPlan {
+                name: "wl-copy",
+                copy: ClipboardCommandSpec::new("wl-copy", ["--type", "text/plain;charset=utf-8"]),
+                read: ClipboardCommandSpec::without_args("wl-paste"),
+                clear: ClipboardCommandSpec::new("wl-copy", ["--clear"]),
+            },
+            CommandBackendPlan {
+                name: "xclip",
+                copy: ClipboardCommandSpec::new("xclip", ["-selection", "clipboard", "-in"]),
+                read: ClipboardCommandSpec::new("xclip", ["-selection", "clipboard", "-out"]),
+                clear: ClipboardCommandSpec::new("xclip", ["-selection", "clipboard", "-in"]),
+            },
+            CommandBackendPlan {
+                name: "xsel",
+                copy: ClipboardCommandSpec::new("xsel", ["--clipboard", "--input"]),
+                read: ClipboardCommandSpec::new("xsel", ["--clipboard", "--output"]),
+                clear: ClipboardCommandSpec::new("xsel", ["--clipboard", "--delete"]),
+            },
+        ],
+        CommandPlatform::Unsupported => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+fn command_backend_from_path(
+    platform: CommandPlatform,
+    path: &std::path::Path,
+) -> Option<CommandClipboardBackend> {
+    command_backend_from_search_path(platform, path.as_os_str())
+}
+
+fn command_backend_from_search_path(
+    platform: CommandPlatform,
+    search_path: &std::ffi::OsStr,
+) -> Option<CommandClipboardBackend> {
+    command_backend_plans_for(platform)
+        .into_iter()
+        .find(|plan| {
+            plan.required_programs()
+                .into_iter()
+                .all(|program| executable_in_path(program, search_path))
+        })
+        .map(CommandClipboardBackend::with_plan)
+}
+
+fn executable_in_path(program: &str, search_path: &std::ffi::OsStr) -> bool {
+    std::env::split_paths(search_path).any(|dir| is_executable(&dir.join(program)))
+}
+
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &std::path::Path) -> bool {
+    path.is_file()
+}
+
+fn command_error(
+    spec: &ClipboardCommandSpec,
+    action: &'static str,
+    error: std::io::Error,
+) -> ClipboardError {
+    ClipboardError::Io(format!(
+        "failed to {} for clipboard command {}: {}",
+        action, spec.program, error
+    ))
 }
 
 /// Backend used when the platform clipboard is unavailable.
@@ -243,6 +492,14 @@ impl ClipboardServiceImpl {
 
     pub fn new_safe(clear_timeout: u64) -> Result<Self, ClipboardError> {
         if Self::is_headless() {
+            if let Ok(backend) = CommandClipboardBackend::new() {
+                info!(
+                    backend = backend.plan_name(),
+                    "Using command clipboard backend in headless environment"
+                );
+                return Ok(Self::with_backend(Box::new(backend), clear_timeout));
+            }
+
             return Ok(Self::with_backend(
                 Box::new(UnavailableBackend::new(
                     "Headless environment detected — clipboard unavailable".into(),
@@ -254,6 +511,15 @@ impl ClipboardServiceImpl {
         match ArboardBackend::new() {
             Ok(backend) => Ok(Self::with_backend(Box::new(backend), clear_timeout)),
             Err(ClipboardError::PlatformUnavailable(reason)) => {
+                if let Ok(backend) = CommandClipboardBackend::new() {
+                    info!(
+                        reason,
+                        backend = backend.plan_name(),
+                        "System clipboard unavailable, using command clipboard backend"
+                    );
+                    return Ok(Self::with_backend(Box::new(backend), clear_timeout));
+                }
+
                 warn!(
                     reason,
                     "System clipboard unavailable, falling back to disabled backend"
@@ -329,8 +595,8 @@ impl ClipboardServiceImpl {
             }
         };
 
-        let current_content = self.backend.get_text()?;
-        let current_hash = hash_content(&current_content);
+        let current_content = Zeroizing::new(self.backend.get_text()?);
+        let current_hash = hash_content(current_content.as_str());
 
         if current_hash == expected_hash {
             self.backend.set_text("")?;
@@ -407,7 +673,8 @@ impl ClipboardServiceImpl {
             tokio::time::sleep(Duration::from_secs(timeout)).await;
             if let Some(hash) = expected_hash {
                 if let Ok(content) = backend.get_text() {
-                    if hash_content(&content) == hash {
+                    let content = Zeroizing::new(content);
+                    if hash_content(content.as_str()) == hash {
                         let _ = backend.set_text("");
                         info!("Auto-clear timer: clipboard cleared");
                     } else {
@@ -524,8 +791,8 @@ impl Clipboard for ClipboardServiceImpl {
             }
         };
 
-        let current_content = self.backend.get_text()?;
-        let current_hash = hash_content(&current_content);
+        let current_content = Zeroizing::new(self.backend.get_text()?);
+        let current_hash = hash_content(current_content.as_str());
 
         if current_hash == expected_hash {
             self.backend.set_text("")?;
@@ -724,6 +991,124 @@ mod service_tests {
 #[cfg(test)]
 mod backend_tests {
     use super::*;
+
+    #[test]
+    fn command_backend_plans_match_clipboard_research() {
+        let macos = command_backend_plans_for(CommandPlatform::Macos);
+        assert_eq!(macos.len(), 1);
+        assert_eq!(macos[0].name, "pbcopy");
+        assert_eq!(macos[0].copy.program, "pbcopy");
+        assert!(macos[0].copy.args.is_empty());
+        assert_eq!(macos[0].read.program, "pbpaste");
+        assert!(macos[0].read.args.is_empty());
+        assert_eq!(macos[0].clear.program, "pbcopy");
+        assert!(macos[0].clear.args.is_empty());
+
+        let linux = command_backend_plans_for(CommandPlatform::Linux);
+        let names: Vec<_> = linux.iter().map(|plan| plan.name).collect();
+        assert_eq!(names, vec!["wl-copy", "xclip", "xsel"]);
+        assert_eq!(linux[0].copy.program, "wl-copy");
+        assert_eq!(linux[0].copy.args, ["--type", "text/plain;charset=utf-8"]);
+        assert_eq!(linux[0].read.program, "wl-paste");
+        assert_eq!(linux[0].clear.program, "wl-copy");
+        assert_eq!(linux[0].clear.args, ["--clear"]);
+        assert_eq!(linux[1].copy.args, ["-selection", "clipboard", "-in"]);
+        assert_eq!(linux[1].read.args, ["-selection", "clipboard", "-out"]);
+        assert_eq!(linux[2].copy.args, ["--clipboard", "--input"]);
+        assert_eq!(linux[2].read.args, ["--clipboard", "--output"]);
+        assert_eq!(linux[2].clear.args, ["--clipboard", "--delete"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_backend_writes_secret_via_stdin_not_argv() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let script = temp.path().join("fake-copy");
+        let stdin_path = temp.path().join("stdin.txt");
+        let argv_path = temp.path().join("argv.txt");
+        write_executable(
+            &script,
+            &format!(
+                "#!/bin/sh\ncat > '{}'\nprintf '%s\\n' \"$@\" > '{}'\n",
+                stdin_path.display(),
+                argv_path.display()
+            ),
+        );
+
+        let plan = CommandBackendPlan {
+            name: "fake-copy",
+            copy: ClipboardCommandSpec::without_args(script.to_string_lossy()),
+            read: ClipboardCommandSpec::without_args(script.to_string_lossy()),
+            clear: ClipboardCommandSpec::without_args(script.to_string_lossy()),
+        };
+        let backend = CommandClipboardBackend::with_plan(plan);
+
+        backend.set_text("secret-from-test").expect("copy");
+
+        assert_eq!(
+            std::fs::read_to_string(stdin_path).expect("stdin file"),
+            "secret-from-test"
+        );
+        assert!(!std::fs::read_to_string(argv_path)
+            .expect("argv file")
+            .contains("secret-from-test"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_backend_selection_requires_complete_plan_and_prefers_wayland() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_noop_executable(&temp.path().join("wl-copy"));
+        write_noop_executable(&temp.path().join("xclip"));
+
+        let backend = command_backend_from_path(CommandPlatform::Linux, temp.path())
+            .expect("xclip should be selected when wl-paste is missing");
+        assert_eq!(backend.plan_name(), "xclip");
+
+        write_noop_executable(&temp.path().join("wl-paste"));
+        let backend = command_backend_from_path(CommandPlatform::Linux, temp.path())
+            .expect("wl-copy should be selected once wl-paste is present");
+        assert_eq!(backend.plan_name(), "wl-copy");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_backend_copy_read_and_clear_use_configured_commands() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = temp.path().join("clipboard.txt");
+        let copy = temp.path().join("fake-copy");
+        let read = temp.path().join("fake-read");
+        let clear = temp.path().join("fake-clear");
+        write_executable(&copy, &format!("#!/bin/sh\ncat > '{}'\n", store.display()));
+        write_executable(&read, &format!("#!/bin/sh\ncat '{}'\n", store.display()));
+        write_executable(&clear, &format!("#!/bin/sh\n: > '{}'\n", store.display()));
+
+        let plan = CommandBackendPlan {
+            name: "fake",
+            copy: ClipboardCommandSpec::without_args(copy.to_string_lossy()),
+            read: ClipboardCommandSpec::without_args(read.to_string_lossy()),
+            clear: ClipboardCommandSpec::without_args(clear.to_string_lossy()),
+        };
+        let backend = CommandClipboardBackend::with_plan(plan);
+
+        backend.set_text("secret").expect("copy");
+        assert_eq!(backend.get_text().expect("read"), "secret");
+        backend.set_text("").expect("clear");
+        assert_eq!(backend.get_text().expect("read after clear"), "");
+    }
+
+    #[cfg(unix)]
+    fn write_noop_executable(path: &std::path::Path) {
+        write_executable(path, "#!/bin/sh\nexit 0\n");
+    }
+
+    #[cfg(unix)]
+    fn write_executable(path: &std::path::Path, content: &str) {
+        std::fs::write(path, content).expect("write executable");
+        let mut permissions = std::fs::metadata(path).expect("metadata").permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o700);
+        std::fs::set_permissions(path, permissions).expect("set executable permissions");
+    }
 
     #[test]
     fn mock_backend_set_and_get() {

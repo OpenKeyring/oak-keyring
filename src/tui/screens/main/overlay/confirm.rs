@@ -492,6 +492,7 @@ mod tests {
 
     #[test]
     fn confirm_labels_are_correct() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         // Note: These tests now check for translated strings
         let label = confirm_label_for(&soft_delete_variant());
         assert!(label.contains("Confirm") || label.contains("确认"));
@@ -539,13 +540,14 @@ mod tests {
 
     #[test]
     fn build_dialog_soft_delete_with_auto_days() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let variant = ConfirmVariant::SoftDelete {
             record_id: Uuid::new_v4(),
             record_name: "GitHub".to_string(),
             auto_delete_days: Some(30),
         };
         let (title, lines, label) = build_dialog_parts(&variant, 46);
-        // Title should contain "Confirm" or "确认"
+        // Title should contain "Confirm" or its Chinese equivalent
         assert!(title.contains("Confirm") || title.contains("确认"));
         // Label should also contain confirmation text
         assert!(label.contains("Confirm") || label.contains("确认"));
@@ -592,7 +594,7 @@ mod tests {
             record_names: (0..8).map(|i| format!("item-{}", i)).collect(),
         };
         let (_, lines, _) = build_dialog_parts(&variant, 46);
-        // message + blank + 5 names + "...等共 8 条"
+        // message + blank + 5 names + "...and 8 in total"
         assert_eq!(lines.len(), 8);
     }
 
@@ -620,6 +622,7 @@ mod tests {
 
     #[test]
     fn build_dialog_restore() {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let variant = ConfirmVariant::Restore {
             record_id: Uuid::new_v4(),
             record_name: "GitHub".to_string(),

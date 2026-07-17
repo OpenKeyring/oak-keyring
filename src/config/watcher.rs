@@ -1,20 +1,20 @@
-//! ConfigWatcher trait — 配置变更检测接口
+//! ConfigWatcher trait — config change detection interface
 //!
-//! 实现位于 Plan K (S5 Executor)。
+//! Implementation lives in Plan K (S5 Executor).
 //!
-//! 注意：此接口用于手动检测配置变更（非文件系统热重载），
-//! 通过 mtime 比对判断配置文件是否被外部修改。
+//! Note: this interface is for manual config change detection (not filesystem hot reload),
+//! determining whether the config file was externally modified by comparing mtime.
 
-/// 配置变更检测器接口
+/// Config change detector interface
 ///
-/// 用于检测配置文件在内存中的版本之后是否被外部修改。
-/// 不实现文件系统 watch（D3 spec 明确排除热重载）。
+/// Used to detect whether the config file was externally modified after the in-memory version.
+/// Does not implement filesystem watch (D3 spec explicitly excludes hot reload).
 pub trait ConfigWatcher: Send + Sync {
-    /// 检查配置文件是否在内存中的版本之后被修改
+    /// Check whether the config file was modified after the in-memory version
     ///
-    /// 返回 true 表示需要重新加载
+    /// Returns true to indicate a reload is needed
     fn needs_reload(&self) -> bool;
 
-    /// 获取配置文件的上次修改时间
+    /// Get the last modification time of the config file
     fn last_modified(&self) -> Option<std::time::SystemTime>;
 }

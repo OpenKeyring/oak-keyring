@@ -532,6 +532,7 @@ mod tests {
     }
 
     fn render_unlock_buffer(screen: &UnlockScreen, width: u16, height: u16) -> Buffer {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
@@ -543,6 +544,7 @@ mod tests {
     }
 
     fn render_unlock_cursor_position(screen: &UnlockScreen, width: u16, height: u16) -> Position {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal

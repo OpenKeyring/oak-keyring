@@ -15,7 +15,7 @@ pub(super) fn build_bar_content<'a>(state: &ListPanelState, unicode: bool) -> Li
     }
 }
 
-/// Build sort bar: `  排序: [ 排序字段 ▼ ]  [ ↑/↓ 升序/降序 ]`
+/// Build sort bar: `  <sort>: [ sort field ▼ ]  [ ↑/↓ asc/desc ]`
 pub(super) fn build_sort_bar<'a>(
     field: &SortField,
     direction: &SortDirection,
@@ -54,7 +54,7 @@ pub(super) fn build_sort_bar<'a>(
     ])
 }
 
-/// Build search bar: `  🔍 搜索: <query>_`
+/// Build search bar: `  🔍 <search>: <query>_`
 pub(super) fn build_search_bar<'a>(query: &str, unicode: bool) -> Line<'a> {
     let search_icon = if unicode {
         theme::ICON_SEARCH
@@ -70,7 +70,7 @@ pub(super) fn build_search_bar<'a>(query: &str, unicode: bool) -> Line<'a> {
     )])
 }
 
-/// Build visual mode bar: `  多选模式` in TEXT bold on BG_BAR + `(N 已选)` in TEXT on BG_BAR
+/// Build visual mode bar: `  <visual mode>` in TEXT bold on BG_BAR + `(N selected)` in TEXT on BG_BAR
 pub(super) fn build_visual_bar<'a>(selected_count: usize) -> Line<'a> {
     let visual_label = t!("tui.password_list.visual_mode");
     let selected_label = t!("tui.password_list.selected_count", count = selected_count);

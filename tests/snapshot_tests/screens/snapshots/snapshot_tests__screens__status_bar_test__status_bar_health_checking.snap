@@ -2,4 +2,4 @@
 source: tests/snapshot_tests/screens/status_bar_test.rs
 expression: backend
 ---
-"  Ctrl+K Search  Ctrl+G Gen  Ctrl+P Cfg  Q Quit         v0.8.0-preview.1 │ 🔍 Checking password security... │ ✓ Synced  " Hidden by multi-width symbols: [(76, " ")]
+"  Ctrl+K Search  Ctrl+G Gen  Ctrl+P Cfg  Q Quit         v0.8.0-preview.3 │ 🔍 Checking password security... │ ✓ Synced  " Hidden by multi-width symbols: [(76, " ")]

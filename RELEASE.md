@@ -112,8 +112,13 @@ Install command:
 
 ```bash
 brew tap openkeyring/oak-keyring
+brew trust --formula openkeyring/oak-keyring/ok
 brew install ok
 ```
+
+Homebrew 6.0.0+ requires explicit trust for non-official taps (macOS and Linux).
+If the trust step is missing, install fails with "Refusing to load formula ... from
+untrusted tap". Keep this command in sync with INSTALL.md and README.md.
 
 Do not publish a Homebrew source-build formula. The current build embeds
 Google OAuth2 configuration for sync, so a normal user source build through

@@ -14,13 +14,13 @@ fn init_auto_does_not_panic() {
 #[test]
 fn init_and_switch_locale() {
     i18n::init("en");
-    assert_eq!(&*rust_i18n::locale(), "en");
+    assert_eq!(i18n::render_locale(), "en");
 
     i18n::switch_locale("zh-CN");
-    assert_eq!(&*rust_i18n::locale(), "zh-CN");
+    assert_eq!(i18n::render_locale(), "zh-CN");
 
     i18n::switch_locale("en");
-    assert_eq!(&*rust_i18n::locale(), "en");
+    assert_eq!(i18n::render_locale(), "en");
 }
 
 #[test]

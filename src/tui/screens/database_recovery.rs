@@ -1268,6 +1268,7 @@ mod tests {
         width: u16,
         height: u16,
     ) -> ratatui::buffer::Buffer {
+        let _guard = crate::tui::i18n::LocaleGuard::en();
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal

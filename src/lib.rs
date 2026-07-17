@@ -2,8 +2,9 @@
 
 rust_i18n::i18n!("locales", fallback = "en");
 
-// Re-export t!() macro for integration tests and external usage
-pub use rust_i18n::t;
+// `t!` is the per-thread-locale wrapper defined in `tui::i18n`. It is
+// `#[macro_export]`-ed to the crate root, so callers reach it via `crate::t`
+// (in-tree) and `oak_keyring::t!` (integration tests / external usage).
 
 pub mod app;
 pub mod cloud;

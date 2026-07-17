@@ -25,7 +25,7 @@ pub enum FieldValue {
 /// A single displayable field in the detail panel.
 #[derive(Debug, Clone)]
 pub struct DetailField {
-    /// Display label (e.g., "用户名", "密码")
+    /// Display label (e.g., "username", "password")
     pub label: String,
     /// Current display value
     pub value: FieldValue,

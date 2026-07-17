@@ -2062,7 +2062,7 @@ fn search_mode_backspace_unicode() {
         config: &Default::default(),
     };
 
-    // Type "你好" then backspace — should leave "你"
+    // Type two CJK chars then backspace — should leave only the first
     for c in ['你', '好'] {
         state.update(Message::KeyEvent(make_key(KeyCode::Char(c))), &mut ctx);
     }
