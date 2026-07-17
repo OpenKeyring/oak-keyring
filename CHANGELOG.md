@@ -6,6 +6,12 @@ This project is in first-preview status. Preview releases may change local vault
 
 ## Unreleased
 
+## 0.8.0-preview.3
+
+- **Security**: bumped `cmov` 0.5.3 → 0.5.4 to fix [GHSA-3rjw-m598-pq24](https://github.com/advisories/GHSA-3rjw-m598-pq24) — Cmov/CmovEq on aarch64 could produce wrong results when high register bits were set.
+- **Clipboard**: added command clipboard fallbacks and hardened clipboard cleanup.
+- Internal: enforced a coverage gate in CI, eliminated a parallel-test locale race in the TUI renderer, translated Chinese code comments and instruction docs to English, and documented the Homebrew 6.0 tap-trust step.
+
 ## 0.8.0-preview.2
 
 - Added Linux x86_64/ARM64 (glibc 2.35+) release builds, distribution, and documentation support: release workflow now builds `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` targets; npm ships `@openkeyring/ok-linux-x64` and `@openkeyring/ok-linux-arm64`; Homebrew formula adds an `on_linux` block; INSTALL documents `mlock`/`RLIMIT_MEMLOCK` requirements.
