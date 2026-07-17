@@ -13,6 +13,7 @@ expression: backend
 "             1Password (.opvault) 🔑  Password / TOTP  ⚠ Custom fields          " Hidden by multi-width symbols: [(35, " ")]
 "             Bitwarden (.json) 🔑  Password / TOTP / URL  ✗ Attachment          " Hidden by multi-width symbols: [(32, " ")]
 "             CSV  Column-mapped fields                                          "
+"             OpenKeyring Backup (.okb)  All data                                "
 "                                                                                "
 "          ┌ File Path ───────────────────────────────────────────────┐          "
 "          │/path/to/passwords.kdbx                                   │          "
@@ -21,7 +22,6 @@ expression: backend
 "          ┌ Decryption Password ─────────────────────────────────────┐          "
 "          │Enter password                                            │          "
 "          └──────────────────────────────────────────────────────────┘          "
-"                                                                                "
 "                                                                                "
 "                           Enter: validate | Esc: back                          "
 "                                                                                "

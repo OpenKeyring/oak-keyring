@@ -165,10 +165,10 @@ impl ImportExportScreen {
         // CSV mapping section
         let is_csv = self.current_source() == ImportSource::Csv;
         let csv_row_count = if is_csv {
-            8 + if !self.csv_headers.is_empty() { 1 } else { 0 }
+            9 + if !self.csv_headers.is_empty() { 1 } else { 0 }
         } else {
             0
-        }; // 6 fields + skip header + header label + (optional detected headers)
+        }; // 7 fields + skip header + header label + (optional detected headers)
 
         // Calculate row constraints
         let mut constraints = vec![
@@ -193,7 +193,6 @@ impl ImportExportScreen {
         }
 
         constraints.push(Constraint::Length(1)); // error or gap
-        constraints.push(Constraint::Length(1)); // gap
         constraints.push(Constraint::Length(1)); // hint
 
         let rows = Layout::vertical(constraints).split(content_area);
@@ -275,6 +274,14 @@ impl ImportExportScreen {
                     ImportFocus::CsvNotes,
                 ),
                 (
+                    t!("tui.import_export.column_totp").to_string(),
+                    self.csv_mapping
+                        .totp_column
+                        .as_deref()
+                        .unwrap_or(&none_label),
+                    ImportFocus::CsvTotp,
+                ),
+                (
                     t!("tui.import_export.column_tags").to_string(),
                     self.csv_mapping
                         .tags_column
@@ -324,9 +331,9 @@ impl ImportExportScreen {
         }
         row_idx += 1;
 
-        // Hint (second to last = gap, last = hint)
-        if row_idx + 1 < rows.len() {
-            frame.render_widget(hint, rows[row_idx + 1]);
+        // Hint (last row)
+        if row_idx < rows.len() {
+            frame.render_widget(hint, rows[row_idx]);
         }
     }
 }

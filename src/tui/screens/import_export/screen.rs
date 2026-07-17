@@ -258,7 +258,8 @@ impl ImportExportScreen {
             ImportFocus::CsvUsername => ImportFocus::CsvPassword,
             ImportFocus::CsvPassword => ImportFocus::CsvUrl,
             ImportFocus::CsvUrl => ImportFocus::CsvNotes,
-            ImportFocus::CsvNotes => ImportFocus::CsvTags,
+            ImportFocus::CsvNotes => ImportFocus::CsvTotp,
+            ImportFocus::CsvTotp => ImportFocus::CsvTags,
             ImportFocus::CsvTags => ImportFocus::CsvSkipHeader,
             ImportFocus::CsvSkipHeader => ImportFocus::SourceList,
         };
@@ -552,6 +553,7 @@ impl ImportExportScreen {
                     ImportFocus::CsvPassword,
                     ImportFocus::CsvUrl,
                     ImportFocus::CsvNotes,
+                    ImportFocus::CsvTotp,
                     ImportFocus::CsvTags,
                     ImportFocus::CsvSkipHeader,
                 ];
@@ -603,6 +605,13 @@ impl ImportExportScreen {
                 ImportFocus::CsvPassword => self.csv_mapping.password_column.push(c),
                 ImportFocus::CsvUrl => self.csv_mapping.url_column.push(c),
                 ImportFocus::CsvNotes => self.csv_mapping.notes_column.push(c),
+                ImportFocus::CsvTotp => {
+                    if let Some(ref mut totp) = self.csv_mapping.totp_column {
+                        totp.push(c);
+                    } else {
+                        self.csv_mapping.totp_column = Some(c.to_string());
+                    }
+                }
                 ImportFocus::CsvTags => {
                     if let Some(ref mut tags) = self.csv_mapping.tags_column {
                         tags.push(c);
@@ -634,6 +643,14 @@ impl ImportExportScreen {
                 ImportFocus::CsvNotes => {
                     self.csv_mapping.notes_column.pop();
                 }
+                ImportFocus::CsvTotp => {
+                    if let Some(ref mut totp) = self.csv_mapping.totp_column {
+                        totp.pop();
+                        if totp.is_empty() {
+                            self.csv_mapping.totp_column = None;
+                        }
+                    }
+                }
                 ImportFocus::CsvTags => {
                     if let Some(ref mut tags) = self.csv_mapping.tags_column {
                         tags.pop();
@@ -660,6 +677,7 @@ impl ImportExportScreen {
             | ImportFocus::CsvPassword
             | ImportFocus::CsvUrl
             | ImportFocus::CsvNotes
+            | ImportFocus::CsvTotp
             | ImportFocus::CsvTags
             | ImportFocus::CsvSkipHeader => is_csv,
         }

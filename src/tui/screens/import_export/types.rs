@@ -37,6 +37,7 @@ pub enum ImportFocus {
     CsvPassword,
     CsvUrl,
     CsvNotes,
+    CsvTotp,
     CsvTags,
     CsvSkipHeader,
 }

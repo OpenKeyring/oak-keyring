@@ -754,6 +754,7 @@ tui:
     column_url: "URL column:"
     column_notes: "Notes column:"
     column_tags: "Tags column:"
+    column_totp: "TOTP column:"
     none: "(none)"
     skip_header: "Skip header row"
     detected_columns: "Detected columns: %{columns}"
