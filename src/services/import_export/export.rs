@@ -214,6 +214,7 @@ pub fn write_csv(payload: &ExportPayload, output_path: &Path) -> Result<usize, I
             "password",
             "url",
             "notes",
+            "totp",
             "tags",
             "is_favorite",
             "expires_at",
@@ -248,6 +249,7 @@ pub fn write_csv(payload: &ExportPayload, output_path: &Path) -> Result<usize, I
                 record.password.as_deref().unwrap_or(""),
                 record.url.as_deref().unwrap_or(""),
                 record.notes.as_deref().unwrap_or(""),
+                record.totp.as_deref().unwrap_or(""),
                 &tags,
                 is_favorite,
                 record.expires_at.as_deref().unwrap_or(""),
@@ -351,6 +353,51 @@ mod tests {
 
     fn valid_password() -> SecureStr {
         SecureStr::new("password123".to_string())
+    }
+
+    // -- Test: totp survives JSON serialization (OKB / JSON export round-trip) --
+
+    #[test]
+    fn export_payload_serializes_login_totp() {
+        // A TOTP secret on a Login must survive JSON serialization so the
+        // OKB/JSON export carries it and a re-import can recover it. The field
+        // uses #[serde(skip_serializing_if = "Option::is_none")], so a present
+        // value must still be emitted.
+        let totp_uri = "otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=GitHub";
+        let payload = ExportPayload {
+            version: "1.0".to_string(),
+            vault_id: "vault-1".to_string(),
+            exported_at: "2026-07-17T00:00:00Z".to_string(),
+            records: vec![ExportRecord {
+                id: "rec-1".to_string(),
+                credential_type: "login".to_string(),
+                name: "GitHub".to_string(),
+                username: Some("alice".to_string()),
+                password: Some("s3cret!".to_string()),
+                url: None,
+                notes: None,
+                totp: Some(totp_uri.to_string()),
+                tags: None,
+                is_favorite: None,
+                expires_at: None,
+                public_key: None,
+                private_key: None,
+                passphrase: None,
+                app_id: None,
+                secret_key: None,
+            }],
+        };
+
+        let json = serde_json::to_string(&payload).expect("serialize export payload");
+
+        assert!(
+            json.contains("\"totp\""),
+            "serialized payload should include the totp field: {json}"
+        );
+        assert!(
+            json.contains(totp_uri),
+            "serialized payload should contain the totp uri verbatim: {json}"
+        );
     }
 
     // -- Test 1: validate_export_password accepts 8 chars --

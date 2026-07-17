@@ -66,6 +66,10 @@ impl FormatParser for CsvParser {
             .tags_column
             .as_ref()
             .and_then(|col| find_column(&header_vec, col));
+        let totp_idx = mapping
+            .totp_column
+            .as_ref()
+            .and_then(|col| find_column(&header_vec, col));
 
         // Iterate over data rows and build ParsedItems.
         let mut items = Vec::new();
@@ -81,7 +85,7 @@ impl FormatParser for CsvParser {
         {
             row_number += 1;
 
-            let fields = build_fields(
+            let mut fields = build_fields(
                 &record,
                 name_idx,
                 username_idx,
@@ -89,6 +93,12 @@ impl FormatParser for CsvParser {
                 url_idx,
                 notes_idx,
             );
+            // TOTP is an optional login field; only populated when a totp column
+            // is mapped and the cell is non-empty, mirroring the structured
+            // `fields["totp"]` key the executor reads on import.
+            if let Some(totp) = extract_optional(&record, totp_idx) {
+                fields.insert("totp".to_string(), totp);
+            }
 
             let tags = extract_tags(&record, tags_idx);
 
@@ -159,6 +169,18 @@ fn get_or_empty(record: &csv::StringRecord, idx: usize) -> String {
     record.get(idx).unwrap_or("").to_string()
 }
 
+/// Get an optional field value from a CSV record: returns `Some(value)` only
+/// when the column index is present and the cell is non-empty.
+fn extract_optional(record: &csv::StringRecord, idx: Option<usize>) -> Option<String> {
+    let idx = idx?;
+    let raw = record.get(idx)?;
+    if raw.is_empty() {
+        None
+    } else {
+        Some(raw.to_string())
+    }
+}
+
 /// Extract tags from a CSV record if the tags column exists and has content.
 /// Tags are split by comma and trimmed of whitespace.
 fn extract_tags(record: &csv::StringRecord, tags_idx: Option<usize>) -> Vec<String> {
@@ -186,6 +208,8 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    use crate::services::import_export::export::{write_csv, ExportPayload, ExportRecord};
+
     /// Helper: create a temporary CSV file with the given content.
     fn create_csv_file(content: &str) -> tempfile::NamedTempFile {
         let mut f = tempfile::Builder::new()
@@ -204,9 +228,67 @@ mod tests {
             password_column: "password".to_string(),
             url_column: "url".to_string(),
             notes_column: "notes".to_string(),
+            totp_column: None,
             tags_column: None,
             skip_header: true,
         }
+    }
+
+    // -- Round-trip: CSV export -> import preserves login totp ----------------
+
+    #[test]
+    fn csv_round_trip_preserves_login_totp() {
+        // A Login's TOTP secret must survive a CSV export -> import cycle:
+        // write_csv emits a `totp` column, and the parser reads it back into
+        // the structured `fields["totp"]` key the executor consumes.
+        let totp_uri = "otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=GitHub";
+        let payload = ExportPayload {
+            version: "1.0".to_string(),
+            vault_id: "vault-1".to_string(),
+            exported_at: "2026-07-17T00:00:00Z".to_string(),
+            records: vec![ExportRecord {
+                id: "rec-1".to_string(),
+                credential_type: "login".to_string(),
+                name: "GitHub".to_string(),
+                username: Some("alice".to_string()),
+                password: Some("s3cret!".to_string()),
+                url: Some("https://github.com".to_string()),
+                notes: None,
+                totp: Some(totp_uri.to_string()),
+                tags: None,
+                is_favorite: None,
+                expires_at: None,
+                public_key: None,
+                private_key: None,
+                passphrase: None,
+                app_id: None,
+                secret_key: None,
+            }],
+        };
+
+        let csv_out = tempfile::Builder::new()
+            .suffix(".csv")
+            .tempfile()
+            .expect("create temp csv output");
+        write_csv(&payload, csv_out.path()).expect("write csv");
+
+        // Re-import with a mapping that points totp_column at the emitted column.
+        let mapping = CsvColumnMapping {
+            totp_column: Some("totp".to_string()),
+            ..default_mapping()
+        };
+        let parser = CsvParser;
+        let items = parser
+            .parse(csv_out.path(), None, Some(&mapping))
+            .expect("re-import parse should succeed");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].fields.get("name").unwrap(), "GitHub");
+        assert_eq!(
+            items[0].fields.get("totp").unwrap(),
+            totp_uri,
+            "totp must survive the CSV round-trip"
+        );
     }
 
     // -- Test 1: Normal CSV with 3 rows --------------------------------------
@@ -455,6 +537,7 @@ mod tests {
             password_column: "p".to_string(),
             url_column: "u".to_string(),
             notes_column: "n".to_string(),
+            totp_column: None,
             tags_column: None,
             skip_header: false,
         };

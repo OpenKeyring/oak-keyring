@@ -287,6 +287,7 @@ fn import_csv_creates_records_with_secure_secrets() {
         password_column: "password".into(),
         url_column: "url".into(),
         notes_column: "notes".into(),
+        totp_column: None,
         tags_column: None,
         skip_header: true,
     };

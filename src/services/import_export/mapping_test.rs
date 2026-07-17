@@ -58,6 +58,7 @@ mod tests {
             password_column: "pass".into(),
             url_column: "url".into(),
             notes_column: "notes".into(),
+            totp_column: None,
             tags_column: None,
             skip_header: true,
         });
@@ -73,6 +74,7 @@ mod tests {
             password_column: "pass".into(),
             url_column: "url".into(),
             notes_column: "notes".into(),
+            totp_column: None,
             tags_column: Some("tags".into()),
             skip_header: false,
         });
@@ -129,6 +131,7 @@ mod tests {
             password_column: "c".into(),
             url_column: "d".into(),
             notes_column: "e".into(),
+            totp_column: None,
             tags_column: None,
             skip_header: false,
         });
@@ -146,6 +149,7 @@ mod tests {
             password_column: "secret".into(),
             url_column: "website".into(),
             notes_column: "memo".into(),
+            totp_column: None,
             tags_column: Some("labels".into()),
             skip_header: true,
         });

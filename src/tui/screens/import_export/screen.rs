@@ -82,6 +82,7 @@ impl ImportExportScreen {
                 password_column: "Password".to_string(),
                 url_column: "URL".to_string(),
                 notes_column: "Notes".to_string(),
+                totp_column: None,
                 tags_column: None,
                 skip_header: true,
             },

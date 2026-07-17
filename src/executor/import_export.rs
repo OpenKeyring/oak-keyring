@@ -861,6 +861,37 @@ mod tests {
     }
 
     #[test]
+    fn login_totp_is_populated_in_export() {
+        // A Login carrying a TOTP secret must surface it on the ExportRecord so
+        // the value reaches serialized export output unchanged. This is the
+        // export half of the totp round-trip; the import half is covered by
+        // `fields_to_payload_preserves_login_totp`.
+        let id = uuid();
+        let totp_uri = "otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=GitHub";
+        let record = DecryptedRecord::Login {
+            id,
+            is_favorite: false,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            deleted: false,
+            deleted_at: None,
+            tags: vec![],
+            name: "GitHub".to_string(),
+            username: "alice".to_string(),
+            password: SecureStr::new("s3cret!".to_string()),
+            url: None,
+            notes: None,
+            totp: Some(SecureStr::new(totp_uri.to_string())),
+        };
+
+        let export = decrypted_record_to_export(&record);
+
+        assert_eq!(export.totp.as_deref(), Some(totp_uri));
+    }
+
+    #[test]
     fn api_fields_mapped_to_export() {
         let id = uuid();
         let record = DecryptedRecord::Api {
@@ -1263,6 +1294,7 @@ mod tests {
             password_column: "password".into(),
             url_column: "url".into(),
             notes_column: "notes".into(),
+            totp_column: None,
             tags_column: None,
             skip_header: true,
         };

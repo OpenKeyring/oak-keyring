@@ -168,6 +168,7 @@ pub struct CsvColumnMapping {
     pub password_column: String,
     pub url_column: String,
     pub notes_column: String,
+    pub totp_column: Option<String>,
     pub tags_column: Option<String>,
     pub skip_header: bool,
 }

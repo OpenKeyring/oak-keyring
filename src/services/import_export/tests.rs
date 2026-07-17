@@ -22,6 +22,7 @@ fn default_csv_mapping() -> CsvColumnMapping {
         password_column: "password".to_string(),
         url_column: "url".to_string(),
         notes_column: "notes".to_string(),
+        totp_column: None,
         tags_column: None,
         skip_header: true,
     }

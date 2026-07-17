@@ -464,6 +464,7 @@ pub fn get_default_mapping(source: ImportSource) -> FormatMapping {
                 password_column: "password".into(),
                 url_column: "url".into(),
                 notes_column: "notes".into(),
+                totp_column: None,
                 tags_column: None,
                 skip_header: true,
             })
