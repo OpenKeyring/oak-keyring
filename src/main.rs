@@ -1,3 +1,5 @@
+use clap::Parser;
+use oak_keyring::agent::cli::{self, AgentArgs};
 use oak_keyring::app::{App, VaultInitState};
 use oak_keyring::config::AppConfig;
 use oak_keyring::crypto::self_test;
@@ -5,12 +7,58 @@ use oak_keyring::instance_lock::InstanceLock;
 use oak_keyring::security;
 use oak_keyring::tui::i18n;
 
-fn main() {
-    if should_print_version(std::env::args().skip(1)) {
-        println!("ok {}", env!("CARGO_PKG_VERSION"));
-        return;
-    }
+/// Top-level command parser.
+///
+/// A flat `#[derive(Parser)]` with an optional subcommand keeps the existing
+/// default behavior intact: `ok` with NO subcommand runs the TUI exactly as
+/// before (`mode == None` → [`run_tui`]). `ok --version` / `-V` are handled by
+/// clap natively (printing `ok <CARGO_PKG_VERSION>` to stdout, empty stderr),
+/// matching the prior hand-rolled `should_print_version` behavior. `ok agent`
+/// dispatches to the SSH agent backend.
+#[derive(Parser)]
+#[command(name = "ok", version, about = "oak-keyring password manager")]
+struct Cli {
+    /// Optional subcommand. When omitted (`None`), the TUI runs unchanged.
+    #[command(subcommand)]
+    mode: Option<Command>,
+}
 
+/// Available subcommands. The TUI is the implicit default (no subcommand), so
+/// there is no explicit `Tui` variant — that preserves byte-for-byte the
+/// historical `ok` (no args) entrypoint.
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Run the SSH agent backend backed by the vault's SSH keys.
+    Agent(AgentArgs),
+}
+
+fn main() {
+    let cli = Cli::parse();
+    match cli.mode {
+        None => run_tui(),
+        Some(Command::Agent(args)) => run_agent(args),
+    }
+}
+
+/// Run the `ok agent` SSH agent backend in a dedicated tokio runtime.
+fn run_agent(args: AgentArgs) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap_or_else(|e| {
+            eprintln!("Fatal: failed to start tokio runtime: {e}");
+            std::process::exit(1);
+        });
+    if let Err(e) = runtime.block_on(cli::run(args)) {
+        eprintln!("{e}");
+        std::process::exit(1);
+    }
+}
+
+/// The historical `ok` entrypoint, unchanged: directory setup, logging, process
+/// protections, crypto self-test, config + i18n, instance lock, vault-state
+/// routing, and the TUI event loop.
+fn run_tui() {
     // Ensure all required directories exist
     if oak_keyring::paths::ensure_dirs().is_none() {
         eprintln!("Fatal: failed to create directories - HOME must be set");
@@ -88,30 +136,4 @@ fn main() {
         eprintln!("{e}");
         std::process::exit(1);
     });
-}
-
-fn should_print_version<I>(args: I) -> bool
-where
-    I: IntoIterator,
-    I::Item: AsRef<str>,
-{
-    args.into_iter()
-        .any(|arg| matches!(arg.as_ref(), "--version" | "-V"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::should_print_version;
-
-    #[test]
-    fn version_flag_is_detected() {
-        assert!(should_print_version(["--version"]));
-        assert!(should_print_version(["-V"]));
-    }
-
-    #[test]
-    fn non_version_args_do_not_print_version() {
-        assert!(!should_print_version(["--help"]));
-        assert!(!should_print_version(["vault"]));
-    }
 }
