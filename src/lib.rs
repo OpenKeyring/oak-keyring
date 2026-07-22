@@ -6,6 +6,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 // `#[macro_export]`-ed to the crate root, so callers reach it via `crate::t`
 // (in-tree) and `oak_keyring::t!` (integration tests / external usage).
 
+pub mod agent;
 pub mod app;
 pub mod cloud;
 pub mod commands;
