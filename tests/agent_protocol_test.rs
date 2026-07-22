@@ -257,6 +257,123 @@ async fn sign_request_with_unknown_blob_returns_failure() {
     handle.abort();
 }
 
+/// Multiple requests over a single connection must all be answered. This is
+/// the real-ssh pattern: `ssh` opens ONE agent socket and issues
+/// REQUEST_IDENTITIES followed by SIGN_REQUEST (often several) on it. The
+/// server must loop reading frames from one `UnixStream` until clean EOF, not
+/// drop the stream after the first reply.
+#[tokio::test]
+async fn multiple_requests_on_single_connection() {
+    let (_dir, sock) = temp_socket_path();
+    let (vault, _) = unlocked_vault_with_ed25519();
+    let handle = spawn_server(vault, sock.clone());
+
+    // One connection, reused for several requests.
+    let mut stream = connect_with_retry(&sock).await;
+
+    // ── First request: REQUEST_IDENTITIES ───────────────────────────────
+    write_frame(&mut stream, &[SSH_AGENTC_REQUEST_IDENTITIES])
+        .await
+        .expect("write identities request");
+    let resp = read_frame(&mut stream)
+        .await
+        .expect("read identities reply on the same connection");
+    assert_eq!(
+        resp[0], SSH_AGENT_IDENTITIES_ANSWER,
+        "REQUEST_IDENTITIES must be answered with IDENTITIES_ANSWER"
+    );
+    let count = u32::from_be_bytes(resp[1..5].try_into().unwrap());
+    assert_eq!(count, 1, "exactly one identity must be advertised");
+    let (blob, rest) = read_string(&resp[5..]).expect("identity blob string");
+    let (_comment, tail) = read_string(rest).expect("identity comment string");
+    assert!(tail.is_empty(), "no trailing bytes after the identity");
+    let pub_bytes = ed25519_pubkey_from_blob(blob);
+
+    // ── Second request: SIGN_REQUEST with the blob from above, on the SAME
+    //    socket. This is the sequence real ssh performs.
+    let data = b"sign me over the same connection";
+    let mut sign_req = Vec::new();
+    sign_req.push(SSH_AGENTC_SIGN_REQUEST);
+    write_string(&mut sign_req, blob);
+    write_string(&mut sign_req, data);
+    sign_req.extend_from_slice(&0u32.to_be_bytes()); // flags = 0
+
+    write_frame(&mut stream, &sign_req)
+        .await
+        .expect("write sign request on the same connection");
+    let sign_resp = read_frame(&mut stream)
+        .await
+        .expect("read sign reply on the same connection");
+    assert_eq!(
+        sign_resp[0], SSH_AGENT_SIGN_RESPONSE,
+        "SIGN_REQUEST must be answered with SIGN_RESPONSE"
+    );
+    let (sig_blob, tail) = read_string(&sign_resp[1..]).expect("signature string");
+    assert!(tail.is_empty(), "no trailing bytes after the signature");
+
+    // Verify the signature against the public key (independent of the server).
+    let sig_bytes = extract_ed25519_sig(sig_blob);
+    let sig = ed25519_dalek::Signature::from_bytes(sig_bytes.try_into().unwrap());
+    let vk = ed25519_dalek::VerifyingKey::from_bytes(&pub_bytes).expect("valid public key");
+    use ed25519_dalek::Verifier;
+    vk.verify(data, &sig)
+        .expect("the agent-produced signature must verify against the stored public key");
+
+    // ── Third request: another REQUEST_IDENTITIES, still on the same socket,
+    //    proving the connection is still alive after the sign roundtrip.
+    write_frame(&mut stream, &[SSH_AGENTC_REQUEST_IDENTITIES])
+        .await
+        .expect("write second identities request");
+    let resp2 = read_frame(&mut stream)
+        .await
+        .expect("read second identities reply on the same connection");
+    assert_eq!(resp2[0], SSH_AGENT_IDENTITIES_ANSWER);
+    let count2 = u32::from_be_bytes(resp2[1..5].try_into().unwrap());
+    assert_eq!(
+        count2, 1,
+        "connection must still serve requests after signing"
+    );
+
+    handle.abort();
+}
+
+/// A bad/unknown request must yield `SSH_AGENT_FAILURE` WITHOUT tearing down
+/// the connection: the next request on the same socket must still succeed.
+#[tokio::test]
+async fn bad_request_does_not_close_connection() {
+    let (_dir, sock) = temp_socket_path();
+    let (vault, _) = unlocked_vault_with_ed25519();
+    let handle = spawn_server(vault, sock.clone());
+
+    let mut stream = connect_with_retry(&sock).await;
+
+    // Unknown message type -> FAILURE, but the connection must stay open.
+    write_frame(&mut stream, &[99u8])
+        .await
+        .expect("write unknown request");
+    let resp = read_frame(&mut stream)
+        .await
+        .expect("read failure reply on the same connection");
+    assert_eq!(
+        resp[0], SSH_AGENT_FAILURE,
+        "an unknown request must yield SSH_AGENT_FAILURE"
+    );
+
+    // The next request on the SAME connection must still succeed.
+    write_frame(&mut stream, &[SSH_AGENTC_REQUEST_IDENTITIES])
+        .await
+        .expect("write identities request after a bad request");
+    let resp2 = read_frame(&mut stream)
+        .await
+        .expect("connection must still be alive after a bad request");
+    assert_eq!(
+        resp2[0], SSH_AGENT_IDENTITIES_ANSWER,
+        "connection must survive a single bad request"
+    );
+
+    handle.abort();
+}
+
 #[tokio::test]
 async fn request_identities_applies_identity_filter() {
     let (_dir, sock) = temp_socket_path();

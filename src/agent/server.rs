@@ -28,12 +28,16 @@
 //!
 //! # Concurrency
 //!
-//! Connections are handled sequentially in the accept loop. The vault is
-//! accessed only in fully synchronous dispatch scopes that contain no
-//! `.await`, so no `&VaultServiceImpl` is ever held across an await point —
-//! this keeps `serve()`'s future `Send` (required for `tokio::spawn`) without
-//! needing `VaultServiceImpl: Sync` (rusqlite's `Connection` is `Send` but not
-//! `Sync`).
+//! Each accepted connection is served to completion: an inner loop reads
+//! frames from THAT connection until clean EOF or a read/write error,
+//! potentially answering many requests over one file descriptor (the real-ssh
+//! pattern — `ssh` issues `REQUEST_IDENTITIES` + `SIGN_REQUEST` over a single
+//! agent socket). Connections themselves are handled sequentially in the
+//! accept loop. The vault is accessed only in fully synchronous dispatch
+//! scopes that contain no `.await`, so no `&VaultServiceImpl` is ever held
+//! across an await point — this keeps `serve()`'s future `Send` (required for
+//! `tokio::spawn`) without needing `VaultServiceImpl: Sync` (rusqlite's
+//! `Connection` is `Send` but not `Sync`).
 //!
 //! [draft-ietf-miller-ssh-agent]: https://datatracker.ietf.org/doc/draft-miller-ssh-agent/
 
@@ -156,9 +160,13 @@ impl AgentServer {
     /// occurs or the runtime drops the future.
     ///
     /// The socket is created with mode `0600` and its parent directory is
-    /// ensured with mode `0700`. Connections are handled sequentially; each
-    /// connection is processed in a fully synchronous dispatch scope with no
-    /// `&vault` held across an await.
+    /// ensured with mode `0700`. Each accepted connection is served to
+    /// completion: the server loops reading frames from THAT connection until
+    /// the client closes (clean EOF) or a read/write error, answering
+    /// potentially many requests over one file descriptor (the real-ssh
+    /// pattern — `ssh` issues `REQUEST_IDENTITIES` + `SIGN_REQUEST` over a
+    /// single agent socket). Dispatch is fully synchronous with no `&vault`
+    /// held across an await.
     pub async fn serve(self) -> Result<(), AgentServerError> {
         // Ensure the parent directory exists with restrictive permissions.
         if let Some(parent) = self.socket_path.parent() {
@@ -198,26 +206,38 @@ impl AgentServer {
                 }
             };
 
-            // Read one frame. No vault borrow is live across this await.
-            let request = match read_frame(&mut stream).await {
-                Ok(Some(req)) => req,
-                Ok(None) => continue, // client closed without sending
-                Err(source) => {
-                    tracing::warn!(error = %source, "agent connection read failed");
-                    continue;
+            // Serve ALL requests on THIS connection until the client closes
+            // (clean EOF) or a read/write error, then go back to `accept()` for
+            // the next client. Real OpenSSH `ssh` issues REQUEST_IDENTITIES +
+            // SIGN_REQUEST (often several sign requests) over a single agent
+            // file descriptor, so dropping the stream after one reply would
+            // break interop. A single bad/unknown request returns
+            // `SSH_AGENT_FAILURE` from `dispatch` and the inner loop continues
+            // — the connection is NOT torn down for one bad request.
+            loop {
+                // Read one frame. No vault borrow is live across this await.
+                let request = match read_frame(&mut stream).await {
+                    Ok(Some(req)) => req,
+                    Ok(None) => break, // client closed the connection cleanly
+                    Err(source) => {
+                        tracing::warn!(error = %source, "agent connection read failed");
+                        break;
+                    }
+                };
+
+                // Synchronous dispatch — the ONLY scope that borrows `vault`,
+                // and it contains no `.await`. NLL ends the borrows at the
+                // statement's close, before the `write_frame` await below, so
+                // no `&vault` is held across an await point — keeping
+                // `serve`'s future `Send` without requiring
+                // `VaultServiceImpl: Sync`.
+                let response = dispatch(&vault, &identities, &blob_index, &request);
+
+                // Write the reply. No vault borrow is live across this await.
+                if let Err(source) = write_frame(&mut stream, &response).await {
+                    tracing::warn!(error = %source, "agent connection write failed");
+                    break;
                 }
-            };
-
-            // Synchronous dispatch — the ONLY scope that borrows `vault`, and
-            // it contains no `.await`. NLL ends the borrows at the statement's
-            // close, before the `write_frame` await below, so no `&vault` is
-            // held across an await point — keeping `serve`'s future `Send`
-            // without requiring `VaultServiceImpl: Sync`.
-            let response = dispatch(&vault, &identities, &blob_index, &request);
-
-            // Write the reply. No vault borrow is live across this await.
-            if let Err(source) = write_frame(&mut stream, &response).await {
-                tracing::warn!(error = %source, "agent connection write failed");
             }
         }
     }
