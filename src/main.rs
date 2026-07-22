@@ -42,6 +42,12 @@ fn main() {
 
 /// Run the `ok agent` SSH agent backend in a dedicated tokio runtime.
 fn run_agent(args: AgentArgs) {
+    // Apply process-level protections BEFORE any secrets are loaded (parity
+    // with `run_tui`): the agent daemon handles the master password and
+    // private keys, so it must apply mlock et al. before any unlock/crypto.
+    let process_protections = security::apply_process_protections();
+    tracing::info!("Process protections: {process_protections}");
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
