@@ -5,4 +5,5 @@
 //! paths and lock modules are added in subsequent tasks.
 
 pub mod identity;
+pub mod server;
 pub mod signer;
