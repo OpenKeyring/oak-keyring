@@ -856,6 +856,7 @@ tui:
     action_batch_resolve_conflict: "Batch Resolved Conflicts"
     action_rotate_key: "Rotated Key"
     action_rotate_failed: "Key Rotation Failed"
+    action_ssh_sign: "SSH Sign"
     empty_log: "No audit logs"
     empty_log_hint: "Operations will be logged here"
     filter_all_time: "All Time"

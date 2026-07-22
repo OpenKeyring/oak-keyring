@@ -70,6 +70,7 @@ pub(super) fn operation_display_name(op: &AuditOperation) -> String {
         AuditOperation::DekRotationFailed => {
             crate::t!("tui.audit.action_rotate_failed").to_string()
         }
+        AuditOperation::SshSign => crate::t!("tui.audit.action_ssh_sign").to_string(),
     }
 }
 
