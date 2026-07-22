@@ -4,10 +4,18 @@
 //! [`LoadedIdentity`] per matching record. This module deliberately implements
 //! the spec's **zero-cache** contract: a `LoadedIdentity` carries only the
 //! `record_id`, the vault record `name`, the resolved [`SshAlgo`], and the
-//! SSH wire-format `public_blob`. It does **not** hold a signer or a private
-//! key — the private key is fetched per-sign in the server task (Task 5) by
-//! looking the record up via `record_id`. Keeping the signer out of the
-//! identity list means listing identities never decrypts a private key.
+//! SSH wire-format `public_blob`. It does **not** RETAIN or EXPOSE a signer
+//! or a private key — the private key is fetched per-sign in the server task
+//! (Task 5) by looking the record up via `record_id`.
+//!
+//! # Zero-cache scope (RETENTION, not transient decrypt)
+//!
+//! The vault encrypts the whole `EncryptedPayload` as one AEAD blob, so any
+//! field decrypt (name or public key) transiently materializes the full
+//! payload plaintext — including the private key — in memory; only the PARSE
+//! is field-scoped. This is inherent to the vault's AEAD design, not an agent
+//! concern. The agent's zero-cache guarantee is about RETENTION (nothing kept
+//! in `LoadedIdentity`), not about avoiding transient decrypt.
 //!
 //! # Vault field mapping
 //!
@@ -35,10 +43,13 @@ use crate::types::credential::CredentialType;
 /// A vault SSH record projected into the data the SSH agent needs to answer
 /// `SSH_AGENTC_REQUEST_IDENTITIES`.
 ///
-/// **Zero-cache:** this struct intentionally holds NO signer and NO private
-/// key material — only the public blob and enough metadata (`record_id`,
-/// `name`, `algo`) for the server to locate and sign with the key on demand.
-/// Constructing a `LoadedIdentity` never decrypts a private key.
+/// **Zero-cache (RETENTION):** this struct intentionally holds NO signer and
+/// does NOT RETAIN or EXPOSE any private key material — only the public blob
+/// and enough metadata (`record_id`, `name`, `algo`) for the server to locate
+/// and sign with the key on demand. Note: building a `LoadedIdentity` does
+/// transiently decrypt the vault payload (see module docs); the zero-cache
+/// guarantee is that nothing is KEPT, not that the private key is never
+/// touched in memory.
 #[derive(Debug, Clone)]
 pub struct LoadedIdentity {
     /// Vault record id; the server uses this to fetch the private key per-sign.
@@ -112,9 +123,11 @@ pub enum IdentityError {
 /// [`LoadedIdentity`] per record.
 ///
 /// Only [`CredentialType::Ssh`] records are considered; all other credential
-/// types are skipped. The private key is never decrypted here — only the
-/// record name and the public key string are read, honoring the zero-cache
-/// contract.
+/// types are skipped. Only the record name and the public key string are
+/// PARSED and RETAINED — honoring the zero-cache contract (nothing beyond
+/// those fields is kept). Note: because the vault uses whole-payload AEAD,
+/// each field decrypt transiently materializes the full payload plaintext in
+/// memory; the private key is not retained, only not extracted.
 pub fn load_ssh_identities(
     vault: &VaultServiceImpl,
     filter: &IdentityFilter,
@@ -129,9 +142,10 @@ pub fn load_ssh_identities(
             continue;
         }
 
-        // Decrypt only the name (cheap, no private key) to apply the filter.
-        // `decrypt_record_name_for_sync` is the vault's `&self` "decrypt just
-        // the name" path; it does not touch the private key material.
+        // Decrypt to obtain the name for filtering. The PARSE is name-scoped,
+        // but because the vault uses whole-payload AEAD the decrypt transiently
+        // materializes the full payload plaintext in memory (private key
+        // included); only the name is extracted and retained.
         let name = vault
             .decrypt_record_name_for_sync(&record)
             .map_err(|source| IdentityError::Vault { source })?;
