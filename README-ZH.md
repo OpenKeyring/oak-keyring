@@ -100,27 +100,88 @@ oak-keyring 会打开一个全屏终端界面。主要使用流程是：
 
 ## SSH Agent 后端（`ok agent`）
 
-`ok agent` 启动一个独立的 ssh-agent 后端，使用 vault 中存储的 SSH 密钥。
-私钥不会离开 oak-keyring 进程；每次签名都在进程内完成，解密后的私钥不会被
-缓存。
+`ok agent` 启动一个 ssh-agent 后端，使用 vault 中存储的 SSH 密钥。可用于
+`ssh` 登录、通过 SSH 的 `git`，以及任何读取 `SSH_AUTH_SOCK` 的工具——**私钥
+永远不会离开 oak-keyring 进程，主密码也永远不会进入 AI 工具或脚本。**
+
+### 工作原理
+
+1. daemon 解锁你的 vault（你输入主密码），然后监听一个 Unix socket。
+2. `ssh` / `git` / AI 通过 `SSH_AUTH_SOCK` 发送签名请求；oak-keyring 在进程内
+   签名，只返回签名结果。
+3. 私钥每次签名时解密，签名后立即 zeroize——从不缓存，从不写入 vault 之外。
+
+### 前置条件
+
+- vault 中至少有一条 **SSH 密钥记录**。在 TUI 中创建：新记录（`n`）→ 类型选
+  **SSH** → 粘贴公钥和 OpenSSH 私钥（若有 passphrase 一并填入）。
+- 支持类型：**ed25519**、**RSA（SHA-2）**、**ECDSA（nistp256/384/521）**。
+
+### 启动 agent
 
 ```bash
 ok agent
 ```
 
-启动时会打印 `SSH_AUTH_SOCK=<path>`。在运行 `ssh`/`ssh-add` 的 shell（或会话）
-中 export 该路径，然后列出已暴露的密钥：
+它会提示输入主密码，然后打印 socket 路径，例如：
 
-```bash
-export SSH_AUTH_SOCK=/path/from/above
-ssh-add -l
+```
+SSH_AUTH_SOCK=/run/user/1000/oak-keyring/agent.sock
 ```
 
-默认会暴露 vault 中的所有 SSH 密钥。可用 `--only NAME`（可重复，精确匹配）
-或 `--allow REGEX`（与 `--only` 取并集）限制可见记录。用 `--idle-lock SECS`
-可在无成功签名超过指定秒数后自动关闭 daemon。agent 使用与 TUI 独立的单实例
-锁，因此 `ok` 和 `ok agent` 可以同时对同一个 vault 运行。运行 `ok agent --help`
-查看所有选项。
+### 配合 ssh 和 git 使用
+
+在运行 `ssh` / `git` 的 shell 中 export 该路径：
+
+```bash
+export SSH_AUTH_SOCK=/run/user/1000/oak-keyring/agent.sock
+ssh-add -l       # 列出 vault 中的 SSH 密钥
+ssh user@host    # 用 vault 密钥认证——无需 ~/.ssh 密钥文件
+git push         # git over SSH 同理
+```
+
+提示：每个会话启动一次 `ok agent`（或在 shell rc 中用固定 socket 路径启动）
+并 export `SSH_AUTH_SOCK`，SSH 工具会自动找到它。
+
+### 选项
+
+| 参数 | 用途 |
+| --- | --- |
+| `--only NAME` | 只暴露名称精确匹配的记录（可重复）。 |
+| `--allow REGEX` | 额外暴露名称匹配该正则的记录（与 `--only` 取并集）。 |
+| `--idle-lock SECS` | 无成功签名超过该秒数后自动关闭（默认：永不）。 |
+
+运行 `ok agent --help` 查看完整列表。
+
+### 安全模型
+
+- **私钥永不离开 daemon**——只有签名结果经过 socket。
+- **不缓存密钥**——解密后的私钥每次签名后立即 zeroize。
+- **主密码隔离**——通过终端提示读取一次；不进入命令行参数、shell 历史或任何
+  AI 工具的上下文。
+- **每次签名审计**——每次成功签名记入 vault 审计日志（`SSH sign`）。
+- **与 TUI 并存**——独立的单实例锁，`ok` 和 `ok agent` 可同时对同一个 vault
+  运行。
+
+> 本地信任模型：以你的用户身份运行的进程本就能读你的文件，因此 socket 权限为
+> `0600`。相比普通 `ssh-agent`，好处是 SSH 私钥始终在 vault 中加密静态存储，
+> 永不作为明文文件写入 `~/.ssh`。
+
+### 停止 agent
+
+`ok agent` 在前台运行。用 `Ctrl+C` 或 `kill <pid>`（`SIGTERM` / `SIGINT`）
+停止。关闭时会锁定 vault（zeroize 密钥）并删除 socket 和 pidfile。
+
+### 故障排查
+
+- **`ssh-add -l`："Could not open a connection"**——当前 shell 未 export
+  `SSH_AUTH_SOCK`，或指向过期路径。重新 export agent 打印的路径。
+- **`ssh-add -l` 列不出东西**——vault 中没有 SSH 密钥记录，或全被 `--only` /
+  `--allow` 过滤掉。
+- **"another agent is already running"**——已有一个 `ok agent` 在跑；先停止它
+  （或删除数据目录里过期的 `.agent.lock`）。
+- **崩溃后残留 socket**——`ok agent` 下次启动会清理残留 socket；也可手动删除。
+- **Linux 内存锁定错误**——调高 `RLIMIT_MEMLOCK`（见 [INSTALL-ZH.md](INSTALL-ZH.md)）。
 
 ## 预览版状态
 
