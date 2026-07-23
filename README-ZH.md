@@ -185,7 +185,7 @@ git push         # git over SSH 同理
 
 ## 预览版状态
 
-oak-keyring 仍处于 pre-1.0 预览阶段（v0.8.0-preview.1）。
+oak-keyring 仍处于 pre-1.0 预览阶段（v0.8.0-preview.3）。
 
 - 当前构建支持 macOS（Apple Silicon 和 Intel）和 Linux（x86_64/ARM64，glibc 2.35+）；暂不提供 Windows 构建。Linux 上可能需要调高 `mlock` 的 `RLIMIT_MEMLOCK`（见 INSTALL-ZH.md）。
 - macOS 二进制未签名，也未 notarize。

@@ -229,7 +229,7 @@ Support is community-style and best effort. There is no formal SLA.
 
 ## Preview Status
 
-oak-keyring is pre-1.0 preview software (v0.8.0-preview.1).
+oak-keyring is pre-1.0 preview software (v0.8.0-preview.3).
 
 - Current builds target macOS (Apple Silicon and Intel) and Linux (x86_64/ARM64, glibc 2.35+); Windows is not yet available. On Linux, `mlock` may need `RLIMIT_MEMLOCK` raised (see INSTALL.md).
 - macOS binaries are unsigned and not notarized.
