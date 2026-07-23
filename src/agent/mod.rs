@@ -6,6 +6,7 @@
 
 pub mod cli;
 pub mod identity;
+pub mod lock;
 pub mod paths;
 pub mod server;
 pub mod signer;

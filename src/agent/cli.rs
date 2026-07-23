@@ -27,6 +27,7 @@ use clap::Args;
 use thiserror::Error;
 
 use crate::agent::identity::IdentityFilter;
+use crate::agent::lock::AgentLock;
 use crate::agent::paths;
 use crate::agent::server::{AgentServer, AgentServerError};
 use crate::services::vault::VaultServiceImpl;
@@ -76,6 +77,11 @@ pub enum AgentCliError {
     /// The agent server failed to start or the accept loop failed terminally.
     #[error(transparent)]
     Server(#[from] AgentServerError),
+    /// Another `ok agent` instance is already running against this data dir,
+    /// or the agent single-instance lock file could not be acquired/created.
+    /// Fail loud: do NOT fall through to serving without the lock.
+    #[error(transparent)]
+    Lock(#[from] crate::agent::lock::AgentLockError),
 }
 
 /// Run `ok agent`: prompt for the master password, then unlock + serve.
@@ -123,6 +129,13 @@ fn build_filter(args: &AgentArgs) -> Result<IdentityFilter, AgentCliError> {
 /// the `sqlcipher` feature off (non-production), it falls back to opening a
 /// plain SQLite vault and unlocking the crypto manager in place.
 ///
+/// Before any unlock or socket bind, it acquires the agent single-instance
+/// lock ([`AgentLock`]) on `<vault_dir>/.agent.lock`. This is distinct from the
+/// TUI's `.instance.lock`, so `ok agent` and `ok` (TUI) coexist against the
+/// same vault, while a second `ok agent` fails loud with
+/// [`AgentLockError::AlreadyRunning`]. The lock guard is held for the daemon's
+/// entire lifetime and released on return.
+///
 /// On success it prints `SSH_AUTH_SOCK=<path>` to stdout (flushed) BEFORE
 /// entering the accept loop, so a caller/script can read the socket path
 /// deterministically. The accept loop then runs until a fatal accept error or
@@ -130,6 +143,8 @@ fn build_filter(args: &AgentArgs) -> Result<IdentityFilter, AgentCliError> {
 ///
 /// `idle_lock` is accepted and echoed as a startup warning; it is NOT enforced
 /// in this task (see [`AgentArgs::idle_lock`]).
+///
+/// [`AgentLockError::AlreadyRunning`]: crate::agent::lock::AgentLockError::AlreadyRunning
 pub async fn unlock_and_serve(
     vault_dir: PathBuf,
     password: SecureStr,
@@ -146,6 +161,12 @@ pub async fn unlock_and_serve(
             "--idle-lock was provided but is NOT enforced in this build; the agent will keep signing indefinitely"
         );
     }
+
+    // Acquire the agent single-instance lock BEFORE unlocking the vault or
+    // binding the socket. Held for the daemon's lifetime: dropping on return
+    // releases the advisory lock. `vault_dir` is the data_dir in production
+    // (`run`), so `.agent.lock` lands beside the TUI's `.instance.lock`.
+    let _agent_lock = AgentLock::acquire(&vault_dir)?;
 
     let vault = unlock_vault(&vault_dir, &password)?;
     let server = AgentServer::start(vault, filter, socket_path.clone())?;

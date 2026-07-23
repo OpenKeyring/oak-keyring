@@ -32,11 +32,13 @@ use std::time::Duration;
 
 use oak_keyring::agent::cli::unlock_and_serve;
 use oak_keyring::agent::identity::IdentityFilter;
+use oak_keyring::agent::lock::{AgentLock, AgentLockError};
 use oak_keyring::crypto::argon2::Argon2Params;
 use oak_keyring::crypto::bip39::MnemonicLanguage;
 use oak_keyring::crypto::keystore::KeyStore;
 use oak_keyring::crypto::CryptoManager;
 use oak_keyring::db::vault_db::VaultDbFactory;
+use oak_keyring::instance_lock::InstanceLock;
 use oak_keyring::types::credential::{CredentialType, EncryptedPayload};
 use oak_keyring::types::record::CreateRecordParams;
 use oak_keyring::types::sensitive::SecureStr;
@@ -306,4 +308,75 @@ async fn real_ssh_add_sees_no_identities_when_filter_excludes_all() {
     );
 
     handle.abort();
+}
+
+/// Runtime coexistence proof for the agent single-instance lock (Task 10).
+///
+/// While a real agent daemon is up (driven through the production
+/// [`unlock_and_serve`] core on a file-backed SQLCipher vault), a concurrent
+/// [`AgentLock::acquire`] on the SAME vault_dir MUST fail with
+/// [`AgentLockError::AlreadyRunning`] (a second `ok agent` is rejected), while a
+/// concurrent [`InstanceLock::acquire`] (the TUI's lock) on the same dir MUST
+/// succeed — the two locks are independent advisory locks on distinct inodes
+/// (`.agent.lock` vs `.instance.lock`), so `ok agent` and `ok` (TUI) coexist.
+///
+/// This complements the inline unit test `agent_lock_and_instance_lock_coexist_on_same_data_dir`
+/// by exercising the lock through the live daemon path: it proves the lock is
+/// actually acquired during `unlock_and_serve` and held for the daemon's
+/// lifetime (not just that two bare `acquire` calls are independent).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_lock_blocks_second_agent_but_coexists_with_tui_lock() {
+    // Real vault in a tempdir so `.agent.lock` / `.instance.lock` land in a
+    // dir that is auto-cleaned and isolated from every other test.
+    let dir = tempfile::TempDir::new().expect("vault temp dir");
+    let password = SecureStr::new("correct horse battery staple".to_string());
+    build_file_backed_vault(dir.path(), &password);
+
+    let sock_dir = tempfile::TempDir::new().expect("socket temp dir");
+    let socket = sock_dir.path().join("agent.sock");
+    let vault_dir = dir.path().to_path_buf();
+    let server_socket = socket.clone();
+    let mut handle = tokio::task::spawn(async move {
+        unlock_and_serve(
+            vault_dir,
+            password,
+            IdentityFilter::default(),
+            server_socket,
+            None,
+        )
+        .await
+    });
+
+    // Wait for the daemon to bind the socket — at this point `unlock_and_serve`
+    // has already acquired `AgentLock` and is holding it for the daemon's life.
+    wait_for_server(&mut handle, &socket).await;
+
+    // (1) A second `ok agent` against the same vault_dir must be rejected.
+    let second = AgentLock::acquire(dir.path());
+    match second {
+        Err(AgentLockError::AlreadyRunning) => {}
+        other => panic!(
+            "second AgentLock::acquire must fail with AlreadyRunning while the daemon holds it; got {other:?}"
+        ),
+    }
+
+    // (2) The TUI's instance lock MUST be acquirable concurrently — independent
+    // inode, no mutual exclusion. This is the core coexistence guarantee.
+    let _tui_lock = InstanceLock::acquire(dir.path())
+        .expect("TUI InstanceLock must coexist with running agent");
+    assert!(dir.path().join(".agent.lock").exists());
+    assert!(dir.path().join(".instance.lock").exists());
+
+    // Release the daemon; its AgentLock drops, freeing the advisory lock.
+    handle.abort();
+    // Give the aborted task a moment to release the FD before the tempdir drops.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // (3) After the daemon released the lock, AgentLock is acquirable again.
+    let reacquired = AgentLock::acquire(dir.path());
+    assert!(
+        reacquired.is_ok(),
+        "AgentLock must be reacquirable after the daemon released it; got {:?}",
+        reacquired.err()
+    );
 }
