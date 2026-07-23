@@ -43,6 +43,33 @@ pub enum EcdsaCurve {
     P521,
 }
 
+impl SshAlgo {
+    /// The SSH wire algorithm name a sign with `flags` would produce, matching
+    /// the `string <algorithm>` the signer places at the front of every
+    /// `SSH_AGENT_SIGN_RESPONSE` signature blob.
+    ///
+    /// RSA resolution mirrors [`RsaSigner::sign`](crate::agent::signer::RsaSigner):
+    /// SHA-512 wins when both SHA-2 flags are set, otherwise SHA-256 (modern ssh
+    /// refuses legacy SHA-1 `ssh-rsa`, so that is never returned). Ed25519 and
+    /// ECDSA ignore `flags`.
+    ///
+    /// Used by the agent sign path to label the `AuditOperation::SshSign` audit
+    /// detail with the precise algorithm variant.
+    pub fn wire_name(self, flags: SignFlags) -> &'static str {
+        match self {
+            SshAlgo::Ed25519 => "ssh-ed25519",
+            SshAlgo::Rsa => {
+                if flags.rsa_sha2_512 {
+                    "rsa-sha2-512"
+                } else {
+                    "rsa-sha2-256"
+                }
+            }
+            SshAlgo::Ecdsa(curve) => curve.wire_name(),
+        }
+    }
+}
+
 impl EcdsaCurve {
     /// The SSH wire algorithm name (`ecdsa-sha2-nistp256` / `nistp384` /
     /// `nistp521`).

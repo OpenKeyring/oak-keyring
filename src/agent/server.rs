@@ -19,12 +19,14 @@
 //! [`AgentServer`] retains ONLY public data: the SSH wire-format public blobs,
 //! record names, record ids, and the resolved algorithm. No signer and no
 //! private key is kept across requests. The sign path decrypts the private key
-//! material on demand (`decrypt_field(Password)` for the key,
-//! `decrypt_field(Passphrase)` for its passphrase), builds a temporary signer,
-//! signs, and drops (zeroizes) the signer immediately. Because the vault uses
-//! whole-payload AEAD, a field decrypt transiently materializes the full
-//! payload plaintext in memory; the agent's guarantee is that nothing is KEPT,
-//! not that the private key is never touched in memory.
+//! material on demand (`decrypt_field_no_audit(Password)` for the key,
+//! `decrypt_field_no_audit(Passphrase)` for its passphrase — the no-audit
+//! variant because the agent writes its own single `SshSign` audit row from
+//! [`handle_sign`], rather than a misleading `RecordViewPassword`), builds a
+//! temporary signer, signs, and drops (zeroizes) the signer immediately.
+//! Because the vault uses whole-payload AEAD, a field decrypt transiently
+//! materializes the full payload plaintext in memory; the agent's guarantee is
+//! that nothing is KEPT, not that the private key is never touched in memory.
 //!
 //! # Concurrency
 //!
@@ -56,6 +58,7 @@ use crate::agent::signer::{
 use crate::commands::types::FieldSelector;
 use crate::errors::mapping::vault::VaultError;
 use crate::services::vault::VaultServiceImpl;
+use crate::types::audit::AuditOperation;
 
 // ── wire protocol constants ─────────────────────────────────────────────────
 
@@ -325,7 +328,7 @@ fn dispatch(
     };
     match msg_type {
         SSH_AGENTC_REQUEST_IDENTITIES => answer_identities(identities),
-        SSH_AGENTC_SIGN_REQUEST => handle_sign(vault, blob_index, body),
+        SSH_AGENTC_SIGN_REQUEST => handle_sign(vault, identities, blob_index, body),
         _ => failure(),
     }
 }
@@ -348,8 +351,15 @@ fn answer_identities(identities: &[LoadedIdentity]) -> Vec<u8> {
 /// temporary signer, signs, and returns `SSH_AGENT_SIGN_RESPONSE`. Any failure
 /// (unknown blob, unsupported algo, decrypt error, sign error) yields
 /// `SSH_AGENT_FAILURE`. The signer is dropped (zeroized) before returning.
+///
+/// After a successful sign, writes one `AuditOperation::SshSign` audit row
+/// (record id + name + resolved wire algorithm). The audit write is
+/// **best-effort**: on failure it is logged with `tracing::warn!` and the
+/// successful sign response is still returned — an audit failure must never
+/// block a successful signature seen by the SSH client.
 fn handle_sign(
     vault: &VaultServiceImpl,
+    identities: &[LoadedIdentity],
     blob_index: &HashMap<Vec<u8>, (Uuid, SshAlgo)>,
     body: &[u8],
 ) -> Vec<u8> {
@@ -369,14 +379,43 @@ fn handle_sign(
         return failure();
     };
     let record_id = *record_id;
+    let algo = *algo;
 
-    let sig_blob = match sign(vault, record_id, data, flags, *algo) {
+    // Decode the wire flags once into SignFlags; `sign` consumes them and they
+    // are reused to label the SshSign audit detail with the exact algorithm
+    // variant (e.g. rsa-sha2-256 vs rsa-sha2-512).
+    let sign_flags = SignFlags {
+        rsa_sha2_256: flags & SSH_AGENT_RSA_SHA2_256 != 0,
+        rsa_sha2_512: flags & SSH_AGENT_RSA_SHA2_512 != 0,
+    };
+
+    let sig_blob = match sign(vault, record_id, data, sign_flags, algo) {
         Ok(sig) => sig,
         Err(err) => {
             tracing::warn!(error = %err, "agent sign path failed");
             return failure();
         }
     };
+
+    // BEST-EFFORT audit of the successful sign. The sign response below is
+    // built from `sig_blob` unconditionally; this audit write cannot influence
+    // the returned signature.
+    let name = identities
+        .iter()
+        .find(|i| i.record_id == record_id)
+        .map(|i| i.name.as_str());
+    if let Err(err) = vault._write_audit(
+        AuditOperation::SshSign,
+        Some(record_id),
+        name,
+        Some(algo.wire_name(sign_flags)),
+    ) {
+        tracing::warn!(
+            error = %err,
+            record_id = %record_id,
+            "ssh sign audit write failed; signature still returned"
+        );
+    }
 
     // `SSH_AGENT_SIGN_RESPONSE` = byte 14 + `string <sig blob>`.
     let mut out = Vec::with_capacity(1 + 4 + sig_blob.len());
@@ -386,43 +425,46 @@ fn handle_sign(
 }
 
 /// Decrypt key material for `record_id`, build a temporary signer for `algo`,
-/// sign `data` with the wire-flags mapped into [`SignFlags`], drop the signer,
-/// and return the raw SSH wire-format signature blob.
+/// sign `data` with `flags`, drop the signer, and return the raw SSH wire-format
+/// signature blob.
 ///
 /// `algo` selects the signer: `SshAlgo::Ed25519` → [`Ed25519Signer`],
 /// `SshAlgo::Rsa` → [`RsaSigner`], `SshAlgo::Ecdsa(_)` → [`EcdsaSigner`].
 /// Adding a new algorithm is a local change: extend the match with another arm.
 ///
-/// Wire `flags` are mapped into [`SignFlags`] (RSA SHA-2 variant selection per
-/// RFC 8332; ed25519 ignores both). The wire constants
+/// `flags` are the signer-layer's algorithm-agnostic [`SignFlags`] (RSA SHA-2
+/// variant selection per RFC 8332; ed25519 ignores both). The wire constants
 /// `SSH_AGENT_RSA_SHA2_256` (0x02) and `SSH_AGENT_RSA_SHA2_512` (0x04) are
-/// translated here so the signer layer stays wire-protocol-agnostic.
+/// decoded by the caller ([`handle_sign`]) so this function and the signer
+/// layer stay wire-protocol-agnostic.
+///
+/// # Audit
+///
+/// Key material is decrypted via [`VaultServiceImpl::decrypt_field_no_audit`]:
+/// the sign path owns its own audit and writes one `AuditOperation::SshSign`
+/// row from [`handle_sign`] after a successful sign. Decrypting through the
+/// audited `decrypt_field` would add a misleading `RecordViewPassword` row
+/// (the user never "viewed" the private key; the agent used it internally).
 fn sign(
     vault: &VaultServiceImpl,
     record_id: Uuid,
     data: &[u8],
-    flags: u32,
+    flags: SignFlags,
     algo: SshAlgo,
 ) -> Result<Vec<u8>, SignError> {
-    // Map the SSH agent wire flags into the signer-layer's algorithm-agnostic
-    // SignFlags. Both algos accept the same struct; ed25519 ignores the RSA
-    // bits, RSA uses them to pick the SHA-2 variant.
-    let sign_flags = SignFlags {
-        rsa_sha2_256: flags & SSH_AGENT_RSA_SHA2_256 != 0,
-        rsa_sha2_512: flags & SSH_AGENT_RSA_SHA2_512 != 0,
-    };
-
-    // Fetch the private key PEM. FieldSelector::Password maps to the SSH
-    // `private_key` field (see services::vault::record::helpers).
+    // Fetch the private key PEM WITHOUT a RecordViewPassword audit row. The
+    // caller writes a single SshSign audit entry covering this sign.
+    // FieldSelector::Password maps to the SSH `private_key` field (see
+    // services::vault::record::helpers).
     let pem = vault
-        .decrypt_field(record_id, FieldSelector::Password)
+        .decrypt_field_no_audit(record_id, FieldSelector::Password)
         .map_err(SignError::DecryptPrivateKey)?;
 
     // Fetch the passphrase, if any. FieldSelector::Passphrase returns
     // InvalidField when the stored passphrase is None; treat both that and an
     // empty string as "no passphrase" (None).
     let passphrase = vault
-        .decrypt_field(record_id, FieldSelector::Passphrase)
+        .decrypt_field_no_audit(record_id, FieldSelector::Passphrase)
         .ok()
         .map(|s| s.expose().to_string())
         .filter(|s| !s.is_empty());
@@ -435,19 +477,19 @@ fn sign(
             SshAlgo::Ed25519 => {
                 let signer = Ed25519Signer::from_openssh(pem.expose(), passphrase.as_deref())
                     .map_err(SignError::BuildSigner)?;
-                signer.sign(data, sign_flags).map_err(SignError::Sign)?
+                signer.sign(data, flags).map_err(SignError::Sign)?
                 // `signer` dropped here: seed zeroized.
             }
             SshAlgo::Rsa => {
                 let signer = RsaSigner::from_openssh(pem.expose(), passphrase.as_deref())
                     .map_err(SignError::BuildSigner)?;
-                signer.sign(data, sign_flags).map_err(SignError::Sign)?
+                signer.sign(data, flags).map_err(SignError::Sign)?
                 // `signer` dropped here: RsaPrivateKey zeroized on drop.
             }
             SshAlgo::Ecdsa(_) => {
                 let signer = EcdsaSigner::from_openssh(pem.expose(), passphrase.as_deref())
                     .map_err(SignError::BuildSigner)?;
-                signer.sign(data, sign_flags).map_err(SignError::Sign)?
+                signer.sign(data, flags).map_err(SignError::Sign)?
                 // `signer` dropped here: the curve `ecdsa::SigningKey`
                 // (p256/p384/p521) is zeroized on drop via its own
                 // `ZeroizeOnDrop` impl.
@@ -556,7 +598,10 @@ mod tests {
         write_string(&mut body, b"not-in-index");
         write_string(&mut body, b"data");
         body.extend_from_slice(&0u32.to_be_bytes());
-        assert_eq!(handle_sign(&vault, &index, &body), vec![SSH_AGENT_FAILURE]);
+        assert_eq!(
+            handle_sign(&vault, &[], &index, &body),
+            vec![SSH_AGENT_FAILURE]
+        );
     }
 
     #[test]
@@ -566,7 +611,139 @@ mod tests {
         // Only the key_blob string, no data/flags.
         let mut body = Vec::new();
         write_string(&mut body, b"blob");
-        assert_eq!(handle_sign(&vault, &index, &body), vec![SSH_AGENT_FAILURE]);
+        assert_eq!(
+            handle_sign(&vault, &[], &index, &body),
+            vec![SSH_AGENT_FAILURE]
+        );
+    }
+
+    // =========================================================================
+    // Audit: a successful SIGN_REQUEST writes exactly one SshSign audit row with
+    // the record id, name, and resolved algorithm — and does NOT write a
+    // RecordViewPassword row (the sign path uses a no-audit decrypt, because the
+    // user never "viewed" a password; the agent used the private key internally).
+    // =========================================================================
+
+    /// A real unencrypted ed25519 OpenSSH private key (matches the integration
+    /// test fixture). Stored as the SSH record's `private_key`.
+    const AUDIT_ED25519_PEM: &str = include_str!("../../tests/fixtures/test_ed25519");
+
+    /// OpenSSH public key string for `AUDIT_ED25519_PEM`, stored as the record's
+    /// `public_key` so identity loading can parse a wire-format blob.
+    const AUDIT_ED25519_PUB_SSH: &str = "ssh-ed25519 \
+         AAAAC3NzaC1lZDI1NTE5AAAAIPddLwxmYUz+k43Vr+cahIy1iOROowugaJr8lQ6Tmi2V \
+         test-ed25519@oak-keyring";
+
+    /// Build an unlocked in-memory vault holding one ed25519 SSH record, returning
+    /// `(vault, record_id)`. The record's name is `"github-key"`.
+    fn vault_with_ed25519_record() -> (VaultServiceImpl, Uuid) {
+        use crate::crypto::bip39::{MnemonicLanguage, Passkey};
+        use crate::db::schema::init_db_in_memory;
+        use crate::types::credential::{CredentialType, EncryptedPayload};
+        use crate::types::record::CreateRecordParams;
+        use crate::types::sensitive::SecureStr;
+        let conn = init_db_in_memory().expect("in-memory db");
+        let mut svc = VaultServiceImpl::new(conn);
+        let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
+        svc.unlock_with_mnemonic(&mnemonic)
+            .expect("unlock must succeed");
+        let id = svc
+            .create_record(CreateRecordParams {
+                credential_type: CredentialType::Ssh,
+                payload: EncryptedPayload::Ssh {
+                    name: "github-key".to_string(),
+                    public_key: AUDIT_ED25519_PUB_SSH.to_string(),
+                    private_key: Some(SecureStr::new(AUDIT_ED25519_PEM.to_string())),
+                    passphrase: None,
+                    notes: None,
+                },
+                tags: vec![],
+                is_favorite: false,
+                expires_at: None,
+            })
+            .expect("create ssh record");
+        (svc, id)
+    }
+
+    /// Count audit entries of `operation` in `vault`.
+    fn count_audit(
+        vault: &VaultServiceImpl,
+        operation: crate::types::audit::AuditOperation,
+    ) -> usize {
+        use crate::commands::types::AuditFilter;
+        let filter = AuditFilter {
+            operation: Some(operation),
+            ..Default::default()
+        };
+        vault.query_audit_log(&filter).expect("audit query").1
+    }
+
+    #[test]
+    fn sign_request_writes_exactly_one_ssh_sign_audit_row() {
+        use crate::agent::identity::{load_ssh_identities, IdentityFilter};
+        use crate::commands::types::AuditFilter;
+        use crate::types::audit::AuditOperation;
+
+        let (vault, record_id) = vault_with_ed25519_record();
+
+        // Load identities + build the blob index exactly as AgentServer::start does.
+        let identities =
+            load_ssh_identities(&vault, &IdentityFilter::default()).expect("load identities");
+        assert_eq!(identities.len(), 1, "fixture vault has one SSH record");
+        let blob_index: HashMap<Vec<u8>, (Uuid, SshAlgo)> = identities
+            .iter()
+            .map(|i| (i.public_blob.clone(), (i.record_id, i.algo)))
+            .collect();
+        let blob = identities[0].public_blob.clone();
+
+        // Build a SIGN_REQUEST wire body: <string key_blob><string data><u32 flags>.
+        let mut request = vec![SSH_AGENTC_SIGN_REQUEST];
+        write_string(&mut request, &blob);
+        write_string(&mut request, b"authenticate me, agent");
+        request.extend_from_slice(&0u32.to_be_bytes()); // flags = 0
+
+        // Before the sign: no SshSign, no RecordViewPassword.
+        assert_eq!(count_audit(&vault, AuditOperation::SshSign), 0);
+        assert_eq!(count_audit(&vault, AuditOperation::RecordViewPassword), 0);
+
+        let response = dispatch(&vault, &identities, &blob_index, &request);
+        assert_eq!(
+            response[0], SSH_AGENT_SIGN_RESPONSE,
+            "sign must succeed before auditing the audit row"
+        );
+
+        // After a successful sign: EXACTLY one SshSign row.
+        assert_eq!(
+            count_audit(&vault, AuditOperation::SshSign),
+            1,
+            "a successful sign must write exactly one SshSign audit row"
+        );
+
+        // And NO RecordViewPassword: the sign path decrypts the private key via
+        // a no-audit decrypt, because the agent using the key internally is not
+        // a user "view password" event. SshSign is the single, accurate event.
+        assert_eq!(
+            count_audit(&vault, AuditOperation::RecordViewPassword),
+            0,
+            "sign path must not double-audit with RecordViewPassword"
+        );
+
+        // Inspect the SshSign row's fields.
+        let filter = AuditFilter {
+            operation: Some(AuditOperation::SshSign),
+            ..Default::default()
+        };
+        let (entries, _total) = vault.query_audit_log(&filter).expect("query ssh sign");
+        assert_eq!(entries.len(), 1);
+        let row = &entries[0];
+        assert_eq!(row.operation, AuditOperation::SshSign);
+        assert_eq!(row.record_id, Some(record_id));
+        assert_eq!(row.record_name.as_deref(), Some("github-key"));
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("ssh-ed25519"),
+            "detail must be the resolved wire algorithm name"
+        );
     }
 
     /// Build an unlocked in-memory vault for dispatch-level unit tests (no SSH
