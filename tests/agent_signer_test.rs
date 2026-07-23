@@ -6,7 +6,7 @@
 //! because an SSH agent `SIGN_RESPONSE` carries a raw algorithm-specific
 //! signature blob, not an SSHSIG wrapper).
 
-use oak_keyring::agent::signer::{Ed25519Signer, SignFlags, SshAlgo, SshSigner};
+use oak_keyring::agent::signer::{Ed25519Signer, RsaSigner, SignFlags, SshAlgo, SshSigner};
 
 /// Parse an SSH agent ed25519 wire-format signature blob and return the raw
 /// 64-byte signature.
@@ -382,5 +382,256 @@ fn identity_filter_only_and_allow_are_or_combined() {
     assert!(
         !filter.matches("production"),
         "neither in `only` nor matching `allow` -> no match"
+    );
+}
+
+// ===========================================================================
+// RSA signer (`RsaSigner`)
+// ===========================================================================
+//
+// These tests exercise `RsaSigner` end-to-end: an OpenSSH RSA PEM is parsed, a
+// message is signed, and the returned wire-format signature blob is parsed and
+// verified directly with the `rsa` crate's PKCS#1 v1.5 verifier (NOT via
+// `ssh_key::SshSig`, because the SSH agent `SIGN_RESPONSE` carries a raw
+// algorithm-specific signature blob, not an SSHSIG wrapper).
+//
+// RFC 8332 wire format returned by `RsaSigner::sign`:
+//   string "rsa-sha2-256" | "rsa-sha2-512"
+//   string <pkcs1v15 sig bytes>
+// where every `string` is a 4-byte big-endian length prefix + bytes. SHA-1
+// `ssh-rsa` is a Non-Goal; with no flags we DEFAULT to rsa-sha2-256 (modern
+// ssh requires SHA-2).
+
+/// Parse an SSH agent RSA wire-format signature blob and return
+/// `(algorithm_name, signature_bytes)`.
+fn extract_rsa_sig(blob: &[u8]) -> (&[u8], &[u8]) {
+    let (alg, rest) = read_string_local(blob).expect("sig has algorithm-name string");
+    let (sig, tail) = read_string_local(rest).expect("sig has signature string");
+    assert!(tail.is_empty(), "no trailing bytes in RSA sig blob");
+    (alg, sig)
+}
+
+/// Local copy of the ssh "string" parser (the protocol-test file's version is
+/// private). 4-byte big-endian length prefix + bytes.
+fn read_string_local(input: &[u8]) -> Option<(&[u8], &[u8])> {
+    if input.len() < 4 {
+        return None;
+    }
+    let len = u32::from_be_bytes(input[0..4].try_into().unwrap()) as usize;
+    if input.len() < 4 + len {
+        return None;
+    }
+    Some((&input[4..4 + len], &input[4 + len..]))
+}
+
+/// Extract the rsa::RsaPublicKey from an OpenSSH PEM via ssh-key's PUBLIC-key
+/// path, for independent PKCS#1 v1.5 verification.
+///
+/// Uses the public-key conversion (`TryFrom<&ssh_key::public::RsaPublicKey>`),
+/// which only needs `n` and `e` — deliberately NOT the private-key
+/// `TryFrom<&RsaKeypair>`, which has a prime-duplication bug in ssh-key 0.6.7
+/// (passes `p` twice). The public-key path is unaffected.
+fn rsa_public_key_from_pem(pem: &str) -> rsa::RsaPublicKey {
+    let private = ssh_key::PrivateKey::from_openssh(pem).expect("PEM must parse");
+    let rsa_pub = match private.public_key().key_data() {
+        ssh_key::public::KeyData::Rsa(pk) => pk,
+        other => panic!("expected RSA public key, got {other:?}"),
+    };
+    rsa::RsaPublicKey::try_from(rsa_pub).expect("ssh-key pub -> rsa::RsaPublicKey")
+}
+
+/// Verify a PKCS#1 v1.5 signature for `msg` against `pubkey` using the given
+/// SHA-2 variant, identified by the wire algorithm name.
+fn verify_rsa_pkcs1v15(pubkey: &rsa::RsaPublicKey, alg: &[u8], msg: &[u8], sig: &[u8]) {
+    use rsa::pkcs1v15::{Signature, VerifyingKey};
+    use rsa::signature::Verifier;
+
+    let signature = Signature::try_from(sig).expect("sig bytes -> pkcs1v15::Signature");
+    match alg {
+        b"rsa-sha2-256" => {
+            let vk: VerifyingKey<sha2::Sha256> = VerifyingKey::new(pubkey.clone());
+            vk.verify(msg, &signature)
+                .expect("rsa-sha2-256 signature must verify");
+        }
+        b"rsa-sha2-512" => {
+            let vk: VerifyingKey<sha2::Sha512> = VerifyingKey::new(pubkey.clone());
+            vk.verify(msg, &signature)
+                .expect("rsa-sha2-512 signature must verify");
+        }
+        other => panic!("unexpected RSA wire algorithm: {other:?}"),
+    }
+}
+
+#[test]
+fn rsa_sign_with_default_flags_uses_sha2_256() {
+    // No flags set: the modern default MUST be rsa-sha2-256 (modern ssh
+    // refuses SHA-1 `ssh-rsa`). Old SHA-1 `ssh-rsa` is a Non-Goal.
+    let pem = include_str!("fixtures/test_rsa");
+    let signer = RsaSigner::from_openssh(pem, None).expect("unencrypted RSA key must load");
+
+    assert_eq!(signer.algorithm(), SshAlgo::Rsa);
+
+    let data = b"rsa-default-sign-test";
+    let blob = signer
+        .sign(data, SignFlags::default())
+        .expect("signing must succeed");
+
+    let (alg, sig) = extract_rsa_sig(&blob);
+    assert_eq!(alg, b"rsa-sha2-256", "default must be rsa-sha2-256");
+    let pubkey = rsa_public_key_from_pem(pem);
+    verify_rsa_pkcs1v15(&pubkey, alg, data, sig);
+}
+
+#[test]
+fn rsa_sign_with_sha2_256_flag() {
+    let pem = include_str!("fixtures/test_rsa");
+    let signer = RsaSigner::from_openssh(pem, None).expect("key must load");
+    let data = b"rsa-sha2-256-explicit";
+    let blob = signer
+        .sign(
+            data,
+            SignFlags {
+                rsa_sha2_256: true,
+                rsa_sha2_512: false,
+            },
+        )
+        .expect("signing must succeed");
+
+    let (alg, sig) = extract_rsa_sig(&blob);
+    assert_eq!(alg, b"rsa-sha2-256");
+    let pubkey = rsa_public_key_from_pem(pem);
+    verify_rsa_pkcs1v15(&pubkey, alg, data, sig);
+}
+
+#[test]
+fn rsa_sign_with_sha2_512_flag() {
+    let pem = include_str!("fixtures/test_rsa");
+    let signer = RsaSigner::from_openssh(pem, None).expect("key must load");
+    let data = b"rsa-sha2-512-explicit";
+    let blob = signer
+        .sign(
+            data,
+            SignFlags {
+                rsa_sha2_256: false,
+                rsa_sha2_512: true,
+            },
+        )
+        .expect("signing must succeed");
+
+    let (alg, sig) = extract_rsa_sig(&blob);
+    assert_eq!(alg, b"rsa-sha2-512");
+    let pubkey = rsa_public_key_from_pem(pem);
+    verify_rsa_pkcs1v15(&pubkey, alg, data, sig);
+}
+
+#[test]
+fn rsa_sign_sha2_512_wins_over_sha2_256_when_both_set() {
+    // When BOTH flags are set, RSA-SHA2-512 wins (matches OpenSSH behavior:
+    // the stronger hash is preferred when the client offers both).
+    let pem = include_str!("fixtures/test_rsa");
+    let signer = RsaSigner::from_openssh(pem, None).expect("key must load");
+    let blob = signer
+        .sign(
+            b"both-flags",
+            SignFlags {
+                rsa_sha2_256: true,
+                rsa_sha2_512: true,
+            },
+        )
+        .expect("signing must succeed");
+    let (alg, _sig) = extract_rsa_sig(&blob);
+    assert_eq!(alg, b"rsa-sha2-512", "SHA2-512 must win when both set");
+}
+
+#[test]
+fn rsa_sign_is_deterministic() {
+    // PKCS#1 v1.5 (RFC 8017 §8.2) is deterministic — no randomness. Same
+    // data + flags => same signature bytes.
+    let pem = include_str!("fixtures/test_rsa");
+    let signer = RsaSigner::from_openssh(pem, None).expect("key must load");
+    let flags = SignFlags {
+        rsa_sha2_256: true,
+        rsa_sha2_512: false,
+    };
+    let a = signer.sign(b"repeatable", flags).unwrap();
+    let b = signer.sign(b"repeatable", flags).unwrap();
+    assert_eq!(a, b, "PKCS#1 v1.5 RSA signing must be deterministic");
+}
+
+#[test]
+fn rsa_public_key_ssh_is_openssh_format() {
+    let pem = include_str!("fixtures/test_rsa");
+    let signer = RsaSigner::from_openssh(pem, None).expect("key must load");
+    let public_ssh = signer.public_key_ssh().expect("public key string");
+    assert!(
+        public_ssh.starts_with("ssh-rsa "),
+        "public key must be OpenSSH format, got: {public_ssh}"
+    );
+}
+
+#[test]
+fn rsa_passphrase_protected_key_loads_and_signs() {
+    let pem = include_str!("fixtures/test_rsa_encrypted");
+    let signer = RsaSigner::from_openssh(pem, Some("test-passphrase-123"))
+        .expect("passphrase-protected RSA key must decrypt");
+
+    let data = b"encrypted-rsa-sign-test";
+    let blob = signer
+        .sign(
+            data,
+            SignFlags {
+                rsa_sha2_256: true,
+                rsa_sha2_512: false,
+            },
+        )
+        .expect("signing must succeed");
+
+    let (alg, sig) = extract_rsa_sig(&blob);
+    assert_eq!(alg, b"rsa-sha2-256");
+    let pubkey = rsa_public_key_from_pem(pem);
+    verify_rsa_pkcs1v15(&pubkey, alg, data, sig);
+}
+
+#[test]
+fn rsa_passphrase_protected_key_wrong_passphrase_fails() {
+    let pem = include_str!("fixtures/test_rsa_encrypted");
+    let result = RsaSigner::from_openssh(pem, Some("wrong-passphrase"));
+    assert!(
+        result.is_err(),
+        "wrong passphrase must fail loudly, not silently load or panic"
+    );
+}
+
+#[test]
+fn rsa_missing_passphrase_for_encrypted_key_fails() {
+    let pem = include_str!("fixtures/test_rsa_encrypted");
+    let result = RsaSigner::from_openssh(pem, None);
+    assert!(
+        result.is_err(),
+        "encrypted RSA key without passphrase must fail loudly"
+    );
+}
+
+#[test]
+fn rsa_passphrase_supplied_for_unencrypted_key_is_rejected() {
+    // Fail loud: a passphrase on an unencrypted key is a caller error, never
+    // silently ignored.
+    let pem = include_str!("fixtures/test_rsa");
+    let result = RsaSigner::from_openssh(pem, Some("unused-passphrase"));
+    assert!(
+        result.is_err(),
+        "passphrase on an unencrypted RSA key must be rejected, not ignored"
+    );
+}
+
+#[test]
+fn rsa_sign_rejects_non_rsa_key() {
+    // Feeding an ed25519 PEM to RsaSigner must fail loudly (UnsupportedKeyType
+    // — error sanitization, no panic, no partial load).
+    let pem = include_str!("fixtures/test_ed25519");
+    let result = RsaSigner::from_openssh(pem, None);
+    assert!(
+        result.is_err(),
+        "RsaSigner must reject non-RSA keys, not silently accept them"
     );
 }

@@ -46,6 +46,10 @@ const SSH_AGENTC_REQUEST_IDENTITIES: u8 = 11;
 const SSH_AGENT_IDENTITIES_ANSWER: u8 = 12;
 const SSH_AGENTC_SIGN_REQUEST: u8 = 13;
 const SSH_AGENT_SIGN_RESPONSE: u8 = 14;
+/// Sign-request flag bit requesting `rsa-sha2-256` (RFC 8332). RSA-only.
+const SSH_AGENT_RSA_SHA2_256: u32 = 0x02;
+/// Sign-request flag bit requesting `rsa-sha2-512` (RFC 8332). RSA-only.
+const SSH_AGENT_RSA_SHA2_512: u32 = 0x04;
 
 // ===========================================================================
 // client-side wire codec helpers
@@ -409,6 +413,183 @@ async fn request_identities_applies_identity_filter() {
     assert_eq!(resp[0], SSH_AGENT_IDENTITIES_ANSWER);
     let count = u32::from_be_bytes(resp[1..5].try_into().unwrap());
     assert_eq!(count, 1, "filter must restrict the advertised identities");
+
+    handle.abort();
+}
+
+// ===========================================================================
+// RSA protocol-level tests (RFC 8332 rsa-sha2-256 / rsa-sha2-512)
+// ===========================================================================
+
+/// A real unencrypted RSA 2048-bit OpenSSH private key (matches
+/// `fixtures/test_rsa.pub`). Generated with `ssh-keygen -t rsa -b 2048`.
+const RSA_PEM: &str = include_str!("fixtures/test_rsa");
+
+/// The OpenSSH public key string for `RSA_PEM`, stored as the vault record's
+/// `public_key` field so the server can parse it into a wire-format blob.
+const RSA_PUB_SSH: &str = "ssh-rsa \
+     AAAAB3NzaC1yc2EAAAADAQABAAABAQCvY1xq91xiyqmu52jAXBX3w9tgz1depXBwz3lJ6f6X3tMpyrkmPBRihrERDFIO3Oifehn+EzFo7Tt/EZ/Iuw9rYVll01Rm2biqRxEHsoCFPPxj3cryOPNTOW1YLw8kxFLqRtLntd51nToYjRt/+t4h5QrUWm/mkkQ8Ln5sac4DRlYqad1WzgKhnuwg5Wl3E1bAQK+d+ZIOZnvzYjCn3OuWL0iTgoPCNzQKFpqmYGzg2dpgaPnLkzvdF5mtQMdg7p9I0zwtvlf7oxqkv86Ggpctnz1ryEEgJqkqe9FxFp6CRImVgT8lOJerWJ8aVruX7KpR/jxT9c3oqd5OZJjOXmmV \
+     test-rsa@oak-keyring";
+
+/// Build an unlocked in-memory vault holding one RSA SSH record with the
+/// real private key stored, returning `(vault, record_id)`.
+fn unlocked_vault_with_rsa() -> (VaultService, uuid::Uuid) {
+    let conn = init_db_in_memory().expect("in-memory db");
+    let mut svc = VaultService::new(conn);
+    let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
+    svc.unlock_with_mnemonic(&mnemonic)
+        .expect("unlock_with_mnemonic must succeed in test");
+
+    let id = svc
+        .create_record(CreateRecordParams {
+            credential_type: CredentialType::Ssh,
+            payload: EncryptedPayload::Ssh {
+                name: "rsa-deploy-key".to_string(),
+                public_key: RSA_PUB_SSH.to_string(),
+                private_key: Some(SecureStr::new(RSA_PEM.to_string())),
+                passphrase: None,
+                notes: None,
+            },
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("create ssh record");
+    (svc, id)
+}
+
+/// Extract the rsa::RsaPublicKey from the RSA PEM via the public-key path
+/// (independent of the agent's signer, for end-to-end verification).
+fn rsa_pubkey_from_pem(pem: &str) -> rsa::RsaPublicKey {
+    let private = ssh_key::PrivateKey::from_openssh(pem).expect("RSA PEM must parse");
+    let rsa_pub = match private.public_key().key_data() {
+        ssh_key::public::KeyData::Rsa(pk) => pk,
+        other => panic!("expected RSA public key, got {other:?}"),
+    };
+    rsa::RsaPublicKey::try_from(rsa_pub).expect("ssh-key pub -> rsa::RsaPublicKey")
+}
+
+/// Parse an ssh-agent RSA wire-format signature blob and return
+/// `(algorithm_name, signature_bytes)`. Layout: `string <alg>` + `string <sig>`.
+fn extract_rsa_sig(blob: &[u8]) -> (&[u8], &[u8]) {
+    let (alg, rest) = read_string(blob).expect("RSA sig has algorithm-name string");
+    let (sig, tail) = read_string(rest).expect("RSA sig has signature string");
+    assert!(tail.is_empty(), "no trailing bytes in RSA sig blob");
+    (alg, sig)
+}
+
+/// Verify an RSA PKCS#1 v1.5 signature against `pubkey` for `msg`, dispatching
+/// on the wire algorithm name (`rsa-sha2-256` or `rsa-sha2-512`).
+fn verify_rsa_sig(pubkey: &rsa::RsaPublicKey, alg: &[u8], msg: &[u8], sig: &[u8]) {
+    use rsa::pkcs1v15::{Signature, VerifyingKey};
+    use rsa::signature::Verifier;
+
+    let signature = Signature::try_from(sig).expect("sig -> pkcs1v15::Signature");
+    match alg {
+        b"rsa-sha2-256" => {
+            let vk: VerifyingKey<sha2::Sha256> = VerifyingKey::new(pubkey.clone());
+            vk.verify(msg, &signature)
+                .expect("rsa-sha2-256 signature must verify against the public key");
+        }
+        b"rsa-sha2-512" => {
+            let vk: VerifyingKey<sha2::Sha512> = VerifyingKey::new(pubkey.clone());
+            vk.verify(msg, &signature)
+                .expect("rsa-sha2-512 signature must verify against the public key");
+        }
+        other => panic!("unexpected RSA wire algorithm from agent: {other:?}"),
+    }
+}
+
+/// Drive a full RSA sign roundtrip over the agent socket: fetch the identity,
+/// SIGN_REQUEST the RSA blob with `flags`, return `(alg, sig_bytes)` from the
+/// agent's reply. Asserts the reply is a SIGN_RESPONSE (not FAILURE). Returns
+/// owned `Vec<u8>` because the underlying reply buffer is local to this call.
+async fn rsa_sign_roundtrip(sock: &Path, data: &[u8], flags: u32) -> (Vec<u8>, Vec<u8>) {
+    // ── REQUEST_IDENTITIES ───────────────────────────────────────────────
+    let resp = agent_round_trip(sock, &[SSH_AGENTC_REQUEST_IDENTITIES])
+        .await
+        .expect("identities round trip");
+    assert_eq!(resp[0], SSH_AGENT_IDENTITIES_ANSWER);
+    let count = u32::from_be_bytes(resp[1..5].try_into().unwrap());
+    assert_eq!(count, 1, "exactly one RSA identity must be advertised");
+    let (blob, rest) = read_string(&resp[5..]).expect("identity blob string");
+    let (_comment, tail) = read_string(rest).expect("identity comment string");
+    assert!(tail.is_empty());
+
+    // The advertised blob must carry the ssh-rsa algorithm name.
+    let (blob_alg, _) = read_string(blob).expect("blob has algorithm-name string");
+    assert_eq!(
+        blob_alg, b"ssh-rsa",
+        "advertised blob must be an ssh-rsa key"
+    );
+
+    // ── SIGN_REQUEST with the blob and the requested flags ──────────────
+    let mut sign_req = Vec::new();
+    sign_req.push(SSH_AGENTC_SIGN_REQUEST);
+    write_string(&mut sign_req, blob);
+    write_string(&mut sign_req, data);
+    sign_req.extend_from_slice(&flags.to_be_bytes());
+
+    let sign_resp = agent_round_trip(sock, &sign_req)
+        .await
+        .expect("RSA sign round trip");
+    assert_eq!(
+        sign_resp[0], SSH_AGENT_SIGN_RESPONSE,
+        "RSA SIGN_REQUEST must be answered with SIGN_RESPONSE"
+    );
+    let (sig_blob, tail) = read_string(&sign_resp[1..]).expect("signature string");
+    assert!(tail.is_empty(), "no trailing bytes after the RSA signature");
+    let (alg, sig) = extract_rsa_sig(sig_blob);
+    (alg.to_vec(), sig.to_vec())
+}
+
+#[tokio::test]
+async fn rsa_sign_request_with_sha2_256_flag_verifies() {
+    let (_dir, sock) = temp_socket_path();
+    let (vault, _rsa_id) = unlocked_vault_with_rsa();
+    let handle = spawn_server(vault, sock.clone());
+
+    let data = b"rsa-agent-sha2-256-roundtrip";
+    let (alg, sig) = rsa_sign_roundtrip(&sock, data, SSH_AGENT_RSA_SHA2_256).await;
+    assert_eq!(alg, b"rsa-sha2-256");
+
+    let pubkey = rsa_pubkey_from_pem(RSA_PEM);
+    verify_rsa_sig(&pubkey, &alg, data, &sig);
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn rsa_sign_request_with_sha2_512_flag_verifies() {
+    let (_dir, sock) = temp_socket_path();
+    let (vault, _rsa_id) = unlocked_vault_with_rsa();
+    let handle = spawn_server(vault, sock.clone());
+
+    let data = b"rsa-agent-sha2-512-roundtrip";
+    let (alg, sig) = rsa_sign_roundtrip(&sock, data, SSH_AGENT_RSA_SHA2_512).await;
+    assert_eq!(alg, b"rsa-sha2-512");
+
+    let pubkey = rsa_pubkey_from_pem(RSA_PEM);
+    verify_rsa_sig(&pubkey, &alg, data, &sig);
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn rsa_sign_request_with_no_flags_defaults_to_sha2_256() {
+    // No SHA-2 flags set: the server must default to rsa-sha2-256 (modern ssh
+    // refuses the legacy SHA-1 `ssh-rsa`). SHA-1 `ssh-rsa` support is a
+    // spec Non-Goal.
+    let (_dir, sock) = temp_socket_path();
+    let (vault, _rsa_id) = unlocked_vault_with_rsa();
+    let handle = spawn_server(vault, sock.clone());
+
+    let data = b"rsa-agent-default-roundtrip";
+    let (alg, sig) = rsa_sign_roundtrip(&sock, data, 0).await;
+    assert_eq!(alg, b"rsa-sha2-256", "default must be rsa-sha2-256");
+
+    let pubkey = rsa_pubkey_from_pem(RSA_PEM);
+    verify_rsa_sig(&pubkey, &alg, data, &sig);
 
     handle.abort();
 }

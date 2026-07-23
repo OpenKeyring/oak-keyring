@@ -50,7 +50,7 @@ use tokio::net::{UnixListener, UnixStream};
 use uuid::Uuid;
 
 use crate::agent::identity::{load_ssh_identities, IdentityFilter, LoadedIdentity};
-use crate::agent::signer::{Ed25519Signer, SignFlags, SignerError, SshAlgo, SshSigner};
+use crate::agent::signer::{Ed25519Signer, RsaSigner, SignFlags, SignerError, SshAlgo, SshSigner};
 use crate::commands::types::FieldSelector;
 use crate::errors::mapping::vault::VaultError;
 use crate::services::vault::VaultServiceImpl;
@@ -368,7 +368,7 @@ fn handle_sign(
     };
     let record_id = *record_id;
 
-    let sig_blob = match sign_with_ed25519(vault, record_id, data, flags, *algo) {
+    let sig_blob = match sign(vault, record_id, data, flags, *algo) {
         Ok(sig) => sig,
         Err(err) => {
             tracing::warn!(error = %err, "agent sign path failed");
@@ -383,24 +383,33 @@ fn handle_sign(
     out
 }
 
-/// Decrypt key material for `record_id`, build a temporary ed25519 signer, sign
-/// `data`, drop the signer, and return the raw SSH wire-format signature blob.
+/// Decrypt key material for `record_id`, build a temporary signer for `algo`,
+/// sign `data` with the wire-flags mapped into [`SignFlags`], drop the signer,
+/// and return the raw SSH wire-format signature blob.
 ///
-/// `algo` gates which signer is constructed; only `SshAlgo::Ed25519` is
-/// constructible today (RSA/ECDSA land in later tasks), so other algorithms
-/// fail loudly here. Adding a new algorithm is a local change: extend this
-/// match with another arm.
-fn sign_with_ed25519(
+/// `algo` selects the signer: `SshAlgo::Ed25519` → [`Ed25519Signer`],
+/// `SshAlgo::Rsa` → [`RsaSigner`]. ECDSA is not yet implemented and fails
+/// loudly via [`SignError::UnsupportedAlgo`]. Adding a new algorithm is a
+/// local change: extend the match with another arm.
+///
+/// Wire `flags` are mapped into [`SignFlags`] (RSA SHA-2 variant selection per
+/// RFC 8332; ed25519 ignores both). The wire constants
+/// `SSH_AGENT_RSA_SHA2_256` (0x02) and `SSH_AGENT_RSA_SHA2_512` (0x04) are
+/// translated here so the signer layer stays wire-protocol-agnostic.
+fn sign(
     vault: &VaultServiceImpl,
     record_id: Uuid,
     data: &[u8],
     flags: u32,
     algo: SshAlgo,
 ) -> Result<Vec<u8>, SignError> {
-    // Algorithm gate: only ed25519 is constructible now.
-    if !matches!(algo, SshAlgo::Ed25519) {
-        return Err(SignError::UnsupportedAlgo(algo));
-    }
+    // Map the SSH agent wire flags into the signer-layer's algorithm-agnostic
+    // SignFlags. Both algos accept the same struct; ed25519 ignores the RSA
+    // bits, RSA uses them to pick the SHA-2 variant.
+    let sign_flags = SignFlags {
+        rsa_sha2_256: flags & SSH_AGENT_RSA_SHA2_256 != 0,
+        rsa_sha2_512: flags & SSH_AGENT_RSA_SHA2_512 != 0,
+    };
 
     // Fetch the private key PEM. FieldSelector::Password maps to the SSH
     // `private_key` field (see services::vault::record::helpers).
@@ -418,16 +427,27 @@ fn sign_with_ed25519(
         .filter(|s| !s.is_empty());
 
     // Build a temporary signer, sign, and drop immediately (zero-cache). The
-    // signer's seed is Zeroizing, so drop zeroizes it.
+    // ed25519 signer's seed is Zeroizing; the RSA signer's private key is
+    // ZeroizeOnDrop — both zeroize on drop.
     let sig = {
-        let signer = Ed25519Signer::from_openssh(pem.expose(), passphrase.as_deref())
-            .map_err(SignError::BuildSigner)?;
-        let sign_flags = SignFlags {
-            rsa_sha2_256: flags & SSH_AGENT_RSA_SHA2_256 != 0,
-            rsa_sha2_512: flags & SSH_AGENT_RSA_SHA2_512 != 0,
-        };
-        signer.sign(data, sign_flags).map_err(SignError::Sign)?
-        // `signer` dropped here: seed zeroized.
+        match algo {
+            SshAlgo::Ed25519 => {
+                let signer = Ed25519Signer::from_openssh(pem.expose(), passphrase.as_deref())
+                    .map_err(SignError::BuildSigner)?;
+                signer.sign(data, sign_flags).map_err(SignError::Sign)?
+                // `signer` dropped here: seed zeroized.
+            }
+            SshAlgo::Rsa => {
+                let signer = RsaSigner::from_openssh(pem.expose(), passphrase.as_deref())
+                    .map_err(SignError::BuildSigner)?;
+                signer.sign(data, sign_flags).map_err(SignError::Sign)?
+                // `signer` dropped here: RsaPrivateKey zeroized on drop.
+            }
+            // ECDSA and any future algos land here until they get their own
+            // signer. Failing loud (not silently returning a malformed reply)
+            // is required by the project's fail-loud rule.
+            other => return Err(SignError::UnsupportedAlgo(other)),
+        }
     };
 
     Ok(sig)
