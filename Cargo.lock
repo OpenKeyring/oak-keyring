@@ -2698,6 +2698,7 @@ dependencies = [
  "opendal",
  "p256",
  "p384",
+ "p521",
  "parking_lot",
  "pbkdf2",
  "rand 0.9.4",

@@ -176,8 +176,8 @@ pub fn load_ssh_identities(
 ///
 /// `wire_blob` is the SSH wire-format public key (`PublicKey::to_bytes`), i.e.
 /// the exact bytes the agent protocol carries per identity. Ed25519, RSA, and
-/// ECDSA (P-256/P-384) are recognized; any other algorithm is a loud error so
-/// the agent never advertises a key it cannot sign.
+/// ECDSA (P-256/P-384/P-521) are recognized; any other algorithm is a loud
+/// error so the agent never advertises a key it cannot sign.
 fn parse_public_key(openssh_str: &str) -> Result<(SshAlgo, Vec<u8>), IdentityError> {
     let public = PublicKey::from_openssh(openssh_str)
         .map_err(|source| IdentityError::ParsePublicKey { source })?;
@@ -192,9 +192,9 @@ fn parse_public_key(openssh_str: &str) -> Result<(SshAlgo, Vec<u8>), IdentityErr
 
 /// Map an [`ssh_key::Algorithm`] to the agent's [`SshAlgo`].
 ///
-/// Ed25519/RSA/ECDSA-P256/P384 are accepted (signers land across Tasks 3/7/8;
-/// loading recognizes all of them so the identity list is complete). DSA,
-/// P-521, and FIDO/U2F security-key variants are rejected loudly — the agent
+/// Ed25519/RSA/ECDSA-P256/P384/P521 are accepted (signers land across Tasks
+/// 3/7/8; loading recognizes all of them so the identity list is complete).
+/// DSA and FIDO/U2F security-key variants are rejected loudly — the agent
 /// cannot sign with them, so it must not advertise them.
 fn map_algorithm(algo: &Algorithm) -> Result<SshAlgo, IdentityError> {
     match algo {
@@ -203,9 +203,7 @@ fn map_algorithm(algo: &Algorithm) -> Result<SshAlgo, IdentityError> {
         Algorithm::Ecdsa { curve } => match curve {
             ssh_key::EcdsaCurve::NistP256 => Ok(SshAlgo::Ecdsa(EcdsaCurve::P256)),
             ssh_key::EcdsaCurve::NistP384 => Ok(SshAlgo::Ecdsa(EcdsaCurve::P384)),
-            ssh_key::EcdsaCurve::NistP521 => Err(IdentityError::UnsupportedAlgorithm(
-                algo.as_str().to_string(),
-            )),
+            ssh_key::EcdsaCurve::NistP521 => Ok(SshAlgo::Ecdsa(EcdsaCurve::P521)),
         },
         // DSA, FIDO/U2F (Sk*), and unknown algorithms are not signable here.
         other => Err(IdentityError::UnsupportedAlgorithm(

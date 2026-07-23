@@ -6,9 +6,9 @@
 //! agent protocol exchanges algorithm-specific raw signatures, wrapped only as
 //! `string <algorithm_name>` + `string <signature_bytes>`.
 //!
-//! Ed25519 and RSA (PKCS#1 v1.5 over SHA-256 / SHA-512, RFC 8332) are
-//! implemented. ECDSA signers are deferred to a later task (the [`SshAlgo`]
-//! enum keeps its slot in the public API).
+//! Ed25519, RSA (PKCS#1 v1.5 over SHA-256 / SHA-512, RFC 8332), and ECDSA
+//! (NIST P-256/P-384/P-521 over the curve's matching SHA-2 digest) are
+//! implemented.
 
 use ed25519_dalek::{Signature, SigningKey};
 use sha2::{Digest, Sha256, Sha512};
@@ -20,25 +20,39 @@ pub type SignerResult<T> = std::result::Result<T, SignerError>;
 
 /// SSH algorithm families the agent backend can sign with.
 ///
-/// Ed25519 and RSA are constructible today; ECDSA is declared for API
-/// completeness and resolved by the identity layer, but not yet signable.
+/// Ed25519, RSA, and ECDSA (P-256/P-384/P-521) are all constructible and
+/// signable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SshAlgo {
     /// `ssh-ed25519`
     Ed25519,
     /// `ssh-rsa` / `rsa-sha2-256` / `rsa-sha2-512` (RFC 8332).
     Rsa,
-    /// `ecdsa-sha2-nistp256` / `nistp384` (not yet implemented)
+    /// `ecdsa-sha2-nistp256` / `nistp384` / `nistp521`
     Ecdsa(EcdsaCurve),
 }
 
 /// Named ECDSA curves for [`SshAlgo::Ecdsa`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EcdsaCurve {
-    /// NIST P-256 (`nistp256`)
+    /// NIST P-256 (`nistp256`), signed with SHA-256.
     P256,
-    /// NIST P-384 (`nistp384`)
+    /// NIST P-384 (`nistp384`), signed with SHA-384.
     P384,
+    /// NIST P-521 (`nistp521`), signed with SHA-512.
+    P521,
+}
+
+impl EcdsaCurve {
+    /// The SSH wire algorithm name (`ecdsa-sha2-nistp256` / `nistp384` /
+    /// `nistp521`).
+    fn wire_name(self) -> &'static str {
+        match self {
+            EcdsaCurve::P256 => "ecdsa-sha2-nistp256",
+            EcdsaCurve::P384 => "ecdsa-sha2-nistp384",
+            EcdsaCurve::P521 => "ecdsa-sha2-nistp521",
+        }
+    }
 }
 
 /// Per-sign request flags.
@@ -93,6 +107,25 @@ pub enum SignerError {
     /// enforced by ssh-key 0.6.7). Display carries no key material.
     #[error("failed to convert SSH RSA keypair into an RSA private key")]
     RsaKey {
+        #[source]
+        source: ssh_key::Error,
+    },
+    /// Converting the parsed ECDSA keypair into a `p256`/`p384`/`p521`
+    /// `SigningKey` failed (e.g. a malformed private scalar). The underlying
+    /// `elliptic_curve::Error` is lossy-mapped to `ssh_key::Error::Crypto` (no
+    /// key material in its Display), mirroring the [`SignerError::RsaKey`]
+    /// variant's lossy trade-off.
+    #[error("failed to convert SSH ECDSA keypair into an ECDSA signing key")]
+    EcdsaKey {
+        #[source]
+        source: ssh_key::Error,
+    },
+    /// ECDSA signing failed (the deterministic RFC 6979 nonce derivation could
+    /// not produce a valid signature — astronomically rare, as the derivation
+    /// iterates on `r`/`s == 0`). The underlying `ecdsa` error is lossy-mapped
+    /// to `ssh_key::Error::Crypto`, which carries no key material.
+    #[error("ECDSA signing failed")]
+    EcdsaSign {
         #[source]
         source: ssh_key::Error,
     },
@@ -345,6 +378,186 @@ impl SshSigner for RsaSigner {
     }
 }
 
+/// ECDSA SSH signer (NIST P-256 / P-384 / P-521, RFC 5656).
+///
+/// Holds the curve crate's `ecdsa::SigningKey` and produces SSH wire-format
+/// signatures: `string "ecdsa-sha2-nistp{256,384,521}"` + `string <DER-encoded
+/// ECDSA sig, hashed with the curve's SHA-2 (P-256 → SHA-256, P-384 → SHA-384,
+/// P-521 → SHA-512)>`. The OpenSSH public key string is precomputed at
+/// construction for cheap identity listing. ECDSA ignores [`SignFlags`] (those
+/// select RSA SHA-2 variants).
+///
+/// # Secret hygiene
+///
+/// `p256::ecdsa::SigningKey` / `p384` / `p521` each implement `ZeroizeOnDrop`
+/// (their inner `NonZeroScalar` is wiped on drop), so — like [`RsaSigner`] — the
+/// key is stored directly and the crate's own drop impl handles zeroization.
+///
+/// # Determinism
+///
+/// ECDSA here is deterministic (RFC 6979): the `ecdsa` crate's `Signer` impl
+/// derives the nonce `k` from the key+message rather than drawing it from an
+/// RNG. This matches the deterministic behavior of the ed25519 and RSA-PKCS1v15
+/// paths, is a valid standard, and verifies identically to the randomized
+/// signatures OpenSSH produces.
+pub struct EcdsaSigner {
+    /// Curve-specific ECDSA signing key, zeroized on drop via the crate's own
+    /// `ZeroizeOnDrop` impl.
+    key: EcdsaSigningKey,
+    /// Precomputed OpenSSH public key string.
+    public_ssh: String,
+}
+
+/// Curve-dispatched ECDSA signing key held by [`EcdsaSigner`].
+enum EcdsaSigningKey {
+    /// NIST P-256.
+    P256(p256::ecdsa::SigningKey),
+    /// NIST P-384.
+    P384(p384::ecdsa::SigningKey),
+    /// NIST P-521.
+    P521(p521::ecdsa::SigningKey),
+}
+
+impl EcdsaSigningKey {
+    /// The agent's curve enum for this key.
+    fn curve(&self) -> EcdsaCurve {
+        match self {
+            EcdsaSigningKey::P256(_) => EcdsaCurve::P256,
+            EcdsaSigningKey::P384(_) => EcdsaCurve::P384,
+            EcdsaSigningKey::P521(_) => EcdsaCurve::P521,
+        }
+    }
+
+    /// Sign `data`, returning the DER-encoded ECDSA signature bytes (hashing
+    /// with the curve's matching SHA-2 digest, chosen automatically by each
+    /// crate's `DigestPrimitive` impl). Uses `try_sign` (not the panicking
+    /// `sign`) so a signing failure surfaces as a loud error, never a panic.
+    fn sign_der(&self, data: &[u8]) -> SignerResult<Vec<u8>> {
+        match self {
+            EcdsaSigningKey::P256(k) => {
+                use p256::ecdsa::signature::{SignatureEncoding, Signer};
+                use p256::ecdsa::Signature;
+                // UFCS + return-type annotation selects the `Signer<Signature<C>>`
+                // impl (two Signer impls exist — raw and DER — so plain method
+                // syntax would be ambiguous). `Signature::to_der` then yields the
+                // DER encoding the SSH wire format requires.
+                let raw: Signature =
+                    Signer::try_sign(k, data).map_err(|_| SignerError::EcdsaSign {
+                        source: ssh_key::Error::Crypto,
+                    })?;
+                Ok(raw.to_der().to_vec())
+            }
+            EcdsaSigningKey::P384(k) => {
+                use p384::ecdsa::signature::{SignatureEncoding, Signer};
+                use p384::ecdsa::Signature;
+                let raw: Signature =
+                    Signer::try_sign(k, data).map_err(|_| SignerError::EcdsaSign {
+                        source: ssh_key::Error::Crypto,
+                    })?;
+                Ok(raw.to_der().to_vec())
+            }
+            EcdsaSigningKey::P521(k) => {
+                use p521::ecdsa::signature::{SignatureEncoding, Signer};
+                use p521::ecdsa::Signature;
+                let raw: Signature =
+                    Signer::try_sign(k, data).map_err(|_| SignerError::EcdsaSign {
+                        source: ssh_key::Error::Crypto,
+                    })?;
+                Ok(raw.to_der().to_vec())
+            }
+        }
+    }
+}
+
+impl EcdsaSigner {
+    /// Build a signer from an OpenSSH PEM private key.
+    ///
+    /// `passphrase` is required when (and only when) the key is
+    /// passphrase-protected; supplying a passphrase for an unencrypted key, or
+    /// omitting it for an encrypted key, is a loud error. Mirrors
+    /// [`Ed25519Signer::from_openssh`] / [`RsaSigner::from_openssh`]. The SSH
+    /// ECDSA curve field selects which RustCrypto crate backs the signing key.
+    pub fn from_openssh(pem: &str, passphrase: Option<&str>) -> SignerResult<Self> {
+        let parsed = ssh_key::PrivateKey::from_openssh(pem)
+            .map_err(|source| SignerError::ParseKey { source })?;
+
+        let key = if parsed.is_encrypted() {
+            let passphrase = passphrase.ok_or(SignerError::MissingPassphrase)?;
+            parsed
+                .decrypt(passphrase)
+                .map_err(|source| SignerError::Decrypt { source })?
+        } else {
+            match passphrase {
+                Some(_) => return Err(SignerError::UnexpectedPassphrase),
+                None => parsed,
+            }
+        };
+
+        let keypair = match key.key_data() {
+            ssh_key::private::KeypairData::Ecdsa(kp) => kp,
+            _ => return Err(SignerError::UnsupportedKeyType { expected: "ecdsa" }),
+        };
+
+        // `private_key_bytes()` is the big-endian scalar; `curve()` selects the
+        // backing crate. `SigningKey::from_slice` validates the scalar length
+        // (32/48/66 bytes for P-256/P-384/P-521) and is the one uniform
+        // constructor across all three crates — note p521's `ecdsa::SigningKey`
+        // is a newtype (not a type alias like p256/p384), so the `From<&SecretKey>`
+        // path is not available there.
+        let signing_key =
+            match keypair.curve() {
+                ssh_key::EcdsaCurve::NistP256 => {
+                    let sk = p256::ecdsa::SigningKey::from_slice(keypair.private_key_bytes())
+                        .map_err(|_| SignerError::EcdsaKey {
+                            source: ssh_key::Error::Crypto,
+                        })?;
+                    EcdsaSigningKey::P256(sk)
+                }
+                ssh_key::EcdsaCurve::NistP384 => {
+                    let sk = p384::ecdsa::SigningKey::from_slice(keypair.private_key_bytes())
+                        .map_err(|_| SignerError::EcdsaKey {
+                            source: ssh_key::Error::Crypto,
+                        })?;
+                    EcdsaSigningKey::P384(sk)
+                }
+                ssh_key::EcdsaCurve::NistP521 => {
+                    let sk = p521::ecdsa::SigningKey::from_slice(keypair.private_key_bytes())
+                        .map_err(|_| SignerError::EcdsaKey {
+                            source: ssh_key::Error::Crypto,
+                        })?;
+                    EcdsaSigningKey::P521(sk)
+                }
+            };
+
+        let public_ssh = key
+            .public_key()
+            .to_openssh()
+            .map_err(|source| SignerError::PublicKey { source })?;
+
+        Ok(Self {
+            key: signing_key,
+            public_ssh,
+        })
+    }
+}
+
+impl SshSigner for EcdsaSigner {
+    fn algorithm(&self) -> SshAlgo {
+        SshAlgo::Ecdsa(self.key.curve())
+    }
+
+    fn public_key_ssh(&self) -> SignerResult<String> {
+        Ok(self.public_ssh.clone())
+    }
+
+    fn sign(&self, data: &[u8], _flags: SignFlags) -> SignerResult<Vec<u8>> {
+        // ECDSA ignores SignFlags (RSA-only). Hash digest is fixed by the curve.
+        let alg = self.key.curve().wire_name();
+        let sig = self.key.sign_der(data)?;
+        Ok(ecdsa_wire_signature(alg, &sig))
+    }
+}
+
 /// Compute a PKCS#1 v1.5 signature over `data` using `key` and digest `D`.
 ///
 /// Builds a transient `pkcs1v15::SigningKey<D>` per call (cloning the private
@@ -389,6 +602,20 @@ fn ed25519_wire_signature(sig: &[u8; ed25519_dalek::SIGNATURE_LENGTH]) -> Vec<u8
     let mut out = Vec::with_capacity(4 + ALG.len() + 4 + sig.len());
     out.extend_from_slice(&(ALG.len() as u32).to_be_bytes());
     out.extend_from_slice(ALG);
+    out.extend_from_slice(&(sig.len() as u32).to_be_bytes());
+    out.extend_from_slice(sig);
+    out
+}
+
+/// Build the SSH agent wire-format signature blob for ECDSA (RFC 5656):
+/// `string <alg_name>` + `string <DER-encoded sig>`, where each `string` is a
+/// 4-byte big-endian length prefix followed by the bytes. `alg_name` is
+/// `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, or `ecdsa-sha2-nistp521`.
+fn ecdsa_wire_signature(alg: &str, sig: &[u8]) -> Vec<u8> {
+    let alg_bytes = alg.as_bytes();
+    let mut out = Vec::with_capacity(4 + alg_bytes.len() + 4 + sig.len());
+    out.extend_from_slice(&(alg_bytes.len() as u32).to_be_bytes());
+    out.extend_from_slice(alg_bytes);
     out.extend_from_slice(&(sig.len() as u32).to_be_bytes());
     out.extend_from_slice(sig);
     out

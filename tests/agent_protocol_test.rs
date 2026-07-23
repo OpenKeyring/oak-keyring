@@ -593,3 +593,168 @@ async fn rsa_sign_request_with_no_flags_defaults_to_sha2_256() {
 
     handle.abort();
 }
+
+// ===========================================================================
+// ECDSA protocol-level tests (RFC 5656 ecdsa-sha2-nistp256 / nistp384 /
+// nistp521). ECDSA ignores the sign-request flags.
+// ===========================================================================
+
+/// A real unencrypted ECDSA P-256 OpenSSH private key (matches
+/// `fixtures/test_ecdsa_256.pub`). Generated with `ssh-keygen -t ecdsa -b 256`.
+const ECDSA_P256_PEM: &str = include_str!("fixtures/test_ecdsa_256");
+
+/// OpenSSH public key string for `ECDSA_P256_PEM`, stored as the vault record's
+/// `public_key` field so the server can parse it into a wire-format blob.
+const ECDSA_P256_PUB_SSH: &str = "ecdsa-sha2-nistp256 \
+     AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBGa5aK5VjYmMz/7yIWmUYw82EsOumqQmqCcLI4Vxgs1hzMTR72rXnd4Cn1mnvNboaIlhwFTFVaBnWtBpIamkpw= \
+     test-ecdsa-256@oak-keyring";
+
+/// A real unencrypted ECDSA P-521 OpenSSH private key (matches
+/// `fixtures/test_ecdsa_521.pub`). P-521 exercises the newly added identity
+/// mapping and p521 signer.
+const ECDSA_P521_PEM: &str = include_str!("fixtures/test_ecdsa_521");
+
+/// OpenSSH public key string for `ECDSA_P521_PEM`.
+const ECDSA_P521_PUB_SSH: &str = "ecdsa-sha2-nistp521 \
+     AAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlzdHA1MjEAAACFBAArQaag1j8XYLrvIorPg40L8L4GddWeGuvI65y+FyNmepiZcH2++6F0qJz6/AnpCT5+Lnn5J5jOo+5gHdmIdyWOpQEh6zLOAa65AyG2zdfqmEdt3EULIWpbTOtXJtztosvNzJAOAVRr61FQrXgWtssZ/PtAsal9Xf+av1wH0+aXpSUQaA== \
+     test-ecdsa-521@oak-keyring";
+
+/// Build an unlocked in-memory vault holding one ECDSA SSH record with the
+/// real private key stored, returning `(vault, record_id)`.
+fn unlocked_vault_with_ecdsa(
+    pem: &'static str,
+    pub_ssh: &'static str,
+    name: &str,
+) -> (VaultService, uuid::Uuid) {
+    let conn = init_db_in_memory().expect("in-memory db");
+    let mut svc = VaultService::new(conn);
+    let mnemonic = Passkey::generate(24, MnemonicLanguage::English).expect("mnemonic");
+    svc.unlock_with_mnemonic(&mnemonic)
+        .expect("unlock_with_mnemonic must succeed in test");
+
+    let id = svc
+        .create_record(CreateRecordParams {
+            credential_type: CredentialType::Ssh,
+            payload: EncryptedPayload::Ssh {
+                name: name.to_string(),
+                public_key: pub_ssh.to_string(),
+                private_key: Some(SecureStr::new(pem.to_string())),
+                passphrase: None,
+                notes: None,
+            },
+            tags: vec![],
+            is_favorite: false,
+            expires_at: None,
+        })
+        .expect("create ssh record");
+    (svc, id)
+}
+
+/// Drive a full ECDSA sign roundtrip over the agent socket: fetch the identity,
+/// SIGN_REQUEST its blob, and return `(blob, sig_bytes)` from the agent's reply.
+/// Asserts the reply is a SIGN_RESPONSE (not FAILURE).
+async fn ecdsa_sign_roundtrip(sock: &Path, data: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    // ── REQUEST_IDENTITIES ───────────────────────────────────────────────
+    let resp = agent_round_trip(sock, &[SSH_AGENTC_REQUEST_IDENTITIES])
+        .await
+        .expect("identities round trip");
+    assert_eq!(resp[0], SSH_AGENT_IDENTITIES_ANSWER);
+    let count = u32::from_be_bytes(resp[1..5].try_into().unwrap());
+    assert_eq!(count, 1, "exactly one ECDSA identity must be advertised");
+    let (blob, rest) = read_string(&resp[5..]).expect("identity blob string");
+    let (_comment, tail) = read_string(rest).expect("identity comment string");
+    assert!(tail.is_empty());
+
+    // ── SIGN_REQUEST (flags = 0; ECDSA ignores flags) ────────────────────
+    let mut sign_req = Vec::new();
+    sign_req.push(SSH_AGENTC_SIGN_REQUEST);
+    write_string(&mut sign_req, blob);
+    write_string(&mut sign_req, data);
+    sign_req.extend_from_slice(&0u32.to_be_bytes());
+
+    let sign_resp = agent_round_trip(sock, &sign_req)
+        .await
+        .expect("ECDSA sign round trip");
+    assert_eq!(
+        sign_resp[0], SSH_AGENT_SIGN_RESPONSE,
+        "ECDSA SIGN_REQUEST must be answered with SIGN_RESPONSE"
+    );
+    let (sig_blob, tail) = read_string(&sign_resp[1..]).expect("signature string");
+    assert!(
+        tail.is_empty(),
+        "no trailing bytes after the ECDSA signature"
+    );
+    (blob.to_vec(), sig_blob.to_vec())
+}
+
+#[tokio::test]
+async fn ecdsa_p256_sign_request_verifies() {
+    let (_dir, sock) = temp_socket_path();
+    let (vault, _id) = unlocked_vault_with_ecdsa(ECDSA_P256_PEM, ECDSA_P256_PUB_SSH, "ecdsa-p256");
+    let handle = spawn_server(vault, sock.clone());
+
+    let data = b"ecdsa-agent-p256-roundtrip";
+    let (blob, sig_blob) = ecdsa_sign_roundtrip(&sock, data).await;
+
+    // The advertised blob must carry the ecdsa-sha2-nistp256 algorithm name.
+    let (blob_alg, _) = read_string(&blob).expect("blob has algorithm-name string");
+    assert_eq!(blob_alg, b"ecdsa-sha2-nistp256");
+
+    // Parse the agent's signature blob: string alg + string <DER sig>.
+    let (alg, der_sig) = read_string(&sig_blob).expect("sig has algorithm string");
+    assert_eq!(alg, b"ecdsa-sha2-nistp256");
+    let (der, tail) = read_string(der_sig).expect("sig has DER signature string");
+    assert!(tail.is_empty());
+
+    // Independent verify with p256 (digest SHA-256 chosen by the crate).
+    let sec1 = ecdsa_sec1_public_from_pem(ECDSA_P256_PEM, ssh_key::EcdsaCurve::NistP256);
+    let vk = p256::ecdsa::VerifyingKey::from_sec1_bytes(&sec1).expect("valid P-256 public key");
+    let sig = p256::ecdsa::Signature::from_der(der).expect("DER sig must decode");
+    use p256::ecdsa::signature::Verifier;
+    vk.verify(data, &sig)
+        .expect("P-256 agent signature must verify against the stored public key");
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn ecdsa_p521_sign_request_verifies() {
+    // P-521 specifically exercises the newly added identity mapping (identity.rs
+    // previously rejected NistP521) and the p521 signer/dispatch path.
+    let (_dir, sock) = temp_socket_path();
+    let (vault, _id) = unlocked_vault_with_ecdsa(ECDSA_P521_PEM, ECDSA_P521_PUB_SSH, "ecdsa-p521");
+    let handle = spawn_server(vault, sock.clone());
+
+    let data = b"ecdsa-agent-p521-roundtrip";
+    let (blob, sig_blob) = ecdsa_sign_roundtrip(&sock, data).await;
+
+    let (blob_alg, _) = read_string(&blob).expect("blob has algorithm-name string");
+    assert_eq!(blob_alg, b"ecdsa-sha2-nistp521");
+
+    let (alg, der_sig) = read_string(&sig_blob).expect("sig has algorithm string");
+    assert_eq!(alg, b"ecdsa-sha2-nistp521");
+    let (der, tail) = read_string(der_sig).expect("sig has DER signature string");
+    assert!(tail.is_empty());
+
+    // Independent verify with p521 (digest SHA-512 chosen by the crate).
+    let sec1 = ecdsa_sec1_public_from_pem(ECDSA_P521_PEM, ssh_key::EcdsaCurve::NistP521);
+    let vk = p521::ecdsa::VerifyingKey::from_sec1_bytes(&sec1).expect("valid P-521 public key");
+    let sig = p521::ecdsa::Signature::from_der(der).expect("DER sig must decode");
+    use p521::ecdsa::signature::Verifier;
+    vk.verify(data, &sig)
+        .expect("P-521 agent signature must verify against the stored public key");
+
+    handle.abort();
+}
+
+/// Extract the SEC1 public point bytes from an OpenSSH PEM, asserting the curve
+/// matches `expected` (defense against a fixture/constant mismatch).
+fn ecdsa_sec1_public_from_pem(pem: &str, expected: ssh_key::EcdsaCurve) -> Vec<u8> {
+    let private = ssh_key::PrivateKey::from_openssh(pem).expect("ECDSA PEM must parse");
+    let pub_key = match private.public_key().key_data() {
+        ssh_key::public::KeyData::Ecdsa(pk) => pk,
+        other => panic!("expected ECDSA public key, got {other:?}"),
+    };
+    assert_eq!(pub_key.curve(), expected, "fixture curve mismatch");
+    pub_key.as_sec1_bytes().to_vec()
+}

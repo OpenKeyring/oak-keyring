@@ -50,7 +50,9 @@ use tokio::net::{UnixListener, UnixStream};
 use uuid::Uuid;
 
 use crate::agent::identity::{load_ssh_identities, IdentityFilter, LoadedIdentity};
-use crate::agent::signer::{Ed25519Signer, RsaSigner, SignFlags, SignerError, SshAlgo, SshSigner};
+use crate::agent::signer::{
+    EcdsaSigner, Ed25519Signer, RsaSigner, SignFlags, SignerError, SshAlgo, SshSigner,
+};
 use crate::commands::types::FieldSelector;
 use crate::errors::mapping::vault::VaultError;
 use crate::services::vault::VaultServiceImpl;
@@ -388,9 +390,8 @@ fn handle_sign(
 /// and return the raw SSH wire-format signature blob.
 ///
 /// `algo` selects the signer: `SshAlgo::Ed25519` → [`Ed25519Signer`],
-/// `SshAlgo::Rsa` → [`RsaSigner`]. ECDSA is not yet implemented and fails
-/// loudly via [`SignError::UnsupportedAlgo`]. Adding a new algorithm is a
-/// local change: extend the match with another arm.
+/// `SshAlgo::Rsa` → [`RsaSigner`], `SshAlgo::Ecdsa(_)` → [`EcdsaSigner`].
+/// Adding a new algorithm is a local change: extend the match with another arm.
 ///
 /// Wire `flags` are mapped into [`SignFlags`] (RSA SHA-2 variant selection per
 /// RFC 8332; ed25519 ignores both). The wire constants
@@ -443,10 +444,16 @@ fn sign(
                 signer.sign(data, sign_flags).map_err(SignError::Sign)?
                 // `signer` dropped here: RsaPrivateKey zeroized on drop.
             }
-            // ECDSA and any future algos land here until they get their own
-            // signer. Failing loud (not silently returning a malformed reply)
-            // is required by the project's fail-loud rule.
-            other => return Err(SignError::UnsupportedAlgo(other)),
+            SshAlgo::Ecdsa(_) => {
+                let signer = EcdsaSigner::from_openssh(pem.expose(), passphrase.as_deref())
+                    .map_err(SignError::BuildSigner)?;
+                signer.sign(data, sign_flags).map_err(SignError::Sign)?
+                // `signer` dropped here: the curve `ecdsa::SigningKey`
+                // (p256/p384/p521) is zeroized on drop via its own
+                // `ZeroizeOnDrop` impl.
+            } // `SshAlgo` is exhaustive above; adding a new variant without a
+              // signer arm is a compile error (fail-loud at compile time) rather
+              // than a silent runtime fallback.
         }
     };
 
@@ -463,8 +470,6 @@ enum SignError {
     BuildSigner(#[source] SignerError),
     #[error("signing failed")]
     Sign(#[source] SignerError),
-    #[error("algorithm {0:?} has no signer implemented yet")]
-    UnsupportedAlgo(SshAlgo),
 }
 
 /// A minimal `SSH_AGENT_FAILURE` payload (single byte).

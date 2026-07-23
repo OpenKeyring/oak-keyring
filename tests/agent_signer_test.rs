@@ -6,7 +6,9 @@
 //! because an SSH agent `SIGN_RESPONSE` carries a raw algorithm-specific
 //! signature blob, not an SSHSIG wrapper).
 
-use oak_keyring::agent::signer::{Ed25519Signer, RsaSigner, SignFlags, SshAlgo, SshSigner};
+use oak_keyring::agent::signer::{
+    EcdsaCurve, EcdsaSigner, Ed25519Signer, RsaSigner, SignFlags, SshAlgo, SshSigner,
+};
 
 /// Parse an SSH agent ed25519 wire-format signature blob and return the raw
 /// 64-byte signature.
@@ -633,5 +635,221 @@ fn rsa_sign_rejects_non_rsa_key() {
     assert!(
         result.is_err(),
         "RsaSigner must reject non-RSA keys, not silently accept them"
+    );
+}
+
+// ===========================================================================
+// ECDSA signer (`EcdsaSigner`) — NIST P-256 / P-384 / P-521
+// ===========================================================================
+//
+// These tests exercise `EcdsaSigner` end-to-end per curve: an OpenSSH ECDSA PEM
+// is parsed, a message is signed, and the returned wire-format signature blob is
+// parsed and verified directly with the matching RustCrypto crate (p256/p384/
+// p521) — NOT via `ssh_key::SshSig`, because the SSH agent `SIGN_RESPONSE`
+// carries a raw algorithm-specific signature blob, not an SSHSIG wrapper.
+//
+// RFC 5656 / draft-miller-ssh-agent wire format returned by `EcdsaSigner::sign`:
+//   string "ecdsa-sha2-nistp256" | "ecdsa-sha2-nistp384" | "ecdsa-sha2-nistp521"
+//   string <DER-encoded ECDSA sig over data, hashed with the curve's SHA-2
+//           (P-256 -> SHA-256, P-384 -> SHA-384, P-521 -> SHA-512)>
+// ECDSA ignores `SignFlags` (those select RSA SHA-2 variants).
+
+/// Parse an SSH agent ECDSA wire-format signature blob and return
+/// `(algorithm_name, der_signature_bytes)`. Layout: `string <alg>` +
+/// `string <DER sig>`.
+fn extract_ecdsa_sig(blob: &[u8]) -> (&[u8], &[u8]) {
+    let (alg, rest) = read_string_local(blob).expect("ecdsa sig has algorithm-name string");
+    let (sig, tail) = read_string_local(rest).expect("ecdsa sig has signature string");
+    assert!(tail.is_empty(), "no trailing bytes in ECDSA sig blob");
+    (alg, sig)
+}
+
+/// Extract the SEC1-encoded ECDSA public point from an OpenSSH PEM via ssh-key's
+/// public-key path, for independent verification with the curve crate.
+fn ecdsa_sec1_public(pem: &str) -> (ssh_key::EcdsaCurve, Vec<u8>) {
+    let private = ssh_key::PrivateKey::from_openssh(pem).expect("PEM must parse");
+    let pub_key = match private.public_key().key_data() {
+        ssh_key::public::KeyData::Ecdsa(pk) => pk,
+        other => panic!("expected ECDSA public key, got {other:?}"),
+    };
+    (pub_key.curve(), pub_key.as_sec1_bytes().to_vec())
+}
+
+#[test]
+fn ecdsa_p256_sign_is_verifiable() {
+    let pem = include_str!("fixtures/test_ecdsa_256");
+    let signer = EcdsaSigner::from_openssh(pem, None).expect("unencrypted P-256 key must load");
+
+    assert_eq!(signer.algorithm(), SshAlgo::Ecdsa(EcdsaCurve::P256));
+
+    let data = b"ecdsa-p256-sign-test";
+    let blob = signer
+        .sign(data, SignFlags::default())
+        .expect("signing must succeed");
+
+    let (alg, der_sig) = extract_ecdsa_sig(&blob);
+    assert_eq!(alg, b"ecdsa-sha2-nistp256", "wire algorithm name for P-256");
+
+    // Independent verify with p256 (digest is SHA-256, chosen automatically by
+    // the crate's DigestPrimitive impl).
+    let (curve, sec1) = ecdsa_sec1_public(pem);
+    assert_eq!(curve, ssh_key::EcdsaCurve::NistP256);
+    let vk = p256::ecdsa::VerifyingKey::from_sec1_bytes(&sec1).expect("valid P-256 public key");
+    let sig = p256::ecdsa::Signature::from_der(der_sig).expect("DER sig must decode");
+    use p256::ecdsa::signature::Verifier;
+    vk.verify(data, &sig)
+        .expect("P-256 signature must verify against the public key");
+}
+
+#[test]
+fn ecdsa_p384_sign_is_verifiable() {
+    let pem = include_str!("fixtures/test_ecdsa_384");
+    let signer = EcdsaSigner::from_openssh(pem, None).expect("unencrypted P-384 key must load");
+
+    assert_eq!(signer.algorithm(), SshAlgo::Ecdsa(EcdsaCurve::P384));
+
+    let data = b"ecdsa-p384-sign-test";
+    let blob = signer
+        .sign(data, SignFlags::default())
+        .expect("signing must succeed");
+
+    let (alg, der_sig) = extract_ecdsa_sig(&blob);
+    assert_eq!(alg, b"ecdsa-sha2-nistp384", "wire algorithm name for P-384");
+
+    let (curve, sec1) = ecdsa_sec1_public(pem);
+    assert_eq!(curve, ssh_key::EcdsaCurve::NistP384);
+    let vk = p384::ecdsa::VerifyingKey::from_sec1_bytes(&sec1).expect("valid P-384 public key");
+    let sig = p384::ecdsa::Signature::from_der(der_sig).expect("DER sig must decode");
+    use p384::ecdsa::signature::Verifier;
+    vk.verify(data, &sig)
+        .expect("P-384 signature must verify against the public key");
+}
+
+#[test]
+fn ecdsa_p521_sign_is_verifiable() {
+    let pem = include_str!("fixtures/test_ecdsa_521");
+    let signer = EcdsaSigner::from_openssh(pem, None).expect("unencrypted P-521 key must load");
+
+    assert_eq!(signer.algorithm(), SshAlgo::Ecdsa(EcdsaCurve::P521));
+
+    let data = b"ecdsa-p521-sign-test";
+    let blob = signer
+        .sign(data, SignFlags::default())
+        .expect("signing must succeed");
+
+    let (alg, der_sig) = extract_ecdsa_sig(&blob);
+    assert_eq!(alg, b"ecdsa-sha2-nistp521", "wire algorithm name for P-521");
+
+    let (curve, sec1) = ecdsa_sec1_public(pem);
+    assert_eq!(curve, ssh_key::EcdsaCurve::NistP521);
+    let vk = p521::ecdsa::VerifyingKey::from_sec1_bytes(&sec1).expect("valid P-521 public key");
+    let sig = p521::ecdsa::Signature::from_der(der_sig).expect("DER sig must decode");
+    use p521::ecdsa::signature::Verifier;
+    vk.verify(data, &sig)
+        .expect("P-521 signature must verify against the public key");
+}
+
+#[test]
+fn ecdsa_sign_flags_are_ignored() {
+    // RSA-only flags must be accepted (no-op) by the ECDSA signer.
+    let pem = include_str!("fixtures/test_ecdsa_256");
+    let signer = EcdsaSigner::from_openssh(pem, None).expect("key must load");
+    let flags = SignFlags {
+        rsa_sha2_256: true,
+        rsa_sha2_512: true,
+    };
+    let blob = signer.sign(b"data", flags).expect("flags must not error");
+    assert!(!blob.is_empty());
+}
+
+#[test]
+fn ecdsa_sign_is_deterministic() {
+    // The `ecdsa` crate's `Signer` impl uses RFC 6979: the nonce `k` is derived
+    // from the key+message, so two signatures over the same data are identical.
+    // This matches the deterministic ed25519 / RSA-PKCS1v15 paths and still
+    // produces valid, verifiable ECDSA signatures.
+    let pem = include_str!("fixtures/test_ecdsa_256");
+    let signer = EcdsaSigner::from_openssh(pem, None).expect("key must load");
+    let a = signer.sign(b"same", SignFlags::default()).unwrap();
+    let b = signer.sign(b"same", SignFlags::default()).unwrap();
+    assert_eq!(
+        a, b,
+        "ECDSA signatures over the same data must be identical (RFC 6979 deterministic)"
+    );
+    // Different data yields a different signature blob.
+    let c = signer.sign(b"different", SignFlags::default()).unwrap();
+    assert_ne!(a, c, "different messages must produce different signatures");
+}
+
+#[test]
+fn ecdsa_public_key_ssh_is_openssh_format() {
+    let pem = include_str!("fixtures/test_ecdsa_256");
+    let signer = EcdsaSigner::from_openssh(pem, None).expect("key must load");
+    let public_ssh = signer.public_key_ssh().expect("public key string");
+    assert!(
+        public_ssh.starts_with("ecdsa-sha2-nistp256 "),
+        "public key must be OpenSSH format, got: {public_ssh}"
+    );
+}
+
+#[test]
+fn ecdsa_passphrase_protected_key_loads_and_signs() {
+    let pem = include_str!("fixtures/test_ecdsa_384_encrypted");
+    let signer = EcdsaSigner::from_openssh(pem, Some("test-passphrase-123"))
+        .expect("passphrase-protected ECDSA key must decrypt");
+
+    let data = b"encrypted-ecdsa-sign-test";
+    let blob = signer
+        .sign(data, SignFlags::default())
+        .expect("signing must succeed");
+
+    let (alg, der_sig) = extract_ecdsa_sig(&blob);
+    assert_eq!(alg, b"ecdsa-sha2-nistp384");
+    let (_curve, sec1) = ecdsa_sec1_public(pem);
+    let vk = p384::ecdsa::VerifyingKey::from_sec1_bytes(&sec1).expect("valid P-384 public key");
+    let sig = p384::ecdsa::Signature::from_der(der_sig).expect("DER sig must decode");
+    use p384::ecdsa::signature::Verifier;
+    vk.verify(data, &sig).expect("P-384 signature must verify");
+}
+
+#[test]
+fn ecdsa_passphrase_protected_key_wrong_passphrase_fails() {
+    let pem = include_str!("fixtures/test_ecdsa_384_encrypted");
+    let result = EcdsaSigner::from_openssh(pem, Some("wrong-passphrase"));
+    assert!(
+        result.is_err(),
+        "wrong passphrase must fail loudly, not silently load or panic"
+    );
+}
+
+#[test]
+fn ecdsa_missing_passphrase_for_encrypted_key_fails() {
+    let pem = include_str!("fixtures/test_ecdsa_384_encrypted");
+    let result = EcdsaSigner::from_openssh(pem, None);
+    assert!(
+        result.is_err(),
+        "encrypted ECDSA key without passphrase must fail loudly"
+    );
+}
+
+#[test]
+fn ecdsa_passphrase_supplied_for_unencrypted_key_is_rejected() {
+    let pem = include_str!("fixtures/test_ecdsa_256");
+    let result = EcdsaSigner::from_openssh(pem, Some("unused-passphrase"));
+    assert!(
+        result.is_err(),
+        "passphrase on an unencrypted ECDSA key must be rejected, not ignored"
+    );
+}
+
+#[test]
+fn ecdsa_signer_rejects_non_ecdsa_key() {
+    // Feeding an ed25519 PEM to EcdsaSigner must fail loudly (UnsupportedKeyType
+    // — error sanitization, no panic, no partial load).
+    let pem = include_str!("fixtures/test_ed25519");
+    let result = EcdsaSigner::from_openssh(pem, None);
+    assert!(
+        result.is_err(),
+        "EcdsaSigner must reject non-ECDSA keys, not silently accept them"
     );
 }
