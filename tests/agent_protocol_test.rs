@@ -151,7 +151,7 @@ fn spawn_server(
 ) -> tokio::task::JoinHandle<Result<(), oak_keyring::agent::server::AgentServerError>> {
     let server = AgentServer::start(vault, IdentityFilter::default(), socket_path)
         .expect("agent server must start");
-    tokio::spawn(async move { server.serve().await })
+    tokio::spawn(async move { server.serve(None).await })
 }
 
 /// Extract the 32-byte ed25519 public key from a wire-format public blob.
@@ -405,7 +405,7 @@ async fn request_identities_applies_identity_filter() {
         allow: None,
     };
     let server = AgentServer::start(vault, filter, sock.clone()).expect("start");
-    let handle = tokio::spawn(async move { server.serve().await });
+    let handle = tokio::spawn(async move { server.serve(None).await });
 
     let resp = agent_round_trip(&sock, &[SSH_AGENTC_REQUEST_IDENTITIES])
         .await

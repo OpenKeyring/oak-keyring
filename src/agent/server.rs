@@ -46,12 +46,15 @@
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::agent::identity::{load_ssh_identities, IdentityFilter, LoadedIdentity};
+use crate::agent::paths;
 use crate::agent::signer::{
     EcdsaSigner, Ed25519Signer, RsaSigner, SignFlags, SignerError, SshAlgo, SshSigner,
 };
@@ -104,6 +107,14 @@ pub enum AgentServerError {
     /// Binding or securing the agent socket failed.
     #[error("failed to bind agent socket at {path}")]
     Bind {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// Writing the pidfile at startup failed. Fail loud: the pidfile is part of
+    /// the daemon's lifecycle contract and must exist before serving.
+    #[error("failed to write pidfile at {path}")]
+    Pidfile {
         path: PathBuf,
         #[source]
         source: std::io::Error,
@@ -161,8 +172,22 @@ impl AgentServer {
         })
     }
 
-    /// Bind the Unix socket and run the accept loop until a fatal accept error
-    /// occurs or the runtime drops the future.
+    /// Bind the Unix socket, write the pidfile, and run the accept loop until
+    /// one of these ends the daemon:
+    ///
+    /// - a fatal accept error (returned as [`AgentServerError::Accept`]),
+    /// - a shutdown signal — SIGTERM or SIGINT (Unix), see [`shutdown_signal`],
+    /// - the idle-lock timer elapsing with no successful sign in the window
+    ///   (only when `idle_lock` is `Some`; `None` = no idle timer).
+    ///
+    /// On ANY of these, the cleanup contract runs before return:
+    ///
+    /// 1. stop accepting (the listener future is dropped, closing it),
+    /// 2. drop the vault session — the owned [`VaultServiceImpl`] lives inside
+    ///    the accept-loop future, so dropping that future drops (locks) the
+    ///    vault, clearing keys in memory,
+    /// 3. `remove_file(socket)` — keep the existing remove-before-bind too,
+    /// 4. `remove_file(pidfile)`.
     ///
     /// The socket is created with mode `0600` and its parent directory is
     /// ensured with mode `0700`. Each accepted connection is served to
@@ -172,9 +197,17 @@ impl AgentServer {
     /// pattern — `ssh` issues `REQUEST_IDENTITIES` + `SIGN_REQUEST` over a
     /// single agent socket). Dispatch is fully synchronous with no `&vault`
     /// held across an await.
-    pub async fn serve(self) -> Result<(), AgentServerError> {
+    ///
+    /// `idle_lock` is the inactivity window in seconds: every successful
+    /// `SIGN_REQUEST` resets the timer; if no sign happens for `secs`, the
+    /// daemon shuts down via the same cleanup path. `None` (default) disables
+    /// the idle timer entirely.
+    pub async fn serve(self, idle_lock: Option<u64>) -> Result<(), AgentServerError> {
+        let socket_path = self.socket_path.clone();
+        let pidfile_path = paths::pidfile_for_socket(&socket_path);
+
         // Ensure the parent directory exists with restrictive permissions.
-        if let Some(parent) = self.socket_path.parent() {
+        if let Some(parent) = socket_path.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
                 std::fs::create_dir_all(parent).map_err(|source| AgentServerError::Bind {
                     path: parent.to_path_buf(),
@@ -185,15 +218,43 @@ impl AgentServer {
         }
 
         // Remove a stale socket file from a previous run (best effort).
-        let _ = std::fs::remove_file(&self.socket_path);
+        let _ = std::fs::remove_file(&socket_path);
 
-        let listener =
-            UnixListener::bind(&self.socket_path).map_err(|source| AgentServerError::Bind {
-                path: self.socket_path.clone(),
+        // Write the pidfile BEFORE binding the socket: the pidfile marks "the
+        // daemon is starting", so it must exist the moment the socket appears
+        // (callers/tests that wait on the socket must not race a missing
+        // pidfile). If bind or chmod below fails, remove the pidfile so a later
+        // startup is not confused by a stale one.
+        std::fs::write(&pidfile_path, format!("{}\n", std::process::id())).map_err(|source| {
+            AgentServerError::Pidfile {
+                path: pidfile_path.clone(),
                 source,
-            })?;
+            }
+        })?;
+
+        let listener = match UnixListener::bind(&socket_path) {
+            Ok(l) => l,
+            Err(source) => {
+                let _ = std::fs::remove_file(&pidfile_path);
+                return Err(AgentServerError::Bind {
+                    path: socket_path.clone(),
+                    source,
+                });
+            }
+        };
         // Restrict the socket to owner-only access.
-        set_mode(&self.socket_path, 0o600)?;
+        if let Err(err) = set_mode(&socket_path, 0o600) {
+            let _ = std::fs::remove_file(&pidfile_path);
+            return Err(err);
+        }
+
+        tracing::info!(
+            socket = %socket_path.display(),
+            pidfile = %pidfile_path.display(),
+            pid = std::process::id(),
+            idle_lock_secs = ?idle_lock,
+            "agent serving"
+        );
 
         let Self {
             vault,
@@ -202,48 +263,172 @@ impl AgentServer {
             ..
         } = self;
 
+        // Activity channel: each successful SIGN_REQUEST pushes a token; the
+        // idle timer consumes one per window to reset. The sender is cheap and
+        // held only by the accept loop; a full buffer is a non-issue (signs are
+        // rare relative to the timer window) — `try_send` drops the overflow
+        // rather than blocking the sync dispatch scope.
+        let (activity_tx, activity_rx) = mpsc::channel::<()>(64);
+
+        let accept_fut = accept_loop(listener, vault, identities, blob_index, activity_tx);
+        let signal_fut = shutdown_signal();
+        let idle_fut: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+            match idle_lock {
+                Some(secs) => Box::pin(idle_timer(secs, activity_rx)),
+                None => Box::pin(std::future::pending()),
+            };
+
+        tokio::pin!(accept_fut, signal_fut);
+
+        // Race the three shutdown sources. Whichever fires first wins; the
+        // others are dropped, which stops accepting (closes the listener) and
+        // drops the vault session held inside `accept_fut`.
+        let result = tokio::select! {
+            res = &mut accept_fut => {
+                tracing::info!(error = ?res.as_ref().err(), "agent accept loop ended");
+                res
+            }
+            _ = &mut signal_fut => {
+                tracing::info!("agent shutdown signal received; cleaning up");
+                Ok(())
+            }
+            _ = idle_fut => {
+                tracing::info!("agent idle-lock elapsed; cleaning up");
+                Ok(())
+            }
+        };
+
+        // Cleanup contract: remove socket + pidfile. Best-effort: a missing
+        // file after a partial startup is logged, not fatal. The vault session
+        // was already dropped above when `accept_fut` was dropped.
+        if let Err(e) = std::fs::remove_file(&socket_path) {
+            if socket_path.exists() {
+                tracing::warn!(error = %e, "failed to remove agent socket on shutdown");
+            }
+        }
+        if let Err(e) = std::fs::remove_file(&pidfile_path) {
+            if pidfile_path.exists() {
+                tracing::warn!(error = %e, "failed to remove agent pidfile on shutdown");
+            }
+        }
+        tracing::info!(socket = %socket_path.display(), "agent shutdown complete");
+
+        result
+    }
+}
+
+/// The accept loop, factored out of [`AgentServer::serve`] so it can race in a
+/// `tokio::select!` against the shutdown signal and the idle timer.
+///
+/// Owns the vault session for the daemon's lifetime: dropping this future (on
+/// shutdown) drops `vault`, which locks/clears its keys. Each successful sign
+/// (`SSH_AGENT_SIGN_RESPONSE`) pushes a token on `activity_tx` to reset the
+/// idle timer — this is the ONLY feedback from the sync dispatch path to the
+/// async shutdown layer.
+async fn accept_loop(
+    listener: UnixListener,
+    vault: VaultServiceImpl,
+    identities: Vec<LoadedIdentity>,
+    blob_index: HashMap<Vec<u8>, (Uuid, SshAlgo)>,
+    activity_tx: mpsc::Sender<()>,
+) -> Result<(), AgentServerError> {
+    loop {
+        let (mut stream, _peer) = match listener.accept().await {
+            Ok(pair) => pair,
+            Err(source) => {
+                tracing::warn!(error = %source, "agent accept failed");
+                return Err(AgentServerError::Accept { source });
+            }
+        };
+
+        // Serve ALL requests on THIS connection until the client closes (clean
+        // EOF) or a read/write error, then go back to `accept()` for the next
+        // client. Real OpenSSH `ssh` issues REQUEST_IDENTITIES + SIGN_REQUEST
+        // (often several sign requests) over a single agent file descriptor,
+        // so dropping the stream after one reply would break interop. A single
+        // bad/unknown request returns `SSH_AGENT_FAILURE` from `dispatch` and
+        // the inner loop continues — the connection is NOT torn down for one
+        // bad request.
         loop {
-            let (mut stream, _peer) = match listener.accept().await {
-                Ok(pair) => pair,
+            // Read one frame. No vault borrow is live across this await.
+            let request = match read_frame(&mut stream).await {
+                Ok(Some(req)) => req,
+                Ok(None) => break, // client closed the connection cleanly
                 Err(source) => {
-                    tracing::warn!(error = %source, "agent accept failed");
-                    return Err(AgentServerError::Accept { source });
+                    tracing::warn!(error = %source, "agent connection read failed");
+                    break;
                 }
             };
 
-            // Serve ALL requests on THIS connection until the client closes
-            // (clean EOF) or a read/write error, then go back to `accept()` for
-            // the next client. Real OpenSSH `ssh` issues REQUEST_IDENTITIES +
-            // SIGN_REQUEST (often several sign requests) over a single agent
-            // file descriptor, so dropping the stream after one reply would
-            // break interop. A single bad/unknown request returns
-            // `SSH_AGENT_FAILURE` from `dispatch` and the inner loop continues
-            // — the connection is NOT torn down for one bad request.
-            loop {
-                // Read one frame. No vault borrow is live across this await.
-                let request = match read_frame(&mut stream).await {
-                    Ok(Some(req)) => req,
-                    Ok(None) => break, // client closed the connection cleanly
-                    Err(source) => {
-                        tracing::warn!(error = %source, "agent connection read failed");
-                        break;
-                    }
-                };
+            // Synchronous dispatch — the ONLY scope that borrows `vault`, and
+            // it contains no `.await`. NLL ends the borrows at the statement's
+            // close, before the `write_frame` await below, so no `&vault` is
+            // held across an await point — keeping `serve`'s future `Send`
+            // without requiring `VaultServiceImpl: Sync`.
+            let response = dispatch(&vault, &identities, &blob_index, &request);
 
-                // Synchronous dispatch — the ONLY scope that borrows `vault`,
-                // and it contains no `.await`. NLL ends the borrows at the
-                // statement's close, before the `write_frame` await below, so
-                // no `&vault` is held across an await point — keeping
-                // `serve`'s future `Send` without requiring
-                // `VaultServiceImpl: Sync`.
-                let response = dispatch(&vault, &identities, &blob_index, &request);
-
-                // Write the reply. No vault borrow is live across this await.
-                if let Err(source) = write_frame(&mut stream, &response).await {
-                    tracing::warn!(error = %source, "agent connection write failed");
-                    break;
-                }
+            // A successful sign resets the idle timer. `try_send` is
+            // non-blocking so the sync dispatch scope never awaits; a full
+            // channel just drops the extra reset (idempotent — the timer is
+            // already armed).
+            if response.first().copied() == Some(SSH_AGENT_SIGN_RESPONSE) {
+                let _ = activity_tx.try_send(());
             }
+
+            // Write the reply. No vault borrow is live across this await.
+            if let Err(source) = write_frame(&mut stream, &response).await {
+                tracing::warn!(error = %source, "agent connection write failed");
+                break;
+            }
+        }
+    }
+}
+
+/// Resolve on the first of SIGTERM or SIGINT (Unix). The handler is installed
+/// the first time this is polled; once installed it catches the signal for the
+/// whole process, so the delivered signal does NOT terminate the daemon — the
+/// returned future simply completes and the caller runs cleanup.
+///
+/// On non-Unix targets the agent is unsupported (it depends on `UnixListener`),
+/// so this parks forever.
+#[cfg(unix)]
+async fn shutdown_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut term = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+    let mut int = signal(SignalKind::interrupt()).expect("install SIGINT handler");
+    tokio::select! {
+        _ = term.recv() => tracing::info!("agent received SIGTERM"),
+        _ = int.recv() => tracing::info!("agent received SIGINT"),
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() {
+    // Non-Unix: the agent cannot run (UnixListener). Park forever so the
+    // shutdown source is never a signal on these targets.
+    std::future::pending::<()>().await;
+}
+
+/// Idle-lock timer: if no successful sign arrives within `secs` (repeatedly),
+/// complete and let [`AgentServer::serve`] run cleanup. Each token received on
+/// `activity_rx` resets the window.
+///
+/// This is the enforcement of `--idle-lock <secs>` (Task 11). The timer is
+/// armed once at startup; the first window starts immediately, so a daemon
+/// that never sees a sign shuts down after exactly one window.
+async fn idle_timer(secs: u64, mut activity_rx: mpsc::Receiver<()>) {
+    let window = Duration::from_secs(secs);
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(window) => {
+                tracing::info!(
+                    idle_lock_secs = secs,
+                    "agent idle-lock elapsed; initiating graceful shutdown"
+                );
+                return;
+            }
+            // A successful sign resets the window: loop and re-arm the sleep.
+            _ = activity_rx.recv() => continue,
         }
     }
 }

@@ -19,12 +19,15 @@
 //!
 //! [`AgentServer::serve`]: crate::agent::server::AgentServer::serve
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Per-user subdirectory holding the agent socket.
 const APP_DIR: &str = "oak-keyring";
 /// Socket filename within [`APP_DIR`].
 const SOCKET_NAME: &str = "agent.sock";
+/// Pidfile filename within [`APP_DIR`], written at startup and removed on
+/// graceful shutdown. Lives alongside [`SOCKET_NAME`].
+pub(crate) const PIDFILE_NAME: &str = "agent.pid";
 
 /// Resolve the SSH agent socket path from the runtime environment.
 ///
@@ -36,6 +39,29 @@ pub fn socket_path() -> PathBuf {
         std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from),
         std::env::var_os("TMPDIR").map(PathBuf::from),
     )
+}
+
+/// Resolve the agent pidfile path from the runtime environment.
+///
+/// Pure (no FS mutation): same base directory and subdirectory as
+/// [`socket_path`], with filename [`PIDFILE_NAME`] (`agent.pid`). The server
+/// writes the daemon PID at startup and removes it on graceful shutdown.
+pub fn pidfile_path() -> PathBuf {
+    socket_path_from(
+        std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from),
+        std::env::var_os("TMPDIR").map(PathBuf::from),
+    )
+    .with_file_name(PIDFILE_NAME)
+}
+
+/// Derive the pidfile path that sits alongside `socket_path`.
+///
+/// Replaces the socket's filename with [`PIDFILE_NAME`], keeping the same
+/// parent directory. Used by the server (which receives a possibly-overridden
+/// socket path) and by tests so they can locate the pidfile for a temp socket
+/// without re-running the env-based resolution.
+pub fn pidfile_for_socket(socket_path: &Path) -> PathBuf {
+    socket_path.with_file_name(PIDFILE_NAME)
 }
 
 /// Pure, environment-independent resolution used by both [`socket_path`] and the
@@ -88,5 +114,34 @@ mod tests {
     fn resolves_under_oak_keyring_subdir_with_agent_sock_name() {
         let p = socket_path_from(Some(PathBuf::from("/run/user/1")), None);
         assert!(p.ends_with("oak-keyring/agent.sock"));
+    }
+
+    #[test]
+    fn pidfile_for_socket_swaps_filename_keeps_dir() {
+        let sock = PathBuf::from("/tmp/oak-keyring/agent.sock");
+        assert_eq!(
+            pidfile_for_socket(&sock),
+            PathBuf::from("/tmp/oak-keyring/agent.pid")
+        );
+    }
+
+    #[test]
+    fn pidfile_for_socket_handles_temp_socket_path() {
+        let sock = PathBuf::from("/var/folders/xyz/T/agent.sock");
+        assert_eq!(
+            pidfile_for_socket(&sock),
+            PathBuf::from("/var/folders/xyz/T/agent.pid")
+        );
+    }
+
+    #[test]
+    fn pidfile_for_socket_preserves_arbitrary_name() {
+        // A test-provided socket with a custom name still co-locates the
+        // pidfile by swapping only the filename.
+        let sock = PathBuf::from("/tmp/dir/custom.sock");
+        assert_eq!(
+            pidfile_for_socket(&sock),
+            PathBuf::from("/tmp/dir/agent.pid")
+        );
     }
 }

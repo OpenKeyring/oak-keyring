@@ -51,10 +51,11 @@ pub struct AgentArgs {
 
     /// Idle lock: seconds of inactivity after which the agent stops signing.
     ///
-    /// Parsed and accepted here; enforcement (the idle sign-lock timer) is
-    /// wired in Task 11. Until then the value is observed but NOT honored — the
-    /// agent keeps signing indefinitely. This is documented loudly at startup
-    /// rather than silently claimed.
+    /// When set, the daemon shuts down (gracefully — socket + pidfile removed,
+    /// vault session dropped) after this many seconds with no successful
+    /// `SIGN_REQUEST`. Each successful sign resets the window. `None` (the
+    /// default) disables the idle timer; the agent runs until a shutdown signal
+    /// or a fatal accept error.
     #[arg(long, value_name = "SECS")]
     pub idle_lock: Option<u64>,
 }
@@ -84,12 +85,26 @@ pub enum AgentCliError {
     Lock(#[from] crate::agent::lock::AgentLockError),
 }
 
-/// Run `ok agent`: prompt for the master password, then unlock + serve.
+/// Run `ok agent`: acquire the agent single-instance lock, prompt for the
+/// master password, then unlock + serve.
 ///
-/// This is the production entrypoint wired from `main.rs`. It performs the
-/// tty-bound work (password read) and delegates the testable core to
-/// [`unlock_and_serve`].
+/// This is the production entrypoint wired from `main.rs`. The agent lock is
+/// acquired BEFORE the password prompt (Task 10 Minor-1): a second `ok agent`
+/// against the same data dir fails loud with
+/// [`AgentLockError::AlreadyRunning`] BEFORE the user is asked to type a
+/// password. It performs the tty-bound work (password read) and delegates the
+/// testable core to [`unlock_and_serve_with_lock`].
 pub async fn run(args: AgentArgs) -> Result<(), AgentCliError> {
+    // Locate the vault via the same path resolution the TUI uses, with the same
+    // last-resort fallback.
+    let vault_dir = crate::paths::data_dir().unwrap_or_else(crate::paths::data_dir_fallback);
+
+    // Acquire the agent single-instance lock BEFORE the password prompt so a
+    // competing `ok agent` fails fast without making the user type a password
+    // it can never use. Held for the daemon's whole lifetime; dropped on return
+    // releases the advisory lock.
+    let agent_lock = AgentLock::acquire(&vault_dir)?;
+
     // Read the master password off the async runtime. rpassword blocks on
     // terminal I/O, so it must run in spawn_blocking; the blocking section is
     // the single place the plaintext password exists outside SecureStr.
@@ -99,13 +114,18 @@ pub async fn run(args: AgentArgs) -> Result<(), AgentCliError> {
         .map_err(|e| AgentCliError::ReadPassword(e.to_string()))?;
     let password = SecureStr::new(password);
 
-    // Locate the vault via the same path resolution the TUI uses, with the same
-    // last-resort fallback.
-    let vault_dir = crate::paths::data_dir().unwrap_or_else(crate::paths::data_dir_fallback);
     let socket_path = paths::socket_path();
     let filter = build_filter(&args)?;
 
-    unlock_and_serve(vault_dir, password, filter, socket_path, args.idle_lock).await
+    unlock_and_serve_with_lock(
+        vault_dir,
+        password,
+        filter,
+        socket_path,
+        args.idle_lock,
+        agent_lock,
+    )
+    .await
 }
 
 /// Build the [`IdentityFilter`] from parsed args, compiling `--allow` once.
@@ -120,8 +140,9 @@ fn build_filter(args: &AgentArgs) -> Result<IdentityFilter, AgentCliError> {
     })
 }
 
-/// The tty-free, testable core: unlock the vault at `vault_dir` with `password`
-/// and serve the SSH agent on `socket_path`.
+/// The tty-free, testable core: acquire the agent single-instance lock, unlock
+/// the vault at `vault_dir` with `password`, and serve the SSH agent on
+/// `socket_path`.
 ///
 /// Mirrors the production unlock sequence in
 /// `executor::vault::handle_unlock`: `KeyStore::unlock` → derive the database
@@ -134,17 +155,23 @@ fn build_filter(args: &AgentArgs) -> Result<IdentityFilter, AgentCliError> {
 /// TUI's `.instance.lock`, so `ok agent` and `ok` (TUI) coexist against the
 /// same vault, while a second `ok agent` fails loud with
 /// [`AgentLockError::AlreadyRunning`]. The lock guard is held for the daemon's
-/// entire lifetime and released on return.
+/// entire lifetime and released on return. This thin wrapper exists so tests
+/// (which never go through the tty) still enforce single-instance exactly like
+/// production; the production `run()` path instead acquires the lock BEFORE the
+/// password prompt and delegates to [`unlock_and_serve_with_lock`].
 ///
 /// On success it prints `SSH_AUTH_SOCK=<path>` to stdout (flushed) BEFORE
 /// entering the accept loop, so a caller/script can read the socket path
-/// deterministically. The accept loop then runs until a fatal accept error or
-/// the future is dropped.
+/// deterministically. The accept loop then runs until a fatal accept error, a
+/// shutdown signal (SIGTERM/SIGINT), or the idle-lock timer elapses — see
+/// [`AgentServer::serve`].
 ///
-/// `idle_lock` is accepted and echoed as a startup warning; it is NOT enforced
-/// in this task (see [`AgentArgs::idle_lock`]).
+/// `idle_lock` enforces the idle sign-lock: when `Some(secs)`, the daemon
+/// shuts down after `secs` with no successful SIGN_REQUEST; `None` (default)
+/// disables the timer.
 ///
 /// [`AgentLockError::AlreadyRunning`]: crate::agent::lock::AgentLockError::AlreadyRunning
+/// [`AgentServer::serve`]: crate::agent::server::AgentServer::serve
 pub async fn unlock_and_serve(
     vault_dir: PathBuf,
     password: SecureStr,
@@ -152,22 +179,34 @@ pub async fn unlock_and_serve(
     socket_path: PathBuf,
     idle_lock: Option<u64>,
 ) -> Result<(), AgentCliError> {
-    if let Some(secs) = idle_lock {
-        // NOTE: accepted but not enforced in this task. The idle sign-lock
-        // timer is wired in Task 11. Until then we state this explicitly at
-        // startup rather than implying protection that does not exist.
-        tracing::warn!(
-            idle_lock_secs = secs,
-            "--idle-lock was provided but is NOT enforced in this build; the agent will keep signing indefinitely"
-        );
-    }
-
     // Acquire the agent single-instance lock BEFORE unlocking the vault or
     // binding the socket. Held for the daemon's lifetime: dropping on return
     // releases the advisory lock. `vault_dir` is the data_dir in production
     // (`run`), so `.agent.lock` lands beside the TUI's `.instance.lock`.
-    let _agent_lock = AgentLock::acquire(&vault_dir)?;
+    let agent_lock = AgentLock::acquire(&vault_dir)?;
+    unlock_and_serve_with_lock(
+        vault_dir,
+        password,
+        filter,
+        socket_path,
+        idle_lock,
+        agent_lock,
+    )
+    .await
+}
 
+/// Internal core shared by [`run`] (production, lock acquired before the
+/// password prompt) and [`unlock_and_serve`] (test path, lock acquired inside).
+/// The caller MUST already hold `_agent_lock` for the daemon's lifetime;
+/// accepting it as a parameter keeps the guard alive for the body.
+pub async fn unlock_and_serve_with_lock(
+    vault_dir: PathBuf,
+    password: SecureStr,
+    filter: IdentityFilter,
+    socket_path: PathBuf,
+    idle_lock: Option<u64>,
+    _agent_lock: AgentLock,
+) -> Result<(), AgentCliError> {
     let vault = unlock_vault(&vault_dir, &password)?;
     let server = AgentServer::start(vault, filter, socket_path.clone())?;
 
@@ -176,7 +215,7 @@ pub async fn unlock_and_serve(
     println!("SSH_AUTH_SOCK={}", socket_path.display());
     let _ = std::io::Write::flush(&mut std::io::stdout());
 
-    server.serve().await?;
+    server.serve(idle_lock).await?;
     Ok(())
 }
 
