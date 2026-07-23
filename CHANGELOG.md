@@ -6,6 +6,8 @@ This project is in first-preview status. Preview releases may change local vault
 
 ## Unreleased
 
+- **SSH agent backend (`ok agent`)**: added a standalone ssh-agent daemon backed by the vault's SSH keys. Run `ok agent`, export the printed `SSH_AUTH_SOCK`, and `ssh-add -l` lists the vault's SSH keys. Supports ed25519, RSA (SHA2 256/512), and ECDSA (nistp256/384/521) signing in-process; private keys never leave the oak-keyring process and are not cached. Filter exposed identities with `--only NAME` (repeatable) or `--allow REGEX` (union semantics); auto-shut the daemon after inactivity with `--idle-lock SECS`. The agent uses a separate single-instance lock from the TUI so both can run against the same vault; successful signatures are recorded in the audit log (`SshSign`); graceful shutdown on SIGTERM/SIGINT or idle timeout.
+
 ## 0.8.0-preview.3
 
 - **Security**: bumped `cmov` 0.5.3 → 0.5.4 to fix [GHSA-3rjw-m598-pq24](https://github.com/advisories/GHSA-3rjw-m598-pq24) — Cmov/CmovEq on aarch64 could produce wrong results when high register bits were set.

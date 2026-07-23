@@ -62,6 +62,22 @@ ok --version
 
 Use the GitHub Release path if the npm package is not available for your architecture yet.
 
+## SSH Agent Backend (`ok agent`)
+
+`ok agent` runs a standalone ssh-agent backend backed by the vault's SSH keys.
+Start it, export the `SSH_AUTH_SOCK=<path>` it prints, then `ssh-add -l` lists
+the vault's SSH keys (see the README for full usage).
+
+```bash
+ok agent
+# prints: SSH_AUTH_SOCK=<path>
+export SSH_AUTH_SOCK=<path>
+ssh-add -l
+```
+
+`ok agent` is a long-running daemon that locks secrets in RAM with `mlock`,
+so on Linux the same `RLIMIT_MEMLOCK` requirement below applies to it.
+
 ## Linux Memory Locking
 
 `ok` locks secrets (master key, derived keys) in RAM with `mlock` so they cannot be swapped to disk. On Linux, the default `RLIMIT_MEMLOCK` is often only 64 KiB, which is too small. When `mlock` fails, `ok` fails loudly: vault creation or unlock surfaces an error rather than silently running without memory protection.

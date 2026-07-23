@@ -98,6 +98,30 @@ oak-keyring 会打开一个全屏终端界面。主要使用流程是：
 当前网站文档见
 [openkeyring.com/zh/docs/](https://openkeyring.com/zh/docs/)。
 
+## SSH Agent 后端（`ok agent`）
+
+`ok agent` 启动一个独立的 ssh-agent 后端，使用 vault 中存储的 SSH 密钥。
+私钥不会离开 oak-keyring 进程；每次签名都在进程内完成，解密后的私钥不会被
+缓存。
+
+```bash
+ok agent
+```
+
+启动时会打印 `SSH_AUTH_SOCK=<path>`。在运行 `ssh`/`ssh-add` 的 shell（或会话）
+中 export 该路径，然后列出已暴露的密钥：
+
+```bash
+export SSH_AUTH_SOCK=/path/from/above
+ssh-add -l
+```
+
+默认会暴露 vault 中的所有 SSH 密钥。可用 `--only NAME`（可重复，精确匹配）
+或 `--allow REGEX`（与 `--only` 取并集）限制可见记录。用 `--idle-lock SECS`
+可在无成功签名超过指定秒数后自动关闭 daemon。agent 使用与 TUI 独立的单实例
+锁，因此 `ok` 和 `ok agent` 可以同时对同一个 vault 运行。运行 `ok agent --help`
+查看所有选项。
+
 ## 预览版状态
 
 oak-keyring 仍处于 pre-1.0 预览阶段（v0.8.0-preview.1）。

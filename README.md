@@ -120,6 +120,32 @@ oak-keyring opens into a full-screen terminal interface. The main workflow is:
 For the current website documentation, see
 [openkeyring.com/en/docs/](https://openkeyring.com/en/docs/).
 
+## SSH Agent Backend (`ok agent`)
+
+`ok agent` runs a standalone ssh-agent backend backed by the SSH keys stored
+in your vault. Private keys never leave the oak-keyring process; signing
+happens in-process on each sign request and the decrypted key material is not
+cached.
+
+```bash
+ok agent
+```
+
+On startup it prints `SSH_AUTH_SOCK=<path>`. Export that in the shell (or
+session) where you run `ssh`/`ssh-add`, then list the exposed keys:
+
+```bash
+export SSH_AUTH_SOCK=/path/from/above
+ssh-add -l
+```
+
+By default every SSH key in the vault is exposed. Restrict which records are
+visible with `--only NAME` (repeatable, exact match) or `--allow REGEX`
+(union with `--only`). Use `--idle-lock SECS` to shut the daemon down after
+that many seconds with no successful sign. The agent uses a single-instance
+lock separate from the TUI, so `ok` and `ok agent` can run against the same
+vault at the same time. Run `ok agent --help` for all options.
+
 ## Community and Support
 
 Welcome to the OpenKeyring community. If you need help, have questions, or
