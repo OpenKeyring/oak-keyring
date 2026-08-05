@@ -23,6 +23,7 @@ pub enum AuditOperation {
     SyncBatchConflictsResolved,
     DekRotated,
     DekRotationFailed,
+    SshSign,
 }
 
 impl AuditOperation {
@@ -46,6 +47,7 @@ impl AuditOperation {
             AuditOperation::SyncBatchConflictsResolved => "sync.batch_conflicts_resolved",
             AuditOperation::DekRotated => "dek.rotated",
             AuditOperation::DekRotationFailed => "dek.rotation_failed",
+            AuditOperation::SshSign => "ssh.sign",
         }
     }
 
@@ -69,6 +71,7 @@ impl AuditOperation {
             "sync.batch_conflicts_resolved" => Ok(AuditOperation::SyncBatchConflictsResolved),
             "dek.rotated" => Ok(AuditOperation::DekRotated),
             "dek.rotation_failed" => Ok(AuditOperation::DekRotationFailed),
+            "ssh.sign" => Ok(AuditOperation::SshSign),
             _ => Err(DataError::InvalidAuditOperation(s.to_string())),
         }
     }

@@ -79,4 +79,24 @@ impl VaultServiceImpl {
         };
         self.decrypt_field_with_audit(id, field, Some(audit_operation))
     }
+
+    /// Decrypt a field WITHOUT writing any audit entry.
+    ///
+    /// This is the no-audit counterpart to [`decrypt_field`](Self::decrypt_field).
+    /// The caller ASSUMES RESPONSIBILITY for writing an appropriate audit entry
+    /// for whatever higher-level operation it performs with the plaintext.
+    ///
+    /// Used by the SSH agent sign path: a signature is a single user-facing
+    /// action, so the agent writes one `AuditOperation::SshSign` row after a
+    /// successful sign. A `RecordViewPassword` row for the same event would be
+    /// misleading — the user never "viewed" the password; the agent used the
+    /// private key internally to sign — so the sign path decrypts the key
+    /// material through this no-audit method.
+    pub fn decrypt_field_no_audit(
+        &self,
+        id: Uuid,
+        field: FieldSelector,
+    ) -> Result<SecureStr, VaultError> {
+        self.decrypt_field_with_audit(id, field, None)
+    }
 }

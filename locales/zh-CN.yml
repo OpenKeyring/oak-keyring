@@ -854,6 +854,7 @@ tui:
     action_batch_resolve_conflict: "批量解决冲突"
     action_rotate_key: "密钥轮换"
     action_rotate_failed: "轮换失败"
+    action_ssh_sign: "SSH 签名"
     empty_log: "暂无审计日志"
     empty_log_hint: "操作记录将显示在这里"
     filter_all_time: "全部时间"

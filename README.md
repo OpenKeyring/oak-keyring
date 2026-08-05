@@ -120,6 +120,100 @@ oak-keyring opens into a full-screen terminal interface. The main workflow is:
 For the current website documentation, see
 [openkeyring.com/en/docs/](https://openkeyring.com/en/docs/).
 
+## SSH Agent Backend (`ok agent`)
+
+`ok agent` runs an ssh-agent backend backed by the SSH keys stored in your
+vault. Use it for `ssh` logins, `git` over SSH, and any tool that reads
+`SSH_AUTH_SOCK` — **the private key never leaves the oak-keyring process, and
+your master password never reaches AI tools or scripts.**
+
+### How it works
+
+1. The daemon unlocks your vault once (you type the master password), then
+   listens on a Unix socket.
+2. `ssh` / `git` / AI send sign requests over `SSH_AUTH_SOCK`; oak-keyring
+   signs in-process and returns only the signature.
+3. Private keys are decrypted per sign request and zeroized immediately —
+   never cached, never written outside the vault.
+
+### Prerequisites
+
+- At least one **SSH key record** in your vault. Create one in the TUI:
+  new record (`n`) → type **SSH** → paste the public key and the OpenSSH
+  private key (with its passphrase if it has one).
+- Supported types: **ed25519**, **RSA (SHA-2)**, **ECDSA (nistp256/384/521)**.
+
+### Start the agent
+
+```bash
+ok agent
+```
+
+It prompts for your master password, then prints the socket path, for example:
+
+```
+SSH_AUTH_SOCK=/run/user/1000/oak-keyring/agent.sock
+```
+
+### Use it with ssh and git
+
+In the shell where you run `ssh` / `git`, export that path:
+
+```bash
+export SSH_AUTH_SOCK=/run/user/1000/oak-keyring/agent.sock
+ssh-add -l       # lists the vault's SSH keys
+ssh user@host    # authenticates with the vault key — no ~/.ssh key file needed
+git push         # same mechanism for git over SSH
+```
+
+Tip: start `ok agent` once per session (or from your shell rc with a fixed
+socket path) and export `SSH_AUTH_SOCK`, so SSH tools find it automatically.
+
+### Options
+
+| Flag | Purpose |
+| --- | --- |
+| `--only NAME` | Expose only records whose name matches exactly (repeatable). |
+| `--allow REGEX` | Also expose records whose name matches the regex (union with `--only`). |
+| `--idle-lock SECS` | Shut down after this many seconds with no successful sign (default: never). |
+
+Run `ok agent --help` for the full list.
+
+### Security model
+
+- **Private keys never leave the daemon** — only signatures cross the socket.
+- **No key caching** — decrypted key material is zeroized right after each signature.
+- **Master password isolation** — read once via a terminal prompt; it never
+  enters command-line args, shell history, or any AI tool's context.
+- **Per-sign audit** — each successful signature is recorded in the vault
+  audit log as `SSH sign`.
+- **Coexists with the TUI** — a separate single-instance lock, so `ok` and
+  `ok agent` can run at the same time against the same vault.
+
+> Local owner-trust model: any process running as your user can already read
+> your files, so the socket is `0600`. The benefit over a plain `ssh-agent` is
+> that your SSH private keys stay encrypted at rest inside the vault and are
+> never written to `~/.ssh` as plaintext files.
+
+### Stop the agent
+
+`ok agent` runs in the foreground. Stop it with `Ctrl+C` or `kill <pid>`
+(`SIGTERM` / `SIGINT`). On shutdown it locks the vault (zeroizes keys) and
+removes the socket and pidfile.
+
+### Troubleshooting
+
+- **`ssh-add -l`: "Could not open a connection"** — `SSH_AUTH_SOCK` isn't
+  exported in this shell, or points at a stale path. Re-export the path the
+  agent printed.
+- **`ssh-add -l` lists nothing** — no SSH key record in the vault, or all
+  filtered out by `--only` / `--allow`.
+- **"another agent is already running"** — an `ok agent` is already up; stop
+  it first (or remove a stale `.agent.lock` in the data dir).
+- **Stale socket after a crash** — `ok agent` clears a leftover socket on the
+  next start; you can also delete it manually.
+- **Linux memory-lock errors** — raise `RLIMIT_MEMLOCK` (see [INSTALL.md](INSTALL.md)).
+
 ## Community and Support
 
 Welcome to the OpenKeyring community. If you need help, have questions, or
@@ -135,7 +229,7 @@ Support is community-style and best effort. There is no formal SLA.
 
 ## Preview Status
 
-oak-keyring is pre-1.0 preview software (v0.8.0-preview.1).
+oak-keyring is pre-1.0 preview software (v0.8.0-preview.3).
 
 - Current builds target macOS (Apple Silicon and Intel) and Linux (x86_64/ARM64, glibc 2.35+); Windows is not yet available. On Linux, `mlock` may need `RLIMIT_MEMLOCK` raised (see INSTALL.md).
 - macOS binaries are unsigned and not notarized.

@@ -56,6 +56,7 @@ fn operation_display_names_are_non_empty() {
         AuditOperation::SyncBatchConflictsResolved,
         AuditOperation::DekRotated,
         AuditOperation::DekRotationFailed,
+        AuditOperation::SshSign,
     ];
     for op in &ops {
         assert!(!operation_display_name(op).is_empty());

@@ -60,6 +60,22 @@ ok --version
 
 如果 npm 包暂时不支持你的架构，请改用 GitHub Release。
 
+## SSH Agent 后端（`ok agent`）
+
+`ok agent` 启动一个独立的 ssh-agent 后端，使用 vault 中的 SSH 密钥。启动后
+export 它打印的 `SSH_AUTH_SOCK=<path>`，然后 `ssh-add -l` 即可列出 vault 的
+SSH 密钥（完整用法见 README）。
+
+```bash
+ok agent
+# 输出：SSH_AUTH_SOCK=<path>
+export SSH_AUTH_SOCK=<path>
+ssh-add -l
+```
+
+`ok agent` 是一个长期运行的 daemon，会用 `mlock` 把机密数据锁定在内存中，因此
+在 Linux 上同样需要满足下面的 `RLIMIT_MEMLOCK` 要求。
+
 ## Linux 内存锁定
 
 `ok` 使用 `mlock` 把机密数据（主密钥、派生密钥等）锁定在内存中，使其不会被交换到磁盘。在 Linux 上，默认的 `RLIMIT_MEMLOCK` 通常只有 64 KiB，太小了。当 `mlock` 失败时，`ok` 会显式报错：创建或解锁 vault 会返回错误，而不是在没有内存保护的情况下静默运行。
