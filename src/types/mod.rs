@@ -24,4 +24,7 @@ pub use sync::{SyncState, SyncStats, SyncStatus};
 pub use tag::Tag;
 
 #[cfg(test)]
+mod audit_test;
+
+#[cfg(test)]
 mod credential_test;
